@@ -1,0 +1,14 @@
+name = "CellTools"
+uuid = "cffdf5dc-aa8e-4f15-840d-78559bc58ad3"
+authors = ["Bonan Zhu <zhubonan@outlook.com>"]
+version = "0.1.0"
+
+[deps]
+CellBase = "01ff7365-e1e2-4ed5-aabe-f1c451dd6d4e"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Optim = "429524aa-4258-5aef-a3af-852621145aeb"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+SymmetryData = "d39514f7-8966-4817-bb2e-5ad1a81172da"
