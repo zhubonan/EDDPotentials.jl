@@ -17,7 +17,7 @@ struct TwoBodyFeature{T} <: AbstractNBodyFeature
     "Specie indices"
     sij_idx::Tuple{Int, Int}
     "Cut off distance"
-    cutoff::Float64
+    rcut::Float64
     np::Int
 end
 
@@ -25,15 +25,15 @@ end
 "Equation 7 in  the DDP paper"
 fr(r::T, rcut::T) where {T} =  r <= rcut ? 2 * (1 - r / rcut) : zero(T)
 
-TwoBodyFeature(f, p::Vector{Float64}, sij_idx::Tuple{Int, Int}, cutoff::Float64) = TwoBodyFeature(f, p, sij_idx, cutoff, length(p))
-TwoBodyFeature(p::Vector{Float64}, sij_idx::Tuple{Int, Int}, cutoff::Float64) = TwoBodyFeature(fr, p, sij_idx, cutoff)
+TwoBodyFeature(f, p::Vector{Float64}, sij_idx::Tuple{Int, Int}, rcut::Float64) = TwoBodyFeature(f, p, sij_idx, rcut, length(p))
+TwoBodyFeature(p::Vector{Float64}, sij_idx::Tuple{Int, Int}, rcut::Float64) = TwoBodyFeature(fr, p, sij_idx, rcut)
 
 """
 Call the object to accumulate an existing feature vector
 """
 function (f::TwoBodyFeature)(out::Vector, rij)
     for i in 1:nfeatures(f)
-        out[i] += f.f(rij, f.cutoff) ^ f.p[i]
+        out[i] += f.f(rij, f.rcut) ^ f.p[i]
     end
     out
 end
@@ -60,14 +60,14 @@ struct ThreeBodyFeature{T} <: AbstractNBodyFeature
     "Specie indices"
     sijk_idx::Tuple{Int, Int, Int}
     "Cut off distance"
-    cutoff::Float64
+    rcut::Float64
     np::Int
     nq::Int
 end
 
-ThreeBodyFeature(f, p::Vector{Float64}, q::Vector{Float64}, sijk_idx::Tuple{Int, Int, Int}, cutoff::Float64) = ThreeBodyFeature(f, p, q, sijk_idx, cutoff, length(p), length(q))
+ThreeBodyFeature(f, p::Vector{Float64}, q::Vector{Float64}, sijk_idx::Tuple{Int, Int, Int}, rcut::Float64) = ThreeBodyFeature(f, p, q, sijk_idx, rcut, length(p), length(q))
 
-nfeatures(f::TwoBodyFeature) = f.np * f.nq
+nfeatures(f::ThreeBodyFeature) = f.np * f.nq
 
 """
     (f::ThreeBodyFeature)(out::Vector, rij, rik, rjk)
@@ -77,10 +77,10 @@ Accumulate an existing feature vector
 function (f::ThreeBodyFeature)(out::Vector, rij, rik, rjk)
     i = 1
     func = f.f
-    cutoff = f.cutoff
+    rcut = f.rcut
     for m in 1:f.np
         for o in 1:f.nq  # Note that q is summed in the inner loop
-            out[i] += (func(rij, cutoff) ^ f.p[m]) * (func(rik, cutoff) ^ f.p[m]) * (func(rjk, cutoff) ^ f.q[o])
+            out[i] += (func(rij, rcut) ^ f.p[m]) * (func(rik, rcut) ^ f.p[m]) * (func(rjk, rcut) ^ f.q[o])
             i += 1
         end
     end
@@ -136,68 +136,6 @@ function interger_specie_index(cell::Cell)
     out, us
 end
 
-"""
-    feature_vector(features::Vector{T}, cell::Cell) where T
-
-Compute the feature vector for a give set of two body interactions
-"""
-function feature_vector(features::Vector{TwoBodyFeature{T}}, cell::Cell) where T
-    # Feature vectors
-    fvecs = [zeros(nfeatures(f)) for f in features]
-    pos = sposarray(cell)
-    nat = natoms(cell)
-    shifts = CellBase.shift_vectors(cellmat(lattice(cell)), maximum(f.cutoff for f in features);safe=false)
-    smap = SpeciesMap(spcies(cell))
-    spidx = smap.indices
-    for i = 1:nat
-        for j = 1:nat
-            i == j && continue
-            for shiftvec in shifts   # Shift vectors for j
-                rij = distance_between(pos[i], pos[j], shiftvec)
-                # accumulate the feature vector
-                for (nf, f) in enumerate(features)
-                    f(fvecs[nf], rij, spidx[i], spidx[j])
-                end
-            end
-        end
-    end
-    vcat(fvecs...)
-end
-
-"""
-    feature_vector(features::Vector{T}, cell::Cell) where T
-
-Compute the feature vector for a give set of two body interactions
-"""
-function feature_vector(features::Vector{ThreeBodyFeature{T}}, cell::Cell) where T
-    # Feature vectors
-    fvecs = [zeros(nfeatures(f)) for f in features]
-    pos = sposarray(cell)
-    nat = natoms(cell)
-    # Note - need to use twice the cut off to ensure distance between j-k is included
-    shifts = CellBase.shift_vectors(cellmat(lattice(cell)), maximum(f.cutoff for f in features);safe=false)
-    smap = SpeciesMap(spcies(cell))
-    spidx = smap.indices
-    for i = 1:nat
-        for j = 1:nat
-            i == j && continue
-            for svecj in shifts   # Shift vectors for j
-                posj = pos[j] .* svecj
-                rij = distance_between(pos[i], posj)
-                # accumulate the feature vector
-                for sveck in shifts   # Shift vectors for k
-                    rik = distance_between(pos[i], pos[k], sveck)
-                    rjk = distance_between(posj, pos[k], sveck)
-                    for (nf, f) in enumerate(features)
-                        f(fvecs[nf], rij, rik, rjk, spidx[i], spidx[j], spidx[k])
-                    end
-                end
-            end
-        end
-    end
-    vcat(fvecs...)
-end
-
 
 """
 Represent an array of points after expansion by periodic boundary
@@ -222,14 +160,14 @@ function Base.show(io::IO, s::ExtendedPointArray)
 end
 
 """
-    ExtendedPointArray(cell::Cell, cutoff)
+    ExtendedPointArray(cell::Cell, rcut)
 
 Constructed an ExtendedPointArray from a given structure
 """
-function ExtendedPointArray(cell::Cell, cutoff)
+function ExtendedPointArray(cell::Cell, rcut)
 
     ni = nions(cell)
-    shifts = CellBase.shift_vectors(cellmat(lattice(cell)), cutoff;safe=false)
+    shifts = CellBase.shift_vectors(cellmat(lattice(cell)), rcut;safe=false)
     indices = zeros(Int, ni * length(shifts))
     shiftidx = zeros(Int, ni * length(shifts))
     pos_extended = zeros(eltype(positions(cell)), 3, ni * length(shifts))
@@ -249,7 +187,8 @@ function ExtendedPointArray(cell::Cell, cutoff)
 end
 
 
-struct NeighbourList
+struct NeighbourList{T}
+    ea::ExtendedPointArray{T}
     "Extended indice of the neighbours"
     extended_indices::Matrix{Int}
     "Original indice of the neighbours"
@@ -264,15 +203,30 @@ struct NeighbourList
     nmax::Int
     "Contains vector displacements or not"
     has_vectors::Bool
+    rcut::Float64
 end
 
+"Number of ions in the original cell"
+nions_orig(n::ExtendedPointArray) = length(n.orig_positions)
+"Number of ions in the original cell"
+nions_orig(n::NeighbourList) = nions_orig(n.ea) 
+
+"Number of ions in the extended cell"
+nions_extended(n::ExtendedPointArray) = length(n.positions)
+"Number of ions in the extended cell"
+nions_extended(n::NeighbourList) = nions_extended(n.ea)
+
+
+function Base.show(io::IO, n::NeighbourList)
+    print("NeighbourList of maximum sizs $(n.nmax) for $(nions_orig(n))/$(nions_extended(n)) atoms")
+end
 
 """
-    NeighbourList(ea::ExtendedPointArray, cutoff, nmax=100; savevec=false)
+    NeighbourList(ea::ExtendedPointArray, rcut, nmax=100; savevec=false)
 
 Construct a NeighbourList from an extended point array for the points in the original cell
 """
-function NeighbourList(ea::ExtendedPointArray, cutoff, nmax=100; savevec=false)
+function NeighbourList(ea::ExtendedPointArray, rcut, nmax=100; savevec=false)
     
     norig = length(ea.orig_positions)
     extended_indices = zeros(Int, nmax, norig)
@@ -289,7 +243,7 @@ function NeighbourList(ea::ExtendedPointArray, cutoff, nmax=100; savevec=false)
             (ea.indices[j] == iorig) && (ea.shiftidx[j] == ea.inoshift) && continue
             dist = distance_between(posj, posi)
             # Store the information if the distance is smaller than the cut off
-            if dist < cutoff
+            if dist < rcut
                 ineigh += 1
                 if ineigh <= nmax
                     distance[ineigh, iorig] = dist
@@ -308,6 +262,7 @@ function NeighbourList(ea::ExtendedPointArray, cutoff, nmax=100; savevec=false)
         nneigh[iorig] = ineigh
     end
     NeighbourList(
+        ea,
         extended_indices,
         orig_indices,
         distance,
@@ -315,16 +270,101 @@ function NeighbourList(ea::ExtendedPointArray, cutoff, nmax=100; savevec=false)
         nneigh,
         nmax,
         savevec,
+        rcut,
     )
 end
 
 
+NeighbourList(cell::Cell, rcut, nmax=100;savevec=false) = NeighbourList(ExtendedPointArray(cell, rcut), rcut, nmax;savevec)
+
+"Number of neighbours for a point"
+num_neighbours(nl::NeighbourList, iorig) = nl.nneigh[iorig]
+
+
+"Iterator interface for going through all neighbours"
+struct NLIterator
+    nl::NeighbourList
+    iorig::Int
+end
+
+Base.length(nli::NLIterator) =  num_neighbours(nli.nl, nli.iorig)
+
+function Base.iterate(nli::NLIterator, state=1)
+    nl = nli.nl
+    iorig = nli.iorig
+    if state > nl.nneigh[nli.iorig] 
+        return nothing
+    end
+    return (nl.orig_indices[state, iorig], nl.extended_indices[state, iorig], nl.distance[state, iorig]), state + 1
+end
+
 """
-    two_body_feature_from_mapping(cell::Cell, p_mapping, cutoffs, func=fr)
+Iterate the neighbours of a site in the original cell.
+Returns a tuple of (original_index, extended_index, distance) for each iteration
+"""
+eachneighbour(nl::NeighbourList, iorig) = NLIterator(nl, iorig)
+
+"""
+    feature_vector(features::Vector{T}, cell::Cell) where T
+
+Compute the feature vector for a give set of two body interactions
+"""
+function feature_vector(features::Vector{TwoBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+    # Feature vectors
+    fvecs = [zeros(nfeatures(f)) for f in features]
+    nat = natoms(cell)
+    smap = SpeciesMap(species(cell))
+    spidx = smap.indices
+    for i = 1:nat
+        for (j, jextend, rij) in eachneighbour(nl, i)
+            # accumulate the feature vector
+            for (nf, f) in enumerate(features)
+                f(fvecs[nf], rij, spidx[i], spidx[j])
+            end
+        end
+    end
+    vcat(fvecs...)
+end
+
+"""
+    feature_vector(features::Vector{T}, cell::Cell) where T
+
+Compute the feature vector for a give set of two body interactions
+"""
+function feature_vector(features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+    # Feature vectors
+    fvecs = Vector{Float64}[zeros(nfeatures(f)) for f in features]
+    nat = natoms(cell)
+    # Note - need to use twice the cut off to ensure distance between j-k is included
+    smap = SpeciesMap(species(cell))
+    spidx = smap.indices
+    for i = 1:nat
+        for (j, jextend, rij) in eachneighbour(nl, i)
+            for (k, kextend, rik) in eachneighbour(nl, i)
+                # Avoid double counting i j k is the same as i k j
+                if k <= j 
+                    continue
+                end
+                # Compute the distance between extended j and k
+                rjk = distance_between(nl.ea.positions[jextend], nl.ea.positions[kextend])
+                # accumulate the feature vector
+                for (nf, f) in enumerate(features)
+                    f(fvecs[nf], rij, rik, rjk, spidx[i], spidx[j], spidx[k])
+                end
+            end
+        end
+    end
+    vcat(fvecs...)
+end
+
+
+
+"""
+    two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func=fr)
 
 Construct a vector containing the TwoBodyFeatures
 """
-function two_body_feature_from_mapping(cell::Cell, p_mapping, cutoffs, func=fr)
+function two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func=fr)
     indx, us = interger_specie_index(cell)
     features = TwoBodyFeature{typeof(func)}[]
     for (i, map_pair) in enumerate(p_mapping)
@@ -336,7 +376,7 @@ function two_body_feature_from_mapping(cell::Cell, p_mapping, cutoffs, func=fr)
         if ii > jj
             ii, jj = jj, ii
         end
-        push!(features, TwoBodyFeature(func, p, (ii, jj), Float64(cutoffs[i])))
+        push!(features, TwoBodyFeature(func, p, (ii, jj), Float64(rcut)))
     end
 
     # Check completeness
@@ -352,11 +392,11 @@ function two_body_feature_from_mapping(cell::Cell, p_mapping, cutoffs, func=fr)
 end
 
 """
-    three_body_feature_from_mapping(cell::Cell, p_mapping, q_mapping, cutoffs, func=fr)
+    three_body_feature_from_mapping(cell::Cell, p_mapping, q_mapping, rcut, func=fr)
 
 Construct a vector containing the TwoBodyFeatures
 """
-function three_body_feature_from_mapping(cell::Cell, pq_mapping, cutoffs, func=fr;check=false)
+function three_body_feature_from_mapping(cell::Cell, pq_mapping, rcut, func=fr;check=false)
     indx, us = interger_specie_index(cell)
     features = ThreeBodyFeature{typeof(func)}[]
     for (i, map_pair) in enumerate(pq_mapping)
@@ -367,7 +407,7 @@ function three_body_feature_from_mapping(cell::Cell, pq_mapping, cutoffs, func=f
         kk = findfirst(x -> x == c, us)
         #Swap order if ii > jj
         idx = tuple(sort([ii, jj, kk])...)
-        push!(features, ThreeBodyFeature(func, p, q, idx, Float64(cutoffs[i])))
+        push!(features, ThreeBodyFeature(func, p, q, idx, Float64(rcut)))
     end
 
     if check
