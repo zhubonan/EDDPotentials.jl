@@ -52,8 +52,7 @@ function assignmat!(mat::Matrix{T}, mapping::Dict{Pair{Symbol, Symbol}, T}, look
     mat
 end
 
-function species(mapping::Dict)
-    pairs = length(keys(mapping))
+function CellBase.species(mapping::Dict)
     all_species = Symbol[]
     for pair in keys(mapping)
         push!(all_species, pair.first)

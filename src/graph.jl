@@ -39,8 +39,7 @@ struct ModuleSpec
 end
 
 nmodules(m::ModuleSpec;min=2) = count(x -> x >= min, m.unit_sizes)
-natoms(m::ModuleSpec) = sum(m.unit_sizes)
-nions(m::ModuleSpec) = natoms(m)
+CellBase.natoms(m::ModuleSpec) = sum(m.unit_sizes)
 
 Base.getindex(spec::ModuleSpec, i::Int) = spec.unit_indices[1:spec.unit_sizes[i], i]
 

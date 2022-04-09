@@ -2,6 +2,7 @@ module CellTools
 
 greet() = print("Hello World!")
 using CellBase
+import CellBase
 
 # External
 include("eletrostatic/RealSpaceSummation.jl")
@@ -12,6 +13,7 @@ include("io/io.jl")
 include("pp.jl")
 include("graph.jl")
 include("build.jl")
+include("generalised_potentials.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export distance_between, distance_squared_between, displace!, clip, Cell, supercell
