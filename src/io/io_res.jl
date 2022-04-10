@@ -46,15 +46,15 @@ function read_res(lines::Vector{String})
     species = species[1:iatom-1]
 
     lattice = Lattice(cellpar)
-    structure = Cell(lattice, cellmat(lattice) * scaled_pos, species)
+    cell = Cell(lattice, species, cellmat(lattice) * scaled_pos)
 
     # Attach spin only if there are any non-zero ones...
     if any(x ->x != 0, spins) 
-        structure.arrays[:spins] = spins
+        cell.arrays[:spins] = spins
     end
 
-    attachinfo!(structure, title_items)
-    structure
+    CellBase.attachmetadata!(cell, title_items)
+    cell
 end
 
 function read_res(s::AbstractString)

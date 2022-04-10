@@ -61,8 +61,9 @@ TwoBodyFeature(p::Vector{Float64}, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64
 Call the object to accumulate an existing feature vector
 """
 function (f::TwoBodyFeature)(out::Vector, rij)
+    val = f.f(rij, f.rcut)
     for i in 1:nfeatures(f)
-        out[i] += f.f(rij, f.rcut) ^ f.p[i]
+        out[i] += val ^ f.p[i]
     end
     out
 end
@@ -107,9 +108,10 @@ function (f::ThreeBodyFeature)(out::Vector, rij, rik, rjk)
     i = 1
     func = f.f
     rcut = f.rcut
+    val = func(rij, rcut) 
     for m in 1:f.np
         for o in 1:f.nq  # Note that q is summed in the inner loop
-            out[i] += (func(rij, rcut) ^ f.p[m]) * (func(rik, rcut) ^ f.p[m]) * (func(rjk, rcut) ^ f.q[o])
+            out[i] += (val ^ f.p[m]) * (val ^ f.p[m]) * (val ^ f.q[o])
             i += 1
         end
     end
