@@ -59,22 +59,30 @@ TwoBodyFeature(p::Vector{Float64}, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64
 
 """
 Call the object to accumulate an existing feature vector
+
+Args:
+    - out: Output matrix
+    - rji: distance between two atoms
+    - iat: starting index of the vector to be updated
+    - istart: starting index of the vector to be updated
 """
-function (f::TwoBodyFeature)(out::Vector, rij)
+function (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart=1)
     val = f.f(rij, f.rcut)
-    for i in 1:nfeatures(f)
-        out[i] += val ^ f.p[i]
+    i = istart
+    for _ in 1:nfeatures(f)
+        out[i, iat] += val ^ f.p[i]
+        i += 1
     end
     out
 end
 
-function (f::TwoBodyFeature)(out::Vector, rij, si, sj)
-    permequal(f.sij_idx, si, sj) && f(out, rij)
+function (f::TwoBodyFeature)(out::AbstractMatrix, rij, si, sj, iat, istart=1)
+    permequal(f.sij_idx, si, sj) && f(out, rij, iat, istart)
     out
 end
 
 
-(f::TwoBodyFeature)(rij) = f(zeros(nfeatures(f)), rij)
+(f::TwoBodyFeature)(rij) = f(zeros(nfeatures(f), 1), rij, 1, 1)
 nfeatures(f::TwoBodyFeature) = f.np
 
 
@@ -104,14 +112,16 @@ nfeatures(f::ThreeBodyFeature) = f.np * f.nq
 
 Accumulate an existing feature vector
 """
-function (f::ThreeBodyFeature)(out::Vector, rij, rik, rjk)
-    i = 1
+function (f::ThreeBodyFeature)(out::AbstractMatrix, rij, rik, rjk, iat, istart=1)
     func = f.f
     rcut = f.rcut
-    val = func(rij, rcut) 
+    fij = func(rij, rcut) 
+    fik = func(rik, rcut) 
+    fjk = func(rjk, rcut)
+    i = istart
     for m in 1:f.np
         for o in 1:f.nq  # Note that q is summed in the inner loop
-            out[i] += (val ^ f.p[m]) * (val ^ f.p[m]) * (val ^ f.q[o])
+            out[i, iat] += (fij ^ f.p[m]) * (fik ^ f.p[m]) * (fjk ^ f.q[o])
             i += 1
         end
     end
@@ -119,13 +129,13 @@ function (f::ThreeBodyFeature)(out::Vector, rij, rik, rjk)
 end
 
 "(f::ThreeBodyFeature)(out::Vector, rij, rik, rjk, si, sj, sk)"
-function (f::ThreeBodyFeature)(out::Vector, rij, rik, rjk, si, sj, sk)
-    permequal(f.sijk_idx, si, sj, sk) && f(out, rij, rik, rjk)
+function (f::ThreeBodyFeature)(out::AbstractMatrix, rij, rik, rjk, si, sj, sk, iat, istart=1)
+    permequal(f.sijk_idx, si, sj, sk) && f(out, rij, rik, rjk, iat, istart)
     out
 end
 
 "(f::ThreeBodyFeature)(rij) = f(zeros(nfeatures(f)), rij, rik, rjk)"
-(f::ThreeBodyFeature)(rij) = f(zeros(nfeatures(f)), rij, rik, rjk)
+(f::ThreeBodyFeature)(rij, rik, rjk) = f(zeros(nfeatures(f), 1), rij, rik, rjk, 1, 1)
 
 
 """
@@ -175,48 +185,57 @@ Compute the feature vector for a give set of two body interactions
 """
 function feature_vector(features::Vector{TwoBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
     # Feature vectors
-    fvecs = [zeros(nfeatures(f)) for f in features]
+    nfe = map(nfeatures, features) 
+    ni = nions(cell)
+    fvecs = zeros(sum(nfe), ni)
     nat = natoms(cell)
     sym = species(cell)
-    for i = 1:nat
-        for (j, jextend, rij) in eachneighbour(nl, i)
-            # accumulate the feature vector
-            for (nf, f) in enumerate(features)
-                f(fvecs[nf], rij, sym[i], sym[j])
+    for iat = 1:nat
+        for (jat, jextend, rij) in eachneighbour(nl, iat)
+            # Accumulate feature vectors
+            ist = 1
+            for (ife, f) in enumerate(features)
+                f(fvecs, rij, sym[iat], sym[jat], iat, ist)
+                ist += nfe[ife]
             end
         end
     end
-    vcat(fvecs...)
+    fvecs
 end
 
 """
     feature_vector(features::Vector{T}, cell::Cell) where T
 
-Compute the feature vector for a give set of two body interactions
+Compute the feature vector for each atom a give set of three body interactions
 """
 function feature_vector(features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
     # Feature vectors
-    fvecs = Vector{Float64}[zeros(nfeatures(f)) for f in features]
+    ni = nions(cell)
+    nfe = map(nfeatures, features)
+    fvecs = zeros(sum(nfe), ni)
+
     nat = natoms(cell)
     # Note - need to use twice the cut off to ensure distance between j-k is included
     sym = species(cell)
-    for i = 1:nat
-        for (j, jextend, rij) in eachneighbour(nl, i)
-            for (k, kextend, rik) in eachneighbour(nl, i)
+    for iat = 1:nat
+        for (jat, jextend, rij) in eachneighbour(nl, iat)
+            for (kat, kextend, rik) in eachneighbour(nl, iat)
                 # Avoid double counting i j k is the same as i k j
-                if k <= j 
+                if kat <= jat 
                     continue
                 end
                 # Compute the distance between extended j and k
                 rjk = distance_between(nl.ea.positions[jextend], nl.ea.positions[kextend])
                 # accumulate the feature vector
-                for (nf, f) in enumerate(features)
-                    f(fvecs[nf], rij, rik, rjk, sym[i], sym[j], sym[k])
+                ist = 1
+                for (ife, f) in enumerate(features)
+                    f(fvecs, rij, rik, rjk, sym[iat], sym[jat], sym[kat], iat, ist)
+                    ist += nfe[ife]
                 end
             end
         end
     end
-    vcat(fvecs...)
+    fvecs
 end
 
 
@@ -344,11 +363,19 @@ function feature_vector(cellf::CellFeature, cell::Cell)
     )
     nl = NeighbourList(cell, rcut)
 
-    # One body vector is just a count of different speices
+    # One body vector is essentially an one-hot encoding of the specie labels 
+    # assuming no "mixture" atoms of course
     numbers = atomic_numbers(cell)
     us = unique(numbers)
     sort!(us)
-    one_body_vecs = Float64[count(x -> x == num, numbers) for num in us]
+    one_body_vecs = zeros(length(us), nions(cell))
+    for (iat, Z) in enumerate(numbers)
+        for (ispec, sZ) in enumerate(us)
+            if Z == sZ
+                one_body_vecs[ispec, iat] = 1.
+            end
+        end
+    end
     # Concatenated two body vectors 
     two_body_vecs = feature_vector(cellf.two_body, cell;nl=nl)
     # Concatenated three body vectors 
