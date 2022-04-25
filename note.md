@@ -1,0 +1,130 @@
+
+Pattern for using `ForwardDiff.jl` for jacobian calculation.
+Can probably write some kind of macro for code generation.....
+But hand written is sufficient fow small scale networks.
+
+For larger networks, we can always use backprop + SDG....
+
+
+```julia
+# Manually compute the gradients
+model_net = Chain(Dense(16=>8, tanh;bias=true), Dense(8=>1))
+function f!(o, param)
+    pack_param!(model_net, param)
+    o .= mean.(model_net.(x_train_norm)) .- y_train_norm
+    o
+end
+
+predictf(x) = mean.(model_net.(x))
+
+"Unpack parameter"
+function unpack_param(model)
+    n = 0
+    for layer in model.layers
+        n += length(layer.weight) + length(layer.bias)
+    end
+    out = zeros(eltype(model.layers[1].weight), n)
+    i = 1
+    for layer in model.layers
+        l = length(layer.weight)
+        out[i: i+l-1] .= vec(layer.weight)
+        i += l
+        l = length(layer.bias)
+        out[i: i+l-1] .= vec(layer.bias)
+        i +=l
+    end
+    out
+end
+
+"Update the parameters of the model"
+function pack_param!(model, param)
+    i = 1
+    for layer in model.layers
+        l = length(layer.weight)
+        layer.weight[:] .= param[i: i+l-1]
+        i += l
+        l = length(layer.bias)
+        layer.bias[:] .= param[i: i+l-1]
+        i +=l
+    end
+    model
+end
+
+function net_manual(param)
+    pairs = []
+    i = 1
+    for layer in model_net
+        for key in (:weight, :bias)
+            elm = getproperty(layer, key)
+            n = length(elm)
+            push!(pairs, i=>i+n-1)
+            i += n
+        end
+    end
+    w1 = param[pairs[1].first:pairs[1].second]
+    b1 = param[pairs[2].first:pairs[2].second]
+    w2 = param[pairs[3].first:pairs[3].second]
+    b2 = param[pairs[4].first:pairs[4].second]
+
+    f(data) = w2  * model_net[1].σ(w1 * data .+ b1) .+ b2 |> model_net[2].σ
+    mean.(f.(x_train_norm))
+end
+
+function ftmp_w1(x)
+    layer1 = model_net.layers[1]
+    layer2 = model_net.layers[2]
+    f2(data) = (x * data) .+ layer1.bias .|> layer1.σ |> layer2
+    mean.(f2.( x_train_norm))
+end
+
+function ftmp_b1(x)
+    layer1 = model_net.layers[1]
+    layer2 = model_net.layers[2]
+    f2(data) = (layer1.weight * data) .+ x .|> layer1.σ |> layer2
+    mean.(f2.( x_train_norm))
+end
+
+
+
+function ftmp_w2(x)
+    layer1 = model_net.layers[1]
+    layer2 = model_net.layers[2]
+    f2(data) = x * layer1(data)  .+ layer2.bias |> layer2.σ 
+    mean.(f2.( x_train_norm))
+end
+
+function ftmp_b2(x)
+    layer1 = model_net.layers[1]
+    layer2 = model_net.layers[2]
+    f2(data) =  layer2.weight * layer1(data) .+ x |> layer2.σ 
+    mean.(f2.( x_train_norm))
+end
+
+#ftmp_all(model_net.layers[1].weight)
+#hcat(ForwardDiff.jacobian(ftmp_w1, model_net.layers[1].weight),
+#ForwardDiff.jacobian(ftmp_b1, model_net.layers[1].bias),
+#ForwardDiff.jacobian(ftmp_w2, model_net.layers[2].weight),
+#ForwardDiff.jacobian(ftmp_b2, model_net.layers[2].bias),
+#    )
+
+
+function model_many_g!(g, params)
+    # apply the parameters
+    pack_param!(model_net, params)
+    
+    ifunc = 1
+    funs = [ftmp_w1, ftmp_b1, ftmp_w2, ftmp_b2]
+    i = 1
+    # Construct the jacobian
+    for layer in model_net
+        for key in (:weight, :bias)
+            elm = getproperty(layer, key)
+            n = length(elm)
+            g[:, i:i+n-1] .= ForwardDiff.jacobian(funs[ifunc], elm)
+            ifunc += 1
+            i += n
+        end
+    end
+    g
+end
+```

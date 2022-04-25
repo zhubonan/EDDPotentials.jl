@@ -15,7 +15,7 @@ using ForwardDiff
 import NLSolversBase: value, jacobian
 import StatsBase
 import StatsBase: coef, dof, nobs, rss, stderror, weights, residuals
-using LsqFit: Avv
+using LsqFit: Avv, OptimizationTrace, OptimizationState
 
 import Base.summary
 
@@ -57,7 +57,8 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
     x_tol::Real = 1e-8, g_tol::Real = 1e-12, maxIter::Integer = 1000,
     lambda = T(10), tau=T(Inf), lambda_increase::Real = 10.0, lambda_decrease::Real = 0.1,
     min_step_quality::Real = 1e-3, good_step_quality::Real = 0.75,
-    show_trace::Bool = false, lower::AbstractVector{T} = Array{T}(undef, 0), upper::AbstractVector{T} = Array{T}(undef, 0), avv!::Union{Function,Nothing,Avv} = nothing
+    show_trace::Bool = false, lower::AbstractVector{T} = Array{T}(undef, 0), upper::AbstractVector{T} = Array{T}(undef, 0), avv!::Union{Function,Nothing,Avv} = nothing,
+    callback=nothing,
     ) where T
 
     # First evaluation
@@ -104,7 +105,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
     # Initialised weights
     wt = ones(T, m)
     if p != 2.0 
-        wt = abs.(value(df, initial_x)) .^ (p - 2.0)
+        wt .= abs.(value(df, initial_x)) .^ (p - 2.0)
     end
     wtm = diagm(wt)
     residual = sum(abs2.(value(df)) .* wt)
@@ -154,7 +155,6 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
 
         # delta_x = ( J'*W*J + lambda * Diagonal(DtD) ) \ ( -J'*value(df) )
         mul!(JJ, transpose(J) * wtm, J)   # JJ is the buffer
-        m
 
         # Add the diagonal term without constructing the full matrix out
         @simd for i in 1:n
@@ -275,6 +275,10 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
             x_converged = true
         end
         converged = g_converged | x_converged
+
+        if !isnothing(callback)
+            callback()
+        end
     end
 
     MultivariateOptimizationResults(
