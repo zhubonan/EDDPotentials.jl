@@ -128,3 +128,114 @@ function model_many_g!(g, params)
     g
 end
 ```
+
+
+### Code Snippet - Improve `ForwardDiff` based approach
+
+The key is to build a `Chain(Dense...)` with the correct type of the elements on demand.
+`ForwardDiff` works by replacing the array with `Dual` type. This means that we cannot update an existing
+`Dense` with different type, but instead the type needs to be inferred from the input.
+
+An alternative is to pre-built the net with the `Dual` type, however, `Dual` contains a `Tag` as the type parameter
+so this might not work?
+
+Most of the time on the minimisation is spent on the jacobian evaluation....
+
+```julia
+model_net = Chain(Dense(16=>8, tanh;bias=true), Dense(8=>1))
+
+"Unpack a flat vector into the shape of a given matrix"
+function unpack_matrix(param, mat, offset=1)
+    l = length(mat)
+    reshape(param[offset:offset+l - 1], size(mat))
+end
+
+function diffwt(wt)
+    net = Chain(Dense(wt), 
+                Dense(size(wt, 1)=> 1))
+        
+    mean(net(x_train_norm[1]))
+end
+
+"""
+Allow forward diff to be used
+"""
+function diffparam(param::Vector{T};x_train_norm=x_train_norm) where {T}
+    i = 1
+    nets = []
+    for layer in model_net
+        wt::Matrix{T} = unpack_matrix(param, layer.weight, i)
+        i += length(wt)
+        bias::Vector{T} = unpack_matrix(param, layer.bias, i)
+        i += length(bias)
+        layer_ = Dense(wt, bias, layer.σ)
+        push!(nets, layer_)
+    end
+
+    f = Chain(nets...)
+    
+    total::Matrix{T} = reduce(hcat, x_train_norm)
+    all_E::Matrix{T} = f(total)
+    
+    out::Vector{T} = zeros(T, length(x_train_norm))
+    ct = 1
+    for i in 1:length(out)
+        lv = size(x_train_norm[i], 2)
+        out[i] = mean(all_E[ct:ct+lv-1])
+        ct += lv
+    end
+    out
+end
+
+targetf(x) = diffparam(x; x_train_norm)
+cfg1 = JacobianConfig(t, x, Chunk{145}());
+
+function g!(g, x)
+    ForwardDiff.jacobian!(g, t, x, cfg1)
+end
+#ForwardDiff.jacobian(diffparam, rand(145)) 
+
+"Update the parameters of the model"
+function pack_param!(model, param)
+    i = 1
+    for layer in model.layers
+        l = length(layer.weight)
+        layer.weight[:] .= param[i: i+l-1]
+        i += l
+        l = length(layer.bias)
+        layer.bias[:] .= param[i: i+l-1]
+        i +=l
+    end
+    model
+end
+
+"Unpack parameter"
+function unpack_param(model)
+    n = 0
+    for layer in model.layers
+        n += length(layer.weight) + length(layer.bias)
+    end
+    out = zeros(eltype(model.layers[1].weight), n)
+    i = 1
+    for layer in model.layers
+        l = length(layer.weight)
+        out[i: i+l-1] .= vec(layer.weight)
+        i += l
+        l = length(layer.bias)
+        out[i: i+l-1] .= vec(layer.bias)
+        i +=l
+    end
+    out
+end
+
+
+function f!(o, param)
+    pack_param!(model_net, param)
+    o .= mean.(model_net.(x_train_norm)) .- y_train_norm
+    o
+end
+
+p0 = unpack_param(model_net)
+
+od = OnceDifferentiable(f!, g!, p0, f!(zeros(Float32, 9000), p0); inplace=true)
+```
