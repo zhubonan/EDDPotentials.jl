@@ -142,19 +142,16 @@ so this might not work?
 Most of the time on the minimisation is spent on the jacobian evaluation....
 
 ```julia
-model_net = Chain(Dense(16=>8, tanh;bias=true), Dense(8=>1))
-
+model_net = Chain(Dense(16=>8, tanh;bias=true), 
+                  Dense(8=>8, tanh;bias=true),
+                  Dense(8=>1))
+nparam = sum(length, Flux.params(model_net))
 "Unpack a flat vector into the shape of a given matrix"
+p0 = unpack_param(model_net);
+
 function unpack_matrix(param, mat, offset=1)
     l = length(mat)
     reshape(param[offset:offset+l - 1], size(mat))
-end
-
-function diffwt(wt)
-    net = Chain(Dense(wt), 
-                Dense(size(wt, 1)=> 1))
-        
-    mean(net(x_train_norm[1]))
 end
 
 """
@@ -188,11 +185,12 @@ function diffparam(param::Vector{T};x_train_norm=x_train_norm) where {T}
 end
 
 targetf(x) = diffparam(x; x_train_norm)
-cfg1 = JacobianConfig(t, x, Chunk{145}());
+cfg1 = JacobianConfig(targetf, p0, Chunk{nparam}());
 
 function g!(g, x)
-    ForwardDiff.jacobian!(g, t, x, cfg1)
+    ForwardDiff.jacobian!(g, targetf, x, cfg1)
 end
+
 #ForwardDiff.jacobian(diffparam, rand(145)) 
 
 "Update the parameters of the model"
