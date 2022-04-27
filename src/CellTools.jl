@@ -13,7 +13,9 @@ include("io/io.jl")
 include("pp.jl")
 include("graph.jl")
 include("build.jl")
-include("generalised_potentials.jl")
+include("gip/generalised_potentials.jl")
+include("gip/nntools.jl")
+include("gip/lmsolve.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export distance_between, distance_squared_between, displace!, clip, Cell, supercell

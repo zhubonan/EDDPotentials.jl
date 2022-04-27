@@ -4,8 +4,6 @@ Related code for LM solver routine
 TODO:
 - Adapt to allow early stopping
 - Adapt into an update! style optimiser?
-- Allow dynamic weigting to allow cases where p≠2
-
 =#
 
 using Distributions
@@ -83,6 +81,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
     MAX_LAMBDA = 1e16 # minimum trust region radius
     MIN_LAMBDA = 1e-16 # maximum trust region radius
     MIN_DIAGONAL = 1e-6 # lower bound on values of diagonal matrix used to regularize the trust region step
+    WEIGHT_SHIFT = 1e-4 # Shift for the wight to avoid numerical instability when p - 2 < 0
 
 
     converged = false
@@ -250,7 +249,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         if p != 2.0 && update_weights
             vdf = value(df)
             for (i, v) in enumerate(wt)
-                t = abs(vdf[i]) ^ (p - 2.)
+                t = abs(vdf[i] + WEIGHT_SHIFT) ^ (p - 2.)
                 wtm[i, i] = t
                 wt[i] = t  
             end
