@@ -42,6 +42,7 @@ Comp & Applied Math).
 * `lambda_increase=10.0`: `lambda` is multiplied by this factor after step below min quality
 * `lambda_decrease=0.1`: `lambda` is multiplied by this factor after good quality steps
 * `show_trace::Bool=false`: print a status summary on each iteration if true
+* `keep_best`: If true, return the best solution instead of that of the last iteration.
 * `lower,upper=[]`: bound solution to these limits
 """
 
@@ -57,6 +58,8 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
     min_step_quality::Real = 1e-3, good_step_quality::Real = 0.75,
     show_trace::Bool = false, lower::AbstractVector{T} = Array{T}(undef, 0), upper::AbstractVector{T} = Array{T}(undef, 0), avv!::Union{Function,Nothing,Avv} = nothing,
     callback=nothing,
+    keep_best=true,
+    earlystop=0,
     ) where T
 
     # First evaluation
@@ -89,6 +92,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
     g_converged = false
     iterCt = 0
     x = copy(initial_x)
+    best_x = copy(initial_x)
     delta_x = copy(initial_x)
     a = similar(x)
 
@@ -100,6 +104,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
     JJ = Matrix{T}(undef, n, n)
     n_buffer = Vector{T}(undef, n)
     Jdelta_buffer = similar(value(df))
+    test_rmse = T[]
 
     # Initialised weights
     wt = ones(T, m)
@@ -108,6 +113,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
     end
     wtm = diagm(wt)
     residual = sum(abs2.(value(df)) .* wt)
+    best_residual = residual
 
 
     # and an alias for the jacobian
@@ -234,6 +240,11 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
             copyto!(value(df), trial_f)
             # Update the residual
             residual = trial_residual
+            # Keep track the best solution
+            if residual < best_residual
+                best_residual = residual
+                best_x .= x
+            end
             if rho > good_step_quality
                 # increase trust region radius
                 lambda = max(lambda_decrease*lambda, MIN_LAMBDA)
@@ -276,8 +287,16 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         converged = g_converged | x_converged
 
         if !isnothing(callback)
-            callback()
+            push!(test_rmse, callback())
         end
+        if earlystop > 0
+            earlystopcheck(test_rmse, earlystop) && (converged = true)
+        end
+    end
+
+    if keep_best 
+        value_jacobian!!(df, best_x)
+        x .= best_x
     end
 
     MultivariateOptimizationResults(
@@ -303,3 +322,6 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         0                      # h_calls
     )
 end
+
+"Signal stop if the min is more than n cycles away"
+earlystopcheck(array, n) = (length(array) - argmin(array)) > n

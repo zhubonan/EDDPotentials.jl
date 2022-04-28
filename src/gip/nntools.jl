@@ -1,5 +1,13 @@
 #=
 Routine for working with NN
+
+Allow using forward autodiff for training small scale neutron networks with direct minimisation.
+Direct minimisation require accessing individual predcitions and the jacobian matrix.
+In which case, N >> M, so backward autodiff is not efficent.
+The standard ForwardDiff interface has drawback in that the NN has to be recreated everytime.
+Here, the ¬`Dual` type is used directly for computing the gradients instead, with reduced overheads.
+
+
 =#
 using ForwardDiff
 using Flux
@@ -8,15 +16,13 @@ using Flux
 Update the parameters of a model from a given vector
 """
 function update_param!(model, param)
-    @assert sum(length, Flux.params(model)) == length(param)
+    fparams = Flux.params(model)
+    @assert sum(length, fparams) == length(param)
     i = 1
-    for layer in model.layers
-        l = length(layer.weight)
-        layer.weight[:] .= param[i: i+l-1]
+    for item in fparams
+        l = length(item)
+        item[:] .= param[i:i+l-1]
         i += l
-        l = length(layer.bias)
-        layer.bias[:] .= param[i: i+l-1]
-        i +=l
     end
     model
 end
@@ -30,19 +36,14 @@ end
 Return a vector containing all parameters of a model
 """
 function paramvector(model)
-    n = 0
-    for layer in model.layers
-        n += length(layer.weight) + length(layer.bias)
-    end
-    out = zeros(eltype(model.layers[1].weight), n)
     i = 1
-    for layer in model.layers
-        l = length(layer.weight)
-        out[i: i+l-1] .= vec(layer.weight)
+    fparam = Flux.params(model)
+    np = sum(length, fparam)
+    out = zeros(eltype(fparam[1]), np)
+    for item in fparam
+        l = length(item)
+        out[i: i+l-1] .= item[:]
         i += l
-        l = length(layer.bias)
-        out[i: i+l-1] .= vec(layer.bias)
-        i +=l
     end
     out
 end
@@ -50,7 +51,7 @@ end
 """
 Create a copy of the model with parameters replaced as duals
 """
-function dualize_model(model, duals::Vector{T}) where {T}
+function dualize_model(model::Chain; duals::Vector{T}=dualize(paramvector(model))) where {T}
     i = 1
     nets = []
     for layer in model
@@ -87,10 +88,7 @@ function jac!(j, dm, p, cfg; x0)
     collect_jacobian!(j, dm(x0))
 end
 
-function get_jacobiancfg(p)
-    cfg = ForwardDiff.JacobianConfig(nothing, p, ForwardDiff.Chunk{length(p)}());
-    cfg
-end
+get_jacobiancfg(p) = ForwardDiff.JacobianConfig(nothing, p, ForwardDiff.Chunk{length(p)}());
 
 dualize(x::Vector;cfg=ForwardDiff.JacobianConfig(nothing, x, ForwardDiff.Chunk{length(x)}())) = ForwardDiff.seed!(cfg.duals, x, cfg.seeds)
 
@@ -121,16 +119,16 @@ end
 
 Setup the function for computing the jacobian of the mean atomic energy of each frame.
 """
-function setup_atomic_energy_jacobian(;model, dm, data, cfg, total=reduce(hcat,data))
+function setup_atomic_energy_jacobian(;model, dm, x, cfg, total=reduce(hcat,x))
     function inner!(j, p)
         pduals = ForwardDiff.seed!(cfg.duals, p, cfg.seeds);
         update_param!(dm, pduals)
         update_param!(model, p)
         all_E = dm(total)
-        out = zeros(eltype(all_E), length(data))
+        out = zeros(eltype(all_E), length(x))
         ct = 1
         for i in 1:length(out)
-            lv = size(data[i], 2)
+            lv = size(x[i], 2)
             val = 0.
             for j = ct:ct+lv -1
                 val += all_E[j]
@@ -175,10 +173,8 @@ Args:
 * y: reference data 
 * yt: Normalisation transformation originally applied to obtain y.
 """
-function atomic_rmse(f, x, y, yt)
+function atomic_rmse(pred, y, yt)
     y = StatsBase.reconstruct(yt, y)
-    pred = f(x)
-    pred = StatsBase.reconstruct(yt, pred)
-    nat = Int[size(n, 2) for n in x]
-    sqrt(mean((pred .- y) .^ 2))
+    rec = StatsBase.reconstruct(yt, pred)
+    sqrt(Flux.mse(rec, y))
 end

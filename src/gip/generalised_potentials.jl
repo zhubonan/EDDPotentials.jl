@@ -183,15 +183,16 @@ end
 
 Compute the feature vector for a give set of two body interactions
 """
-function feature_vector(features::Vector{TwoBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+function feature_vector!(fvecs, features::Vector{TwoBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
     # Feature vectors
     nfe = map(nfeatures, features) 
-    ni = nions(cell)
-    fvecs = zeros(sum(nfe), ni)
     nat = natoms(cell)
     sym = species(cell)
+    fill!(fvecs, zero(eltype(fvecs)))
+    rcut = maximum(x -> x.rcut, features)
     for iat = 1:nat
         for (jat, jextend, rij) in eachneighbour(nl, iat)
+            rij > rcut && continue
             # Accumulate feature vectors
             ist = 1
             for (ife, f) in enumerate(features)
@@ -203,29 +204,39 @@ function feature_vector(features::Vector{TwoBodyFeature{T}}, cell::Cell;nl=Neigh
     fvecs
 end
 
+function feature_vector(features::Vector, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+    # Feature vectors
+    nfe = map(nfeatures, features) 
+    ni = nions(cell)
+    fvecs = zeros(sum(nfe), ni)
+    feature_vector!(fvecs, features, cell;nl)
+end
+
+
 """
     feature_vector(features::Vector{T}, cell::Cell) where T
 
 Compute the feature vector for each atom a give set of three body interactions
 """
-function feature_vector(features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
-    # Feature vectors
-    ni = nions(cell)
-    nfe = map(nfeatures, features)
-    fvecs = zeros(sum(nfe), ni)
-
+function feature_vector!(fvecs, features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
     nat = natoms(cell)
+    nfe = map(nfeatures, features) 
     # Note - need to use twice the cut off to ensure distance between j-k is included
     sym = species(cell)
+    fill!(fvecs, zero(eltype(fvecs)))
+    rcut = maximum(x -> x.rcut, features)
     for iat = 1:nat
         for (jat, jextend, rij) in eachneighbour(nl, iat)
+            rij > rcut && continue
             for (kat, kextend, rik) in eachneighbour(nl, iat)
+                rik > rcut && continue
                 # Avoid double counting i j k is the same as i k j
                 if kat <= jat 
                     continue
                 end
                 # Compute the distance between extended j and k
                 rjk = distance_between(nl.ea.positions[jextend], nl.ea.positions[kextend])
+                rjk > rcut && continue
                 # accumulate the feature vector
                 ist = 1
                 for (ife, f) in enumerate(features)
@@ -237,8 +248,6 @@ function feature_vector(features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=Nei
     end
     fvecs
 end
-
-
 
 """
     two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func=fr)
@@ -365,20 +374,32 @@ function feature_vector(cellf::CellFeature, cell::Cell)
 
     # One body vector is essentially an one-hot encoding of the specie labels 
     # assuming no "mixture" atoms of course
+    v1 = one_body_vectors(cell)
+    # Concatenated two body vectors 
+    v2 = feature_vector(cellf.two_body, cell;nl=nl)
+    # Concatenated three body vectors 
+    v3 = feature_vector(cellf.three_body, cell;nl=nl)
+    vcat(v1, v2, v3)
+end
+
+function one_body_vectors!(v, cell::Cell)
+    # One body vector is essentially an one-hot encoding of the specie labels 
+    # assuming no "mixture" atoms of course
     numbers = atomic_numbers(cell)
     us = unique(numbers)
     sort!(us)
-    one_body_vecs = zeros(length(us), nions(cell))
     for (iat, Z) in enumerate(numbers)
         for (ispec, sZ) in enumerate(us)
             if Z == sZ
-                one_body_vecs[ispec, iat] = 1.
+                v[ispec, iat] = 1.
             end
         end
     end
-    # Concatenated two body vectors 
-    two_body_vecs = feature_vector(cellf.two_body, cell;nl=nl)
-    # Concatenated three body vectors 
-    three_body_vecs = feature_vector(cellf.three_body, cell;nl=nl)
-    vcat(one_body_vecs, two_body_vecs, three_body_vecs)
+end
+
+function one_body_vectors(cell)
+    numbers = atomic_numbers(cell)
+    us = unique(numbers)
+    vecs = zeros(length(us), nions(cell))
+    one_body_vectors!(vecs, cell)
 end
