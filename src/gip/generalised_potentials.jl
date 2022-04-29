@@ -38,9 +38,11 @@ end
 """
 Compunents for constructing the feature vector of two-body interactions
 """
-struct TwoBodyFeature{T} <: AbstractNBodyFeature
+struct TwoBodyFeature{T, M} <: AbstractNBodyFeature
     "Function of distance"
     f::T
+    "df(r)/r"
+    g::M
     "Exponents"
     p::Vector{Float64}
     "Specie indices"
@@ -53,9 +55,11 @@ end
 
 "Equation 7 in  the DDP paper"
 fr(r::T, rcut) where {T} =  r <= rcut ? 2 * (1 - r / rcut) : zero(T)
+"Gradient of Eq. 7 in  the DDP paper"
+gfr(r::T, rcut) where {T} =  r <= rcut ? -2 / rcut : zero(T)
 
-TwoBodyFeature(f, p::Vector{Float64}, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64) = TwoBodyFeature(f, p, sortedtuple(sij_idx), rcut, length(p))
-TwoBodyFeature(p::Vector{Float64}, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64) = TwoBodyFeature(fr, p, sortedtuple(sij_idx), rcut)
+TwoBodyFeature(f, g, p::Vector{Float64}, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64) = TwoBodyFeature(f, g, p, sortedtuple(sij_idx), rcut, length(p))
+TwoBodyFeature(p::Vector{Float64}, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64) = TwoBodyFeature(fr, gfr, p, sortedtuple(sij_idx), rcut)
 
 """
 Call the object to accumulate an existing feature vector
@@ -89,9 +93,11 @@ nfeatures(f::TwoBodyFeature) = f.np
 """
 Compunents for constructing the feature vector of three-body interactions
 """
-struct ThreeBodyFeature{T} <: AbstractNBodyFeature
+struct ThreeBodyFeature{T, M} <: AbstractNBodyFeature
     "Function of distance"
     f::T
+    "df(r)/r"
+    g::M
     "Exponents"
     p::Vector{Float64}
     q::Vector{Float64}
@@ -103,7 +109,8 @@ struct ThreeBodyFeature{T} <: AbstractNBodyFeature
     nq::Int
 end
 
-ThreeBodyFeature(f, p::Vector{Float64}, q::Vector{Float64}, sijk_idx::Tuple{Symbol, Symbol, Symbol}, rcut::Float64) = ThreeBodyFeature(f, p, q, sortedtuple(sijk_idx), rcut, length(p), length(q))
+ThreeBodyFeature(f, g, p::Vector{Float64}, q::Vector{Float64}, sijk_idx::Tuple{Symbol, Symbol, Symbol}, rcut::Float64) = ThreeBodyFeature(f, g, p, q, sortedtuple(sijk_idx), rcut, length(p), length(q))
+ThreeBodyFeature(p::Vector{Float64}, q::Vector{Float64}, sijk_idx::Tuple{Symbol, Symbol, Symbol}, rcut::Float64) = ThreeBodyFeature(fr, gfr, p, q, sortedtuple(sijk_idx), rcut, length(p), length(q))
 
 nfeatures(f::ThreeBodyFeature) = f.np * f.nq
 
@@ -183,7 +190,7 @@ end
 
 Compute the feature vector for a give set of two body interactions
 """
-function feature_vector!(fvecs, features::Vector{TwoBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+function feature_vector!(fvecs, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where {T, N}
     # Feature vectors
     nfe = map(nfeatures, features) 
     nat = natoms(cell)
@@ -218,7 +225,7 @@ end
 
 Compute the feature vector for each atom a give set of three body interactions
 """
-function feature_vector!(fvecs, features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+function feature_vector!(fvecs, features::Vector{ThreeBodyFeature{T, M}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where {T, M}
     nat = natoms(cell)
     nfe = map(nfeatures, features) 
     # Note - need to use twice the cut off to ensure distance between j-k is included
@@ -254,13 +261,13 @@ end
 
 Construct a vector containing the TwoBodyFeatures
 """
-function two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func=fr)
+function two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func=fr, gfunc=gfr)
     indx, us = interger_specie_index(cell)
-    features = TwoBodyFeature{typeof(func)}[]
+    features = TwoBodyFeature{typeof(func), typeof(gfunc)}[]
     for (i, map_pair) in enumerate(p_mapping)
         a, b = map_pair[1]
         p = map_pair[2]
-        push!(features, TwoBodyFeature(func, p, (a, b), Float64(rcut)))
+        push!(features, TwoBodyFeature(func, gfunc, p, (a, b), Float64(rcut)))
     end
 
     # Check completeness
@@ -279,9 +286,9 @@ end
 
 Construct a vector containing the TwoBodyFeatures
 """
-function three_body_feature_from_mapping(cell::Cell, pq_mapping, rcut, func=fr;check=false)
+function three_body_feature_from_mapping(cell::Cell, pq_mapping, rcut, func=fr, gfunc=gfr;check=false)
     indx, us = interger_specie_index(cell)
-    features = ThreeBodyFeature{typeof(func)}[]
+    features = ThreeBodyFeature{typeof(func), typeof(gfunc)}[]
     for (i, map_pair) in enumerate(pq_mapping)
         a, b, c = map_pair[1]
         p, q= map_pair[2]
@@ -290,7 +297,7 @@ function three_body_feature_from_mapping(cell::Cell, pq_mapping, rcut, func=fr;c
         kk = findfirst(x -> x == c, us)
         #Swap order if ii > jj
         idx = tuple(sort([ii, jj, kk])...)
-        push!(features, ThreeBodyFeature(func, p, q, idx, Float64(rcut)))
+        push!(features, ThreeBodyFeature(func, gfunc, p, q, idx, Float64(rcut)))
     end
 
     if check
@@ -312,38 +319,38 @@ end
 """
 Collection of Feature specifications and cell
 """
-mutable struct CellFeature{T, N}
+mutable struct CellFeature{T, N, M, G}
     elements::Vector{Symbol}
-    two_body::Vector{TwoBodyFeature{T}}
-    three_body::Vector{ThreeBodyFeature{N}}
+    two_body::Vector{TwoBodyFeature{T, M}}
+    three_body::Vector{ThreeBodyFeature{N, G}}
 end
 
 """
 Construct feature specifications
 """
-function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=fr, f3=fr)
+function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=fr, g2=gfr, f3=fr, g3=gfr)
     
     # Sort the elements to ensure stability
     elements = sort(unique(elements))
     # Two body terms
-    two_body_features = TwoBodyFeature{typeof(f2)}[]
+    two_body_features = TwoBodyFeature{typeof(f2), typeof(g2)}[]
     existing_comb = []
     for e1 in elements
         for e2 in elements
             if !(any(x -> permequal(x, e1, e2), existing_comb))
-                push!(two_body_features, TwoBodyFeature(f2, collect(Float64, p2), (e1, e2), rcut2))
+                push!(two_body_features, TwoBodyFeature(f2, g2, collect(Float64, p2), (e1, e2), rcut2))
                 push!(existing_comb, (e1, e2))
             end
         end
     end
 
     empty!(existing_comb)
-    three_body_features = ThreeBodyFeature{typeof(f3)}[]
+    three_body_features = ThreeBodyFeature{typeof(f3), typeof(g3)}[]
     for e1 in elements
         for e2 in elements
             for e3 in elements
                 if !(any(x -> permequal(x, e1, e2, e3), existing_comb))
-                    push!(three_body_features, ThreeBodyFeature(f3, collect(Float64, p3), collect(Float64, q3), (e1, e2, e3), rcut3))
+                    push!(three_body_features, ThreeBodyFeature(f3, g3, collect(Float64, p3), collect(Float64, q3), (e1, e2, e3), rcut3))
                     push!(existing_comb, (e1, e2, e3))
                 end
             end
@@ -395,6 +402,7 @@ function one_body_vectors!(v, cell::Cell)
             end
         end
     end
+    v
 end
 
 function one_body_vectors(cell)
