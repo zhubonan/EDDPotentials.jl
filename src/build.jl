@@ -1,5 +1,7 @@
 #= 
 Building structures
+
+NOTE: Old code, clean-up needed
 =#
 import Base: rand
 
