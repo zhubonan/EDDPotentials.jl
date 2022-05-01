@@ -80,6 +80,26 @@ function (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart=1)
     out
 end
 
+"""
+Calculate d(f(r)^p) / dr for each feature 
+"""
+function withgradient!(e::Matrix, g::Vector, f::TwoBodyFeature, rij, iat, istart)
+    val = f.f(rij, f.rcut)
+    gval = f.g(rij, f.rcut)
+    i = istart
+    for _ in 1:nfeatures(f)
+        g[i] += f.p[i] * (val ^ (f.p[i] - 1)) * gval  # Chain rule
+        e[i, iat] += val ^ f.p[i]
+        i += 1
+    end
+    e, g
+end
+
+function withgradient!(e::Matrix, g::Vector, f::TwoBodyFeature, rij, si, sj, iat, istart=1)
+    permequal(f.sij_idx, si, sj) && withgradient!(e, g, f, rij, iat, istart)
+    e, g
+end
+
 function (f::TwoBodyFeature)(out::AbstractMatrix, rij, si, sj, iat, istart=1)
     permequal(f.sij_idx, si, sj) && f(out, rij, iat, istart)
     out
