@@ -92,6 +92,8 @@ end
     gvecs = zeros(nfe, nat, 3, nat)
     svecs = zeros(nfe, nat, 3, 3, nat)
     CellTools.feature_vector_and_gradients!(fvecs, gvecs, svecs, threeof, cell;nl)
+    gbuffer = zeros(3, nfe)
+    gbuffer = zeros( nfe)
     p0 = copy(cell.positions[:])
     od = NLSolversBase.OnceDifferentiable(x -> fv(x, threeof), p0, fv(p0, threeof); inplace=false)
     jac = NLSolversBase.jacobian!(od, p0)
