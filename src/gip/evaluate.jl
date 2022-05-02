@@ -162,7 +162,7 @@ Major refectoring needed:
 - need to ensure that the tranformations are applied correctly
 - gradients obtained need to be modified by the chain rule of the transformation
 """
-function calculate!(wt::CellWorkSpace, model::ModelEnsemble;forces=true, rebuild_nl=false)
+function calculate!(wt::CellWorkSpace, model::ModelEnsemble;forces=true, rebuild_nl=true)
     update_feature_vector!(wt;rebuild_nl, gradients=forces)
     wt.eng .= site_energies(model, wt)[:]
 
@@ -255,3 +255,49 @@ end
 
 total_energy(m::ModelEnsemble, inp::AbstractMatrix) = sum(site_energies(m, inp))
 total_energy(m::ModelEnsemble, cw::CellWorkSpace) = sum(site_energies(m, cw))
+
+"""
+A calculator to compute energy/forces/stress of the structure
+"""
+struct CellCalculator{T}
+    workspace::CellWorkSpace
+    modelensemble::ModelEnsemble
+    last_pos::Matrix{T}
+    last_cellmat::Matrix{T}
+end
+
+function CellCalculator(cw::CellWorkSpace, me::ModelEnsemble)
+    CellCalculator(cw, me, similar(positions(cw.cell)), similar(cellmat(cw.cell)))
+end
+
+"""
+Calculate energy and forces
+
+Return a tuple of energy, force, stress
+"""
+function calculate!(m::CellCalculator;forces=true, rebuild_nl=true)
+    # Detect any change of the structure
+    if any(m.last_cellmat .!= cellmat(m.workspace.cell)) || any(m.last_pos .!= positions(m.workspace.cell))
+        calculate!(m.workspace, m.modelensemble;forces, rebuild_nl)
+    else
+        return get_energy(m), get_forces(m), get_stress(m)
+    end
+    # Update the last calculated positions
+    m.last_pos .= positions(m.workspace.cell)
+    m.last_cellmat .= cellmat(m.workspace.cell)
+    return get_energy(m), get_forces(m), get_stress(m)
+end
+
+# Getter for the energy/stress
+
+get_forces(c::CellWorkSpace) = c.forces
+get_forces(m::CellCalculator) = get_forces(m.workspace)
+get_energy(c::CellWorkSpace) = sum(c.eng)
+get_energy(m::CellCalculator) = get_energy(m.workspace)
+get_stress(c::CellWorkSpace) = c.stress
+get_stress(c::CellCalculator) = get_stress(c.workspace)
+get_positions(c::CellCalculator) = positions(c.workspace.cell)
+
+# Setter
+CellBase.set_cellmat!(c::CellCalculator, cellmat) = CellBase.set_cellmat!(c.workspace.cell, cellmat)
+CellBase.set_positions!(c::CellCalculator, pos) = CellBase.set_positions!(c.workspace.cell, pos)
