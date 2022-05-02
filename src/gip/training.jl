@@ -84,8 +84,8 @@ function train!(m::TrainingConfig;
                    show_progress=false,
                    x_train_norm=m.x_train, y_train_norm=m.y_train, 
                    x_test_norm=nothing, y_test_norm=nothing,
-                   earlystop=0,
-                   yt=nothing,
+                   earlystop=50,
+                   yt=m.yt,
                    keep_best=true,
                    p=1.25,
                    args...
@@ -130,6 +130,7 @@ function Base.show(io::IO, m::MIME"text/plain", x::TrainingConfig)
     print(io, "TrainingConfig for:\n")
     show(io, m, x.model)
 end
+
 
 """
 An ensemable of models with weights

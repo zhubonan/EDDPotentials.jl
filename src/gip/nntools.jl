@@ -51,7 +51,7 @@ end
 """
 Create a copy of the model with parameters replaced as duals
 """
-function dualize_model(model::Chain; duals::Vector{T}=dualize(paramvector(model))) where {T}
+function dualize_model(model; duals::Vector{T}=dualize(paramvector(model))) where {T}
     i = 1
     nets = []
     for layer in model
@@ -101,7 +101,7 @@ function setup_autodiff(model)
     p0 = paramvector(model)
     cfg = get_jacobiancfg(p0)
     pdual = dualize(p0;cfg)
-    dm = dualize_model(model, pdual)
+    dm = dualize_model(model, duals=pdual)
     dm, cfg, p0
 end
 
