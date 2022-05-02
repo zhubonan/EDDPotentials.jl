@@ -164,6 +164,43 @@ end
 "(f::ThreeBodyFeature)(rij) = f(zeros(nfeatures(f)), rij, rik, rjk)"
 (f::ThreeBodyFeature)(rij, rik, rjk) = f(zeros(nfeatures(f), 1), rij, rik, rjk, 1, 1)
 
+function withgradient!(e, g, f::ThreeBodyFeature, rij, rik, rjk, si, sj, sk, iat, istart=1)
+    permequal(f.sijk_idx, si, sj, sk) && withgradient!(e, g, f, rij, rik, rjk, iat, istart)
+    e, g 
+end
+
+function withgradient(f::ThreeBodyFeature, rij, rik, rjk)
+    e = zeros(nfeatures(f), 1)
+    g = zeros(3, nfeatures(f))
+    withgradient!(e, g, f, rij, rik, rjk, 1, 1)
+end
+
+"""
+Calculate df / drij, df /drik, df/drjk for each element of a ThreeBodyFeature
+"""
+function withgradient!(e::Matrix, g::Matrix, f::ThreeBodyFeature, rij, rik, rjk, iat, istart)
+    func = f.f
+    rcut = f.rcut
+    fij = func(rij, rcut) 
+    fik = func(rik, rcut) 
+    fjk = func(rjk, rcut)
+    gij = f.g(rij, rcut)
+    gik = f.g(rik, rcut)
+    gjk = f.g(rjk, rcut)
+    i = istart  # Index of the element
+    for m in 1:f.np
+        for o in 1:f.nq  # Note that q is summed in the inner loop
+            # Feature turm
+            e[i, iat] += (fij ^ f.p[m]) * (fik ^ f.p[m]) * (fjk ^ f.q[o])
+            # Gradient
+            g[1, i] = f.p[m] * (fij ^ (f.p[m] - 1)) * (fik ^ f.p[m]) * (fjk ^ f.q[o]) * gij
+            g[2, i] = (fij ^ f.p[m]) * f.p[m] * (fik ^ (f.p[m] - 1)) * (fjk ^ f.q[o]) * gik
+            g[3, i] = (fij ^ f.p[m]) * (fik ^ f.p[m]) * f.q[o] * (fjk ^ (f.q[o] - 1)) * gjk
+            i += 1
+        end
+    end
+    e, g
+end
 
 """
 Map species types to integer indices
@@ -258,7 +295,7 @@ function feature_vector!(fvecs, features::Vector{ThreeBodyFeature{T, M}}, cell::
             for (kat, kextend, rik) in eachneighbour(nl, iat)
                 rik > rcut && continue
                 # Avoid double counting i j k is the same as i k j
-                if kat <= jat 
+                if kextend <= jextend 
                     continue
                 end
                 # Compute the distance between extended j and k
