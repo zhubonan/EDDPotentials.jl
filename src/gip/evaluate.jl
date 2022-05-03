@@ -149,6 +149,8 @@ function calculate_forces!(wt::CellWorkSpace, g2, g3)
     wt.forces .= wt.two_body_fbuffer.forces .+ wt.three_body_fbuffer.forces
     wt.stress .= wt.two_body_fbuffer.stress .+ wt.three_body_fbuffer.stress
 
+    # Divide by the unit cell volume to get the stress
+    wt.stress ./= volume(wt.cell)
     wt
 end
 
@@ -170,9 +172,8 @@ function calculate!(wt::CellWorkSpace, model::ModelEnsemble;forces=true, rebuild
     nf3 = sum(nfeatures, wt.cf.three_body)
     v = StatsBase.transform(model.xt, wt.v[end-nf2-nf3+1:end, :])
 
-    force_buf = similar(wt.forces)
-    stress_buf = similar(wt.stress)
-    fill!(force_buf, 0.)
+    force_buf = zeros(size(wt.forces))
+    stress_buf = zeros(size(wt.stress))
     if forces
         # Obtain the graents for each individual model
         for (ind, weight) in zip(model.models, model.weight)
@@ -301,3 +302,87 @@ get_positions(c::CellCalculator) = positions(c.workspace.cell)
 # Setter
 CellBase.set_cellmat!(c::CellCalculator, cellmat) = CellBase.set_cellmat!(c.workspace.cell, cellmat)
 CellBase.set_positions!(c::CellCalculator, pos) = CellBase.set_positions!(c.workspace.cell, pos)
+
+
+#=
+Optimisation
+
+For optimisation we need to abstract away the details of operation
+The only thing to be exposed is:
+
+* a single value to be optimised (e.g. enthalpy)
+* a vector controlling this value
+* gradients of the value for each vector components 
+=#
+
+"Abstract type for filters of the cell"
+abstract type CellFilter end
+
+"Filter for including lattice vectors in the optimisation"
+struct VariableLatticeFilter
+    calculator
+    orig_lattice::Lattice
+    lattice_factor::Float64
+end
+
+get_cell(c::CellCalculator) = c.workspace.cell
+get_cell(c::VariableLatticeFilter) = get_cell(c.calculator)
+
+VariableLatticeFilter(calc) = VariableLatticeFilter(calc, Lattice(copy(cellmat(get_cell(calc)))), Float64(nions(get_cell(calc))))
+
+raw"""
+Obtain the deformation gradient matrix such that 
+
+$$F C = C'$$
+"""
+function deformgradient(cf::VariableLatticeFilter)
+    copy(transpose(cellmat(cf.orig_lattice)' \ cellmat(get_cell(cf))'))
+end
+
+
+function get_positions(cf::VariableLatticeFilter)
+    cell = get_cell(cf)
+    dgrad = deformgradient(cf)
+    apos = dgrad \ positions(cell)
+    #lpos = transpose(cf.lattice_factor .* dgrad)  # This should be a transpose or not
+    lpos = cf.lattice_factor .* dgrad  # This should be a transpose or not
+    hcat(apos, lpos)
+end
+
+function _get_forces_and_stress(cf::VariableLatticeFilter;rebuild_nl)
+    calculate!(cf.calculator;forces=true, rebuild_nl) 
+    dgrad = deformgradient(cf)
+    vol = volume(get_cell(cf))
+    stress = get_stress(cf.calculator)
+    forces = get_forces(cf.calculator)
+
+    virial = (dgrad  \ (-vol .* stress))
+    # Deformed forces
+    atomic_forces = dgrad * forces
+
+    out_forces = hcat(atomic_forces, virial ./ cf.lattice_factor)
+    out_stress = -virial / vol
+    out_forces, out_stress
+end
+
+get_forces(cf::VariableLatticeFilter;rebuild_nl=true) = _get_forces_and_stress(cf;rebuild_nl)[1]
+
+function set_positions!(cf::VariableLatticeFilter, new)
+    cell = get_cell(cf)
+    nat = nions(cell)
+    pos = new[:, 1:nat]
+    new_dgrad = new[:, nat+1:end] ./ cf.lattice_factor
+
+    # Set the cell according to the deformation
+    mat = cellmat(cell)
+    mat .= new_dgrad * cellmat(cf.orig_lattice)
+
+    # Set the positions
+    cell.positions .= new_dgrad * pos
+end
+
+"Return the energy"
+function get_energy(cf::VariableLatticeFilter;rebuild_nl=true)
+    calculate!(cf.calculator;rebuild_nl)
+    get_energy(cf.calculator)
+end
