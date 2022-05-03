@@ -42,7 +42,7 @@ function sv_me(s, me)
     set_cellmat!(cell, Smat * cellmat(cell))
 
     cf = CellTools.CellFeature([:H];p2=2:4, p3=0:-1, q3=0:-1)
-    cw = CellTools.CellWorkSpace(cell;cf=cf, rcut=4.0)
+    cw = CellTools.CellWorkSpace(cell;cf=cf, rcut=5.0, nmax=500)
 
     calc = CellTools.CellCalculator(cw, me)
     CellTools.calculate!(calc)
@@ -138,9 +138,8 @@ end
     0.1 0]
     cell = Cell(Lattice(2, 2, 2), [:H, :H], pos)
     frac = CellBase.get_scaled_positions(cell) 
-    nl = CellBase.NeighbourList(cell, 3.0;savevec=true)
     cf = CellTools.CellFeature([:H];p2=2:4, p3=0:-1, q3=0:-1)
-    cw = CellTools.CellWorkSpace(cell;cf=cf, rcut=4.0)
+    cw = CellTools.CellWorkSpace(cell;cf=cf, rcut=5.0, nmax=500)
     ntot = CellTools.nfeatures(cw)
 
     model = Dense(ones(1, ntot))
@@ -177,4 +176,20 @@ end
     grad= NLSolversBase.gradient(od, s0)
     st = stress * volume(get_cell(calc)) 
     @test maximum(abs.(grad .+ vec(st))) < 1e-4
+
+    # Test for the wrapper 
+
+    vc = CellTools.VariableLatticeFilter(calc)
+    global eforce = CellTools.get_forces(vc)
+    epos = CellTools.get_positions(vc)
+
+    function eeng(p)
+        CellTools.set_positions!(vc, reshape(p, 3, :))
+        CellTools.get_energy(vc)
+    end
+    od = OnceDifferentiable(eeng, epos, eeng(epos);inplace=false)
+    global grad= NLSolversBase.gradient(od, epos)
+
+    @show grad[:]
+    @show eforce[:]
 end

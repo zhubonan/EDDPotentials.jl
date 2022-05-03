@@ -363,7 +363,16 @@ The only thing to be exposed is:
 "Abstract type for filters of the cell"
 abstract type CellFilter end
 
-"Filter for including lattice vectors in the optimisation"
+"""
+Filter for including lattice vectors in the optimisation
+
+
+Reference: 
+ E. B. Tadmor, G. S. Smith, N. Bernstein, and E. Kaxiras,
+            Phys. Rev. B 59, 235 (1999)
+
+Base on ase.constraints.UnitCellFilter
+"""
 struct VariableLatticeFilter
     calculator
     orig_lattice::Lattice
@@ -404,7 +413,7 @@ function _get_forces_and_stress(cf::VariableLatticeFilter;rebuild_nl)
     stress = get_stress(cf.calculator)
     forces = get_forces(cf.calculator)
 
-    virial = (dgrad  \ (-vol .* stress))
+    virial = (dgrad  \ (vol .* stress))
     # Deformed forces
     atomic_forces = dgrad * forces
 
