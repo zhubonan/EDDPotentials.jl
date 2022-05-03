@@ -144,6 +144,9 @@ mutable struct ModelEnsemble{T, N, M}
     yt::M
 end
 
+function ModelEnsemble(;model=m)
+    ModelEnsemble([model], [1.0], nothing, nothing, nothing, nothing)
+end
 
 """
 Construct an ensemable of models via none-negative least squares (NNLS)
@@ -192,12 +195,21 @@ function energy_raw(me::ModelEnsemble, mat::Matrix{T}) where {T}
     if size(mat, 1) != me.xt.len
         mat = mat[end-me.xt.len+1:end, :]
     end
-    norm::Matrix{T} = StatsBase.transform(me.xt, mat)
+    if !isnothing(me.xt)
+        norm::Matrix{T} = StatsBase.transform(me.xt, mat)
+    else
+        norm = mat
+    end
     eng = [0.]
     for (i, model) in enumerate(me.models)
         eng[] += mean(model(norm)) *  me.weight[i]
     end
-    StatsBase.reconstruct(me.yt, eng)[]
+    if !isnothing(me.yt)
+        out = StatsBase.reconstruct(me.yt, eng)[]
+    else
+        out = eng
+    end
+    out
 end
 
 energy(me::ModelEnsemble, c::Cell, featurespec) = energy_raw(me, feature_vector(featurespec, c))

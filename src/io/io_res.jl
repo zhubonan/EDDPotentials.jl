@@ -87,7 +87,7 @@ end
 Write out SHELX format data
 """
 function write_res(io::IO, structure::Cell)
-    infodict = structure.info
+    infodict = structure.metadata
     titl = (
         label=get(infodict, :label, "jurss-in-out"),
         pressure=get(infodict, :pressure, 0.0),
@@ -107,28 +107,28 @@ function write_res(io::IO, structure::Cell)
     write(io, cell_line)
     write(io, "LATT -1\n")
     write(io, "SFAC ", join(map(string, unique(species(structure))), " "), "\n")
-    fposmat = rec_cellmat(lattice(structure)) * positions(structure) 
+    fposmat = CellBase.rec_cellmat(lattice(structure)) * positions(structure) 
     # Wrap
     fposmat .-= floor.(fposmat)
 
     count = 1
-    last_symbol = structure.sites[1].symbol 
+    last_symbol = structure.symbols[1]
     if :spins in keys(structure.arrays)
         spin_array = structure.arrays[:spins]
-        for (i, site) in enumerate(sites(structure))
-            if site.symbol != last_symbol
+        for (i, symbol) in enumerate(structure.symbols)
+            if symbol != last_symbol
                 count +=1
             end
-            write(io, @sprintf("%-7s %2s %15.12f %15.12f %15.12f 1.0 %.3f\n", site.symbol, count, fposmat[1, i], fposmat[2, i], fposmat[3, i], spin_array[i]))
-            last_symbol = site.symbol
+            write(io, @sprintf("%-7s %2s %15.12f %15.12f %15.12f 1.0 %.3f\n", symbol, count, fposmat[1, i], fposmat[2, i], fposmat[3, i], spin_array[i]))
+            last_symbol = symbol
         end
     else
-        for (i, site) in enumerate(sites(structure))
-            if site.symbol != last_symbol
+        for (i, symbol) in enumerate(structure.symbols)
+            if symbol != last_symbol
                 count +=1
             end
-            write(io, @sprintf("%-7s %2s %15.12f %15.12f %15.12f 1.0\n", site.symbol, count, fposmat[1, i], fposmat[2, i], fposmat[3, i]))
-            last_symbol = site.symbol
+            write(io, @sprintf("%-7s %2s %15.12f %15.12f %15.12f 1.0\n", symbol, count, fposmat[1, i], fposmat[2, i], fposmat[3, i]))
+            last_symbol = symbol
         end
     end
     write(io, "END\n")
