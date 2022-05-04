@@ -4,11 +4,11 @@ Code related to taking gradients
 
 
 """
-    feature_vector_and_gradients!(fvecs, gvecs, features::Vector{TwoBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+    compute_two_body_fv_gv!(fvecs, gvecs, features::Vector{TwoBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
 
 Compute the feature vector for a given set of two body interactions, compute gradients as well.
 """
-function feature_vector_and_gradients!(evecs, gvecs, svecs, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where {T, N}
+function compute_two_body_fv_gv!(evecs, gvecs, svecs, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where {T, N}
     # vecs -> size (nfeature, nions)
     # gvec -> size (ndims, nfeature, nions)
     # Feature vectors
@@ -19,7 +19,7 @@ function feature_vector_and_gradients!(evecs, gvecs, svecs, features::Vector{Two
     z = zero(eltype(evecs))
     fill!(evecs, z)
     fill!(gvecs, z)  # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
-    fill!(svecs, z)  # Size of (nfe, nat, 3, 3, nat) - gradietn of the feature vectors to the cell deformation
+    fill!(svecs, z)  # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
     gbuffer = zeros(eltype(evecs), sum(nfe))   # Buffer for holding d(f(r)^p)/dr
     maxrcut = maximum(x -> x.rcut, features)
     
@@ -60,11 +60,11 @@ end
 
 
 """
-    feature_vector_and_gradients!(fvecs, gvecs, features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+    compute_three_body_fv_gv!(fvecs, gvecs, features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
 
 Compute the feature vector for a given set of two body interactions, compute gradients as well.
 """
-function feature_vector_and_gradients!(evecs, gvecs, svecs, features::Vector{ThreeBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where {T, N}
+function compute_three_body_fv_gv!(evecs, gvecs, svecs, features::Vector{ThreeBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where {T, N}
     # vecs -> size (nfeature, nions)
     # gvec -> size (ndims, nfeature, nions)
     # Feature vectors
@@ -75,7 +75,7 @@ function feature_vector_and_gradients!(evecs, gvecs, svecs, features::Vector{Thr
     z = zero(eltype(evecs))
     fill!(evecs, z)
     fill!(gvecs, z)  # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
-    fill!(svecs, z)  # Size of (nfe, nat, 3, 3, nat) - gradietn of the feature vectors to the cell deformation
+    fill!(svecs, z)  # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
     gbuffer = zeros(eltype(evecs), 3, totalfe)   # Buffer for holding df/dr for rij, rik, rjk
     maxrcut = maximum(x -> x.rcut, features)
     for iat = 1:nat

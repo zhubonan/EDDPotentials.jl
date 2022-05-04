@@ -227,11 +227,11 @@ index(smap::SpeciesMap, sym::Symbol) = findfirst(x -> x==sym, smap.us)
 symbol(smap::SpeciesMap, sidx::Int) = smap.us[sidx]
 
 """
-    interger_specie_index(cell::Cell)
+    integer_specie_index(cell::Cell)
 
 Return an integer indexing array for the species
 """
-function interger_specie_index(cell::Cell)
+function integer_specie_index(cell::Cell)
     sym = species(cell)
     us = unique(sym)
     out = zeros(Int, length(sym))
@@ -319,7 +319,7 @@ end
 Construct a vector containing the TwoBodyFeatures
 """
 function two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func=fr, gfunc=gfr)
-    indx, us = interger_specie_index(cell)
+    indx, us = integer_specie_index(cell)
     features = TwoBodyFeature{typeof(func), typeof(gfunc)}[]
     for (i, map_pair) in enumerate(p_mapping)
         a, b = map_pair[1]
@@ -344,7 +344,7 @@ end
 Construct a vector containing the TwoBodyFeatures
 """
 function three_body_feature_from_mapping(cell::Cell, pq_mapping, rcut, func=fr, gfunc=gfr;check=false)
-    indx, us = interger_specie_index(cell)
+    indx, us = integer_specie_index(cell)
     features = ThreeBodyFeature{typeof(func), typeof(gfunc)}[]
     for (i, map_pair) in enumerate(pq_mapping)
         a, b, c = map_pair[1]

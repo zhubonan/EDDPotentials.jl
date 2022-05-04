@@ -42,7 +42,7 @@ Comp & Applied Math).
 * `lambda_increase=10.0`: `lambda` is multiplied by this factor after step below min quality
 * `lambda_decrease=0.1`: `lambda` is multiplied by this factor after good quality steps
 * `show_trace::Bool=false`: print a status summary on each iteration if true
-* `keep_best`: If true, return the best solution instead of that of the last iteration.
+* `keep_best`: If true, return the best solution instead of that of the last iteration. If callback is supplied, use the best value from it.
 * `lower,upper=[]`: bound solution to these limits
 """
 
@@ -241,7 +241,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
             # Update the residual
             residual = trial_residual
             # Keep track the best solution
-            if residual < best_residual
+            if (residual < best_residual) && isnothing(callback)
                 best_residual = residual
                 best_x .= x
             end
@@ -287,13 +287,18 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         converged = g_converged | x_converged
 
         if !isnothing(callback)
-            push!(test_rmse, callback())
+            rmse_val, xtmp = callback()
+            if length(test_rmse) > 0 && rmse_val < minimum(test_rmse)
+                best_x .= xtmp
+            end
+            push!(test_rmse, rmse_val)
         end
         if earlystop > 0
             earlystopcheck(test_rmse, earlystop) && (converged = true)
         end
     end
 
+    # Rewind to the best x
     if keep_best 
         value_jacobian!!(df, best_x)
         x .= best_x

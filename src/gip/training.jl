@@ -101,7 +101,7 @@ function train!(m::TrainingConfig;
         show_progress && @printf "RMSE Train %10.5f eV | Test %10.5f eV\n" rmse_train rmse_test
         flush(stdout)
         push!(rec, (rmse_train, rmse_test))
-        rmse_test
+        rmse_test, paramvector(model)
     end
     # Setting up the object for minimization
     g2! = setup_atomic_energy_jacobian(;model, dm, x=x_train_norm, cfg);
@@ -120,6 +120,12 @@ function train!(m::TrainingConfig;
     update_param!(m)
     opt_res, paramvector(model), [map(x->x[1], rec) map(x->x[2], rec)]
 end
+
+"Compute RMSE from *normalised* training data stored"
+rmse_train(tf::T) where {T <: Union{TrainingConfig, ModelEnsemble}} = atomic_rmse(predict_energy(tf, tf.x_train), tf.y_train, tf.yt)
+
+"Compute RMSE from *normalised* test data"
+rmse_test(tf::T, x_test, y_test) where {T<:Union{TrainingConfig, ModelEnsemble}} = atomic_rmse(predict_energy(tf, x_test), y_test, tf.yt)
 
 function Base.show(io::IO, x::TrainingConfig)
     print(io, "TrainingConfig for:\n")
@@ -171,9 +177,8 @@ function (me::ModelEnsemble)(x::AbstractVecOrMat{T}) where {T}
     out
 end
 
-predict_energy(model::T) where {T <: Union{ModelEnsemble, TrainingConfig}} = predict_energy(model.x_train)
 predict_energy!(f, model::T) where {T <: Union{ModelEnsemble, TrainingConfig}} = predict_energy!(f, model, model.xtrain)
-atomic_rmse(me::T, yt) where {T <: Union{ModelEnsemble, TrainingConfig}} = atomic_rmse(predict_energy(me, me.x_train), me.y_train, yt)
+atomic_rmse(me::T; yt=me.yt) where {T <: Union{ModelEnsemble, TrainingConfig}} = atomic_rmse(predict_energy(me, me.x_train), me.y_train, yt)
 
 function Base.show(io::IO, m::MIME"text/plain", me::ModelEnsemble)
     print(io, "Ensemble of $(length(me.models)) models: \n")
