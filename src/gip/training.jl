@@ -1,6 +1,8 @@
 #=
 Training routines
 =#
+using JLD2
+using Glob
 using Printf
 using NNLS
 using NLSolversBase
@@ -121,12 +123,6 @@ function train!(m::TrainingConfig;
     opt_res, paramvector(model), [map(x->x[1], rec) map(x->x[2], rec)]
 end
 
-"Compute RMSE from *normalised* training data stored"
-rmse_train(tf::T) where {T <: Union{TrainingConfig, ModelEnsemble}} = atomic_rmse(predict_energy(tf, tf.x_train), tf.y_train, tf.yt)
-
-"Compute RMSE from *normalised* test data"
-rmse_test(tf::T, x_test, y_test) where {T<:Union{TrainingConfig, ModelEnsemble}} = atomic_rmse(predict_energy(tf, x_test), y_test, tf.yt)
-
 function Base.show(io::IO, x::TrainingConfig)
     print(io, "TrainingConfig for:\n")
     show(io, x.model)
@@ -176,6 +172,12 @@ function (me::ModelEnsemble)(x::AbstractVecOrMat{T}) where {T}
     end
     out
 end
+
+"Compute RMSE from *normalised* training data stored"
+rmse_train(tf::T) where {T <: Union{TrainingConfig, ModelEnsemble}} = atomic_rmse(predict_energy(tf, tf.x_train), tf.y_train, tf.yt)
+
+"Compute RMSE from *normalised* test data"
+rmse_test(tf::T, x_test, y_test) where {T<:Union{TrainingConfig, ModelEnsemble}} = atomic_rmse(predict_energy(tf, x_test), y_test, tf.yt)
 
 predict_energy!(f, model::T) where {T <: Union{ModelEnsemble, TrainingConfig}} = predict_energy!(f, model, model.xtrain)
 atomic_rmse(me::T; yt=me.yt) where {T <: Union{ModelEnsemble, TrainingConfig}} = atomic_rmse(predict_energy(me, me.x_train), me.y_train, yt)
@@ -236,4 +238,39 @@ function cellforces(me::ModelEnsemble, cell::Cell, featurespec)
     flat_pos = cell.positions[:]
     od = NLSolversBase.OnceDifferentiable(get_energy, flat_pos; inplace=false);
     reshape(NLSolversBase.jacobian(od, flat_pos), 3, :)
+end
+
+
+"""
+Load all structures from many paths
+"""
+function load_structures(files::Vector;energy_threshold=20.)
+    cells = [CellTools.read_res(f) for f in files]
+    enthalpy = [ x.metadata[:enthalpy] for x in cells]
+    natoms = [CellTools.nions(c) for c in cells];
+    enthalpy_per_atom = enthalpy ./ natoms
+
+    # Drop structure that are too high in energy
+    mask = enthalpy_per_atom .< (minimum(enthalpy_per_atom) + energy_threshold)
+    enthalpy = enthalpy[mask]
+    enthalpy_per_atom = enthalpy_per_atom[mask]
+    cells = cells[mask]
+    natoms = natoms[mask]
+    files = files[mask]
+
+    # Define the feature specifications
+    (cells=cells, enthalpy=enthalpy, enthalpy_per_atom=enthalpy_per_atom, natoms=natoms, fpath=files)
+end
+
+load_structures(files::AbstractString) = load_structures(glob(files))
+
+function ensemble_from_archive(fname;xname="x_test_norm", yname="y_test_norm")
+    stem = splitext(fname)[1]
+    models, xt, yt, x_test_norm, y_test_norm = jldopen(fname) do file
+        [file[x] for x in keys(file) if contains(x, "model")], file["xt"], file["yt"], file[xname], file[yname]
+    end
+    ensemble = CellTools.ModelEnsemble(models, x_test_norm, y_test_norm, xt, yt);
+    jldopen(stem * "-ensemble.jld2", "a") do file
+        file["ensemble"] = ensemble
+    end
 end

@@ -27,7 +27,7 @@ function sv(s, cf)
     f = zeros(nfe, nat)
     g = zeros(nfe, nat, 3, nat)
     s = zeros(nfe, nat, 3, 3, nat)
-    CellTools.feature_vector_and_gradients!(f, g, s, cf, cell;nl)
+    CellTools.compute_two_body_fv_gv!(f, g, s, cf, cell;nl)
     f[:]
 end
 
@@ -63,7 +63,7 @@ function fv(pos, cf)
     f = zeros(nfe, nat)
     g = zeros(nfe, nat, 3, nat)
     s = zeros(nfe, nat, 3, 3, nat)
-    CellTools.feature_vector_and_gradients!(f, g, s, cf, cell;nl)
+    CellTools.compute_two_body_fv_gv!(f, g, s, cf, cell;nl)
     f[:]
 end
 
@@ -84,7 +84,7 @@ end
     fvecs = zeros(nfe, nat)
     gvecs = zeros(nfe, nat, 3, nat)
     svecs = zeros(nfe, nat, 3, 3, nat)
-    CellTools.feature_vector_and_gradients!(fvecs, gvecs, svecs, twof, cell;nl)
+    CellTools.compute_two_body_fv_gv!(fvecs, gvecs, svecs, twof, cell;nl)
     p0 = cell.positions[:]
     od = NLSolversBase.OnceDifferentiable( x -> fv(x, twof), p0, fv(p0, twof); inplace=false)
 
@@ -113,7 +113,7 @@ end
     fvecs = zeros(nfe, nat)
     gvecs = zeros(nfe, nat, 3, nat)
     svecs = zeros(nfe, nat, 3, 3, nat)
-    CellTools.feature_vector_and_gradients!(fvecs, gvecs, svecs, threeof, cell;nl)
+    CellTools.compute_two_body_fv_gv!(fvecs, gvecs, svecs, threeof, cell;nl)
     gbuffer = zeros(3, nfe)
     gbuffer = zeros( nfe)
     p0 = copy(cell.positions[:])

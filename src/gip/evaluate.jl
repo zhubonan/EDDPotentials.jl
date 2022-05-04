@@ -3,6 +3,8 @@ Support code for using the potentials for efficient energy/force/stress
 calculations.
 =#
 using Zygote: gradient as zgradient
+using Optim
+using LinearAlgebra
 import Base
 import CellBase
 import CellBase: rebuild!, update!
@@ -471,6 +473,37 @@ function get_energy(cf::VariableLatticeFilter;rebuild_nl=true)
 end
 
 
-# function stress2vot(mat)
-#     [mat[1,1], mat[2,2], mat[3,3], ]
-# end
+
+"Covert eV/Å^3 to GPa"
+eVAngToGPa(x) = 160.21766208 * x
+
+"""
+    get_pressure_gpa(vc::Union{VariableLatticeFilter, CellCalculator}) 
+
+Return pressure in unit of GPa.
+"""
+function get_pressure_gpa(vc::Union{VariableLatticeFilter, CellCalculator}) 
+    eVAngToGPa(tr(CellTools.get_stress(vc)) / 3.)
+end
+
+
+"""
+    optimise_cell!(vc)
+
+Optimise the cell with LBFGS from Optim
+"""
+function optimise_cell!(vc;show_trace=false)
+    p0 = get_positions(vc)[:]
+
+    function fo(x, vc)
+        set_positions!(vc, reshape(x, 3, :))
+        get_energy(vc)
+    end
+
+    function go(x, vc)
+        set_positions!(vc, reshape(x, 3, :))
+        -get_forces(vc)
+    end
+    optimize(x -> fo(x, vc), x -> go(x, vc), p0, LBFGS(), Optim.Options(show_trace=show_trace); inplace=false)
+    vc
+end
