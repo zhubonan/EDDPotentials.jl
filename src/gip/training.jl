@@ -1,17 +1,21 @@
 #=
 Training routines
 =#
+using Base.Threads
+using Dates
 using JLD2
 using Glob
 using Printf
 using NNLS
 using NLSolversBase
+using ProgressMeter
+using Parameters
 
 
 """
     predict_energy!(f, model, x;total=reduce(hcat, x))
 
-Predict the energy for a given model
+Predict the energy for a given model, assuming data is already normalised.
 """
 function predict_energy!(f, model, x::AbstractVector;total=reduce(hcat, x))
     all_E = model(total)
@@ -26,6 +30,7 @@ end
 
 predict_energy(model, x::AbstractMatrix) = mean(model(x))
 predict_energy(model, x::Vector{Matrix{T}};total=reduce(hcat, x)) where {T} = predict_energy!(zeros(T, length(x)), model, x;total)
+
 
 "Take mean to obtain atomic energy of each frame"
 function elemmean(vec, i, n)
@@ -135,7 +140,7 @@ end
 
 
 """
-An ensemable of models with weights
+An ensemble of models with weights
 """
 mutable struct ModelEnsemble{T, N, M}
     models::Vector{T}
@@ -151,7 +156,7 @@ function ModelEnsemble(;model=m)
 end
 
 """
-Construct an ensemable of models via none-negative least squares (NNLS)
+Construct an ensemble of models via none-negative least squares (NNLS)
 """
 function ModelEnsemble(models::AbstractVector, x, y, xt, yt;threshold=1e-7)
     engs = reduce(hcat, predict_energy.(models, Ref(x)))
@@ -198,7 +203,26 @@ function Base.show(io::IO, me::ModelEnsemble)
     end
 end
 
-function energy_raw(me::ModelEnsemble, mat::Matrix{T}) where {T}
+"""
+Predict energy from feature vectors
+"""
+function predict_energy_from_fvecs(model::M, fvecs::Vector{Matrix{T}};total=reduce(hcat, fvecs)) where {T, M<:Union{ModelEnsemble, TrainingConfig}}
+    nfe = model.xt.len
+    # Update the feature vectors consistent with model size
+    # e.g. ignore the one body term if needed
+    if size(total, 1) != nfe
+        total = total[end-nfe+1:end, :]
+    end
+    f = zeros(T, length(fvecs))
+    #Scale the concatenated feature vectors
+    StatsBase.transform!(model.xt, total)
+    predict_energy!(f, model, fvecs;total=total)
+    #Scale back  the predicted energies
+    StatsBase.reconstruct!(model.yt, f)
+end
+
+
+function predict_energy_one(me::ModelEnsemble, mat::Matrix{T}) where {T}
     if size(mat, 1) != me.xt.len
         mat = mat[end-me.xt.len+1:end, :]
     end
@@ -219,19 +243,19 @@ function energy_raw(me::ModelEnsemble, mat::Matrix{T}) where {T}
     out
 end
 
-energy(me::ModelEnsemble, c::Cell, featurespec) = energy_raw(me, feature_vector(featurespec, c))
+predict_energy(me::ModelEnsemble, c::Cell, featurespec) = predict_energy_one(me, feature_vector(featurespec, c))
 
 
 """
 Obtain forces via finite difference
 
-NOTE: this is very very ineffcient!
+NOTE: this is very very inefficient!
 """
 function cellforces(me::ModelEnsemble, cell::Cell, featurespec)
     function get_energy(pos) 
         bak = cell.positions[:]
         cell.positions[:] .= pos
-        out = CellTools.energy(me, cell, featurespec)
+        out = CellTools.predict_energy(me, cell, featurespec)
         cell.positions[:] .= bak
         out
     end
@@ -240,30 +264,9 @@ function cellforces(me::ModelEnsemble, cell::Cell, featurespec)
     reshape(NLSolversBase.jacobian(od, flat_pos), 3, :)
 end
 
-
 """
-Load all structures from many paths
+Fit ensemble model from a JLD2 archive containing multiple models
 """
-function load_structures(files::Vector;energy_threshold=20.)
-    cells = [CellTools.read_res(f) for f in files]
-    enthalpy = [ x.metadata[:enthalpy] for x in cells]
-    natoms = [CellTools.nions(c) for c in cells];
-    enthalpy_per_atom = enthalpy ./ natoms
-
-    # Drop structure that are too high in energy
-    mask = enthalpy_per_atom .< (minimum(enthalpy_per_atom) + energy_threshold)
-    enthalpy = enthalpy[mask]
-    enthalpy_per_atom = enthalpy_per_atom[mask]
-    cells = cells[mask]
-    natoms = natoms[mask]
-    files = files[mask]
-
-    # Define the feature specifications
-    (cells=cells, enthalpy=enthalpy, enthalpy_per_atom=enthalpy_per_atom, natoms=natoms, fpath=files)
-end
-
-load_structures(files::AbstractString) = load_structures(glob(files))
-
 function ensemble_from_archive(fname;xname="x_test_norm", yname="y_test_norm")
     stem = splitext(fname)[1]
     models, xt, yt, x_test_norm, y_test_norm = jldopen(fname) do file
@@ -273,4 +276,99 @@ function ensemble_from_archive(fname;xname="x_test_norm", yname="y_test_norm")
     jldopen(stem * "-ensemble.jld2", "a") do file
         file["ensemble"] = ensemble
     end
+end
+
+
+"Append data to an JLD2 archive and close the handle"
+function appenddata(fname, name, data)
+    jldopen(fname, "a") do file
+        file[name] = data
+    end
+end
+
+const XT_NAME="xt"
+const YT_NAME="yt"
+const FEATURESPEC_NAME="cf"
+
+
+@with_kw struct TrainingOptions
+    nmodels::Int=256
+    max_iter::Int=300
+    "number of hidden nodes in each layer"
+    n_nodes::Vector{Int}=[8]
+    yt_name::String=YT_NAME
+    xt_name::String=XT_NAME
+    featurespec_name::String=FEATURESPEC_NAME
+    earlystop::Int=30
+    show_progress::Bool=false
+    "Store the data used for training in the archive"
+    store_training_data::Bool=true
+end
+
+"""
+Genreate a `Chain` based on a vector specifying the number of hidden nodes in each layer
+"""
+function generate_chain(nfeature, nnodes)
+    if length(nnodes) == 0 
+        return Chain(Dense(nfeature, 1))
+    end
+
+    models = Any[Dense(nfeature, nnodes[1], tanh;bias=true)]
+    # Add more layers
+    if length(nnodes) > 1
+        for i in 2:length(nnodes)
+            push!(models, Dense(nnodes[i-1], nnodes[i]))
+        end
+    end
+    # Output layer
+    push!(models, Dense(nnodes[end], 1))
+    Chain(models...)
+end
+
+function train_multi(training_data, savepath;args...)
+
+    opt = TrainingOptions(;args...)
+
+    x_train_norm = training_data.x_train_norm
+    y_train_norm = training_data.y_train_norm
+    x_test_norm = training_data.x_test_norm
+    y_test_norm = training_data.y_test_norm
+    xt = training_data.xt
+    yt = training_data.yt
+
+    nfeature = size(x_train_norm[1], 1)
+
+    isdir(savepath) || mkdir(savepath)
+    savefile="$(savepath)/$(now()).jld2"
+
+    # Write parameters
+    appenddata(savefile, opt.xt_name, xt)
+    appenddata(savefile, opt.yt_name, yt)
+    appenddata(savefile, opt.featurespec_name, cf)
+    appenddata(savefile, "training_options", opt)
+
+    if opt.store_training_data
+        appenddata(savefile, "training_data", training_data)
+    end
+
+    l = ReentrantLock()
+
+    nmodels = opt.nmodels
+    p = Progress(nmodels)
+    output = []
+    Threads.@threads for i in 1:nmodels
+        model = generate_chain(nfeature, opt.n_nodes)
+        tf = TrainingConfig(model; x=x_train_norm, y=y_train_norm, xt, yt)
+        out = train!(tf; x_test_norm, y_test_norm, yt, show_progress=opt.show_progress, earlystop=opt.earlystop, maxIter=opt.max_iter)
+        # Write model to the archive
+        lock(l)
+        try
+            appenddata(savefile, "model-$i", model)
+            push!(output, out)
+        finally
+            unlock(l)
+        end
+        ProgressMeter.next!(p)
+    end
+    output
 end

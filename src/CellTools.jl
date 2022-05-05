@@ -18,6 +18,7 @@ include("gip/gradient.jl")
 include("gip/nntools.jl")
 include("gip/lmsolve.jl")
 include("gip/training.jl")
+include("gip/preprocessing.jl")
 include("gip/evaluate.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice

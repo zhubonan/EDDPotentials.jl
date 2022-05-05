@@ -416,8 +416,8 @@ function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=
     CellFeature(elements, two_body_features, three_body_features)
 end
 
-function nfeatures(c::CellFeature)
-    n = length(c.elements)
+function nfeatures(c::CellFeature;ignore_one_body=false)
+    ignore_one_body ? n = 0 : n = length(c.elements)
     for f in c.two_body
         n += nfeatures(f)
     end

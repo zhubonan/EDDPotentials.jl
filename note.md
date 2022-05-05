@@ -142,9 +142,9 @@ so this might not work?
 Most of the time on the minimisation is spent on the jacobian evaluation....
 
 ```julia
-model_net = Chain(Dense(16=>8, tanh;bias=true), 
-                  Dense(8=>8, tanh;bias=true),
-                  Dense(8=>1))
+model_net = Chain(Dense(16, 8, tanh;bias=true), 
+                  Dense(8, 8, tanh;bias=true),
+                  Dense(8, 1))
 nparam = sum(length, Flux.params(model_net))
 "Unpack a flat vector into the shape of a given matrix"
 p0 = unpack_param(model_net);
@@ -237,3 +237,9 @@ p0 = unpack_param(model_net)
 
 od = OnceDifferentiable(f!, g!, p0, f!(zeros(Float32, 9000), p0); inplace=true)
 ```
+
+## Issue with `Flux` 
+
+Flux 0.13 uses `tanh_fast` from `NNLib` and subsitute Julia's default tanh dynamically. 
+However, at the moment `tanh_fast` gives NaN for large positive values (>1e2).
+Temporarily pin `Flux` to 0.12.10 to avoid this issue...
