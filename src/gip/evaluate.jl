@@ -335,22 +335,29 @@ end
 
 # Getter for the energy/stress
 
+"Return the underlying Cell object"
 get_cell(c::CellCalculator) = c.workspace.cell
 
+"Get the forces"
 get_forces(c::CellWorkSpace;make_copy=true) = make_copy ? copy(c.forces) : c.forces
 
+"Get the forces"
 function get_forces(m::CellCalculator;make_copy=true)
     calculate!(m)
     get_forces(m.workspace;make_copy)
 end
 
+"Get the energy"
 get_energy(c::CellWorkSpace) = sum(c.eng)
 function get_energy(m::CellCalculator)
     calculate!(m)
     get_energy(m.workspace)
 end
 
+"Get the stress tensor in native units"
 get_stress(c::CellWorkSpace;make_copy=true) = make_copy ? copy(c.stress) : c.stress
+
+"Get the stress tensor in native units"
 function get_stress(c::CellCalculator;make_copy=true)
     calculate!(c)
     get_stress(c.workspace;make_copy)
@@ -427,12 +434,18 @@ function CellBase.get_positions(cf::VariableLatticeFilter)
     hcat(apos, lpos)
 end
 
+
+"""
+    _get_forces_and_stress(cf::VariableLatticeFilter;rebuild_nl)
+
+Construct force and stress for the filter object
+"""
 function _get_forces_and_stress(cf::VariableLatticeFilter;rebuild_nl)
     calculate!(cf.calculator;forces=true, rebuild_nl) 
     dgrad = deformgradient(cf)
     vol = volume(get_cell(cf))
-    stress = get_stress(cf.calculator)
-    forces = get_forces(cf.calculator)
+    stress = get_stress(cf.calculator;make_copy=false)
+    forces = get_forces(cf.calculator;make_copy=false)
 
     virial = (dgrad  \ (vol .* stress))
     # Deformed forces
@@ -444,7 +457,7 @@ function _get_forces_and_stress(cf::VariableLatticeFilter;rebuild_nl)
 end
 
 """
-Forces including the stress contributions
+Forces including the stress contributions that is consistent with the augmented positions
 """
 get_forces(cf::VariableLatticeFilter;rebuild_nl=true) = _get_forces_and_stress(cf;rebuild_nl)[1]
 
@@ -466,12 +479,11 @@ function set_positions!(cf::VariableLatticeFilter, new)
     cell.positions .= new_dgrad * pos
 end
 
-"Return the energy"
+"Return the energy of the VariableLatticeFilter"
 function get_energy(cf::VariableLatticeFilter;rebuild_nl=true)
     calculate!(cf.calculator;rebuild_nl)
     get_energy(cf.calculator)
 end
-
 
 
 "Covert eV/Å^3 to GPa"
@@ -490,20 +502,32 @@ end
 """
     optimise_cell!(vc)
 
-Optimise the cell with LBFGS from Optim
+Optimise the cell with LBFGS from Optim. Collect the trajectory if requested.
+Note that the trajector is collected for all force evaluations and may not 
+corresponds to the actual iterations of the underlying LBFGS iterations.
 """
-function optimise_cell!(vc;show_trace=false)
+function optimise_cell!(vc;show_trace=false, record_trajactory=false)
     p0 = get_positions(vc)[:]
-
+    traj = []
     function fo(x, vc)
         set_positions!(vc, reshape(x, 3, :))
         get_energy(vc)
+        eng
     end
 
     function go(x, vc)
         set_positions!(vc, reshape(x, 3, :))
-        -get_forces(vc)
+        forces = get_forces(vc)
+        # ∇E = -F
+        forces .*= -1  
+        # Collect the trajectory if requsted
+        if record_trajactory
+            cell = deepcopy(get_cell(vc))
+            cell.metadata[:enthalpy] = get_energy(vc)
+            cell.arrays[:forces] = get_forces(vc.calculator)
+            push!(traj, cell)
+        end
     end
     optimize(x -> fo(x, vc), x -> go(x, vc), p0, LBFGS(), Optim.Options(show_trace=show_trace); inplace=false)
-    vc
+    vc, traj
 end
