@@ -27,7 +27,11 @@ function sv(s, cf)
     f = zeros(nfe, nat)
     g = zeros(nfe, nat, 3, nat)
     s = zeros(nfe, nat, 3, 3, nat)
-    CellTools.compute_two_body_fv_gv!(f, g, s, cf, cell;nl)
+    if eltype(cf) <: CellTools.TwoBodyFeature
+        CellTools.compute_two_body_fv_gv!(f, g, s, cf, cell;nl)
+    else
+        CellTools.compute_three_body_fv_gv!(f, g, s, cf, cell;nl)
+    end
     f[:]
 end
 
@@ -63,7 +67,11 @@ function fv(pos, cf)
     f = zeros(nfe, nat)
     g = zeros(nfe, nat, 3, nat)
     s = zeros(nfe, nat, 3, 3, nat)
-    CellTools.compute_two_body_fv_gv!(f, g, s, cf, cell;nl)
+    if eltype(cf) <: CellTools.TwoBodyFeature
+        CellTools.compute_two_body_fv_gv!(f, g, s, cf, cell;nl)
+    else
+        CellTools.compute_three_body_fv_gv!(f, g, s, cf, cell;nl)
+    end
     f[:]
 end
 
@@ -113,7 +121,7 @@ end
     fvecs = zeros(nfe, nat)
     gvecs = zeros(nfe, nat, 3, nat)
     svecs = zeros(nfe, nat, 3, 3, nat)
-    CellTools.compute_two_body_fv_gv!(fvecs, gvecs, svecs, threeof, cell;nl)
+    CellTools.compute_three_body_fv_gv!(fvecs, gvecs, svecs, threeof, cell;nl)
     gbuffer = zeros(3, nfe)
     gbuffer = zeros( nfe)
     p0 = copy(cell.positions[:])
@@ -190,6 +198,5 @@ end
     od = OnceDifferentiable(eeng, epos, eeng(epos);inplace=false)
     global grad= NLSolversBase.gradient(od, epos)
 
-    @show grad[:]
-    @show eforce[:]
+    @test maximum(abs.(grad .+ eforce)) < 1e-4
 end

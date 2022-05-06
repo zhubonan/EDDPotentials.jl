@@ -6,6 +6,27 @@ using StaticArrays
 
 abstract type AbstractNBodyFeature end
 
+"""
+Faster version of (^) by expanding more integer power into multiplications
+"""
+@inline function fast_pow(x, y)
+    y == -1 && return inv(x)
+    y == 0 && return one(x)
+    y == 1 && return x
+    y == 2 && return x * x
+    y == 3 && return x * x * x
+    y == 4 && return x * x * x * x
+    y == 5 && return x * x * x * x * x
+    y == 6 && return x * x * x * x * x * x
+    y == 7 && return x * x * x * x * x * x * x
+    y == 8 && return x * x * x * x * x * x * x * x 
+    y == 9 && return x * x * x * x * x * x * x * x * x 
+    y == 10 && return x * x * x * x * x * x * x * x * x * x 
+    y == 11 && return x * x * x * x * x * x * x * x * x * x * x 
+    y == 12 && return x * x * x * x * x * x * x * x * x * x * x * x 
+    ^(x, y)
+end
+
 sortedtuple(iter) = Tuple(sort(collect(iter)))
 
 """
@@ -44,7 +65,7 @@ struct TwoBodyFeature{T, M} <: AbstractNBodyFeature
     "df(r)/r"
     g::M
     "Exponents"
-    p::Vector{Float64}
+    p::Vector{Int}
     "Specie indices"
     sij_idx::Tuple{Symbol, Symbol}
     "Cut off distance"
@@ -58,8 +79,8 @@ fr(r::T, rcut) where {T} =  r <= rcut ? 2 * (1 - r / rcut) : zero(T)
 "Gradient of Eq. 7 in  the DDP paper"
 gfr(r::T, rcut) where {T} =  r <= rcut ? -2 / rcut : zero(T)
 
-TwoBodyFeature(f, g, p::Vector{Float64}, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64) = TwoBodyFeature(f, g, p, sortedtuple(sij_idx), rcut, length(p))
-TwoBodyFeature(p::Vector{Float64}, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64) = TwoBodyFeature(fr, gfr, p, sortedtuple(sij_idx), rcut)
+TwoBodyFeature(f, g, p, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64) = TwoBodyFeature(f, g, p, sortedtuple(sij_idx), rcut, length(p))
+TwoBodyFeature(p, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64) = TwoBodyFeature(fr, gfr, p, sortedtuple(sij_idx), rcut)
 
 """
 Call the object to accumulate an existing feature vector
@@ -74,7 +95,7 @@ function (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart=1)
     val = f.f(rij, f.rcut)
     i = istart
     for _ in 1:nfeatures(f)
-        out[i, iat] += val ^ f.p[i]
+        out[i, iat] += fast_pow(val, f.p[i])
         i += 1
     end
     out
@@ -88,8 +109,8 @@ function withgradient!(e::Matrix, g::Vector, f::TwoBodyFeature, rij, iat, istart
     gval = f.g(rij, f.rcut)
     i = istart
     for _ in 1:nfeatures(f)
-        g[i] += f.p[i] * (val ^ (f.p[i] - 1)) * gval  # Chain rule
-        e[i, iat] += val ^ f.p[i]
+        g[i] += f.p[i] * fast_pow(val, (f.p[i] - 1)) * gval  # Chain rule
+        e[i, iat] += fast_pow(val, f.p[i])
         i += 1
     end
     e, g
@@ -119,8 +140,8 @@ struct ThreeBodyFeature{T, M} <: AbstractNBodyFeature
     "df(r)/r"
     g::M
     "Exponents"
-    p::Vector{Float64}
-    q::Vector{Float64}
+    p::Vector{Int}
+    q::Vector{Int}
     "Specie indices"
     sijk_idx::Tuple{Symbol, Symbol, Symbol}
     "Cut off distance"
@@ -129,8 +150,8 @@ struct ThreeBodyFeature{T, M} <: AbstractNBodyFeature
     nq::Int
 end
 
-ThreeBodyFeature(f, g, p::Vector{Float64}, q::Vector{Float64}, sijk_idx::Tuple{Symbol, Symbol, Symbol}, rcut::Float64) = ThreeBodyFeature(f, g, p, q, sortedtuple(sijk_idx), rcut, length(p), length(q))
-ThreeBodyFeature(p::Vector{Float64}, q::Vector{Float64}, sijk_idx::Tuple{Symbol, Symbol, Symbol}, rcut::Float64) = ThreeBodyFeature(fr, gfr, p, q, sortedtuple(sijk_idx), rcut, length(p), length(q))
+ThreeBodyFeature(f, g, p, q, sijk_idx::Tuple{Symbol, Symbol, Symbol}, rcut::Float64) = ThreeBodyFeature(f, g, p, q, sortedtuple(sijk_idx), rcut, length(p), length(q))
+ThreeBodyFeature(p, q, sijk_idx::Tuple{Symbol, Symbol, Symbol}, rcut::Float64) = ThreeBodyFeature(fr, gfr, p, q, sortedtuple(sijk_idx), rcut, length(p), length(q))
 
 nfeatures(f::ThreeBodyFeature) = f.np * f.nq
 
@@ -148,7 +169,8 @@ function (f::ThreeBodyFeature)(out::AbstractMatrix, rij, rik, rjk, iat, istart=1
     i = istart
     for m in 1:f.np
         for o in 1:f.nq  # Note that q is summed in the inner loop
-            out[i, iat] += (fij ^ f.p[m]) * (fik ^ f.p[m]) * (fjk ^ f.q[o])
+            #out[i, iat] += (fij ^ f.p[m]) * (fik ^ f.p[m]) * (fjk ^ f.q[o])
+            out[i, iat] += fast_pow(fij, f.p[m]) * fast_pow(fik, f.p[m]) * fast_pow(fjk, f.q[o])
             i += 1
         end
     end
@@ -191,11 +213,11 @@ function withgradient!(e::Matrix, g::Matrix, f::ThreeBodyFeature, rij, rik, rjk,
     for m in 1:f.np
         for o in 1:f.nq  # Note that q is summed in the inner loop
             # Feature turm
-            e[i, iat] += (fij ^ f.p[m]) * (fik ^ f.p[m]) * (fjk ^ f.q[o])
+            e[i, iat] += fast_pow(fij, f.p[m]) * fast_pow(fik, f.p[m]) * fast_pow(fjk, f.q[o])
             # Gradient
-            g[1, i] = f.p[m] * (fij ^ (f.p[m] - 1)) * (fik ^ f.p[m]) * (fjk ^ f.q[o]) * gij
-            g[2, i] = (fij ^ f.p[m]) * f.p[m] * (fik ^ (f.p[m] - 1)) * (fjk ^ f.q[o]) * gik
-            g[3, i] = (fij ^ f.p[m]) * (fik ^ f.p[m]) * f.q[o] * (fjk ^ (f.q[o] - 1)) * gjk
+            g[1, i] = f.p[m] * fast_pow(fij, (f.p[m] - 1)) * fast_pow(fik, f.p[m]) * fast_pow(fjk, f.q[o]) * gij
+            g[2, i] = fast_pow(fij, f.p[m]) * f.p[m] * fast_pow(fik, (f.p[m] - 1)) * fast_pow(fjk, f.q[o]) * gik
+            g[3, i] = fast_pow(fij, f.p[m]) * fast_pow(fik, f.p[m]) * f.q[o] * fast_pow(fjk, (f.q[o] - 1)) * gjk
             i += 1
         end
     end
@@ -395,7 +417,7 @@ function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=
     for e1 in elements
         for e2 in elements
             if !(any(x -> permequal(x, e1, e2), existing_comb))
-                push!(two_body_features, TwoBodyFeature(f2, g2, collect(Float64, p2), (e1, e2), rcut2))
+                push!(two_body_features, TwoBodyFeature(f2, g2, collect(Int, p2), (e1, e2), rcut2))
                 push!(existing_comb, (e1, e2))
             end
         end
@@ -407,7 +429,7 @@ function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=
         for e2 in elements
             for e3 in elements
                 if !(any(x -> permequal(x, e1, e2, e3), existing_comb))
-                    push!(three_body_features, ThreeBodyFeature(f3, g3, collect(Float64, p3), collect(Float64, q3), (e1, e2, e3), rcut3))
+                    push!(three_body_features, ThreeBodyFeature(f3, g3, collect(Int, p3), collect(Int, q3), (e1, e2, e3), rcut3))
                     push!(existing_comb, (e1, e2, e3))
                 end
             end

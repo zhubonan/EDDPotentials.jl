@@ -38,18 +38,18 @@ function compute_two_body_fv_gv!(evecs, gvecs, svecs, features::Vector{TwoBodyFe
                 vtmp = gbuffer[i] .* vij / rij
                 # Gradient 
                 for idx in 1:size(vtmp, 1)
-                    gvecs[i, iat, idx, iat] -= vtmp[idx]
-                    gvecs[i, iat, idx, jat] += vtmp[idx]
+                    @inbounds gvecs[i, iat, idx, iat] -= vtmp[idx]
+                    @inbounds gvecs[i, iat, idx, jat] += vtmp[idx]
                 end
 
                 # Derivative of the cell deformation (stress)
                 # Factor of two for double counting 
                 # NB. can be optimised with only one update if only total is needed
                 stmp = vij * vtmp' ./ 2
-                for idx in 1:size(stmp, 1)
-                    for jdx in 1:size(stmp, 2)
-                        svecs[i, iat, idx, jdx, iat] += stmp[idx, jdx]
-                        svecs[i, iat, idx, jdx, jat] += stmp[idx, jdx]
+                for jdx in 1:size(stmp, 2)
+                    for idx in 1:size(stmp, 1)
+                        @inbounds svecs[i, iat, idx, jdx, iat] += stmp[idx, jdx]
+                        @inbounds svecs[i, iat, idx, jdx, jat] += stmp[idx, jdx]
                     end
                 end
             end
@@ -100,31 +100,31 @@ function compute_three_body_fv_gv!(evecs, gvecs, svecs, features::Vector{ThreeBo
                 end
                 # Update forces and the stres
                 for i = 1:totalfe
-                    tij = gbuffer[1, i] * vij / rij
-                    tik = gbuffer[2, i] * vik / rik
-                    tjk = gbuffer[3, i] * vjk / rjk
+                    @inbounds tij = gbuffer[1, i] * vij / rij
+                    @inbounds tik = gbuffer[2, i] * vik / rik
+                    @inbounds tjk = gbuffer[3, i] * vjk / rjk
                     # Gradient with positions
                     for idx in 1:length(tij)
-                        gvecs[i, iat, idx, iat] -= tij[idx]
-                        gvecs[i, iat, idx, jat] += tij[idx]
-                        gvecs[i, iat, idx, iat] -= tik[idx]
-                        gvecs[i, iat, idx, kat] += tik[idx]
-                        gvecs[i, iat, idx, jat] -= tjk[idx]
-                        gvecs[i, iat, idx, kat] += tjk[idx]
+                        @inbounds gvecs[i, iat, idx, iat] -= tij[idx]
+                        @inbounds gvecs[i, iat, idx, jat] += tij[idx]
+                        @inbounds gvecs[i, iat, idx, iat] -= tik[idx]
+                        @inbounds gvecs[i, iat, idx, kat] += tik[idx]
+                        @inbounds gvecs[i, iat, idx, jat] -= tjk[idx]
+                        @inbounds gvecs[i, iat, idx, kat] += tjk[idx]
                     end
 
                     # Stress (gradient on cell deformation)
                     sij = vij .* tij' ./ 2
                     sik = vik .* tik' ./ 2
                     sjk = vjk .* tjk' ./ 2
-                    for idx in 1:size(sij, 1)
-                        for jdx in 1:size(sij, 2)
-                            svecs[i, iat, idx, jdx, iat] += sij[idx, jdx]
-                            svecs[i, iat, idx, jdx, jat] += sij[idx, jdx]
-                            svecs[i, iat, idx, jdx, iat] += sik[idx, jdx]
-                            svecs[i, iat, idx, jdx, kat] += sik[idx, jdx]
-                            svecs[i, iat, idx, jdx, jat] += sjk[idx, jdx]
-                            svecs[i, iat, idx, jdx, kat] += sjk[idx, jdx]
+                    for jdx in 1:size(sij, 2)
+                        for idx in 1:size(sij, 1)
+                            @inbounds svecs[i, iat, idx, jdx, iat] += sij[idx, jdx]
+                            @inbounds svecs[i, iat, idx, jdx, jat] += sij[idx, jdx]
+                            @inbounds svecs[i, iat, idx, jdx, iat] += sik[idx, jdx]
+                            @inbounds svecs[i, iat, idx, jdx, kat] += sik[idx, jdx]
+                            @inbounds svecs[i, iat, idx, jdx, jat] += sjk[idx, jdx]
+                            @inbounds svecs[i, iat, idx, jdx, kat] += sjk[idx, jdx]
                         end
                     end
                 end

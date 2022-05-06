@@ -4,6 +4,7 @@ calculations.
 =#
 using Zygote: gradient as zgradient
 using Optim
+using LineSearches
 using LinearAlgebra
 import Base
 import CellBase
@@ -506,13 +507,12 @@ Optimise the cell with LBFGS from Optim. Collect the trajectory if requested.
 Note that the trajector is collected for all force evaluations and may not 
 corresponds to the actual iterations of the underlying LBFGS iterations.
 """
-function optimise_cell!(vc;show_trace=false, record_trajactory=false)
+function optimise_cell!(vc;show_trace=false, record_trajectory=false, stepmax=0.1,g_abstol=1e-3, f_reltol=1e-8, successive_f_tol=2)
     p0 = get_positions(vc)[:]
     traj = []
     function fo(x, vc)
         set_positions!(vc, reshape(x, 3, :))
         get_energy(vc)
-        eng
     end
 
     function go(x, vc)
@@ -521,13 +521,15 @@ function optimise_cell!(vc;show_trace=false, record_trajactory=false)
         # ∇E = -F
         forces .*= -1  
         # Collect the trajectory if requsted
-        if record_trajactory
+        if record_trajectory
             cell = deepcopy(get_cell(vc))
             cell.metadata[:enthalpy] = get_energy(vc)
             cell.arrays[:forces] = get_forces(vc.calculator)
             push!(traj, cell)
         end
+        forces
     end
-    optimize(x -> fo(x, vc), x -> go(x, vc), p0, LBFGS(), Optim.Options(show_trace=show_trace); inplace=false)
-    vc, traj
+    lbfgs = LBFGS(;linesearch = LineSearches.HagerZhang(;alphamax=stepmax))
+    res = optimize(x -> fo(x, vc), x -> go(x, vc), p0, lbfgs, Optim.Options(;show_trace=show_trace, g_abstol, f_reltol, successive_f_tol); inplace=false)
+    res, traj
 end
