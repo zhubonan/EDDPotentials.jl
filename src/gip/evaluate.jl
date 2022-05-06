@@ -3,8 +3,8 @@ Support code for using the potentials for efficient energy/force/stress
 calculations.
 =#
 using Zygote: gradient as zgradient
-using Optim
-using LineSearches
+using Optim: LBFGS, optimize
+using LineSearches: HagerZhang
 using LinearAlgebra
 import Base
 import CellBase
@@ -529,7 +529,7 @@ function optimise_cell!(vc;show_trace=false, record_trajectory=false, stepmax=0.
         end
         forces
     end
-    lbfgs = LBFGS(;linesearch = LineSearches.HagerZhang(;alphamax=stepmax))
+    lbfgs = LBFGS(;linesearch = HagerZhang(;alphamax=stepmax))
     res = optimize(x -> fo(x, vc), x -> go(x, vc), p0, lbfgs, Optim.Options(;show_trace=show_trace, g_abstol, f_reltol, successive_f_tol); inplace=false)
     res, traj
 end
