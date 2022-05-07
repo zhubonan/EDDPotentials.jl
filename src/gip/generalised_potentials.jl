@@ -168,9 +168,10 @@ function (f::ThreeBodyFeature)(out::AbstractMatrix, rij, rik, rjk, iat, istart=1
     fjk = func(rjk, rcut)
     i = istart
     for m in 1:f.np
+        ijkp = fast_pow(fij, f.p[m]) * fast_pow(fik, f.p[m]) 
         for o in 1:f.nq  # Note that q is summed in the inner loop
             #out[i, iat] += (fij ^ f.p[m]) * (fik ^ f.p[m]) * (fjk ^ f.q[o])
-            out[i, iat] += fast_pow(fij, f.p[m]) * fast_pow(fik, f.p[m]) * fast_pow(fjk, f.q[o])
+            out[i, iat] += ijkp * fast_pow(fjk, f.q[o])
             i += 1
         end
     end
@@ -211,13 +212,15 @@ function withgradient!(e::Matrix, g::Matrix, f::ThreeBodyFeature, rij, rik, rjk,
     gjk = f.g(rjk, rcut)
     i = istart  # Index of the element
     for m in 1:f.np
+        ijkp = fast_pow(fij, f.p[m]) * fast_pow(fik, f.p[m]) 
+        tmp = ijkp / fik  # fij ^ pm * fik * (pm - 1)
         for o in 1:f.nq  # Note that q is summed in the inner loop
-            # Feature turm
-            e[i, iat] += fast_pow(fij, f.p[m]) * fast_pow(fik, f.p[m]) * fast_pow(fjk, f.q[o])
-            # Gradient
+            # Feature term
+            e[i, iat] += ijkp * fast_pow(fjk, f.q[o])
+            # Gradient - NOTE this can be optimised further...
             g[1, i] = f.p[m] * fast_pow(fij, (f.p[m] - 1)) * fast_pow(fik, f.p[m]) * fast_pow(fjk, f.q[o]) * gij
-            g[2, i] = fast_pow(fij, f.p[m]) * f.p[m] * fast_pow(fik, (f.p[m] - 1)) * fast_pow(fjk, f.q[o]) * gik
-            g[3, i] = fast_pow(fij, f.p[m]) * fast_pow(fik, f.p[m]) * f.q[o] * fast_pow(fjk, (f.q[o] - 1)) * gjk
+            g[2, i] = tmp  * f.p[m] * fast_pow(fjk, f.q[o]) * gik
+            g[3, i] = ijkp * f.q[o] * fast_pow(fjk, (f.q[o] - 1)) * gjk
             i += 1
         end
     end
