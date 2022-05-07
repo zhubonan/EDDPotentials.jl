@@ -372,3 +372,33 @@ function train_multi(training_data, savepath;args...)
     end
     output
 end
+
+
+"""
+Fit an ensemble model from an archive of trained models.
+
+The ensemble model is saved into the same archive
+"""
+function create_ensemble(fname)
+    models, xt, yt, traindata  = jldopen(fname) do file
+        [file[x] for x in keys(file) if contains(x, "model")], file["xt"], file["yt"], file["training_data"]
+    end
+
+    ensemble = CellTools.ModelEnsemble(models, traindata.x_train_norm, traindata.y_train_norm, xt, yt);
+
+    jldopen(fname, "a") do file
+        file["ensemble"] = ensemble
+    end
+    ensemble
+end
+
+
+"""
+Load an ensemble model from an archive file
+"""
+function load_ensemble_model(fname)
+    ensemble = jldopen(fname, ) do file
+        file["ensemble"]
+    end
+    ensemble
+end
