@@ -507,7 +507,7 @@ Optimise the cell with LBFGS from Optim. Collect the trajectory if requested.
 Note that the trajector is collected for all force evaluations and may not 
 corresponds to the actual iterations of the underlying LBFGS iterations.
 """
-function optimise_cell!(vc;show_trace=false, record_trajectory=false, stepmax=0.1,g_abstol=1e-3, f_reltol=1e-8, successive_f_tol=2)
+function optimise_cell!(vc;show_trace=false, record_trajectory=false, stepmax=2.0, g_abstol=1e-3, f_reltol=1e-8, successive_f_tol=2)
     p0 = get_positions(vc)[:]
     traj = []
     function fo(x, vc)
