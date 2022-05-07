@@ -494,3 +494,14 @@ function one_body_vectors(cell)
     vecs = zeros(length(us), nions(cell))
     one_body_vectors!(vecs, cell)
 end
+
+
+"""
+Get a suggested rcut for NN list for a CellFeature
+"""
+function suggest_rcut(cf::CellFeature)
+    r3 = maximum(x.rcut for x in cf.two_body)
+    r2 = maximum(x.rcut for x in cf.three_body)
+    max(r3, r2) + 1.0
+end
+
