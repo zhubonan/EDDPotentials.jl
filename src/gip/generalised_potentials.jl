@@ -290,7 +290,7 @@ function feature_vector!(fvecs, features::Vector{TwoBodyFeature{T, N}}, cell::Ce
     fvecs
 end
 
-function feature_vector(features::Vector, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+function feature_vector(features::Vector, cell::Cell;nl=NeighbourList(cell, maximum(f.rcut for f in features))) where T
     # Feature vectors
     nfe = map(nfeatures, features) 
     ni = nions(cell)
