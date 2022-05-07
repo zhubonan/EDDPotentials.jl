@@ -84,7 +84,7 @@ function ForceBuffer{T}(nf, nat;ndims=3) where {T}
 end
 
 
-function CellWorkSpace(cell::Cell;cf, rcut, nmax=100, savevec=true, ndims=3, ignore_one_body=true) 
+function CellWorkSpace(cell::Cell;cf, rcut, nmax=500, savevec=true, ndims=3, ignore_one_body=true) 
     nl = NeighbourList(cell, rcut, nmax;savevec)
     us = unique(atomic_numbers(cell))
     one_body = zeros(length(us), nions(cell))

@@ -290,7 +290,7 @@ function feature_vector!(fvecs, features::Vector{TwoBodyFeature{T, N}}, cell::Ce
     fvecs
 end
 
-function feature_vector(features::Vector, cell::Cell;nl=NeighbourList(cell, maximum(f.rcut for f in features))) where T
+function feature_vector(features::Vector, cell::Cell;nmax=500, nl=NeighbourList(cell, maximum(f.rcut for f in features) + 1.0, nmax)) 
     # Feature vectors
     nfe = map(nfeatures, features) 
     ni = nions(cell)
@@ -450,13 +450,14 @@ function nfeatures(c::CellFeature;ignore_one_body=false)
 end
 
 
-function feature_vector(cellf::CellFeature, cell::Cell)
+function feature_vector(cellf::CellFeature, cell::Cell;nmax=500)
 
+    # Infer rmax
     rcut = max(
         maximum(x -> x.rcut, cellf.two_body),
         maximum(x -> x.rcut, cellf.three_body)
-    )
-    nl = NeighbourList(cell, rcut)
+    ) + 1.0
+    nl = NeighbourList(cell, rcut, nmax)
 
     # One body vector is essentially an one-hot encoding of the specie labels 
     # assuming no "mixture" atoms of course
