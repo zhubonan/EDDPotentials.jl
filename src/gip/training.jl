@@ -370,7 +370,7 @@ function train_multi(training_data, savepath;args...)
         end
         ProgressMeter.next!(p)
     end
-    output
+    (models=output, savefile=savefile)
 end
 
 
