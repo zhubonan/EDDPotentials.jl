@@ -33,7 +33,7 @@ function push_xyz!(lines, structure::Cell)
 
     # Include extra properties
     info_lines = []
-    for (key, value) in info(structure)
+    for (key, value) in CellBase.metadata(structure)
         push!(info_lines, "$(key)=\"$(value)\"")
     end
     info_string = join(info_lines, " ")

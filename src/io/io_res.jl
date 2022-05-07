@@ -107,7 +107,7 @@ function write_res(io::IO, structure::Cell)
     write(io, cell_line)
     write(io, "LATT -1\n")
     write(io, "SFAC ", join(map(string, unique(species(structure))), " "), "\n")
-    fposmat = CellBase.rec_cellmat(lattice(structure)) * positions(structure) 
+    fposmat = CellBase.get_scaled_positions(structure)
     # Wrap
     fposmat .-= floor.(fposmat)
 

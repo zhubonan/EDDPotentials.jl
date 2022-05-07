@@ -473,8 +473,7 @@ function set_positions!(cf::VariableLatticeFilter, new)
     new_dgrad = transpose(new[:, nat+1:end]) ./ cf.lattice_factor
 
     # Set the cell according to the deformation
-    mat = cellmat(cell)
-    mat .= new_dgrad * cellmat(cf.orig_lattice)
+    set_cellmat!(cell, new_dgrad * cellmat(cf.orig_lattice))
 
     # Set the positions
     cell.positions .= new_dgrad * pos

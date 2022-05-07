@@ -10,13 +10,15 @@ function load_structures(fpath::Vector, featurespec;energy_threshold=20.)
     natoms = [CellTools.nions(c) for c in cells];
     enthalpy_per_atom = enthalpy ./ natoms
 
-    # Drop structure that are too high in energy
-    mask = enthalpy_per_atom .< (minimum(enthalpy_per_atom) + energy_threshold)
-    enthalpy = enthalpy[mask]
-    enthalpy_per_atom = enthalpy_per_atom[mask]
-    cells = cells[mask]
-    natoms = natoms[mask]
-    fpath = fpath[mask]
+    if energy_threshold > 0
+        # Drop structure that are too high in energy
+        mask = enthalpy_per_atom .< (minimum(enthalpy_per_atom) + energy_threshold)
+        enthalpy = enthalpy[mask]
+        enthalpy_per_atom = enthalpy_per_atom[mask]
+        cells = cells[mask]
+        natoms = natoms[mask]
+        fpath = fpath[mask]
+    end
 
     # Construct feature vectors
     fvecs = Vector{Matrix{Float64}}(undef, length(cells))
