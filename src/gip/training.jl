@@ -326,8 +326,12 @@ function generate_chain(nfeature, nnodes)
 end
 
 function train_multi(training_data, savepath;args...)
-
     opt = TrainingOptions(;args...)
+    train_multi(training_data, savepath, opt)
+end
+
+function train_multi(training_data, savepath, opt::TrainingOptions)
+
 
     x_train_norm = training_data.x_train_norm
     y_train_norm = training_data.y_train_norm
@@ -356,19 +360,28 @@ function train_multi(training_data, savepath;args...)
     nmodels = opt.nmodels
     p = Progress(nmodels)
     output = []
-    Threads.@threads for i in 1:nmodels
+
+    """
+    Do work for the ith object
+    """
+    function do_work(i)
         model = generate_chain(nfeature, opt.n_nodes)
         tf = TrainingConfig(model; x=x_train_norm, y=y_train_norm, xt, yt)
         out = train!(tf; x_test_norm, y_test_norm, yt, show_progress=opt.show_progress, earlystop=opt.earlystop, maxIter=opt.max_iter)
+        showvalues = [(:rmse, minimum(out[3][:, 2]))]
         # Write model to the archive
         lock(l)
         try
             appenddata(savefile, "model-$i", model)
             push!(output, out)
+            ProgressMeter.next!(p;showvalues)
         finally
             unlock(l)
         end
-        ProgressMeter.next!(p)
+    end
+
+    Threads.@threads for i in 1:nmodels
+        do_work(i)
     end
     (models=output, savefile=savefile)
 end
