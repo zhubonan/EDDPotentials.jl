@@ -11,7 +11,22 @@ A collection of tools for analysing and manipulating crystal structures.
 
 ## Todo
 
-- Fitting and training interface for interatomic potentials
-- Force, stress using the constructed potentials
-- Geometry optimisation using constructed potentials
-- Documentation system
+* [ ] Workflow system for easy construction of the potentials
+* [ ] Validation of the boron system
+* [ ] Documentations
+
+## Training workflow
+
+1. Generate the initial set of random structures and compute DFT singlepoint energies
+2. Train (ensemble) model#1
+3. Generate more (M) random structures and relax them using model#1
+4. Shake the relaxed structures N times, giving M(N+1) new structures
+5. Compute the DFT singlepoint energies of the new structures
+6. Train (ensemble) model#2 using the new set of structures 
+7. Repeat 3-6 to get about 5 iterations
+
+### Tips
+
+* The random structure generation process must cover a random of volume to sample an diverse configuration space.
+* The distribution of volumes needs to be monitored in the subsequent relaxation
+* Improvement of the models (convergence) may be tracked by the out-of-sample RMSE, e.g. using model#A-1 for new structures in iteration #A.
