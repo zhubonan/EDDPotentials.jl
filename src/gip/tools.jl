@@ -42,16 +42,8 @@ function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;e
         catch
             return
         end
-
-        this_cell = CellTools.get_cell(vc)
-        # Set metadata
-        # TODO add spacegroup information from Spglib.jl
-        this_cell.metadata[:enthalpy] = CellTools.get_energy(vc)
-        this_cell.metadata[:volume] = volume(this_cell)
-        this_cell.metadata[:pressure] = CellTools.get_pressure_gpa(vc.calculator)
-        this_cell.metadata[:label] = fname
-        CellTools.write_res(joinpath(savepath, fname), this_cell)
-    end
+        write_res(joinpath(savepath, fname), vc;label=fname, symprec=0.1)
+   end
 
     @info "Total number of structures: $n"
     Threads.@threads for i in 1:n
@@ -86,3 +78,32 @@ function train(patterns, outpath,
     # Save the ensemble model
     CellTools.create_ensemble(output.savefile)
 end
+
+"""
+    update_metadata!(vc::VariableLatticeFilter, label;symprec=1e-2)
+
+Update the metadata attached to a `Cell`` object
+"""
+function update_metadata!(vc::VariableLatticeFilter, label;symprec=1e-2)
+    this_cell = CellTools.get_cell(vc)
+    # Set metadata
+    this_cell.metadata[:enthalpy] = CellTools.get_energy(vc)
+    this_cell.metadata[:volume] = volume(this_cell)
+    this_cell.metadata[:pressure] = CellTools.get_pressure_gpa(vc.calculator)
+    this_cell.metadata[:label] = label
+    symm = CellBase.get_international(this_cell, symprec)
+    this_cell.metadata[:symm] = "($(symm))"
+    # Write to the file
+    vc
+end
+
+"""
+    write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="celltools")
+
+Write structure in VariableCellFiler as SHELX file.
+"""
+function write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="celltools")
+    update_metadata!(vc, label;symprec)
+    CellTools.write_res(path, get_cell(vc))
+end
+ 
