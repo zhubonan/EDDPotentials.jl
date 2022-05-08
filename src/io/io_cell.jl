@@ -1,3 +1,8 @@
+
+module CellIO
+
+using CellBase:cellpar2mat
+
 """
 Read a cell file
 """
@@ -26,15 +31,9 @@ function clean_lines(lines_in::Vector{String})
     lines_out
 end
 
-"""
-Read content of a cell file
-"""
-function read_cell(lines_in::Vector{T}) where T<:AbstractString
-
-    lines = clean_lines(lines_in)
-   
-    # read cell vectors
-    block = find_block(lines, "LATTICE_CART")
+"Read cell related sections"
+function read_cellmat(lines)
+   block = find_block(lines, "LATTICE_CART")
     if length(block) > 0
         cellmat = copy(read_num_block(block, 3, column_major=true))
     else
@@ -44,10 +43,13 @@ function read_cell(lines_in::Vector{T}) where T<:AbstractString
         cell_par_raw = read_num_block(block, 3)
         cell_par[1:3] = cell_par_raw[1, :]
         cell_par[4:6] = cell_par_raw[2, :]
-        cellmat = cellpar2vec(cell_par)
+        cellmat = cellpar2mat(cell_par)
     end
+    cellmat
+end
 
-    # read positions
+"Read positions related sections"
+function read_positions(lines, cellmat)
     positions = Vector{Float64}[]
     is_abs = false
     block = find_block(lines, "POSITIONS_ABS")
@@ -56,7 +58,9 @@ function read_cell(lines_in::Vector{T}) where T<:AbstractString
     else
         block = find_block(lines, "POSITIONS_FRAC")
     end
-    pos_block = String[]
+    @assert length(block) > 0 "Positions block found!"
+
+    # Parse the position block
     ion_names = Symbol[]
     for line in block
         sline = split(line)
@@ -66,30 +70,23 @@ function read_cell(lines_in::Vector{T}) where T<:AbstractString
 
     # The positions are stored as column vector matrix
     posmat = hcat(positions...)
-    if is_abs
-        positions_frac = convert_frac_pos(cellmat, posmat)
-    else
+    if is_abs == false
         posmat = cellmat * posmat
     end
-
-    # Read CASTEP keys
-    # kw_settings = KW()
-    # for line in filter_block(lines)
-    #     m = match(r"^(\w+)[ :=]+(.*)$", line) 
-    #     if !isnothing(m)
-    #         kw_settings[Symbol(m.captures[1])] = m.captures[2]
-    #     end
-    # end
-        
-    return cellmat, posmat, ion_names
+    posmat, ion_names
 end
 
-function read_cell(::Type{T}, fname) where T
-    cellmat, posmat, species = read_cell(fname)
-    if T == Cell
-        lattice = Lattice(cellmat)
-        return Cell(lattice, speices, posmat)
-    end
+
+"""
+Read content of a cell file
+"""
+function read_cell(lines_in::Vector{T}) where T<:AbstractString
+
+    lines = clean_lines(lines_in)
+    cellmat = read_cellmat(lines)
+    posmat, ion_names = read_positions(lines, cellmat)
+       
+    return cellmat, posmat, ion_names
 end
 
 
@@ -286,3 +283,14 @@ function filter_block(lines, only::Vector{T}) where T<:AbstractString
     end
     return out_lines
 end
+
+end # Module cell IO
+
+using .CellIO
+
+function read_cell(fname)
+    cellmat, posmat, species = CellIO.read_cell(fname)
+    lattice = Lattice(cellmat)
+    return Cell(lattice, species, posmat)
+end
+

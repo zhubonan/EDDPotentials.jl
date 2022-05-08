@@ -1,4 +1,5 @@
 # Reading cell files
+using CellBase: vec2cellpar
 
 
 """A castep cell file"""
@@ -81,7 +82,7 @@ function structure(cell::CastepCell)
         abc = zeros(Float64, 6)
         abc[1:3] .= map(x->parse(Float64, x), split(data[1]))
         abc[4:6] .= map(x->parse(Float64, x), split(data[2]))
-        lattice = cellpar2vec(abc)
+        lattice = vec2cellpar(abc)
     end
 
     # Read the positions
