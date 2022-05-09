@@ -137,14 +137,19 @@ end
 """
 Build and relax N structures
 """
-function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10)
+function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, warn=true)
     not_ok = true
     while not_ok
         try
             build_and_relax(seedfile, outdir, ensemble, cf;timeout)
         catch err 
-            typeof(err) <: ProcessFailedException  && println(stderr, "WARNING: `buildcell` failed to make the structure")
-            typeof(err) <: ProcessFailedException  && println(stderr, "WARNING: relaxation errored!")
+            if warn
+                if typeof(err) <: ProcessFailedException 
+                    println(stderr, "WARNING: `buildcell` failed to make the structure")
+                else
+                    println(stderr, "WARNING: relaxation errored!")
+                end
+            end
             continue
         end
         not_ok=false
@@ -152,11 +157,16 @@ function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, e
 end
 
 """
-Build and relax N structures
+    build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10)
+
+Build and relax `num` structures in parallel (threads) using passed `ModuleEnsemble` and `CellFeature`
 """
-function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, ntasks=nthreads())
-    asyncmap(x -> build_and_relax_one(seedfile, outdir, ensemble, cf;timeout), 1:num;
-             ntasks)
+function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10)
+    pbar = Progress(num;desc="Build and relax: ")
+    Threads.@threads for i in 1:num
+        build_and_relax_one(seedfile, outdir, ensemble, cf;timeout,warn=false)
+        next!(pbar)
+    end
 end
 
 
@@ -292,6 +302,8 @@ function iterative_build(workdir, seedfile, per_generation=100, shake_per_minima
         @info "Model RMSE (train): $(atomic_rmse(ensemble)) eV/atom"
         iteration += 1
     end
+    @info "Iterative build completed"
+    @info "Model RMSE (train): $(atomic_rmse(ensemble)) eV/atom"
 
 end
 

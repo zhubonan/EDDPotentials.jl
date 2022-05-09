@@ -430,3 +430,20 @@ function load_featurespec(fname;opts=TrainingOptions())
     end
     featurespec
 end
+
+
+rmse(x, y) = sqrt(mean((x .- y) .^2))
+
+"""
+Compute RMSE of the ensemble model based on unscaled data
+"""
+function rmse(ensemble::ModelEnsemble, x::AbstractVector, y::AbstractVector;scaled=false)
+    if scaled == false
+        x_norm = map(z -> StatsBase.transform(ensemble.xt, z), x)
+        pred = StatsBase.reconstruct(ensemble.yt, predict_energy(ensemble, x_norm))
+    else
+        pred = StatsBase.reconstruct(ensemble.yt, predict_energy(ensemble, x))
+        y = StatsBase.reconstruct(ensemble.yt, y)
+    end
+    rmse(pred, y)
+end
