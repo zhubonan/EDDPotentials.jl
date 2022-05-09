@@ -330,7 +330,7 @@ function train_multi(training_data, savepath;args...)
     train_multi(training_data, savepath, opt)
 end
 
-function train_multi(training_data, savepath, opt::TrainingOptions)
+function train_multi(training_data, savepath, opt::TrainingOptions;featurespec=nothing)
 
 
     x_train_norm = training_data.x_train_norm
@@ -342,13 +342,19 @@ function train_multi(training_data, savepath, opt::TrainingOptions)
 
     nfeature = size(x_train_norm[1], 1)
 
-    isdir(savepath) || mkdir(savepath)
-    savefile="$(savepath)/$(now()).jld2"
+    if contains(savepath, ".jld2")
+        savefile = savepath
+    else
+        isdir(savepath) || mkdir(savepath)
+        savefile="$(savepath)/$(now()).jld2"
+    end
 
     # Write parameters
     appenddata(savefile, opt.xt_name, xt)
     appenddata(savefile, opt.yt_name, yt)
-    appenddata(savefile, opt.featurespec_name, cf)
+
+    isnothing(featurespec) || appenddata(savefile, opt.featurespec_name, featurespec)
+
     appenddata(savefile, "training_options", opt)
 
     if opt.store_training_data
@@ -414,4 +420,13 @@ function load_ensemble_model(fname)
         file["ensemble"]
     end
     ensemble
+end
+
+
+"Load CellFeature serialized in the archive"
+function load_featurespec(fname;opts=TrainingOptions())
+    featurespec = jldopen(fname) do file
+        file[opts.featurespec_name]
+    end
+    featurespec
 end

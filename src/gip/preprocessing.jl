@@ -5,7 +5,15 @@ using StatsBase
 Load all structures from many paths
 """
 function load_structures(fpath::Vector, featurespec;energy_threshold=20.)
-    cells = [CellTools.read_res(f) for f in fpath]
+    cells = []
+    for f in fpath
+        try
+            push!(cells, read_res(f))
+        catch err
+            @warn "Cannot read $f"
+            continue
+        end
+    end
     enthalpy = [ x.metadata[:enthalpy] for x in cells]
     natoms = [CellTools.nions(c) for c in cells];
     enthalpy_per_atom = enthalpy ./ natoms

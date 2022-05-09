@@ -12,7 +12,7 @@ function read_cell(fname::AbstractString)
 end
 
 "Clean lines by removing new line symbols and comments"
-function clean_lines(lines_in::Vector{String})
+function clean_lines(lines_in) 
     lines_out = String[]
     for line in lines_in
         tmp = strip(line)
@@ -43,7 +43,7 @@ function read_cellmat(lines)
         cell_par_raw = read_num_block(block, 3)
         cell_par[1:3] = cell_par_raw[1, :]
         cell_par[4:6] = cell_par_raw[2, :]
-        cellmat = cellpar2mat(cell_par)
+        cellmat = cellpar2mat(cell_par...)
     end
     cellmat
 end
@@ -93,7 +93,7 @@ end
 """
 Read in cell 
 """
-function read_seed(fname::String)
+function read_seed(fname::AbstractString)
     lines = readlines(fname)
     read_seed(lines)
 end
