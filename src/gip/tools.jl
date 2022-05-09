@@ -135,11 +135,14 @@ function build_and_relax(seedfile::AbstractString, outdir::AbstractString, ensem
 end
 
 """
-Build and relax N structures
+    build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, warn=true)
+
+Build and relax a single structure, ensure that the process *does* generate a new structure.
 """
-function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, warn=true)
+function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, warn=true, max_attempts=999)
     not_ok = true
-    while not_ok
+    n = 1
+    while not_ok && n <= max_attempts
         try
             build_and_relax(seedfile, outdir, ensemble, cf;timeout)
         catch err 
@@ -150,6 +153,7 @@ function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, e
                     println(stderr, "WARNING: relaxation errored!")
                 end
             end
+            n += 1
             continue
         end
         not_ok=false
@@ -191,10 +195,11 @@ end
 """
 Call `buildcell` to generate many random structure under `outdir`
 """
-function build_one_cell(seedfile, outdir;save_as_res=true, build_timeout=5, suppress_stderr=false)
+function build_one_cell(seedfile, outdir;save_as_res=true, build_timeout=5, suppress_stderr=false, max_attemps=999)
     not_ok = true
     suppress_stderr ? stderr_dst = devnull : stderr_dst=nothing
-    while not_ok
+    n = 1
+    while not_ok && n <= max_attemps
         outname = save_as_res ? get_label(stem(seedfile)) * ".res" : get_label(stem(seedfile)) * ".cell"
         outpath = joinpath(outdir, outname)
         try
@@ -209,6 +214,7 @@ function build_one_cell(seedfile, outdir;save_as_res=true, build_timeout=5, supp
         catch err
             if typeof(err) <: ProcessFailedException
                 rm(outpath)
+                n += 1
                 continue
             else
                 throw(err)
