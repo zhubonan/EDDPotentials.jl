@@ -226,7 +226,13 @@ function build_one_cell(seedfile, outdir;save_as_res=true, build_timeout=5, supp
 end
 
 
+"""
+Iteratively build the model by repetitively train the model based on existing data,
+perform searches, do DFT calculations to expand the training set.
 
+Note that the speed of slows down significantly with increasing data point (qudratic at least).
+Hence the training set needs to be selected carefully. 
+"""
 function iterative_build(workdir, seedfile, per_generation=100, shake_per_minima=10;
                          build_timeout=1, 
                          niter=5,
@@ -317,8 +323,10 @@ end
 """
     run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
 
-Use `crud` to calculate energies of all files in the input folder and store
-the results to the output folder
+Use `crud.pl` to calculate energies of all files in the input folder and store
+the results to the output folder.
+It is assumed that the files are named like `SEED-XX-XX-XX.res` and the parameters
+for calculations are stored under `<workdir>/SEED.cell` and `<workdir>/SEED.param`. 
 """
 function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
     hopper_folder =joinpath(workdir, "hopper") 
@@ -351,7 +359,12 @@ function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
     end
 end
 
-function shake_res(files, nshake, amp)
+"""
+    shake_res(files::Vector, nshake::Int, amp::Real)
+
+Shake the given structures and write new files with suffix `-shake-N.res`.
+"""
+function shake_res(files::Vector, nshake::Int, amp::Real)
     for f in files
         cell = read_res(f)
         pos_backup = copy(cell.positions)
