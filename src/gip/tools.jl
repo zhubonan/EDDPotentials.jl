@@ -343,7 +343,7 @@ function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
     # Run nparallel instances of crud.pl
     @sync begin
         for i=1:nparallel
-            @async run(`crud.pl -singlepoint -mpinp $mpinp`)
+            @async run(setenv(`crud.pl -singlepoint -mpinp $mpinp`, dir=workdir))
             sleep(0.01)
         end
     end
