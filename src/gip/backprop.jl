@@ -32,6 +32,19 @@ struct DenseGradient{N, T}
     x::Matrix{T}
 end
 
+"""
+    DenseGradient(dense::Dense, gσ, n)
+
+Buffer for storing gradients of a dense network
+
+```julia
+y = σ.(W * x .+ b)
+```
+
+Args:
+* `gσ`: the function that computes the local gradient of the activation function
+* `n`: size of the batch.
+"""
 function DenseGradient(dense::Dense, gσ, n)
     m = size(dense.weight, 1)
     k = size(dense.weight, 2)
@@ -45,7 +58,9 @@ function DenseGradient(dense::Dense, gσ, n)
 end
 
 """
-Compute the gradients with backprop
+    backprop!(dg::DenseGradient, d::Dense)
+
+Compute the gradients of a dense network based on back-propagation
 """
 function backprop!(dg::DenseGradient, d::Dense)
     dg.gu .*= dg.gσ.(dg.wx) # Downstream of the activation, upstream to the matmul
@@ -78,7 +93,9 @@ function ChainGradients(chain::Chain, batchsize)
 end
 
 """
-Compute the forward pass
+    forward!(chaing::ChainGradients, chain::Chain, x)
+
+Do a forward pass compute the intermediate quantities for each layer
 """
 function forward!(chaing::ChainGradients, chain::Chain, x)
     output = zeros(size(chain.layers[end].bias, 1), size(x, 2))
@@ -87,15 +104,17 @@ function forward!(chaing::ChainGradients, chain::Chain, x)
     for i = 1:length(chain.layers)
         current_layer = chain.layers[i]
         current_gradient = chaing.layers[i]
+        # Input of the first layer
         i == 1 && (current_gradient.x .= x)
+        # Compute the pre-activation output
         current_gradient.wx .= (current_layer.weight * x .+ current_layer.bias)
         if i == nlayers
-            # save the final output
-            output .= current_layer.σ.(current_gradient.wx)
+            # The final output
+            return current_layer.σ.(current_gradient.wx)
         else
             # Output of this layer is the input of the next layer
             chaing.layers[i + 1].x .= current_layer.σ.(current_gradient.wx)
-            # New input for the next iteration
+            # New input for the next layer
             x = chaing.layers[i + 1].x
         end
     end
@@ -103,9 +122,12 @@ end
 
 
 """
-    backward!(chaing::ChainGradients, chain::Chain, output;gu=1)
+    backward!(chaing::ChainGradients, chain::Chain;gu=one(eltype(chain.layers[1].weight)))
 
-Backward propagation
+Back-propagate the gradients after a forward pass.
+Args:
+* `gu`: is the upstream gradient for the loss of the entire chain. The default is equivalent to:
+  `loss = sum(chain(x))`, which is a matrix of `1` in the same shape of the output matrix.
 """
 function backward!(chaing::ChainGradients, chain::Chain;gu=one(eltype(chain.layers[1].weight)))
     nlayers = length(chain.layers)
@@ -119,67 +141,3 @@ function backward!(chaing::ChainGradients, chain::Chain;gu=one(eltype(chain.laye
         i != 1 && (chaing.layers[i-1].gu .= gl.gx)
     end
 end
-
-
-# ## Validation
-
-# d1 = Dense(5=>10, tanh)
-# chain = Chain(d1)
-# chaing = ChainGradients(chain, 10)
-# x = rand(5, 10)
-# @time begin
-# forward!(chaing, chain, x)
-# backward!(chaing, chain)
-# end
-
-# # Now use backprop via Zygote
-
-# f(z) = sum(d1.σ.(z * x .+ d1.bias))
-# sum(f(d1.weight) == sum(chain(x)))
-# d1gw = Zygote.gradient(f, d1.weight)[1]
-# @assert all(d1gw .≈ chaing.layers[1].gw)
-
-# # Two layer
-# d1 = Dense(5=>10, tanh)
-# d2 = Dense(10=>8)
-# chain = Chain(d1, d2)
-# chaing = ChainGradients(chain, 10)
-# x = rand(5, 10)
-# @time begin
-# forward!(chaing, chain, x)
-# backward!(chaing, chain)
-# end
-
-# # Now use backprop via Zygote
-
-# f(z) = sum(d2(d1.σ.(z * x .+ d1.bias)))
-# fb(z) = sum(d2(d1.σ.(d1.weight * x .+ z)))
-# f2(z) = sum( d2.σ.(z * d1(x) .+ d2.bias))
-# @assert all(f(d1.weight) .≈ sum(chain(x)))
-# @assert all(f2(d2.weight) .≈ sum(chain(x)))
-
-# d1gw = Zygote.gradient(f, d1.weight)[1]
-# @assert all(d1gw .≈ chaing.layers[1].gw)
-
-# d1gb = Zygote.gradient(fb, d1.bias)[1]
-# @assert all(d1gb .≈ chaing.layers[1].gb)
-
-# d2gw = Zygote.gradient(f2, d2.weight)[1]
-# @assert all(d2gw .≈ chaing.layers[2].gw)
-
-
-# d2gx = Zygote.gradient(x -> sum(d2(x)), d1(x))[1]
-# @assert all(d2gx .≈ chaing.layers[2].gx)
-
-# using BenchmarkTools
-
-# function roundtrip(chaing, chain, x)
-#     forward!(chaing, chain, x)
-#     backward!(chaing, chain)
-# end
-
-# param = Flux.params(chain)
-# loss() = sum(chain(x))
-# @btime Flux.gradient(loss, param)
-
-# @btime roundtrip(chaing, chain, x)
