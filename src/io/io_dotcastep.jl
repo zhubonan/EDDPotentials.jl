@@ -97,7 +97,7 @@ end
 """
 Read the initial structure and its energy/forces
 """
-function _read_snapshot(lines::Vector{String}, nions::Int, offset::Int=0, NUM_TYPE=Float64)
+function _read_snapshot(lines::Vector{String}, nions::Int, offset::Int=0)
     count = 1 + offset
 
     forces = Array{NUM_TYPE}(undef, 3, nions)
@@ -156,7 +156,6 @@ function _read_snapshot(lines::Vector{String}, nions::Int, offset::Int=0, NUM_TY
     abs_positions = lattice * positions
     extras = Dict{Symbol,Any}(:total_spin => total_spin,)
     if stress_read
-        @show stress
         extras[:stress] = stress
     end
     snapshot = SnapShot(lattice, species, abs_positions, false, forces, free_energy, [""], extras)
