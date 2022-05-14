@@ -64,5 +64,20 @@ using Test
         d2gx = Flux.gradient(x -> sum(d2(x)), d1(x))[1]
         @test allclose(d2gx, chaing.layers[2].gx)
     end
+    
+    @testset "jacobian" begin
+        ## Compare hand written backprop vs Zytoge
+        chain = CellTools.generate_chain(21, [5])
+        inp = [rand(Float32, 21)]
+        gd = Flux.gradient(() -> mean(chain(inp[1])), Flux.params(chain))
+        gp! = CellTools.setup_jacobian_func_backprop(chain, inp)
+        jmat = zeros(eltype(inp[1]), 1, 116)
+        gp!(jmat, CellTools.paramvector(chain))
+
+        @test allclose(jmat[1, 1:105], vec(gd.grads[gd.params[1]]))
+        @test allclose(jmat[1, 106:110], vec(gd.grads[gd.params[2]]))
+        @test allclose(jmat[1, 111:115], vec(gd.grads[gd.params[3]]))
+        @test allclose(jmat[1, 116:116], vec(gd.grads[gd.params[4]]))
+    end
 
 end

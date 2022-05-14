@@ -71,13 +71,13 @@ end
 
 struct ChainGradients{T}
     layers::T
+    n::Int
 end
 
 @inline gtanh_fast(x) = tanh_fast'(x)
 
-function ChainGradients(chain::Chain, batchsize)
+function ChainGradients(chain::Chain, n::Int)
     gds = []
-    n = batchsize 
     for layer in chain.layers
         if layer.σ == identity
             gσ = one
@@ -89,7 +89,7 @@ function ChainGradients(chain::Chain, batchsize)
         gbuffer = DenseGradient(layer, gσ, n)
         push!(gds, gbuffer)
     end
-    ChainGradients(tuple(gds...))
+    ChainGradients(tuple(gds...), n)
 end
 
 """

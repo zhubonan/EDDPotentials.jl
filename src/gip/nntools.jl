@@ -48,61 +48,108 @@ function paramvector(model)
     out
 end
 
-"""
-Create a copy of the model with parameters replaced as duals
-"""
-function dualize_model(model; duals::Vector{T}=dualize(paramvector(model))) where {T}
-    i = 1
-    nets = []
-    for layer in model
-        wt::Matrix{T} = make_matrix(duals, layer.weight, i)
-        i += length(wt)
-        bias::Vector{T} = make_matrix(duals, layer.bias, i)
-        i += length(bias)
-        layer_ = Dense(wt, bias, layer.σ)
-        push!(nets, layer_)
+# """
+# Create a copy of the model with parameters replaced as duals
+# """
+# function dualize_model(model; duals::Vector{T}=dualize(paramvector(model))) where {T}
+#     i = 1
+#     nets = []
+#     for layer in model
+#         wt::Matrix{T} = make_matrix(duals, layer.weight, i)
+#         i += length(wt)
+#         bias::Vector{T} = make_matrix(duals, layer.bias, i)
+#         i += length(bias)
+#         layer_ = Dense(wt, bias, layer.σ)
+#         push!(nets, layer_)
+#     end
+#     Chain(nets...)
+# end
+
+# """
+# Collect jacobian from output as duals
+# """
+# function collect_jacobian!(jac, out)
+#     for (i, o) in enumerate(out)
+#         for (j, p) in enumerate(o.partials)
+#             jac[i, j] = p
+#         end
+#     end
+#     jac
+# end
+
+# function collect_jacobian(out::Vector{ForwardDiff.Dual{N, T, M}}) where {N, T, M}
+#     jac = zeros(T, length(out), length(out[1].partials))
+#     collect_jacobian!(jac, out)
+# end
+
+# function jac!(j, dm, p, cfg; x0)
+#     pduals = ForwardDiff.seed!(cfg.duals, p, cfg.seeds);
+#     update_param!(dm, pduals)
+#     collect_jacobian!(j, dm(x0))
+# end
+
+# get_jacobiancfg(p) = ForwardDiff.JacobianConfig(nothing, p, ForwardDiff.Chunk{length(p)}());
+
+# dualize(x::Vector;cfg=ForwardDiff.JacobianConfig(nothing, x, ForwardDiff.Chunk{length(x)}())) = ForwardDiff.seed!(cfg.duals, x, cfg.seeds)
+
+# """
+#     setup_autodiff(model)
+
+# Return components for autodiff operation -  a tuple of (dm, cfg, p1)
+# """
+# function setup_autodiff(model)
+#     p0 = paramvector(model)
+#     cfg = get_jacobiancfg(p0)
+#     pdual = dualize(p0;cfg)
+#     dm = dualize_model(model, duals=pdual)
+#     dm, cfg, p0
+# end
+
+function setup_jacobian_func_backprop(model, data::AbstractVector)
+    batch_sizes = unique(size.(data, 2))
+    gbuffers = ChainGradients.(Ref(model), batch_sizes)
+    function g!(jmat, param)
+        update_param!(model, param)
+        compute_jacobian_backprop!(jmat, gbuffers, model, data)
+        jmat
     end
-    Chain(nets...)
+    return g!
 end
 
-"""
-Collect jacobian from output as duals
-"""
-function collect_jacobian!(jac, out)
-    for (i, o) in enumerate(out)
-        for (j, p) in enumerate(o.partials)
-            jac[i, j] = p
+function compute_jacobian_backprop!(jacmat, gbuffs, model, data::AbstractVector)
+    g1 = zeros(eltype(jacmat), size(jacmat, 2))
+    for (i, inp) in enumerate(data)
+        sinp = size(inp, 2)
+        # Find the buffer of the right shape
+        gbuff = gbuffs[findfirst(x -> x.n == sinp, gbuffs)]
+        forward!(gbuff, model, inp)
+        backward!(gbuff, model)
+        collect_gradients!(g1, gbuff)
+        # Scale the gradient for mean atomic energy rather than the total energy
+        g1 ./= sinp
+        # Copy data to the jacobian matrix
+        for j = 1:size(jacmat, 2)
+            jacmat[i, j] = g1[j]
         end
     end
-    jac
+    jacmat
 end
-
-function collect_jacobian(out::Vector{ForwardDiff.Dual{N, T, M}}) where {N, T, M}
-    jac = zeros(T, length(out), length(out[1].partials))
-    collect_jacobian!(jac, out)
-end
-
-function jac!(j, dm, p, cfg; x0)
-    pduals = ForwardDiff.seed!(cfg.duals, p, cfg.seeds);
-    update_param!(dm, pduals)
-    collect_jacobian!(j, dm(x0))
-end
-
-get_jacobiancfg(p) = ForwardDiff.JacobianConfig(nothing, p, ForwardDiff.Chunk{length(p)}());
-
-dualize(x::Vector;cfg=ForwardDiff.JacobianConfig(nothing, x, ForwardDiff.Chunk{length(x)}())) = ForwardDiff.seed!(cfg.duals, x, cfg.seeds)
 
 """
-    setup_autodiff(model)
+    collect_gradients!(gvec::AbstractVector, gbuff::ChainGradients)
 
-Return components for autodiff operation -  a tuple of (dm, cfg, p1)
+Collect the gradients after back-propagration into a vector
 """
-function setup_autodiff(model)
-    p0 = paramvector(model)
-    cfg = get_jacobiancfg(p0)
-    pdual = dualize(p0;cfg)
-    dm = dualize_model(model, duals=pdual)
-    dm, cfg, p0
+function collect_gradients!(gvec::AbstractVector, gbuff::ChainGradients)
+    i = 1
+    for layer in gbuff.layers
+        nw = length(layer.gw)
+        gvec[i:i+nw-1] .= layer.gw[:]
+        i += nw
+        nb = length(layer.gb)
+        gvec[i:i+nb-1] .= layer.gb[:]
+        i += nb
+    end
 end
 
 """

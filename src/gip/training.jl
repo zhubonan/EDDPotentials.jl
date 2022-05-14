@@ -13,38 +13,52 @@ using Parameters
 
 
 """
-    predict_energy!(f, model, x;total=reduce(hcat, x))
+    predict_energy!(f, model, x::AbstractVector)
 
-Predict the energy for a given model, assuming data is already normalised.
+Predict the per-atom energy from a model, no pre/post-scaling of the input vectors are performed
 """
-function predict_energy!(f, model, x::AbstractVector;total=reduce(hcat, x))
-    all_E = model(total)
-    ct = 1
-    for i in 1:length(f)
-        lv = size(x[i], 2)
-        f[i] = elemmean(all_E, ct, lv)
-        ct += lv
+function predict_energy!(f, model, x::AbstractVector)
+    for (i, inp) in enumerate(x)
+        f[i] = mean(model(inp))
     end
     f
 end
 
-predict_energy(model, x::AbstractMatrix) = mean(model(x))
-predict_energy(model, x::Vector{Matrix{T}};total=reduce(hcat, x)) where {T} = predict_energy!(zeros(T, length(x)), model, x;total)
+predict_energy(model, x::AbstractVector) = mean.(model.(x))
+
+# """
+#     predict_energy!(f, model, x;total=reduce(hcat, x))
+
+# Predict the energy for a given model, assuming data is already normalised.
+# """
+# function predict_energy!(f, model, x::AbstractVector;total=reduce(hcat, x))
+#     all_E = model(total)
+#     ct = 1
+#     for i in 1:length(f)
+#         lv = size(x[i], 2)
+#         f[i] = elemmean(all_E, ct, lv)
+#         ct += lv
+#     end
+#     f
+# end
+
+# predict_energy(model, x::AbstractMatrix) = mean(model(x))
+# predict_energy(model, x::Vector{Matrix{T}};total=reduce(hcat, x)) where {T} = predict_energy!(zeros(T, length(x)), model, x;total)
 
 
-"Take mean to obtain atomic energy of each frame"
-function elemmean(vec, i, n)
-   elemsum(vec, i, n) / n
-end
+# "Take mean to obtain atomic energy of each frame"
+# function elemmean(vec, i, n)
+#    elemsum(vec, i, n) / n
+# end
 
-"Take sum to obtain total energy of each frame"
-function elemsum(vec, i, n)
-    val = 0.
-    for j in i:i+n-1
-        val += vec[j]
-    end
-    val
-end
+# "Take sum to obtain total energy of each frame"
+# function elemsum(vec, i, n)
+#     val = 0.
+#     for j in i:i+n-1
+#         val += vec[j]
+#     end
+#     val
+# end
 
 
 """
@@ -79,8 +93,6 @@ end
 
 paramvector(m::TrainingConfig) = paramvector(m.model)
 get_jacobiancfg(m::TrainingConfig) = m.cfg
-predict_energy!(f, m::TrainingConfig, x::Vector{Matrix{T}};total=reduce(hcat, x)) where {T} = predict_energy!(f, m.model, x;total)
-predict_energy(m::TrainingConfig, x::Vector{Matrix{T}};total=reduce(hcat, x)) where {T} = predict_energy(m.model, x;total)
 
 """
 Perform training for the given TrainingConfig
@@ -111,7 +123,7 @@ function train!(m::TrainingConfig;
         rmse_test, paramvector(model)
     end
     # Setting up the object for minimization
-    g2! = setup_atomic_energy_jacobian(;model, dm, x=x_train_norm, cfg);
+    g2! = setup_jacobian_func_backprop(model, x_train_norm);
     f2! = setup_atomic_energy_diff(;model, x=x_train_norm, y=y_train_norm);
     od2 = OnceDifferentiable(f2!,
                          g2!, p0, zeros(eltype(x_train_norm[1]), length(x_train_norm)), inplace=true);
@@ -145,7 +157,9 @@ An ensemble of models with weights
 mutable struct ModelEnsemble{T, N, M}
     models::Vector{T}
     weight::Vector{N}
+    "Training Y - already normalised"
     x_train::Any
+    "Training X - already normalised"
     y_train::Any
     xt::M
     yt::M
@@ -170,6 +184,9 @@ function ModelEnsemble(tc; threshold=1e-7)
     ModelEnsemble([t.model for t in tc], tc[1].x_train, tc[1].y_train, tc[1].xt, tc[1].yt;threshold)
 end 
 
+"""
+Using ModelEnsemble object for function call
+"""
 function (me::ModelEnsemble)(x::AbstractVecOrMat{T}) where {T} 
     out = zeros(T, 1, size(x, 2))
     for (i, m) in enumerate(me.models)
@@ -182,7 +199,7 @@ end
 rmse_train(tf::T) where {T <: Union{TrainingConfig, ModelEnsemble}} = atomic_rmse(predict_energy(tf, tf.x_train), tf.y_train, tf.yt)
 
 "Compute RMSE from *normalised* test data"
-rmse_test(tf::T, x_test, y_test) where {T<:Union{TrainingConfig, ModelEnsemble}} = atomic_rmse(predict_energy(tf, x_test), y_test, tf.yt)
+rmse_test(tf::TrainingConfig, x_test, y_test) = atomic_rmse(predict_energy(tf, x_test), y_test, tf.yt)
 
 predict_energy!(f, model::T) where {T <: Union{ModelEnsemble, TrainingConfig}} = predict_energy!(f, model, model.xtrain)
 atomic_rmse(me::T; yt=me.yt) where {T <: Union{ModelEnsemble, TrainingConfig}} = atomic_rmse(predict_energy(me, me.x_train), me.y_train, yt)
@@ -206,19 +223,19 @@ end
 """
 Predict energy from feature vectors
 """
-function predict_energy_from_fvecs(model::M, fvecs::Vector{Matrix{T}};total=reduce(hcat, fvecs)) where {T, M<:Union{ModelEnsemble, TrainingConfig}}
+function predict_energy_from_fvecs(model::M, fvecs::Vector{Matrix{T}};) where {T, M<:Union{ModelEnsemble, TrainingConfig}}
     nfe = model.xt.len
     # Update the feature vectors consistent with model size
     # e.g. ignore the one body term if needed
-    if size(total, 1) != nfe
-        total = total[end-nfe+1:end, :]
+    if size(fvecs[1], 1) != nfe
+        vecs = map(x -> StatsBase.transform(model.xt, x[end-nfe+1:end, :]), fvecs)
+    else
+        vecs = map(x -> StatsBase.transform(model.xt, x), fvecs)
     end
-    f = zeros(T, length(fvecs))
     #Scale the concatenated feature vectors
-    StatsBase.transform!(model.xt, total)
-    predict_energy!(f, model, fvecs;total=total)
+    out = predict_energy(model, vecs)
     #Scale back  the predicted energies
-    StatsBase.reconstruct!(model.yt, f)
+    StatsBase.reconstruct!(model.yt, out)
 end
 
 
