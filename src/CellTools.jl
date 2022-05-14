@@ -3,6 +3,8 @@ module CellTools
 greet() = print("Hello World!")
 using CellBase
 import CellBase
+using StatsBase: mean
+export mean
 
 # External
 include("eletrostatic/RealSpaceSummation.jl")
