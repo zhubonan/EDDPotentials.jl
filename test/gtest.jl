@@ -35,7 +35,7 @@ function sv(s, cf)
     f[:]
 end
 
-function sv_me(s, me)
+function sv_me(s, me, T=Float64)
     pos = [0 0.1  
     0 1  
     0.1 0]
@@ -46,7 +46,7 @@ function sv_me(s, me)
     set_cellmat!(cell, Smat * cellmat(cell))
 
     cf = CellTools.CellFeature([:H];p2=2:4, p3=0:-1, q3=0:-1)
-    cw = CellTools.CellWorkSpace(cell;cf=cf, rcut=5.0, nmax=500)
+    cw = CellTools.CellWorkSpace{T}(cell;cf=cf, rcut=5.0, nmax=500)
 
     calc = CellTools.CellCalculator(cw, me)
     CellTools.calculate!(calc)
@@ -77,6 +77,7 @@ end
 
 
 @testset "Gradients" begin
+
     pos = [0 0.1  
         0 1  
         0.1 0]
@@ -141,23 +142,46 @@ end
 
 
 @testset "Force and Stress" begin
+
+    function allclose(A, B;tol=1e-7)
+        maxdiv = maximum(abs.(A .- B))
+        out = maxdiv < tol
+        if !out
+            @show maxdiv A B 
+        end
+        out
+    end
+
+
     pos = [0 0.1  
     0 1  
     0.1 0]
     cell = Cell(Lattice(2, 2, 2), [:H, :H], pos)
     frac = CellBase.get_scaled_positions(cell) 
     cf = CellTools.CellFeature([:H];p2=2:4, p3=0:-1, q3=0:-1)
-    cw = CellTools.CellWorkSpace(cell;cf=cf, rcut=5.0, nmax=500)
-    ntot = CellTools.nfeatures(cw)
+    cw = CellTools.CellWorkSpace{Float64}(cell;cf=cf, rcut=5.0, nmax=500)
+    # Also test using Float32 for calculation
+    cw32 = CellTools.CellWorkSpace{Float32}(cell;cf=cf, rcut=5.0, nmax=500)
 
-    model = Dense(ones(1, ntot))
+    ntot = CellTools.nfeatures(cw)
+    model = Chain(Dense(ones(1, ntot)))
+    model32 = Chain(Dense(ones(Float32, 1, ntot)))
+
     me = CellTools.ModelEnsemble(model=model)
+    me32 = CellTools.ModelEnsemble(model=model32)
 
     calc = CellTools.CellCalculator(cw, me)
+    calc32 = CellTools.CellCalculator(cw32, me32)
+
     CellTools.calculate!(calc)
+    CellTools.calculate!(calc32)
     eng = CellTools.get_energy(calc)
+    eng32 = CellTools.get_energy(calc32)
     stress = copy(CellTools.get_stress(calc))
     forces = copy(CellTools.get_forces(calc))
+
+    stress32 = copy(CellTools.get_stress(calc32))
+    forces32 = copy(CellTools.get_forces(calc32))
 
     # Check force consistency
     delta = 1e-9
@@ -172,7 +196,19 @@ end
     p0 = CellTools.get_positions(calc)
     od = OnceDifferentiable(energy, p0, energy(p0))
     grad= NLSolversBase.gradient(od, p0)
-    @test maximum(grad .+ forces) < 1e-7
+
+    # Check the consistency of the neutron network derivatives
+    g1 = Flux.gradient(x -> sum(model(x)), cw.v)[1]
+    g2 = vcat(calc.g2, calc.g3)
+    g3 = vcat(calc32.g2, calc32.g3)
+
+    @test allclose(g1, g2)
+    @test allclose(g3, g2)
+
+    # Check the actual forces
+    @test allclose(grad, -forces)
+    @test allclose(grad, -forces32, tol=1e-6)
+    @test allclose(forces, forces32, tol=1e-6)
 
     cell.positions .= p0
 
@@ -181,14 +217,20 @@ end
 
     s0 = zeros(3, 3)[:]
     od = OnceDifferentiable(x -> sv_me(x, me), s0, sv_me(s0, me);inplace=false)
-    grad= NLSolversBase.gradient(od, s0)
-    st = stress * volume(get_cell(calc)) 
-    @test maximum(abs.(grad .+ vec(st))) < 1e-4
+    grad= NLSolversBase.gradient(od, s0) ./ volume(get_cell(calc))
+    st = stress  
+    st32 = stress32 
+    @test allclose(grad, -vec(st), tol=1e-5)
+    @test allclose(grad, -vec(st32), tol=1e-5)
+    @test allclose(st, st32, tol=1e-5)
 
     # Test for the wrapper 
 
     vc = CellTools.VariableLatticeFilter(calc)
-    global eforce = CellTools.get_forces(vc)
+    vc32 = CellTools.VariableLatticeFilter(calc32)
+
+    eforce = CellTools.get_forces(vc)
+    eforce32 = CellTools.get_forces(vc32)
     epos = CellTools.get_positions(vc)
 
     function eeng(p)
@@ -196,7 +238,8 @@ end
         CellTools.get_energy(vc)
     end
     od = OnceDifferentiable(eeng, epos, eeng(epos);inplace=false)
-    global grad= NLSolversBase.gradient(od, epos)
+    grad= NLSolversBase.gradient(od, epos)
 
-    @test maximum(abs.(grad .+ eforce)) < 1e-4
+    @test allclose(grad, -eforce, tol=1e-4)
+    @test allclose(eforce32, eforce, tol=1e-5)
 end

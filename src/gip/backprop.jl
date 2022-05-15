@@ -67,27 +67,38 @@ function DenseGradient(dense::Dense, gσ, n)
     DenseGradient(dense, gσ, n, out)
 end
 
+weight_gradient(d::DenseGradient) = d.gw
+bias_gradient(d::DenseGradient) = d.gb
+input_gradient(d::DenseGradient) = d.gx
+
 
 """
-    backprop!(dg::DenseGradient, d::Dense)
+    backprop!(dg::DenseGradient, d::Dense;weight_and_bias=true)
 
-Compute the gradients of a dense network based on back-propagation
+Compute the gradients of a dense network based on back-propagation.
+
+Args:
+* `weight_and_bias`: Update the gradients for weight and bias. Defaults to true.
 """
-function backprop!(dg::DenseGradient, d::Dense)
+function backprop!(dg::DenseGradient, d::Dense;weight_and_bias=true)
     # Update the upstream gradient
     for i in eachindex(dg.wx)
         dg.gu[i] *= dg.gσ(dg.wx[i], dg.out[i])
     end
     #dg.gu .*= dg.gσ.(dg.wx) # Downstream of the activation, upstream to the matmul
-    for i = 1:size(dg.gb, 1)
-        dg.gb[i] = 0
-        for j = 1:size(dg.gu, 2)
-            dg.gb[i] += dg.gu[i, j]
+    if weight_and_bias
+        for i = 1:size(dg.gb, 1)
+            dg.gb[i] = 0
+            for j = 1:size(dg.gu, 2)
+                dg.gb[i] += dg.gu[i, j]
+            end
         end
     end
 
     #dg.gb .= sum(dg.gu, dims=2)  # Gradient of the bias
-    mul!(dg.gw, dg.gu, dg.x')   
+    if weight_and_bias
+        mul!(dg.gw, dg.gu, dg.x')   
+    end
     mul!(dg.gx, d.weight', dg.gu)
 end
 
@@ -160,13 +171,13 @@ Args:
 * `gu`: is the upstream gradient for the loss of the entire chain. The default is equivalent to:
   `loss = sum(chain(x))`, which is a matrix of `1` in the same shape of the output matrix.
 """
-function backward!(chaing::ChainGradients, chain::Chain;gu=one(eltype(chain.layers[1].weight)))
+function backward!(chaing::ChainGradients, chain::Chain;gu=one(eltype(chain.layers[1].weight)), weight_and_bias=true)
     nlayers = length(chain.layers)
     for i = nlayers:-1:1
         gl = chaing.layers[i]
         l = chain.layers[i]
         i == nlayers && fill!(gl.gu, gu)
-        backprop!(gl, l)
+        backprop!(gl, l; weight_and_bias)
         # The upstream gradient of the next layer is that of the gradient of x of 
         # this layer
         i != 1 && (chaing.layers[i-1].gu .= gl.gx)

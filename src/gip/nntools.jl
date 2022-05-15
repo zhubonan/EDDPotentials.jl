@@ -105,6 +105,9 @@ end
 #     dm, cfg, p0
 # end
 
+"""
+Get a function for computing the jacobian matrix for the **mean atomic energy**.
+"""
 function setup_jacobian_func_backprop(model, data::AbstractVector)
     batch_sizes = unique(size.(data, 2))
     gbuffers = ChainGradients.(Ref(model), batch_sizes)

@@ -12,48 +12,6 @@ import CellBase: rebuild!, update!
 export rebuild!, update!
 
 """
-Combination of a cell, its associated neighbour list and feature vectors
-
-This is to allow efficient re-calculation of the feature vectors without reallocating memory.
-"""
-struct CellWorkSpace{T, N, M}
-    cell::T
-    nl::N
-    cf::M
-    # Feature vectors
-    one_body
-    two_body
-    three_body
-    v
-    "Buffer for two body force calculations"
-    two_body_fbuffer
-    "Buffer for three body force calculations"
-    three_body_fbuffer
-    "Forces"
-    forces
-    "Stress"
-    stress
-    "atomic_energy"
-    eng
-    "flat to ignore one body interactions or not"
-    ignore_one_body
-end
-
-"Number of features used in the CellWorkSpace"
-nfeatures(cw::CellWorkSpace)  = size(cw.v, 1)
-
-function Base.show(io::IO, cw::CellWorkSpace)
-    println(io, "CellWorkspace for: ")
-    Base.show(io, cw.cell)
-end
-
-function Base.show(io::IO, m::MIME"text/plain", cw::CellWorkSpace)
-    println(io, "CellWorkspace for: ")
-    Base.show(io, m, cw.cell)
-end
-
-
-"""
     ForceBuffer{T}
 
 Buffer for storing forces and stress and support their calculations
@@ -78,18 +36,63 @@ function ForceBuffer{T}(nf, nat;ndims=3) where {T}
     gvec = zeros(T, nf, nat, ndims, nat)
     svec = zeros(T, nf, nat, ndims, ndims, nat)
     stotv = zeros(T, nf, nat, ndims, ndims)
-    forces = zeros(ndims, nat)
-    stress = zeros(ndims, ndims)
+    forces = zeros(T, ndims, nat)
+    stress = zeros(T, ndims, ndims)
     ForceBuffer(gvec, svec, stotv, forces, stress)
 end
 
 
-function CellWorkSpace(cell::Cell;cf, rcut, nmax=500, savevec=true, ndims=3, ignore_one_body=true) 
+
+"""
+Combination of a cell, its associated neighbour list and feature vectors
+
+This is to allow efficient re-calculation of the feature vectors without reallocating memory.
+"""
+struct CellWorkSpace{A, T, N, M}
+    cell::Cell{T}
+    nl::N
+    cf::M
+    # Feature vectors
+    one_body::Matrix{A}
+    two_body::Matrix{A}
+    three_body::Matrix{A}
+    v::Matrix{A}
+    "Buffer for two body force calculations"
+    two_body_fbuffer::ForceBuffer{A}
+    "Buffer for three body force calculations"
+    three_body_fbuffer::ForceBuffer{A}
+    "Forces"
+    forces::Matrix{A}
+    "Stress"
+    stress::Matrix{A}
+    "atomic_energy"
+    eng::Vector{A}
+    "flat to ignore one body interactions or not"
+    ignore_one_body::Bool
+end
+
+get_cell(cw::CellWorkSpace) = cw.cell
+
+"Number of features used in the CellWorkSpace"
+nfeatures(cw::CellWorkSpace)  = size(cw.v, 1)
+
+function Base.show(io::IO, cw::CellWorkSpace)
+    println(io, "CellWorkspace for: ")
+    Base.show(io, cw.cell)
+end
+
+function Base.show(io::IO, m::MIME"text/plain", cw::CellWorkSpace)
+    println(io, "CellWorkspace for: ")
+    Base.show(io, m, cw.cell)
+end
+
+
+function CellWorkSpace{A}(cell::Cell;cf, rcut, nmax=500, savevec=true, ndims=3, ignore_one_body=true) where {A}
     nl = NeighbourList(cell, rcut, nmax;savevec)
     us = unique(atomic_numbers(cell))
-    one_body = zeros(length(us), nions(cell))
-    two_body = feature_vector(cf.two_body, cell;nl=nl)
-    three_body = feature_vector(cf.three_body, cell;nl=nl)
+    one_body = zeros(A, length(us), nions(cell))
+    two_body = convert.(A, feature_vector(cf.two_body, cell;nl=nl))
+    three_body = convert.(A, feature_vector(cf.three_body, cell;nl=nl))
 
     if ignore_one_body
         v = vcat(two_body, three_body)
@@ -100,11 +103,15 @@ function CellWorkSpace(cell::Cell;cf, rcut, nmax=500, savevec=true, ndims=3, ign
     CellWorkSpace(cell, nl, cf, one_body, two_body, three_body, v, 
     ForceBuffer{eltype(two_body)}(size(two_body, 1), nions(cell)),
     ForceBuffer{eltype(three_body)}(size(three_body, 1), nions(cell)),
-    zeros(eltype(two_body), ndims, nions(cell)),
-    zeros(eltype(two_body), ndims, ndims),
+    zeros(eltype(two_body), ndims, nions(cell)),  # Forces 
+    zeros(eltype(two_body), ndims, ndims),  # Stress
     zeros(eltype(two_body), nions(cell)),
     ignore_one_body,
     )
+end
+
+function CellWorkSpace(cell::Cell;cf, rcut, nmax=500, savevec=true, ndims=3, ignore_one_body=true)
+    CellWorkSpace{Float32}(cell::Cell;cf, rcut, nmax, savevec, ndims, ignore_one_body)
 end
 
 CellBase.rebuild!(cw::CellWorkSpace) = CellBase.rebuild!(cw.nl, cw.cell)
@@ -145,33 +152,35 @@ function update_feature_vector!(wt::CellWorkSpace;rebuild_nl=false, gradients=tr
 end
 
 """
-    calculate_forces!(wt::CellWorkSpace, g2, g3)
+    chainrule_forces!(forces, stress, b2, b3, g2::AbstractMatrix, g3::AbstractMatrix)
 
-Calculate the forces given gradeints of the total energy based on
+Calculate the forces given gradients of the total energy based on
 dE / dF and dF / dxi
 
+Accumulate the (weighted) results in the matrices passed.
 Args:
-    - g2: partial derivatives of the two-body features
-    - g3: partial derivatives of the three-body features
+    - b2: Buffer for two body derivatives with atomic positions
+    - b3: Buffer for three body derivatives with atomic positions
+    - g2: partial derivatives of the two-body features as input of the model
+    - g3: partial derivatives of the three-body features as input of the model
 """
-function calculate_forces!(wt::CellWorkSpace, g2, g3)
-    gv2 = wt.two_body_fbuffer.gvec
-    gv3 = wt.three_body_fbuffer.gvec
-    sv2 = wt.two_body_fbuffer.stotv
-    sv3 = wt.three_body_fbuffer.stotv
+function chainrule_forces!(forces, stress, b2, b3, g2::AbstractMatrix, g3::AbstractMatrix;weight=1)
+    gv2 = b2.gvec
+    gv3 = b3.gvec
+    sv2 = b2.stotv
+    sv3 = b3.stotv
     # Propagate forces
-    _force_update!(wt.two_body_fbuffer.forces, gv2, g2)
-    _force_update!(wt.three_body_fbuffer.forces, gv3, g3)
+    _force_update!(b2.forces, gv2, g2)
+    _force_update!(b3.forces, gv3, g3)
     # Propagate stress
-    _stress_update!(wt.two_body_fbuffer.stress, sv2, g2)
-    _stress_update!(wt.three_body_fbuffer.stress, sv3, g3)
+    _stress_update!(b2.stress, sv2, g2)
+    _stress_update!(b3.stress, sv3, g3)
 
-    wt.forces .= wt.two_body_fbuffer.forces .+ wt.three_body_fbuffer.forces
-    wt.stress .= wt.two_body_fbuffer.stress .+ wt.three_body_fbuffer.stress
+    # Accumulate weighted forces
+    forces .+= (b2.forces .+ b3.forces) .* weight
+    stress .+= (b2.stress .+ b3.stress) .* weight 
 
-    # Divide by the unit cell volume to get the stress
-    wt.stress ./= volume(wt.cell)
-    wt
+    forces, stress
 end
 
 """
@@ -184,60 +193,6 @@ function apply_x_trans!(vec::AbstractVecOrMat, me::ModelEnsemble)
     vec
 end
 
-"""
-    calculate!(wt::CellWorkSpace, model::ModelEnsemble;forces=true, rebuild_nl=true)
-
-Update the feature vectors and compute energy, forces and stresses (default).
-"""
-function calculate!(wt::CellWorkSpace, me::ModelEnsemble;forces=true, rebuild_nl=true)
-    update_feature_vector!(wt;rebuild_nl, gradients=forces)
-
-    # Ensure that we scale the feature vectors according to the one stored in the ModelEnsemble
-    apply_x_trans!(wt.v, me)
-
-    # Compute atomic energies
-    wt.eng .= site_energies(me, wt)[:]
-
-    if forces
-        nf2 = sum(nfeatures, wt.cf.two_body)
-        nf3 = sum(nfeatures, wt.cf.three_body)
-        v = wt.v
-
-        force_buf = zeros(size(wt.forces))
-        stress_buf = zeros(size(wt.stress))
-
-        # Obtain the gradients for each individual model
-        for (ind, weight) in zip(me.models, me.weight)
-
-            # Compute gradient from the model
-            grad = zgradient(x -> sum(ind(x)), v)[1]
-            if !isnothing(me.yt)
-                grad .*= me.yt.scale
-            end
-
-            # Scale back to the original feature vectors
-            if !isnothing(me.xt)
-                grad[end-nf3-nf2+1:end, :] ./= me.xt.scale
-            end
-
-            # Locate the gradients for 2-body and 3-body terms
-            g3 = grad[end-nf3+1:end, :]
-            g2 = grad[end-nf3-nf2+1:end-nf3, :]
-            # Compute the forces from chain rule
-            calculate_forces!(wt, g2, g3)
-
-            # Apply weighting from the ensemble
-            force_buf .+= wt.forces * weight
-            stress_buf .+= wt.stress * weight
-        end
-        # Set the forces
-        wt.stress .= stress_buf
-        wt.forces .= force_buf
-    else
-        fill!(wt.stress, 0.)
-        fill!(wt.forces, 0.)
-    end
-end
 
 """
     _force_update!(buffer::Array{T, 2}, gv, g) where {T}
@@ -301,15 +256,85 @@ total_energy(m::ModelEnsemble, cw::CellWorkSpace) = sum(site_energies(m, cw))
 A calculator to support repetitive energy/forces/stress calculations with the same
 model.
 """
-struct CellCalculator{T}
-    workspace::CellWorkSpace
+struct CellCalculator{A, T, N, M}
+    workspace::CellWorkSpace{A, T, N, M}
     modelensemble::ModelEnsemble
     last_pos::Matrix{T}
     last_cellmat::Matrix{T}
+    backprop_buffers::Vector
+    g2::Matrix{A}
+    g3::Matrix{A}
 end
 
 function CellCalculator(cw::CellWorkSpace, me::ModelEnsemble)
-    CellCalculator(cw, me, similar(positions(cw.cell)), similar(cellmat(cw.cell)))
+    # Setup the buffer for backpropagation
+    buffer = []
+    for model in me.models
+        push!(buffer, ChainGradients(model, nions(get_cell(cw))))
+    end
+
+    nf2 = sum(nfeatures, cw.cf.two_body)
+    nf3 = sum(nfeatures, cw.cf.three_body)
+    g3 = zeros(eltype(cw.v), nf3, size(cw.v, 2))
+    g2 = zeros(eltype(cw.v), nf2, size(cw.v, 2))
+    CellCalculator(cw, me, similar(positions(cw.cell)), similar(cellmat(cw.cell)), buffer, g2, g3)
+end
+
+"""
+Calculate energy only
+"""
+function calculate_energy!(wt::CellWorkSpace, me::ModelEnsemble; rebuild_nl=true)
+    # Ensure that we scale the feature vectors according to the one stored in the ModelEnsemble
+    apply_x_trans!(wt.v, me)
+    # Compute atomic energies
+    wt.eng .= site_energies(me, wt)[:]
+    fill!(wt.stress, 0.)
+    fill!(wt.forces, 0.)
+end
+
+"""
+    calculate!(wt::CellWorkSpace, model::ModelEnsemble;forces=true, rebuild_nl=true)
+
+Update the feature vectors and compute energy, forces and stresses (default).
+"""
+function calculate_energy_and_force!(cw::CellWorkSpace, me::ModelEnsemble, backprop_buffers, g2, g3; rebuild_nl=true)
+
+    # Calling this should zero the stress and force matrices
+    calculate_energy!(cw, me;rebuild_nl)
+
+    # Obtain the gradients for each individual model
+    for (model, weight, buffer) in zip(me.models, me.weight, backprop_buffers)
+        calculate_forces!(cw, g2, g3, buffer, model, cw.v;xt=me.xt, yt=me.yt, weight=weight)
+    end
+    # Stress needs to be divided by the volume
+    cw.stress ./= volume(get_cell(cw))
+end
+
+function calculate_forces!(cw::CellWorkSpace, g2, g3, buffer::ChainGradients, model::Chain, v::AbstractMatrix;yt, xt, weight=1)
+    # Compute gradient from the model
+    forward!(buffer, model, v)
+    # Back propagate can skip computing the gradients of weight and bias
+    backward!(buffer, model;gu=one(eltype(v)), weight_and_bias=false)
+    grad = input_gradient(buffer.layers[1])  # For the total force
+
+    # Scale the gradient
+    if !isnothing(yt)
+        grad .*= yt.scale
+    end
+
+    # Scale back to the original feature vectors
+    if !isnothing(xt)
+        grad ./= xt.scale
+    end
+
+    nf3 = size(g3, 1)
+    nf2 = size(g2, 1)
+    # Locate the gradients for 2-body and 3-body terms
+    g3 .= grad[end-nf3+1:end, :]
+    g2 .= grad[end-nf3-nf2+1:end-nf3, :]
+
+    # Compute the forces from chain rule
+    chainrule_forces!(cw.forces, cw.stress, cw.two_body_fbuffer, cw.three_body_fbuffer, g2, g3;weight)
 end
 
 """
@@ -324,13 +349,16 @@ function calculate!(calc::CellCalculator;forces=true, rebuild_nl=true)
         should_calculate = true
     end
     if should_calculate
-        calculate!(calc.workspace, calc.modelensemble;forces, rebuild_nl)
-    else
-        return get_energy(calc.workspace), get_forces(calc.workspace), get_stress(calc.workspace)
+        update_feature_vector!(calc.workspace;rebuild_nl, gradients=forces)
+        if forces
+            calculate_energy_and_force!(calc.workspace, calc.modelensemble, calc.backprop_buffers, calc.g2, calc.g3;rebuild_nl)
+        else
+            calculate_energy!(calc.workspace, calc.modelensemble;rebuild_nl)
+        end
+
+        calc.last_pos .= positions(calc.workspace.cell)
+        calc.last_cellmat .= cellmat(calc.workspace.cell)
     end
-    # Update the last calculated positions
-    calc.last_pos .= positions(calc.workspace.cell)
-    calc.last_cellmat .= cellmat(calc.workspace.cell)
     return get_energy(calc.workspace), get_forces(calc.workspace), get_stress(calc.workspace)
 end
 
