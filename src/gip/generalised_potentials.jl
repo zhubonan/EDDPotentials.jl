@@ -464,7 +464,7 @@ function CellFeature(opts::FeatureOptions=FeatureOptions())
     CellFeature(opts.elements;p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3) 
 end
 
-function nfeatures(c::CellFeature;ignore_one_body=false)
+function nfeatures(c::CellFeature;ignore_one_body=(length(c.elements) == 1))
     ignore_one_body ? n = 0 : n = length(c.elements)
     for f in c.two_body
         n += nfeatures(f)

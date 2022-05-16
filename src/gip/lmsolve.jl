@@ -130,6 +130,10 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         println(os)
     end
 
+    # Buffers
+    b1 = transpose(Jdelta_buffer) * wtm
+    b2 = b1 * Jdelta_buffer
+
     while (~converged && iterCt < maxIter)
         # jacobian! will check if x is new or not, so it is only actually
         # evaluated if x was updated last iteration.

@@ -171,15 +171,17 @@ Args:
 * `gu`: is the upstream gradient for the loss of the entire chain. The default is equivalent to:
   `loss = sum(chain(x))`, which is a matrix of `1` in the same shape of the output matrix.
 """
-function backward!(chaing::ChainGradients, chain::Chain;gu=one(eltype(chain.layers[1].weight)), weight_and_bias=true)
+function backward!(chaing::ChainGradients, chain::Chain;gu=1, weight_and_bias=true)
     nlayers = length(chain.layers)
-    for i = nlayers:-1:1
+    # Set the upstream gradient
+    fill!(chaing.layers[end].gu, gu)
+    for i = nlayers:-1:2
         gl = chaing.layers[i]
         l = chain.layers[i]
-        i == nlayers && fill!(gl.gu, gu)
         backprop!(gl, l; weight_and_bias)
         # The upstream gradient of the next layer is that of the gradient of x of 
         # this layer
-        i != 1 && (chaing.layers[i-1].gu .= gl.gx)
+        chaing.layers[i-1].gu .= gl.gx
     end
+    backprop!(chaing.layers[1], chain.layers[1]; weight_and_bias)
 end

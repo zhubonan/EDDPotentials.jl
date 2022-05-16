@@ -4,8 +4,8 @@ using StatsBase
 """
 Load all structures from many paths
 """
-function load_structures(fpath::Vector, featurespec;energy_threshold=20.)
-    cells = []
+function load_structures(fpath::Vector{T}, featurespec;energy_threshold=20.) where {T<:AbstractString}
+    cells = Cell[]
     for f in fpath
         try
             push!(cells, read_res(f))
@@ -14,6 +14,13 @@ function load_structures(fpath::Vector, featurespec;energy_threshold=20.)
             continue
         end
     end
+    load_structures(cells, featurespec;fpath, energy_threshold)
+end
+
+"""
+Prepare structure used for training model
+"""
+function load_structures(cells::Vector{T}, featurespec;fpath=nothing, energy_threshold=20.) where {T<:Cell} 
     enthalpy = [ x.metadata[:enthalpy] for x in cells]
     natoms = [CellTools.nions(c) for c in cells];
     enthalpy_per_atom = enthalpy ./ natoms
@@ -25,7 +32,9 @@ function load_structures(fpath::Vector, featurespec;energy_threshold=20.)
         enthalpy_per_atom = enthalpy_per_atom[mask]
         cells = cells[mask]
         natoms = natoms[mask]
-        fpath = fpath[mask]
+        if !isnothing(fpath)
+            fpath = fpath[mask]
+        end
     end
 
     # Construct feature vectors

@@ -64,26 +64,33 @@ predict_energy(model, x::AbstractVector) = mean.(model.(x))
 """
 Configuration for training
 """
-mutable struct TrainingConfig{T, V, N, G, Z}
+mutable struct TrainingConfig{X, T, Z}
     "The model"
     model::T
-    "The in Duals - used for autodiff"
-    dm::V
-    "Configuration for generating duals"
-    cfg::N
     "Vector of the parameters"
-    p0::G
-    x_train::Any
-    y_train::Any
+    p0::Vector{X}
+    x_train::Vector{Matrix{X}}
+    y_train::Vector{X}
     xt::Z
     yt::Z
 end
 
+"""
+    TrainingConfig(model;x, y, xt, yt)
+
+Set up the data for training.
+Args:
+* `x`: normalised training inputs
+* `y`: normalised training outputs
+* `xt`: normalization transformation for x 
+* `yt`: normalization transformation for y 
+"""
 TrainingConfig(model;x, y, xt, yt) = TrainingConfig(
-    model, dualize_model(model), get_jacobiancfg(paramvector(model)), paramvector(model), 
+    model, paramvector(model), 
     x, y,
     xt, yt
     )
+
 update_param!(m::TrainingConfig) = m.p0 .= paramvector(m.model)
 
 function update_param!(m::TrainingConfig, p::AbstractVector)
@@ -92,7 +99,6 @@ function update_param!(m::TrainingConfig, p::AbstractVector)
 end
 
 paramvector(m::TrainingConfig) = paramvector(m.model)
-get_jacobiancfg(m::TrainingConfig) = m.cfg
 
 """
 Perform training for the given TrainingConfig
@@ -110,9 +116,7 @@ function train!(m::TrainingConfig;
                    args...
                    )
     rec = []
-    dm = m.dm
     model = m.model
-    cfg = m.cfg
 
     function progress_tracker()
         rmse_train = atomic_rmse(predict_energy(model, x_train_norm), y_train_norm, yt)

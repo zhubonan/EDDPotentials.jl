@@ -146,12 +146,14 @@ Collect the gradients after back-propagration into a vector
 function collect_gradients!(gvec::AbstractVector, gbuff::ChainGradients)
     i = 1
     for layer in gbuff.layers
-        nw = length(layer.gw)
-        gvec[i:i+nw-1] .= layer.gw[:]
-        i += nw
-        nb = length(layer.gb)
-        gvec[i:i+nb-1] .= layer.gb[:]
-        i += nb
+        for j = 1:size(layer.gw, 2), k = 1:size(layer.gw, 1)
+            gvec[i] = layer.gw[k, j]
+            i += 1
+        end
+        for j = 1:size(layer.gb, 2), k = 1:size(layer.gb, 1)
+            gvec[i] = layer.gb[k, j]
+            i += 1
+        end
     end
 end
 
@@ -196,18 +198,10 @@ end
 
 Setup the function for evaluting atomic energy
 """
-function setup_atomic_energy_diff(;model, x, y, total=reduce(hcat,x))
+function setup_atomic_energy_diff(;model, x, y)
     function inner!(f, p;)
         update_param!(model, p)
-        ct = 1
-        all_E = model(total)
-        ct = 1
-        for i in 1:length(f)
-            lv = size(x[i], 2)
-            f[i] = mean(all_E[ct:ct+lv-1]) - y[i]
-            ct += lv
-        end
-        f
+        f .= mean.(model.(x)) .- y
     end
     inner!
 end
