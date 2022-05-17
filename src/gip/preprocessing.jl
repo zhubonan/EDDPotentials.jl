@@ -39,10 +39,8 @@ function load_structures(cells::Vector{T}, featurespec;fpath=nothing, energy_thr
 
     # Construct feature vectors
     fvecs = Vector{Matrix{Float64}}(undef, length(cells))
-    p = Progress(length(cells))
-    @Threads.threads for i=1:length(cells)
+    for i=1:length(cells)
         fvecs[i] = CellTools.feature_vector(featurespec, cells[i])
-        next!(p)
     end
 
     (;cells, enthalpy, enthalpy_per_atom, natoms, fpath, fvecs, featurespec)
