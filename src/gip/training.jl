@@ -127,10 +127,8 @@ function train!(m::TrainingConfig;
         rmse_test, paramvector(model)
     end
     # Setting up the object for minimization
-    g2! = setup_jacobian_func_backprop(model, x_train_norm);
-    f2! = setup_atomic_energy_diff(;model, x=x_train_norm, y=y_train_norm);
-    od2 = OnceDifferentiable(f2!,
-                         g2!, p0, zeros(eltype(x_train_norm[1]), length(x_train_norm)), inplace=true);
+    fg! = setup_fg_backprop(model, x_train_norm, y_train_norm);
+    od2 = OnceDifferentiable(only_fg!(fg!), p0, zeros(eltype(x_train_norm[1]), length(x_train_norm)), inplace=true);
 
     callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
     if !isnothing(callback) && any(isnothing, (x_test_norm, y_test_norm, yt))

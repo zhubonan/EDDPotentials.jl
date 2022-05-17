@@ -105,13 +105,14 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
     n_buffer = Vector{T}(undef, n)
     Jdelta_buffer = similar(value(df))
     test_rmse = T[]
+    DtD = zeros(T, n)
 
     # Initialised weights
     wt = ones(T, m)
     if p != 2.0 
         wt .= abs.(value(df, initial_x)) .^ (p - 2.0)
     end
-    wtm = diagm(wt)
+    #wtm = diagm(wt)
     residual = sum(abs2.(value(df)) .* wt)
     best_residual = residual
 
@@ -129,10 +130,6 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         push!(tr, os)
         println(os)
     end
-
-    # Buffers
-    b1 = transpose(Jdelta_buffer) * wtm
-    b2 = b1 * Jdelta_buffer
 
     while (~converged && iterCt < maxIter)
         # jacobian! will check if x is new or not, so it is only actually
@@ -153,7 +150,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
 
         # Vector of the diagonal elements
         #DtD = vec(sum(abs2, J, dims=1))
-        DtD = vec(diag(J' * wtm * J))
+        ATWA!(DtD, J, wt)
         # Scaled the lower bound by the mean value of the weight
         wt_mean = mean(wt)
         for i in 1:length(DtD)
@@ -163,7 +160,8 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         end
 
         # delta_x = ( J'*W*J + lambda * Diagonal(DtD) ) \ ( -J'*value(df) )
-        mul!(JJ, transpose(J) * wtm, J)   # JJ is the buffer
+        # Faster version J' * wt * J since wt is a diagonal matrix
+        mul!(JJ, transpose(J .* wt), J)
 
         # Add the diagonal term without constructing the full matrix out
         @simd for i in 1:n
@@ -172,7 +170,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
 
         #n_buffer is delta C, JJ is g compared to Mark's code
         # This computes the right hand side term of the equation above
-        mul!(n_buffer, transpose(J) * wtm, value(df))
+        mul!(n_buffer, transpose(J), wt .* value(df))
         rmul!(n_buffer, -1)   # Fast inplace update, better than n_buffer .*= -1 !!!
 
         # Solve the matrix equation (A*x == B)
@@ -217,7 +215,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         Jdelta_buffer .= Jdelta_buffer .+ value(df)
         # Total squared residual - loss function
         # NOTE: this needs to be changed with iterative weight update
-        predicted_residual = transpose(Jdelta_buffer) * wtm * Jdelta_buffer
+        predicted_residual = transpose(Jdelta_buffer) * (wt .* Jdelta_buffer)
 
         # try the step and compute its quality
         # compute it inplace according to NLSolversBase value(obj, cache, state)
@@ -265,7 +263,6 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
             vdf = value(df)
             for (i, v) in enumerate(wt)
                 t = abs(vdf[i] + WEIGHT_SHIFT) ^ (p - 2.)
-                wtm[i, i] = t
                 wt[i] = t  
             end
         end
@@ -334,3 +331,20 @@ end
 
 "Signal stop if the min is more than n cycles away"
 earlystopcheck(array, n) = (length(array) - argmin(array)) > n
+
+"""
+Compute the output of 
+
+\$ diag(A^T W A) \$
+"""
+function ATWA!(out, A, W)
+    m, n = size(A)
+    fill!(out, 0)
+    @assert size(out, 1) == n
+    for i in 1:m
+        @simd for j in 1:n
+            @inbounds out[j] += A[i, j] * A[i, j] * W[i]
+        end
+    end
+    out
+end

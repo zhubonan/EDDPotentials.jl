@@ -13,6 +13,8 @@ using ForwardDiff
 using Flux
 
 """
+    update_param!(model, param)
+
 Update the parameters of a model from a given vector
 """
 function update_param!(model, param)
@@ -27,13 +29,11 @@ function update_param!(model, param)
     model
 end
 
-function make_matrix(param, mat, offset=1)
-    l = length(mat)
-    reshape(param[offset:offset+l - 1], size(mat))
-end
 
 """
-Return a vector containing all parameters of a model
+    paramvector(model)
+
+Return a vector containing all parameters of a model concatenated as a vector
 """
 function paramvector(model)
     i = 1
@@ -48,77 +48,33 @@ function paramvector(model)
     out
 end
 
-# """
-# Create a copy of the model with parameters replaced as duals
-# """
-# function dualize_model(model; duals::Vector{T}=dualize(paramvector(model))) where {T}
-#     i = 1
-#     nets = []
-#     for layer in model
-#         wt::Matrix{T} = make_matrix(duals, layer.weight, i)
-#         i += length(wt)
-#         bias::Vector{T} = make_matrix(duals, layer.bias, i)
-#         i += length(bias)
-#         layer_ = Dense(wt, bias, layer.σ)
-#         push!(nets, layer_)
-#     end
-#     Chain(nets...)
-# end
-
-# """
-# Collect jacobian from output as duals
-# """
-# function collect_jacobian!(jac, out)
-#     for (i, o) in enumerate(out)
-#         for (j, p) in enumerate(o.partials)
-#             jac[i, j] = p
-#         end
-#     end
-#     jac
-# end
-
-# function collect_jacobian(out::Vector{ForwardDiff.Dual{N, T, M}}) where {N, T, M}
-#     jac = zeros(T, length(out), length(out[1].partials))
-#     collect_jacobian!(jac, out)
-# end
-
-# function jac!(j, dm, p, cfg; x0)
-#     pduals = ForwardDiff.seed!(cfg.duals, p, cfg.seeds);
-#     update_param!(dm, pduals)
-#     collect_jacobian!(j, dm(x0))
-# end
-
-# get_jacobiancfg(p) = ForwardDiff.JacobianConfig(nothing, p, ForwardDiff.Chunk{length(p)}());
-
-# dualize(x::Vector;cfg=ForwardDiff.JacobianConfig(nothing, x, ForwardDiff.Chunk{length(x)}())) = ForwardDiff.seed!(cfg.duals, x, cfg.seeds)
-
-# """
-#     setup_autodiff(model)
-
-# Return components for autodiff operation -  a tuple of (dm, cfg, p1)
-# """
-# function setup_autodiff(model)
-#     p0 = paramvector(model)
-#     cfg = get_jacobiancfg(p0)
-#     pdual = dualize(p0;cfg)
-#     dm = dualize_model(model, duals=pdual)
-#     dm, cfg, p0
-# end
-
 """
-Get a function for computing the jacobian matrix for the **mean atomic energy**.
+    setup_fg_backprop(model, data::AbstractVector, y)
+
+Get a function for computing both the objective function and the 
+jacobian matrix for the **mean atomic energy**.
 """
-function setup_jacobian_func_backprop(model, data::AbstractVector)
+function setup_fg_backprop(model, data::AbstractVector, y)
     batch_sizes = unique(size.(data, 2))
     gbuffers = ChainGradients.(Ref(model), batch_sizes)
-    function g!(jmat, param)
+    function fg!(fvec, jmat, param)
         update_param!(model, param)
-        compute_jacobian_backprop!(jmat, gbuffers, model, data)
-        jmat
+        if !(jmat === nothing)
+            compute_jacobian_backprop!(jmat, gbuffers, model, data)
+        end
+        if !(fvec === nothing)
+            compute_diff_with_forward!(fvec, gbuffers, model, data, y)
+            return fvec
+        end
     end
-    return g!
+    return fg!
 end
 
+"""
+    compute_jacobian_backprop!(jacmat, gbuffs, model, data::AbstractVector)
+
+Compute jacobian of the NN weights/bias using back-propagation.
+"""
 function compute_jacobian_backprop!(jacmat, gbuffs, model, data::AbstractVector)
     g1 = zeros(eltype(jacmat), size(jacmat, 2))
     for (i, inp) in enumerate(data)
@@ -138,6 +94,22 @@ function compute_jacobian_backprop!(jacmat, gbuffs, model, data::AbstractVector)
     jacmat
 end
 
+raw"""
+    compute_diff_with_forward!(f, gbuffs, model, data::AbstractVector, y)
+
+Compute the objective function ($y' - y_ref$).
+"""
+function compute_diff_with_forward!(f, gbuffs, model, data::AbstractVector, y)
+    for (i, inp) in enumerate(data)
+        sinp = size(inp, 2)
+        # Find the buffer of the right shape
+        gbuff = gbuffs[findfirst(x -> x.n == sinp, gbuffs)]
+        out = forward!(gbuff, model, inp)
+        f[i] = mean(out) - y[i]
+    end
+    f
+end
+
 """
     collect_gradients!(gvec::AbstractVector, gbuff::ChainGradients)
 
@@ -155,55 +127,6 @@ function collect_gradients!(gvec::AbstractVector, gbuff::ChainGradients)
             i += 1
         end
     end
-end
-
-"""
-Setup the function for computing jacobian for each element of the data (N, M) matrix
-"""
-function setup_jacobian_func(model, data)
-    dm, cfg, p0 = setup_autodiff(model)
-    g!(j, p) = jac!(j, dm, p, cfg;x0=data)
-    return g!, dm, p0
-end
-
-"""
-    setup_atomic_energy_jacobian(;model, dm, data, cfg, total=reduce(hcat,data))
-
-Setup the function for computing the jacobian of the mean atomic energy of each frame.
-"""
-function setup_atomic_energy_jacobian(;model, dm, x, cfg, total=reduce(hcat,x))
-    function inner!(j, p)
-        pduals = ForwardDiff.seed!(cfg.duals, p, cfg.seeds);
-        update_param!(dm, pduals)
-        update_param!(model, p)
-        all_E = dm(total)
-        out = zeros(eltype(all_E), length(x))
-        ct = 1
-        for i in 1:length(out)
-            lv = size(x[i], 2)
-            val = 0.
-            for j = ct:ct+lv -1
-                val += all_E[j]
-            end
-            out[i] = val / lv
-            ct += lv
-        end
-        collect_jacobian!(j, out)
-    end
-    return inner!
-end
-
-"""
-    setup_atomic_energy_diff(;model, x, y, total=reduce(hcat,x))
-
-Setup the function for evaluting atomic energy
-"""
-function setup_atomic_energy_diff(;model, x, y)
-    function inner!(f, p;)
-        update_param!(model, p)
-        f .= mean.(model.(x)) .- y
-    end
-    inner!
 end
 
 """
