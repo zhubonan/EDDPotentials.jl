@@ -94,8 +94,8 @@ Args:
 function (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart=1)
     val = f.f(rij, f.rcut)
     i = istart
-    for _ in 1:nfeatures(f)
-        out[i, iat] += fast_pow(val, f.p[i])
+    for j in 1:nfeatures(f)
+        out[i, iat] += fast_pow(val, f.p[j])
         i += 1
     end
     out
