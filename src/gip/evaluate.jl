@@ -124,7 +124,8 @@ CellBase.update!(cw::CellWorkSpace) = CellBase.update!(cw.nl, cw.cell)
 
 Update the feature vectors after atomic displacements.
 """
-function update_feature_vector!(wt::CellWorkSpace;rebuild_nl=true, gradients=true, global_minsep=0.01)
+function update_feature_vector!(wt::CellWorkSpace;rebuild_nl=true, gradients=true, global_minsep=0.01, maxvol=100)
+    check_cell_volume(wt.cell;threshold=maxvol) || throw(ErrorException("The cell volume is unrealistically high!"))
     rebuild_nl ? rebuild!(wt) : update!(wt)
     check_global_minsep(wt.nl, global_minsep) || throw(ErrorException("There are atoms closer than $(global_minsep)!"))
 
@@ -579,4 +580,13 @@ function check_global_minsep(nl::NeighbourList, threshold)
         end
     end
     return true
+end
+
+"""
+    check_cell_volume(cell)
+Check if the volume of the cell is reasonable
+"""
+function check_cell_volume(cell; threshold=100)
+    vol_per_atom = volume(cell) / nions(cell)
+    vol_per_atom < 100
 end
