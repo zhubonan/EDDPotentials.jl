@@ -146,12 +146,17 @@ function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, e
         try
             build_and_relax(seedfile, outdir, ensemble, cf;timeout)
         catch err 
-            if warn
-                if typeof(err) <: ProcessFailedException 
-                    println(stderr, "WARNING: `buildcell` failed to make the structure")
-                else
-                    println(stderr, "WARNING: relaxation errored!")
+            if isa(err, Union{ProcessFailedException, ErrorException, LoadError})
+                if warn
+                    if typeof(err) <: ProcessFailedException 
+                        println(stderr, "WARNING: `buildcell` failed to make the structure")
+                    else
+                        println(stderr, "WARNING: relaxation errored!")
+                        println(stderr, "Error: $err")
+                    end
                 end
+            else
+                throw(err)
             end
             n += 1
             continue
@@ -167,8 +172,8 @@ Build and relax `num` structures in parallel (threads) using passed `ModuleEnsem
 """
 function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10)
     pbar = Progress(num;desc="Build and relax: ")
-    Threads.@threads for i in 1:num
-        build_and_relax_one(seedfile, outdir, ensemble, cf;timeout,warn=false)
+    for i in 1:num
+        build_and_relax_one(seedfile, outdir, ensemble, cf;timeout,warn=true)
         next!(pbar)
     end
 end
@@ -241,6 +246,8 @@ function iterative_build(workdir, seedfile, per_generation=100, shake_per_minima
                          mpinp=4,
                          start_iteration=0,
                          feature_opts::FeatureOptions, 
+                         start_from_training=false,
+                         n_initial=per_generation * shake_per_minima,
                          training_opts::TrainingOptions)
 
     featurespec=CellFeature(feature_opts)
@@ -249,16 +256,18 @@ function iterative_build(workdir, seedfile, per_generation=100, shake_per_minima
 
     # Are we starting from scratch?
     if iteration == 0
-        # build lots of structures
-        @info "Generating initial dataset"
         curdir = subpath("iter-0")
         ensure_dir(curdir)
-        build_cells(seedfile, curdir, per_generation * shake_per_minima;save_as_res=true, build_timeout)
-
         outdir  = subpath("iter-0-dft")
         indir = subpath("iter-0")
-        @info "DFT for the initial dataset"
-        run_crud(workdir, indir, outdir;mpinp, nparallel)
+        if !start_from_training
+            # build lots of structures
+            @info "Generating initial dataset"
+            build_cells(seedfile, curdir, n_initial;save_as_res=true, build_timeout)
+            @info "DFT for the initial dataset"
+            run_crud(workdir, indir, outdir;mpinp, nparallel)
+            start_from_training=false
+        end
 
         # Output ensemble file
         ensemble_path = subpath("iter-$(iteration)-ensemble.jld2")

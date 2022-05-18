@@ -16,10 +16,9 @@ function compute_two_body_fv_gv!(evecs, gvecs, svecs, features::Vector{TwoBodyFe
     totalfe = sum(nfe)
     nat = natoms(cell)
     sym = species(cell)
-    z = zero(eltype(evecs))
-    fill!(evecs, z)
-    fill!(gvecs, z)  # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
-    fill!(svecs, z)  # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
+    fill!(evecs, 0)
+    fill!(gvecs, 0)  # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
+    fill!(svecs, 0)  # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
     gbuffer = zeros(eltype(evecs), sum(nfe))   # Buffer for holding d(f(r)^p)/dr
     maxrcut = maximum(x -> x.rcut, features)
     
@@ -28,7 +27,8 @@ function compute_two_body_fv_gv!(evecs, gvecs, svecs, features::Vector{TwoBodyFe
             rij > maxrcut && continue
             # Accumulate feature vectors
             ist = 1
-            fill!(gbuffer, z)
+            # Clear the buffer for storing gradient, since the called function *accumulates* it
+            fill!(gbuffer, 0)
             for (ife, f) in enumerate(features)
                 withgradient!(evecs, gbuffer, f, rij, sym[iat], sym[jat], iat, ist)
                 ist += nfe[ife]
@@ -62,7 +62,7 @@ end
 """
     compute_three_body_fv_gv!(fvecs, gvecs, features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
 
-Compute the feature vector for a given set of two body interactions, compute gradients as well.
+Compute the feature vector for a given set of three body interactions, compute gradients as well.
 """
 function compute_three_body_fv_gv!(evecs, gvecs, svecs, features::Vector{ThreeBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where {T, N}
     # vecs -> size (nfeature, nions)
@@ -72,10 +72,9 @@ function compute_three_body_fv_gv!(evecs, gvecs, svecs, features::Vector{ThreeBo
     totalfe = sum(nfe)
     nat = natoms(cell)
     sym = species(cell)
-    z = zero(eltype(evecs))
-    fill!(evecs, z)
-    fill!(gvecs, z)  # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
-    fill!(svecs, z)  # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
+    fill!(evecs, 0)
+    fill!(gvecs, 0)  # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
+    fill!(svecs, 0)  # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
     gbuffer = zeros(eltype(evecs), 3, totalfe)   # Buffer for holding df/dr for rij, rik, rjk
     maxrcut = maximum(x -> x.rcut, features)
     for iat = 1:nat
@@ -92,6 +91,8 @@ function compute_three_body_fv_gv!(evecs, gvecs, svecs, features::Vector{ThreeBo
                 rjk = norm(vjk)
                 rjk > maxrcut && continue
                 # accumulate the feature vector
+                # Clear the buffer for storing gradient, since the called function *accumulates* it
+                fill!(gbuffer, 0)
                 ist = 1
                 for (ife, f) in enumerate(features)
                     # populate the buffer storing the gradients against rij, rik, rjk

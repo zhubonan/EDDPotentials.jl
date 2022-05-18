@@ -41,7 +41,7 @@ function ForceBuffer{T}(nf, nat;ndims=3) where {T}
     ForceBuffer(gvec, svec, stotv, forces, stress)
 end
 
-
+const WORKSPACE_T = Float64
 
 """
 Combination of a cell, its associated neighbour list and feature vectors
@@ -75,6 +75,8 @@ get_cell(cw::CellWorkSpace) = cw.cell
 
 "Number of features used in the CellWorkSpace"
 nfeatures(cw::CellWorkSpace)  = size(cw.v, 1)
+
+nbodyfeatures(cw::CellWorkSpace, nbody) = nbodyfeatures(cw.cf, nbody)
 
 function Base.show(io::IO, cw::CellWorkSpace)
     println(io, "CellWorkspace for: ")
@@ -111,7 +113,7 @@ function CellWorkSpace{A}(cell::Cell;cf, rcut, nmax=500, savevec=true, ndims=3, 
 end
 
 function CellWorkSpace(cell::Cell;cf, rcut, nmax=500, savevec=true, ndims=3, ignore_one_body=true)
-    CellWorkSpace{Float32}(cell::Cell;cf, rcut, nmax, savevec, ndims, ignore_one_body)
+    CellWorkSpace{WORKSPACE_T}(cell::Cell;cf, rcut, nmax, savevec, ndims, ignore_one_body)
 end
 
 CellBase.rebuild!(cw::CellWorkSpace) = CellBase.rebuild!(cw.nl, cw.cell)
@@ -122,9 +124,11 @@ CellBase.update!(cw::CellWorkSpace) = CellBase.update!(cw.nl, cw.cell)
 
 Update the feature vectors after atomic displacements.
 """
-function update_feature_vector!(wt::CellWorkSpace;rebuild_nl=false, gradients=true)
+function update_feature_vector!(wt::CellWorkSpace;rebuild_nl=true, gradients=true, global_minsep=0.01)
     rebuild_nl ? rebuild!(wt) : update!(wt)
+    check_global_minsep(wt.nl, global_minsep) || throw(ErrorException("There are atoms closer than $(global_minsep)!"))
 
+    # Sanity check - do we have atoms squashed togeter?
     one_body_vectors!(wt.one_body, wt.cell)
     if gradients
         compute_two_body_fv_gv!(wt.two_body, wt.two_body_fbuffer.gvec, wt.two_body_fbuffer.svec, wt.cf.two_body, wt.cell;wt.nl)
@@ -559,4 +563,20 @@ function optimise_cell!(vc;show_trace=false, record_trajectory=false, stepmax=2.
     lbfgs = LBFGS(;linesearch = HagerZhang(;alphamax=stepmax))
     res = optimize(x -> fo(x, vc), x -> go(x, vc), p0, lbfgs, Optim.Options(;show_trace=show_trace, g_abstol, f_reltol, successive_f_tol); inplace=false)
     res, traj
+end
+
+"""
+     check_global_minsep(nl::NeighbourList, threshold)
+
+Check if there are atoms that are too close to each other.
+"""
+function check_global_minsep(nl::NeighbourList, threshold)
+    for i in 1:length(nl.nneigh)
+        for (_, _, d) in eachneighbour(nl, i)
+            if d < threshold
+                return false
+            end
+        end
+    end
+    return true
 end

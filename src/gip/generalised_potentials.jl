@@ -102,15 +102,19 @@ function (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart=1)
 end
 
 """
-Calculate d(f(r)^p) / dr for each feature 
+Calculate d(f(r)^p) / dr for each feature as well as the feature vector vector.
+
+Args:
+* e: The matrix storing the feature vectors of shape (nfe, nat)
+* g: The matrix storing the gradient feature vectors of shape (nfe,), **for this particular pair of i and j**.
 """
 function withgradient!(e::Matrix, g::Vector, f::TwoBodyFeature, rij, iat, istart)
     val = f.f(rij, f.rcut)
     gval = f.g(rij, f.rcut)
     i = istart
-    for _ in 1:nfeatures(f)
-        g[i] += f.p[i] * fast_pow(val, (f.p[i] - 1)) * gval  # Chain rule
-        e[i, iat] += fast_pow(val, f.p[i])
+    for j in 1:nfeatures(f)
+        g[i] += f.p[j] * fast_pow(val, (f.p[j] - 1)) * gval  # Chain rule
+        e[i, iat] += fast_pow(val, f.p[j])
         i += 1
     end
     e, g
@@ -200,6 +204,11 @@ end
 
 """
 Calculate df / drij, df /drik, df/drjk for each element of a ThreeBodyFeature
+
+Args:
+* e: The matrix storing the feature vectors of shape (nfe, nat)
+* g: The matrix storing the gradient feature vectors of shape (3, nfe), against rij, rik and rjk
+  **for this particular combination of i, j, k**.
 """
 function withgradient!(e::Matrix, g::Matrix, f::ThreeBodyFeature, rij, rik, rjk, iat, istart)
     func = f.f
@@ -218,9 +227,9 @@ function withgradient!(e::Matrix, g::Matrix, f::ThreeBodyFeature, rij, rik, rjk,
             # Feature term
             e[i, iat] += ijkp * fast_pow(fjk, f.q[o])
             # Gradient - NOTE this can be optimised further...
-            g[1, i] = f.p[m] * fast_pow(fij, (f.p[m] - 1)) * fast_pow(fik, f.p[m]) * fast_pow(fjk, f.q[o]) * gij
-            g[2, i] = tmp  * f.p[m] * fast_pow(fjk, f.q[o]) * gik
-            g[3, i] = ijkp * f.q[o] * fast_pow(fjk, (f.q[o] - 1)) * gjk
+            g[1, i] += f.p[m] * fast_pow(fij, (f.p[m] - 1)) * fast_pow(fik, f.p[m]) * fast_pow(fjk, f.q[o]) * gij
+            g[2, i] += tmp  * f.p[m] * fast_pow(fjk, f.q[o]) * gik
+            g[3, i] += ijkp * f.q[o] * fast_pow(fjk, (f.q[o] - 1)) * gjk
             i += 1
         end
     end
@@ -475,23 +484,33 @@ function nfeatures(c::CellFeature;ignore_one_body=(length(c.elements) == 1))
     n
 end
 
+"""
+Return the number of N-body features
+"""
+function nbodyfeatures(c::CellFeature, nbody)
+    if nbody == 1
+        return length(c.elements)
+    elseif nbody == 2
+        return sum(nfeatures, c.two_body)
+    elseif nbody == 3
+        return sum(nfeatures, c.three_body)
+    end
+    return 0
+end
 
-function feature_vector(cellf::CellFeature, cell::Cell;nmax=500)
+function feature_vector(cf::CellFeature, cell::Cell;nmax=500)
 
     # Infer rmax
-    rcut = max(
-        maximum(x -> x.rcut, cellf.two_body),
-        maximum(x -> x.rcut, cellf.three_body)
-    ) + 1.0
+    rcut = suggest_rcut(cf)
     nl = NeighbourList(cell, rcut, nmax)
 
     # One body vector is essentially an one-hot encoding of the specie labels 
     # assuming no "mixture" atoms of course
     v1 = one_body_vectors(cell)
     # Concatenated two body vectors 
-    v2 = feature_vector(cellf.two_body, cell;nl=nl)
+    v2 = feature_vector(cf.two_body, cell;nl=nl)
     # Concatenated three body vectors 
-    v3 = feature_vector(cellf.three_body, cell;nl=nl)
+    v3 = feature_vector(cf.three_body, cell;nl=nl)
     vcat(v1, v2, v3)
 end
 
