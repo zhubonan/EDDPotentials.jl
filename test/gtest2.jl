@@ -11,26 +11,32 @@ Something weird about these Tests
 2. Check the code when handling multiple features? 
 =#
 
+function allclose(A, B;tol=1e-7)
+    maxdiv = maximum(abs.(A .- B))
+    out = maxdiv < tol
+    if !out
+        @show maxdiv A[1:5] B[1:5] 
+    end
+    out
+end 
+
 function genworkspace()
       pos = [0 0.1 0.3 
              0 1  3
              0.1 0 0.2]
-    cell = Cell(Lattice(3.0, 2.0, 3.0), [:H, :H, :O], pos)
+    cell = Cell(Lattice(3.15, 2.9, 3.1), [:H, :H, :O], pos)
     cf = CellTools.CellFeature([:H, :O];p2=2:4, p3=2:4, q3=2:4, rcut3=4.0, rcut2=4.0)
-    pop!(cf.three_body)
-    pop!(cf.three_body)
-    pop!(cf.three_body)
-    CellTools.CellWorkSpace(cell;cf, rcut=4.0)
+    CellTools.CellWorkSpace(cell;cf, rcut=CellTools.suggest_rcut(cf))
 end
 
 @testset "Gradients2" begin
 
-    global wk = genworkspace()
+    wk = genworkspace()
     CellTools.update_feature_vector!(wk;rebuild_nl=true)
 
     g2 = wk.two_body_fbuffer.gvec
     g3 = wk.three_body_fbuffer.gvec
-    global gtot = cat(g2, g3, dims=1)
+    gtot = cat(g2, g3, dims=1)
 
     cell = CellTools.get_cell(wk)
     p0 = cell.positions[:]
@@ -51,44 +57,93 @@ end
     # Two body part
     n2 = CellTools.nbodyfeatures(wk, 2)
     n3 = CellTools.nbodyfeatures(wk, 3)
-    @test maximum(abs.(jac[1:n2, :, :, :] .- gtot[1:n2, :, :, :])) < 1e-6
+    @test allclose(jac[1:n2, :, :, :], gtot[1:n2, :, :, :],  tol=1e-6)
     # Three body part
-    @test maximum(abs.(jac[n2+1:end, :, :, :] .- gtot[n2+1:end, :, :, :])) < 1e-6
+    @test allclose(jac[n2+1:end, :, :, :], gtot[n2+1:end, :, :, :],  tol=1e-6)
 
 
     # ### Check for stress
 
+    function update_with_strain(workspace, s)
+        cell = CellTools.get_cell(workspace)
+        cm = CellTools.get_cellmat(cell)
+        pos = CellTools.get_positions(cell)
+        smat = diagm([1., 1., 1.])
+        smat[:] .+= s
+        set_cellmat!(cell, smat * cm)
+        CellTools.update_feature_vector!(workspace;)
+        set_cellmat!(cell, cm)
+        CellBase.set_positions!(cell, pos)
+        workspace.v
+    end
 
-    # s0 = zeros(9)
-    # od = NLSolversBase.OnceDifferentiable( x -> sv(x, twof), s0, sv(s0, twof); inplace=false)
-    # sjac = reshape(NLSolversBase.jacobian!(od, s0), sum(nfe), 2, 3,3)
-    # svtot = sum(svecs,dims=5)
-    # s1 = svtot[1, 1, :, :] 
-    # sj1 = sjac[1, 1, :, :]
-    # @test maximum(abs.(vec(s1) .- vec(sj1))) < 1e-8
-
-    # ## Tests for three body interactions
-
-    # threeof = cf.three_body
-    # nfe = CellTools.nfeatures(threeof[1])
-    # nat = nions(cell)
-
-    # fvecs = zeros(nfe, nat)
-    # gvecs = zeros(nfe, nat, 3, nat)
-    # svecs = zeros(nfe, nat, 3, 3, nat)
-    # CellTools.compute_three_body_fv_gv!(fvecs, gvecs, svecs, threeof, cell;nl)
-    # gbuffer = zeros(3, nfe)
-    # gbuffer = zeros( nfe)
-    # p0 = copy(cell.positions[:])
-    # od = NLSolversBase.OnceDifferentiable(x -> fv(x, threeof), p0, fv(p0, threeof); inplace=false)
-    # jac = NLSolversBase.jacobian!(od, p0)
-    # # Check numberical diff is below tolerance
-    # @test maximum(abs.(vec(jac) .- vec(gvecs))) < 1e-8
+    s0 = zeros(9)
+    od = NLSolversBase.OnceDifferentiable( x -> update_with_strain(wk, x), s0, update_with_strain(wk, s0); inplace=false)
+    global sjac = reshape(NLSolversBase.jacobian!(od, s0), CellTools.nfeatures(wk), 3, 3,3)
+    s2 = wk.two_body_fbuffer.stotv
+    s3 = wk.three_body_fbuffer.stotv
+    sd = cat(s2, s3, dims=1)
+    # Accuracy of this numerical differentiation is not so good...
+    @test allclose(sjac, sd, tol=1e-2)
+end
 
 
-    # s0 = zeros(9)
-    # od = NLSolversBase.OnceDifferentiable(x -> sv(x, threeof), s0, sv(s0, threeof); inplace=false)
-    # sjac = reshape(NLSolversBase.jacobian!(od, s0), sum(nfe), 2, 3,3)
-    # svtot = sum(svecs,dims=5)
-    # @test maximum(abs.(vec(sjac) .- vec(svtot))) < 1e-6
+@testset "Forces" begin
+    wk = genworkspace()
+    ntot = CellTools.nfeatures(wk)    
+    model = Chain(Dense(ones(1, ntot)))
+    me = CellTools.ModelEnsemble(model=model)
+    calc = CellTools.CellCalculator(wk, me)
+    CellTools.calculate!(calc)
+    stress = copy(CellTools.get_stress(calc))
+    forces = copy(CellTools.get_forces(calc))
+
+    function energy(calc, pos)
+        bak = get_positions(calc)
+        cell = get_cell(calc)
+        cell.positions .= pos
+        eng = get_energy(calc)
+        cell.positions .= bak
+        eng
+    end
+
+    function update_with_strain(calc, s)
+        cell = CellTools.get_cell(calc)
+        cm = CellTools.get_cellmat(cell)
+        pos = CellTools.get_positions(cell)
+        smat = diagm([1., 1., 1.])
+        smat[:] .+= s
+        set_cellmat!(cell, smat * cm)
+        eng = get_energy(calc)
+        set_cellmat!(cell, cm)
+        CellBase.set_positions!(cell, pos)
+        eng
+    end
+
+    # Test the total force
+    p0 = CellTools.get_positions(calc)
+    od = OnceDifferentiable(x -> energy(calc, x), p0, energy(calc, p0))
+    grad= NLSolversBase.gradient(od, p0)
+    @test allclose(grad, -forces, tol=1e-6)
+
+    # Test the total stress
+    s0 = zeros(3,3)[:]
+    od = OnceDifferentiable(x -> update_with_strain(calc, x), s0, update_with_strain(calc, s0), inplace=false)
+    grad= NLSolversBase.gradient(od, s0) ./ volume(get_cell(calc))
+    @test allclose(grad, -vec(stress), tol=1e-5)
+
+    # Test wrapper
+    vc = CellTools.VariableLatticeFilter(calc)
+    epos = CellTools.get_positions(vc)
+    global eforce = CellTools.get_forces(vc)
+
+    function eeng(vc, p)
+        CellTools.set_positions!(vc, reshape(p, 3, :))
+        get_energy(vc)
+    end
+
+    od = OnceDifferentiable(x -> eeng(vc, x), epos, eeng(vc, epos);inplace=false)
+    global grad= NLSolversBase.gradient(od, epos)
+
+    @test allclose(grad, -eforce, tol=5e-2)
 end

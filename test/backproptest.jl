@@ -70,9 +70,9 @@ using Test
         chain = CellTools.generate_chain(21, [5])
         inp = [rand(Float32, 21)]
         gd = Flux.gradient(() -> mean(chain(inp[1])), Flux.params(chain))
-        gp! = CellTools.setup_jacobian_func_backprop(chain, inp)
+        gp! = CellTools.setup_fg_backprop(chain, inp, [1.0])
         jmat = zeros(eltype(inp[1]), 1, 116)
-        gp!(jmat, CellTools.paramvector(chain))
+        gp!([0.], jmat, CellTools.paramvector(chain))
 
         @test allclose(jmat[1, 1:105], vec(gd.grads[gd.params[1]]))
         @test allclose(jmat[1, 106:110], vec(gd.grads[gd.params[2]]))

@@ -221,8 +221,14 @@ function withgradient!(e::Matrix, g::Matrix, f::ThreeBodyFeature, rij, rik, rjk,
     gjk = f.g(rjk, rcut)
     i = istart  # Index of the element
     for m in 1:f.np
+        # Cache computed value
         ijkp = fast_pow(fij, f.p[m]) * fast_pow(fik, f.p[m]) 
-        tmp = ijkp / fik  # fij ^ pm * fik * (pm - 1)
+        # Avoid NaN if fik is 0
+        if fik != 0 
+            tmp = ijkp / fik  # fij ^ pm * fik * (pm - 1)
+        else
+            tmp = zero(ijkp)
+        end
         for o in 1:f.nq  # Note that q is summed in the inner loop
             # Feature term
             e[i, iat] += ijkp * fast_pow(fjk, f.q[o])
