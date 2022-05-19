@@ -146,7 +146,7 @@ function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, e
         try
             build_and_relax(seedfile, outdir, ensemble, cf;timeout)
         catch err 
-            if isa(err, Union{ProcessFailedException, ErrorException, LoadError})
+            if !isa(err, InterruptException)
                 if warn
                     if typeof(err) <: ProcessFailedException 
                         println(stderr, "WARNING: `buildcell` failed to make the structure")
@@ -248,6 +248,7 @@ function iterative_build(workdir, seedfile, per_generation=100, shake_per_minima
                          feature_opts::FeatureOptions, 
                          start_from_training=false,
                          n_initial=per_generation * shake_per_minima,
+                         datapaths=nothing,
                          training_opts::TrainingOptions)
 
     featurespec=CellFeature(feature_opts)
@@ -255,6 +256,10 @@ function iterative_build(workdir, seedfile, per_generation=100, shake_per_minima
     iteration = start_iteration
 
     # Are we starting from scratch?
+    if isnothing(datapaths)
+        datapaths = []
+    end
+
     if iteration == 0
         curdir = subpath("iter-0")
         ensure_dir(curdir)
@@ -272,7 +277,7 @@ function iterative_build(workdir, seedfile, per_generation=100, shake_per_minima
         # Output ensemble file
         ensemble_path = subpath("iter-$(iteration)-ensemble.jld2")
         # Train the model
-        datapaths = [joinpath(outdir, "*.res")]
+        push!(datapaths, joinpath(outdir, "*.res"))
         @info "Training with the initial dataset"
         train(datapaths, ensemble_path, feature_opts, training_opts;)
 

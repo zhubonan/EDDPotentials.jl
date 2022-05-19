@@ -389,7 +389,16 @@ function train_multi(training_data, savepath, opt::TrainingOptions;featurespec=n
     """
     Do work for the ith object
     """
-    function do_work(i)
+    function do_work(i, training_data)
+
+        # Make copies of the data
+        x_train_norm = copy(training_data.x_train_norm)
+        y_train_norm = copy(training_data.y_train_norm)
+        x_test_norm =copy(training_data.x_test_norm)
+        y_test_norm = copy(training_data.y_test_norm)
+        xt = deepcopy(training_data.xt)
+        yt = deepcopy(training_data.yt)
+
         model = generate_chain(nfeature, opt.n_nodes)
         tf = TrainingConfig(model; x=x_train_norm, y=y_train_norm, xt, yt)
         out = train!(tf; x_test_norm, y_test_norm, yt, show_progress=opt.show_progress, earlystop=opt.earlystop, maxIter=opt.max_iter)
@@ -405,8 +414,18 @@ function train_multi(training_data, savepath, opt::TrainingOptions;featurespec=n
         end
     end
 
+    # chnl = Channel{Int}(nmodels) do chn
+    #     foreach(x -> put!(chn, x), 1:nmodels)
+    # end
+
+    # function worker(chnl)
+    #     while isready(chnl)
+    #         i = take!(chnl)
+    #         do_work(i, training_data)
+    #     end
+    #end
     Threads.@threads for i in 1:nmodels
-        do_work(i)
+        do_work(i, training_data)
     end
     (models=output, savefile=savefile)
 end
