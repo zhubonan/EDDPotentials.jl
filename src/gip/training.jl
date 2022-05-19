@@ -1,6 +1,7 @@
 #=
 Training routines
 =#
+using Distributed
 using Base.Threads
 using Dates
 using JLD2
@@ -349,7 +350,7 @@ function train_multi(training_data, savepath;args...)
     train_multi(training_data, savepath, opt)
 end
 
-function train_multi(training_data, savepath, opt::TrainingOptions;featurespec=nothing)
+function train_multi(training_data, savepath, opt::TrainingOptions;featurespec=nothing, ntasks=nthreads())
 
 
     x_train_norm = training_data.x_train_norm
@@ -380,16 +381,14 @@ function train_multi(training_data, savepath, opt::TrainingOptions;featurespec=n
         appenddata(savefile, "training_data", training_data)
     end
 
-    l = ReentrantLock()
 
     nmodels = opt.nmodels
-    p = Progress(nmodels)
-    output = []
+    results_channel = Channel(nmodels)
 
     """
     Do work for the ith object
     """
-    function do_work(i, training_data)
+    function do_work(training_data)
 
         # Make copies of the data
         x_train_norm = copy(training_data.x_train_norm)
@@ -402,32 +401,41 @@ function train_multi(training_data, savepath, opt::TrainingOptions;featurespec=n
         model = generate_chain(nfeature, opt.n_nodes)
         tf = TrainingConfig(model; x=x_train_norm, y=y_train_norm, xt, yt)
         out = train!(tf; x_test_norm, y_test_norm, yt, show_progress=opt.show_progress, earlystop=opt.earlystop, maxIter=opt.max_iter)
-        showvalues = [(:rmse, minimum(out[3][:, 2]))]
-        # Write model to the archive
-        lock(l)
-        try
-            appenddata(savefile, "model-$i", model)
-            push!(output, out)
+        # Put the output in the channel storing the results
+        put!(results_channel, (tf, out))
+    end
+
+
+
+    work = Channel(nmodels) do chn
+         foreach(x -> put!(chn, training_data), 1:nmodels)
+    end
+
+    foreach_task = @async Threads.foreach(do_work, work;ntasks) 
+
+
+    # Receive the data and update the progress
+    i = 1
+    p = Progress(nmodels)
+    all_models = []
+    try
+        while i <= nmodels
+            tf, out = take!(results_channel)
+            appenddata(savefile, "model-$i", tf.model)
+            showvalues = [(:rmse, minimum(out[3][:, 2]))]
             ProgressMeter.next!(p;showvalues)
-        finally
-            unlock(l)
+            push!(all_models, tf.model)
+            i +=1
+        end
+    catch err
+        if isa(err, InterruptException)
+            Base.throwto(foreach_task, err)
+        else
+            throw(err)
         end
     end
-
-    # chnl = Channel{Int}(nmodels) do chn
-    #     foreach(x -> put!(chn, x), 1:nmodels)
-    # end
-
-    # function worker(chnl)
-    #     while isready(chnl)
-    #         i = take!(chnl)
-    #         do_work(i, training_data)
-    #     end
-    #end
-    Threads.@threads for i in 1:nmodels
-        do_work(i, training_data)
-    end
-    (models=output, savefile=savefile)
+      
+    (models=all_models, savefile=savefile)
 end
 
 
@@ -484,4 +492,112 @@ function rmse(ensemble::ModelEnsemble, x::AbstractVector, y::AbstractVector;scal
         y = StatsBase.reconstruct(ensemble.yt, y)
     end
     rmse(pred, y)
+end
+
+
+function train_multi_distributed(training_data, savepath, opt::TrainingOptions;featurespec=nothing, ntasks=nthreads())
+
+
+    x_train_norm = training_data.x_train_norm
+    y_train_norm = training_data.y_train_norm
+    x_test_norm = training_data.x_test_norm
+    y_test_norm = training_data.y_test_norm
+    xt = training_data.xt
+    yt = training_data.yt
+
+    nfeature = size(x_train_norm[1], 1)
+
+    if contains(savepath, ".jld2")
+        savefile = savepath
+    else
+        isdir(savepath) || mkdir(savepath)
+        savefile="$(savepath)/$(now()).jld2"
+    end
+
+    # Write parameters
+    appenddata(savefile, opt.xt_name, xt)
+    appenddata(savefile, opt.yt_name, yt)
+
+    isnothing(featurespec) || appenddata(savefile, opt.featurespec_name, featurespec)
+
+    appenddata(savefile, "training_options", opt)
+
+    if opt.store_training_data
+        appenddata(savefile, "training_data", training_data)
+    end
+
+
+    nmodels = opt.nmodels
+    results_channel = RemoteChannel(() -> Channel(nmodels))
+    job_channel = RemoteChannel(() -> Channel(nmodels))
+
+    # Put the jobs
+    for i=1:nmodels
+        put!(job_channel, i)
+    end
+
+    for p in workers()
+        remote_do(worker_train_one, p, training_data, opt, job_channel, results_channel, nfeature)
+    end
+
+
+    # Receive the data and update the progress
+    i = 1
+    p = Progress(nmodels)
+    all_models = []
+    try
+        while i <= nmodels
+            tf, out = take!(results_channel)
+            appenddata(savefile, "model-$i", tf.model)
+            showvalues = [(:rmse, minimum(out[3][:, 2]))]
+            ProgressMeter.next!(p;showvalues)
+            push!(all_models, tf.model)
+            i +=1
+        end
+    catch err
+        if isa(err, InterruptException)
+            Base.throwto(foreach_task, err)
+        else
+            throw(err)
+        end
+    finally
+        # Send signals to stop the workers
+        foreach(x -> put!(job_channel, -1), 1:length(workers()))
+        sleep(1.0)
+        # Close all channels
+        close(job_channel)
+        close(results_channel)
+    end
+      
+    (models=all_models, savefile=savefile)
+end
+
+
+"""
+    do_train_one(training_data, opt, results_channel)
+
+Train one model and put the results into a channel
+"""
+function worker_train_one(training_data, opt, jobs, results_channel, nfeature)
+    while true
+        job_id = take!(jobs)
+        # Signals no more work to do
+        if job_id < 0
+            @info "Worker completed"
+            break
+        end
+        # Make copies of the data
+        x_train_norm = training_data.x_train_norm
+        y_train_norm = training_data.y_train_norm
+        x_test_norm =training_data.x_test_norm
+        y_test_norm = training_data.y_test_norm
+        xt = training_data.xt
+        yt = training_data.yt
+
+        model = generate_chain(nfeature, opt.n_nodes)
+        tf = TrainingConfig(model; x=x_train_norm, y=y_train_norm, xt, yt)
+        out = train!(tf; x_test_norm, y_test_norm, yt, show_progress=opt.show_progress, earlystop=opt.earlystop, maxIter=opt.max_iter)
+        # Put the output in the channel storing the results
+        put!(results_channel, (tf, out))
+    end
 end
