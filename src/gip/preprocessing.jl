@@ -4,7 +4,7 @@ using StatsBase
 """
 Load all structures from many paths
 """
-function load_structures(fpath::Vector{T}, featurespec;energy_threshold=20.) where {T<:AbstractString}
+function load_structures(fpath::Vector{T}, featurespec;energy_threshold=20., nmax=500) where {T<:AbstractString}
     cells = Cell[]
     for f in fpath
         try
@@ -14,13 +14,13 @@ function load_structures(fpath::Vector{T}, featurespec;energy_threshold=20.) whe
             continue
         end
     end
-    load_structures(cells, featurespec;fpath, energy_threshold)
+    load_structures(cells, featurespec;fpath, energy_threshold, nmax)
 end
 
 """
 Prepare structure used for training model
 """
-function load_structures(cells::Vector{T}, featurespec;fpath=nothing, energy_threshold=20.) where {T<:Cell} 
+function load_structures(cells::Vector{T}, featurespec;fpath=nothing, energy_threshold=20., nmax=500) where {T<:Cell} 
     enthalpy = [ x.metadata[:enthalpy] for x in cells]
     natoms = [CellTools.nions(c) for c in cells];
     enthalpy_per_atom = enthalpy ./ natoms
@@ -40,13 +40,13 @@ function load_structures(cells::Vector{T}, featurespec;fpath=nothing, energy_thr
     # Construct feature vectors
     fvecs = Vector{Matrix{Float64}}(undef, length(cells))
     for i=1:length(cells)
-        fvecs[i] = CellTools.feature_vector(featurespec, cells[i])
+        fvecs[i] = CellTools.feature_vector(featurespec, cells[i];nmax)
     end
 
     (;cells, enthalpy, enthalpy_per_atom, natoms, fpath, fvecs, featurespec)
 end
 
-load_structures(files::AbstractString, featurespec;energy_threshold) = load_structures(glob(files), featurespec;energy_threshold)
+load_structures(files::AbstractString, featurespec;energy_threshold=20., nmax=500) = load_structures(glob(files), featurespec;energy_threshold, nmax)
 
 
 
