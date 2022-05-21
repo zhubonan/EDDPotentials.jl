@@ -517,10 +517,10 @@ function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=
     CellFeature(elements, two_body_features, three_body_features)
 end
 
-function CellFeature(opts::FeatureOptions=FeatureOptions())
-    @unpack p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3 = opts
-    CellFeature(opts.elements;p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3) 
-end
+# function CellFeature(opts::FeatureOptions=FeatureOptions())
+#     @unpack p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3 = opts
+#     CellFeature(opts.elements;p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3) 
+# end
 
 function CellFeature(opts::FeatureOptions=FeatureOptions();kwargs...)
     new_opts = FeatureOptions(opts;kwargs...)
