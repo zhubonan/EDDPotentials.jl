@@ -14,6 +14,7 @@ A collection of tools for analysing and manipulating crystal structures.
 * [ ] Workflow system for easy construction of the potentials
 * [ ] Validation of the boron system
 * [ ] Documentations
+* [ ] Change the dispatch signature of two-body/three-body - there is no need to use type dispatch here. So we can lift the need of the input begin a Vector (e.g. using Tuple instead). This allow mix/match of features with different f(r)
 
 ## Training workflow
 

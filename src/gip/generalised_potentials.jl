@@ -1,8 +1,10 @@
 #=
 Generalised potential
 =#
+import Base
 using CellBase
 using StaticArrays
+using Parameters
 
 abstract type AbstractNBodyFeature end
 
@@ -74,13 +76,22 @@ struct TwoBodyFeature{T, M} <: AbstractNBodyFeature
 end
 
 
+function Base.show(io::IO, ::MIME"text/plain", x::TwoBodyFeature)
+    println(io, "$(typeof(x))")
+    println(io, "  f: $(x.f)")
+    println(io, "  g: $(x.g)")
+    println(io, "  p: $(x.p)")
+    println(io, "  specie: $(x.sij_idx[1])-$(x.sij_idx[2])")
+    println(io, "  rcut: $(x.rcut)")
+end
+
 "Equation 7 in  the DDP paper"
 fr(r::T, rcut) where {T} =  r <= rcut ? 2 * (1 - r / rcut) : zero(T)
 "Gradient of Eq. 7 in  the DDP paper"
 gfr(r::T, rcut) where {T} =  r <= rcut ? -2 / rcut : zero(T)
 
-TwoBodyFeature(f, g, p, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64) = TwoBodyFeature(f, g, p, sortedtuple(sij_idx), rcut, length(p))
-TwoBodyFeature(p, sij_idx::Tuple{Symbol, Symbol}, rcut::Float64) = TwoBodyFeature(fr, gfr, p, sortedtuple(sij_idx), rcut)
+TwoBodyFeature(f, g, p, sij_idx, rcut::Real) = TwoBodyFeature(f, g, collect(p), sortedtuple(sij_idx), rcut, length(p))
+TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, p, sortedtuple(sij_idx), rcut)
 
 """
 Call the object to accumulate an existing feature vector
@@ -125,6 +136,13 @@ function withgradient!(e::Matrix, g::Vector, f::TwoBodyFeature, rij, si, sj, iat
     e, g
 end
 
+function withgradient(f::TwoBodyFeature, rij)
+    e = zeros(nfeatures(f), 1)
+    g = zeros(nfeatures(f))
+    withgradient!(e, g, f, rij, 1, 1)
+end
+
+
 function (f::TwoBodyFeature)(out::AbstractMatrix, rij, si, sj, iat, istart=1)
     permequal(f.sij_idx, si, sj) && f(out, rij, iat, istart)
     out
@@ -154,8 +172,20 @@ struct ThreeBodyFeature{T, M} <: AbstractNBodyFeature
     nq::Int
 end
 
-ThreeBodyFeature(f, g, p, q, sijk_idx::Tuple{Symbol, Symbol, Symbol}, rcut::Float64) = ThreeBodyFeature(f, g, p, q, sortedtuple(sijk_idx), rcut, length(p), length(q))
-ThreeBodyFeature(p, q, sijk_idx::Tuple{Symbol, Symbol, Symbol}, rcut::Float64) = ThreeBodyFeature(fr, gfr, p, q, sortedtuple(sijk_idx), rcut, length(p), length(q))
+ThreeBodyFeature(f, g, p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(f, g, collect(p), collect(q), sortedtuple(sijk_idx), rcut, length(p), length(q))
+ThreeBodyFeature(p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(fr, gfr, p, q, sortedtuple(sijk_idx), rcut)
+
+
+function Base.show(io::IO, ::MIME"text/plain", x::ThreeBodyFeature)
+    println(io, "$(typeof(x))")
+    println(io, "  f: $(x.f)")
+    println(io, "  g: $(x.g)")
+    println(io, "  p: $(x.p)")
+    println(io, "  q: $(x.q)")
+    println(io, "  specie: $(x.sijk_idx[1])-$(x.sijk_idx[2])-$(x.sijk_idx[3])")
+    println(io, "  rcut: $(x.rcut)")
+end
+
 
 nfeatures(f::ThreeBodyFeature) = f.np * f.nq
 
@@ -414,6 +444,8 @@ end
 
 
 """
+    CellFeature{T, N, M, G}
+
 Collection of Feature specifications and cell
 """
 mutable struct CellFeature{T, N, M, G}
@@ -422,7 +454,18 @@ mutable struct CellFeature{T, N, M, G}
     three_body::Vector{ThreeBodyFeature{N, G}}
 end
 
-using Parameters
+"""
+    +(a::CellFeature, b::CellFeature)
+
+Combine two `CellFeature` objects together. The features are simply concatenated in this case.
+"""
+function Base.:+(a::CellFeature, b::CellFeature)
+    elements = sort(unique(vcat(a.elements, b.elements)))
+    two_body = vcat(a.two_body, b.two_body)
+    three_body = vcat(a.three_body, b.three_body)
+    CellFeature(elements, two_body, three_body)
+end
+
 
 """
 Options for constructing CellFeature
@@ -478,6 +521,27 @@ function CellFeature(opts::FeatureOptions=FeatureOptions())
     @unpack p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3 = opts
     CellFeature(opts.elements;p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3) 
 end
+
+function CellFeature(opts::FeatureOptions=FeatureOptions();kwargs...)
+    new_opts = FeatureOptions(opts;kwargs...)
+    @unpack p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3 = new_opts
+    CellFeature(opts.elements;p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3) 
+end
+
+function Base.show(io::IO, z::MIME"text/plain", cf::CellFeature)
+    println(io, "$(typeof(cf))")
+    println(io, "  Elements:")
+    println(io, "    $(cf.elements)")
+    println(io, "  TwoBodyFeatures:")
+    for tb in cf.two_body
+        println(io, "    $(tb)")
+    end
+    println(io, "  ThreeBodyFeatures:")
+    for tb in cf.three_body
+        println(io, "    $(tb)")
+    end
+end
+
 
 function nfeatures(c::CellFeature;ignore_one_body=(length(c.elements) == 1))
     ignore_one_body ? n = 0 : n = length(c.elements)
