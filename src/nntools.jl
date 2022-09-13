@@ -2,14 +2,8 @@
 Routine for working with NN
 
 Allow using forward autodiff for training small scale neutron networks with direct minimisation.
-Direct minimisation require accessing individual predcitions and the jacobian matrix.
-In which case, N >> M, so backward autodiff is not efficent.
-The standard ForwardDiff interface has drawback in that the NN has to be recreated everytime.
-Here, the ¬`Dual` type is used directly for computing the gradients instead, with reduced overheads.
-
-
+Direct minimisation require accessing individual predictions and the jacobian matrix.
 =#
-using ForwardDiff
 using Flux
 
 """

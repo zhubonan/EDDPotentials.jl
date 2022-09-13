@@ -1,29 +1,23 @@
-module CellTools
+module EDDP
 
 greet() = print("Hello World!")
 using CellBase
+using CellBase: read_castep
 import CellBase
 using StatsBase: mean
 export mean
 
 # External
-include("eletrostatic/RealSpaceSummation.jl")
-
-include("rand.jl")
-include("symmetry.jl")
-include("io/io.jl")
-include("pp.jl")
-include("graph.jl")
-include("build.jl")
-include("gip/generalised_potentials.jl")
-include("gip/backprop.jl")
-include("gip/gradient.jl")
-include("gip/nntools.jl")
-include("gip/lmsolve.jl")
-include("gip/training.jl")
-include("gip/preprocessing.jl")
-include("gip/evaluate.jl")
-include("gip/tools.jl")
+include("nnls.jl")
+include("potential.jl")
+include("backprop.jl")
+include("gradient.jl")
+include("nntools.jl")
+include("lmsolve.jl")
+include("training.jl")
+include("preprocessing.jl")
+include("evaluate.jl")
+include("tools.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export distance_between, distance_squared_between, displace!, clip, Cell, supercell

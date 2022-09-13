@@ -1,10 +1,10 @@
 using Documenter
-using CellTools
+using EDDP
 
 makedocs(
-    sitename = "CellTools",
+    sitename = "EDDP",
     format = Documenter.HTML(),
-    modules = [CellTools]
+    modules = [EDDP]
 )
 
 # Documenter can also automatically deploy documentation to gh-pages.

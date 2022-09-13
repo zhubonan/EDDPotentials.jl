@@ -1,6 +1,6 @@
-# CellTools.jl
+# EDDP.jl
 
-Documentation for CellTools.jl
+Documentation for EDDP.jl
 
 A collection of tools for manipulating crystal structures and more.
 
@@ -24,7 +24,7 @@ A collection of tools for manipulating crystal structures and more.
 ```
 
 ```@meta
-CurrentModule = CellTools
+CurrentModule = EDDP
 ```
 
 ```@docs

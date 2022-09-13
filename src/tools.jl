@@ -15,9 +15,9 @@ Generate a VariableCellFiler that handles variable cell relaxation
 """
 function generate_vc(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
     copy_cell && deepcopy(cell)
-    cw = CellTools.CellWorkSpace(cell;cf, nmax, rcut)
-    calc = CellTools.CellCalculator(cw, ensemble)
-    CellTools.VariableLatticeFilter(calc)
+    cw = EDDP.CellWorkSpace(cell;cf, nmax, rcut)
+    calc = EDDP.CellCalculator(cw, ensemble)
+    EDDP.VariableLatticeFilter(calc)
 end
 
 
@@ -27,7 +27,7 @@ function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;e
         file["ensemble"]
     end
 
-    loaded = CellTools.load_structures(pattern, cf;energy_threshold)
+    loaded = EDDP.load_structures(pattern, cf;energy_threshold)
 
     isdir(savepath) || mkdir(savepath)
 
@@ -42,7 +42,7 @@ function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;e
         vc = generate_vc(loaded.cells[i], ensemble, cf)
 
         try
-            CellTools.optimise_cell!(vc)
+            EDDP.optimise_cell!(vc)
         catch
             return
         end
@@ -68,19 +68,19 @@ function train(patterns, outpath,
 
     featurespec = CellFeature(feature_opts)
 
-    celldata = CellTools.load_structures(files, featurespec;energy_threshold)
+    celldata = EDDP.load_structures(files, featurespec;energy_threshold)
 
     @info "Number of structures: $(length(celldata.cells))"
-    @info "Number of features: $(CellTools.nfeatures(featurespec))"
+    @info "Number of features: $(EDDP.nfeatures(featurespec))"
 
     # Prepare training data
-    traindata = CellTools.training_data(celldata);
+    traindata = EDDP.training_data(celldata);
 
     # Train the models
-    output = CellTools.train_multi(traindata, outpath, training_options;featurespec)
+    output = EDDP.train_multi(traindata, outpath, training_options;featurespec)
 
     # Save the ensemble model
-    CellTools.create_ensemble(output.savefile)
+    EDDP.create_ensemble(output.savefile)
 end
 
 """
@@ -89,11 +89,11 @@ end
 Update the metadata attached to a `Cell`` object
 """
 function update_metadata!(vc::VariableLatticeFilter, label;symprec=1e-2)
-    this_cell = CellTools.get_cell(vc)
+    this_cell = EDDP.get_cell(vc)
     # Set metadata
-    this_cell.metadata[:enthalpy] = CellTools.get_energy(vc)
+    this_cell.metadata[:enthalpy] = EDDP.get_energy(vc)
     this_cell.metadata[:volume] = volume(this_cell)
-    this_cell.metadata[:pressure] = CellTools.get_pressure_gpa(vc.calculator)
+    this_cell.metadata[:pressure] = EDDP.get_pressure_gpa(vc.calculator)
     this_cell.metadata[:label] = label
     symm = CellBase.get_international(this_cell, symprec)
     this_cell.metadata[:symm] = "($(symm))"
@@ -102,13 +102,13 @@ function update_metadata!(vc::VariableLatticeFilter, label;symprec=1e-2)
 end
 
 """
-    write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="celltools")
+    write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="EDDP")
 
 Write structure in VariableCellFiler as SHELX file.
 """
-function write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="celltools")
+function write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="EDDP")
     update_metadata!(vc, label;symprec)
-    CellTools.write_res(path, get_cell(vc))
+    EDDP.write_res(path, get_cell(vc))
 end
 
 """

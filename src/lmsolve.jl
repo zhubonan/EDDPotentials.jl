@@ -1,15 +1,12 @@
 #=
-Related code for LM solver routine
+levenberg-Marquardt solver adapted for solving EDDP potential
 
-TODO:
-- Adapt to allow early stopping
-- Adapt into an update! style optimiser?
+The source code is adapted from that of LsqFit to allow more features.
 =#
 
 using Distributions
 using OptimBase
 using LinearAlgebra
-using ForwardDiff
 import NLSolversBase: value, jacobian
 import StatsBase
 import StatsBase: coef, dof, nobs, rss, stderror, weights, residuals

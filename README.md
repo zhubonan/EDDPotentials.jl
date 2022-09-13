@@ -1,4 +1,4 @@
-# CellTools
+# EDDP
 
 A collection of tools for analysing and manipulating crystal structures.
 

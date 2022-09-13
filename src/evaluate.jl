@@ -528,7 +528,7 @@ eVAngToGPa(x) = 160.21766208 * x
 Return pressure in unit of GPa.
 """
 function get_pressure_gpa(vc::Union{VariableLatticeFilter, CellCalculator}) 
-    eVAngToGPa(tr(CellTools.get_stress(vc)) / 3.)
+    eVAngToGPa(tr(EDDP.get_stress(vc)) / 3.)
 end
 
 

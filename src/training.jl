@@ -7,7 +7,7 @@ using Dates
 using JLD2
 using Glob
 using Printf
-using NNLS
+using .NNLS
 using NLSolversBase
 using ProgressMeter
 using Parameters
@@ -275,7 +275,7 @@ function cellforces(me::ModelEnsemble, cell::Cell, featurespec)
     function get_energy(pos) 
         bak = cell.positions[:]
         cell.positions[:] .= pos
-        out = CellTools.predict_energy(me, cell, featurespec)
+        out = EDDP.predict_energy(me, cell, featurespec)
         cell.positions[:] .= bak
         out
     end
@@ -292,7 +292,7 @@ function ensemble_from_archive(fname;xname="x_test_norm", yname="y_test_norm")
     models, xt, yt, x_test_norm, y_test_norm = jldopen(fname) do file
         [file[x] for x in keys(file) if contains(x, "model")], file["xt"], file["yt"], file[xname], file[yname]
     end
-    ensemble = CellTools.ModelEnsemble(models, x_test_norm, y_test_norm, xt, yt);
+    ensemble = EDDP.ModelEnsemble(models, x_test_norm, y_test_norm, xt, yt);
     jldopen(stem * "-ensemble.jld2", "a") do file
         file["ensemble"] = ensemble
     end
@@ -449,7 +449,7 @@ function create_ensemble(fname)
         [file[x] for x in keys(file) if contains(x, "model")], file["xt"], file["yt"], file["training_data"]
     end
 
-    ensemble = CellTools.ModelEnsemble(models, traindata.x_train_norm, traindata.y_train_norm, xt, yt);
+    ensemble = EDDP.ModelEnsemble(models, traindata.x_train_norm, traindata.y_train_norm, xt, yt);
 
     jldopen(fname, "a") do file
         file["ensemble"] = ensemble

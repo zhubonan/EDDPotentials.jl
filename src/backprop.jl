@@ -1,5 +1,8 @@
 #=
 Manual implementation of back propagation to compute the gradient of the energy
+
+The reason for having an explicity implementation is that the overhead associated with autograd makes
+it inefficient for calling many *small* neuron networks.
 =#
 
 using LinearAlgebra

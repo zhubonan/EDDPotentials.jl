@@ -22,7 +22,7 @@ Prepare structure used for training model
 """
 function load_structures(cells::Vector{T}, featurespec;fpath=nothing, energy_threshold=20., nmax=500) where {T<:Cell} 
     enthalpy = [ x.metadata[:enthalpy] for x in cells]
-    natoms = [CellTools.nions(c) for c in cells];
+    natoms = [EDDP.nions(c) for c in cells];
     enthalpy_per_atom = enthalpy ./ natoms
 
     if energy_threshold > 0
@@ -40,7 +40,7 @@ function load_structures(cells::Vector{T}, featurespec;fpath=nothing, energy_thr
     # Construct feature vectors
     fvecs = Vector{Matrix{Float64}}(undef, length(cells))
     for i=1:length(cells)
-        fvecs[i] = CellTools.feature_vector(featurespec, cells[i];nmax)
+        fvecs[i] = EDDP.feature_vector(featurespec, cells[i];nmax)
     end
 
     (;cells, enthalpy, enthalpy_per_atom, natoms, fpath, fvecs, featurespec)

@@ -1,4 +1,4 @@
-using CellTools: TwoBodyFeature, ThreeBodyFeature, CellFeature, FeatureOptions, withgradient, nfeatures
+using EDDP: TwoBodyFeature, ThreeBodyFeature, CellFeature, FeatureOptions, withgradient, nfeatures
 using Test
 
 @testset "Features" begin

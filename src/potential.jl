@@ -59,7 +59,9 @@ end
 
 
 """
-Compunents for constructing the feature vector of two-body interactions
+TwoBodyFeature{T, M} <: AbstractNBodyFeature
+
+Type for constructing the feature vector of the two-body interactions.
 """
 struct TwoBodyFeature{T, M} <: AbstractNBodyFeature
     "Function of distance"
@@ -85,16 +87,16 @@ function Base.show(io::IO, ::MIME"text/plain", x::TwoBodyFeature)
     println(io, "  rcut: $(x.rcut)")
 end
 
-"Equation 7 in  the DDP paper"
+"Equation 7 in  the EDDP paper"
 fr(r::T, rcut) where {T} =  r <= rcut ? 2 * (1 - r / rcut) : zero(T)
-"Gradient of Eq. 7 in  the DDP paper"
+"Gradient of Eq. 7 in  the EDDP paper"
 gfr(r::T, rcut) where {T} =  r <= rcut ? -2 / rcut : zero(T)
 
 TwoBodyFeature(f, g, p, sij_idx, rcut::Real) = TwoBodyFeature(f, g, collect(p), sortedtuple(sij_idx), rcut, length(p))
 TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, p, sortedtuple(sij_idx), rcut)
 
 """
-Call the object to accumulate an existing feature vector
+Accumulate an existing matrix of the feature vectors
 
 Args:
     - out: Output matrix
@@ -113,13 +115,15 @@ function (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart=1)
 end
 
 """
+    withgradient!(e::Matrix, g::Vector, f::TwoBodyFeature, rij, iat, istart)
+
 Calculate d(f(r)^p) / dr for each feature as well as the feature vector vector.
 
 Args:
 * e: The matrix storing the feature vectors of shape (nfe, nat)
 * g: The matrix storing the gradient feature vectors of shape (nfe,), **for this particular pair of i and j**.
 """
-function withgradient!(e::Matrix, g::Vector, f::TwoBodyFeature, rij, iat, istart)
+function withgradient!(e, g, f::TwoBodyFeature, rij, iat, istart)
     val = f.f(rij, f.rcut)
     gval = f.g(rij, f.rcut)
     i = istart
@@ -131,7 +135,7 @@ function withgradient!(e::Matrix, g::Vector, f::TwoBodyFeature, rij, iat, istart
     e, g
 end
 
-function withgradient!(e::Matrix, g::Vector, f::TwoBodyFeature, rij, si, sj, iat, istart=1)
+function withgradient!(e, g, f::TwoBodyFeature, rij, si, sj, iat, istart=1)
     permequal(f.sij_idx, si, sj) && withgradient!(e, g, f, rij, iat, istart)
     e, g
 end
@@ -154,15 +158,18 @@ nfeatures(f::TwoBodyFeature) = f.np
 
 
 """
-Compunents for constructing the feature vector of three-body interactions
+    ThreeBodyFeature{T, M} <: AbstractNBodyFeature
+
+Type for constructing the feature vector of the three-body interactions.
 """
 struct ThreeBodyFeature{T, M} <: AbstractNBodyFeature
-    "Function of distance"
+    "Basis function"
     f::T
     "df(r)/r"
     g::M
-    "Exponents"
+    "Exponents for p"
     p::Vector{Int}
+    "Exponents for q"
     q::Vector{Int}
     "Specie indices"
     sijk_idx::Tuple{Symbol, Symbol, Symbol}
@@ -185,7 +192,6 @@ function Base.show(io::IO, ::MIME"text/plain", x::ThreeBodyFeature)
     println(io, "  specie: $(x.sijk_idx[1])-$(x.sijk_idx[2])-$(x.sijk_idx[3])")
     println(io, "  rcut: $(x.rcut)")
 end
-
 
 nfeatures(f::ThreeBodyFeature) = f.np * f.nq
 
@@ -273,7 +279,9 @@ function withgradient!(e::Matrix, g::Matrix, f::ThreeBodyFeature, rij, rik, rjk,
 end
 
 """
-Map species types to integer indices
+    SpeciesMap
+
+Map species types to integer indices for internal representations
 """
 struct SpeciesMap
     symbols::Vector{Symbol}
@@ -281,7 +289,11 @@ struct SpeciesMap
     unique::Vector{Symbol}
 end
 
+"""
+    SpeciesMap(symbols)
 
+Construct an SpeciesMap from an array of symbols.
+"""
 function SpeciesMap(symbols)
     us = unique(symbols)
     indices = zeros(Int, length(symbols))
@@ -616,7 +628,3 @@ function suggest_rcut(cf::CellFeature)
     r2 = maximum(x.rcut for x in cf.three_body)
     max(r3, r2) + 1.0
 end
-
-
-
-
