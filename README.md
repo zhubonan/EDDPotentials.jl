@@ -1,13 +1,13 @@
-# EDDP
+# EDDP.jl
 
-A collection of tools for analysing and manipulating crystal structures.
+An alternative [Julia](https://julialang.org/) implementation of the ephemeral data derived potentials ([EDDPs](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.106.014102)).
+
 
 
 ## Features
 
-- Bond connectivity analysis (graph)
-- Construction of "data-derived" interatomic potentials
-- Long-range electrostatic energy via real space summation 
+- Fitting and evaluation of the potentials.
+- Structure prediction, working with the AIRSS packages. 
 
 ## Todo
 
