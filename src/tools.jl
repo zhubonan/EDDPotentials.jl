@@ -391,8 +391,9 @@ end
     shake_res(files::Vector, nshake::Int, amp::Real)
 
 Shake the given structures and write new files with suffix `-shake-N.res`.
+
 """
-function shake_res(files::Vector, nshake::Int, amp::Real)
+function shake_res(files::Vector, nshake::Int, amp::Real, cellamp::Real)
     for f in files
         cell = read_res(f)
         pos_backup = copy(cell.positions)
@@ -400,6 +401,7 @@ function shake_res(files::Vector, nshake::Int, amp::Real)
         for i in 1:nshake
             cell.positions .= pos_backup
             rattle!(cell, amp)
+            rattle_cell!(cell, cellamp)
             cell.metadata[:label] = label * "-shake-$i"
             write_res(splitext(f)[1] * "-shake-$i.res", cell)
         end
@@ -408,3 +410,22 @@ end
 
 const train_eddp = train
 export train_eddp
+
+
+"""
+    rattle_cell(cell::Cell, amp::Real)
+
+Rattle the cell shape based on random fractional changes on the cell parameters.
+"""
+function rattle_cell!(cell::Cell, amp::Real)
+    local new_cellpar
+    while true
+        new_cellpar = [x * (1 + rand()*amp) for x in cellpar(cell)]
+        CellBase.isvalidcellpar(new_cellpar...) && break
+    end
+    new_lattice = Lattice(new_cellpar)
+    spos = CellBase.scaled_positions(cell)
+    CellBase.set_cellmat!(cell, cellmat(new_lattice))
+    positions(cell) .= cellmat(cell) * spos
+    cell
+end
