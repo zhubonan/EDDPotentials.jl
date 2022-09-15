@@ -3,6 +3,7 @@ Various tool functions for workflow managements
 =#
 
 using CellBase: rattle!
+import CellBase: write_res
 using Base.Threads
 using JLD2
 using Dates
@@ -15,9 +16,9 @@ Generate a VariableCellFiler that handles variable cell relaxation
 """
 function generate_vc(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
     copy_cell && deepcopy(cell)
-    cw = EDDP.CellWorkSpace(cell;cf, nmax, rcut)
-    calc = EDDP.CellCalculator(cw, ensemble)
-    EDDP.VariableLatticeFilter(calc)
+    cw = CellWorkSpace(cell;cf, nmax, rcut)
+    calc = CellCalculator(cw, ensemble)
+    VariableLatticeFilter(calc)
 end
 
 
@@ -27,7 +28,7 @@ function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;e
         file["ensemble"]
     end
 
-    loaded = EDDP.load_structures(pattern, cf;energy_threshold)
+    loaded = load_structures(pattern, cf;energy_threshold)
 
     isdir(savepath) || mkdir(savepath)
 
@@ -42,7 +43,7 @@ function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;e
         vc = generate_vc(loaded.cells[i], ensemble, cf)
 
         try
-            EDDP.optimise_cell!(vc)
+            optimise_cell!(vc)
         catch
             return
         end
@@ -68,19 +69,19 @@ function train(patterns, outpath,
 
     featurespec = CellFeature(feature_opts)
 
-    celldata = EDDP.load_structures(files, featurespec;energy_threshold)
+    celldata = load_structures(files, featurespec;energy_threshold)
 
     @info "Number of structures: $(length(celldata.cells))"
-    @info "Number of features: $(EDDP.nfeatures(featurespec))"
+    @info "Number of features: $(nfeatures(featurespec))"
 
     # Prepare training data
-    traindata = EDDP.training_data(celldata);
+    traindata = training_data(celldata);
 
     # Train the models
-    output = EDDP.train_multi(traindata, outpath, training_options;featurespec)
+    output = train_multi(traindata, outpath, training_options;featurespec)
 
     # Save the ensemble model
-    EDDP.create_ensemble(output.savefile)
+    create_ensemble(output.savefile)
 end
 
 """
@@ -89,11 +90,11 @@ end
 Update the metadata attached to a `Cell`` object
 """
 function update_metadata!(vc::VariableLatticeFilter, label;symprec=1e-2)
-    this_cell = EDDP.get_cell(vc)
+    this_cell = get_cell(vc)
     # Set metadata
-    this_cell.metadata[:enthalpy] = EDDP.get_energy(vc)
+    this_cell.metadata[:enthalpy] = get_energy(vc)
     this_cell.metadata[:volume] = volume(this_cell)
-    this_cell.metadata[:pressure] = EDDP.get_pressure_gpa(vc.calculator)
+    this_cell.metadata[:pressure] = get_pressure_gpa(vc.calculator)
     this_cell.metadata[:label] = label
     symm = CellBase.get_international(this_cell, symprec)
     this_cell.metadata[:symm] = "($(symm))"
@@ -108,22 +109,24 @@ Write structure in VariableCellFiler as SHELX file.
 """
 function write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="EDDP")
     update_metadata!(vc, label;symprec)
-    EDDP.write_res(path, get_cell(vc))
+    write_res(path, get_cell(vc))
 end
 
 """
+    build_and_relax(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10)
+
 Build the structure and relax it
 
-This may fail due to relaxation errors or build errors
 """
 function build_and_relax(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10)
     lines = open(seedfile, "r") do seed 
         cellout = read(pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull), String)
         split(cellout, "\n")
     end
-    label = get_label(stem(seedfile))
 
     # Generate a unique label
+    label = get_label(stem(seedfile))
+
     cell = read_cell(lines)
     vc = generate_vc(cell, ensemble, cf)
     optimise_cell!(vc)
@@ -176,6 +179,17 @@ function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractStr
         build_and_relax_one(seedfile, outdir, ensemble, cf;timeout,warn=true)
         next!(pbar)
     end
+end
+
+"""
+    build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble_file::AbstractString;timeout=10)
+
+Build the structure and relax it
+"""
+function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble_file::AbstractString;timeout=10)
+    ensemble = load_ensemble_model(ensemble_file)
+    featurespec = load_featurespec(ensemble_file)
+    build_and_relax(num, seedfile, outdir, ensemble, featurespec;timeout)
 end
 
 
@@ -391,3 +405,6 @@ function shake_res(files::Vector, nshake::Int, amp::Real)
         end
     end
 end
+
+const train_eddp = train
+export train_eddp

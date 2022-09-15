@@ -1,5 +1,6 @@
 using JLD2
 using StatsBase
+using Random
 
 """
 Load all structures from many paths

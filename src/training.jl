@@ -323,6 +323,7 @@ const FEATURESPEC_NAME="cf"
     show_progress::Bool=false
     "Store the data used for training in the archive"
     store_training_data::Bool=true
+    rmse_threshold::Float=0.1
 end
 
 """
@@ -398,11 +399,17 @@ function train_multi(training_data, savepath, opt::TrainingOptions;featurespec=n
         xt = deepcopy(training_data.xt)
         yt = deepcopy(training_data.yt)
 
-        model = generate_chain(nfeature, opt.n_nodes)
-        tf = TrainingConfig(model; x=x_train_norm, y=y_train_norm, xt, yt)
-        out = train!(tf; x_test_norm, y_test_norm, yt, show_progress=opt.show_progress, earlystop=opt.earlystop, maxIter=opt.max_iter)
+        while true
+            model = generate_chain(nfeature, opt.n_nodes)
+            tf = TrainingConfig(model; x=x_train_norm, y=y_train_norm, xt, yt)
+            out = train!(tf; x_test_norm, y_test_norm, yt, show_progress=opt.show_progress, earlystop=opt.earlystop, maxIter=opt.max_iter)
+            # Check if RMSE is low enough, otherwise restart
+            if opt.rmse_threshold > 0 && minimum(out[3][:, 2]) < opt.rmse_threshold
+                put!(results_channel, (tf, out))
+                break
+            end
+        end
         # Put the output in the channel storing the results
-        put!(results_channel, (tf, out))
     end
 
 

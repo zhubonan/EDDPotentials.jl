@@ -3,6 +3,7 @@ Support code for using the potentials for efficient energy/force/stress
 calculations.
 =#
 using Zygote: gradient as zgradient
+import Optim
 using Optim: LBFGS, optimize
 using LineSearches: HagerZhang
 using LinearAlgebra
