@@ -306,7 +306,7 @@ function step!(buildstate::BuildState;
     )
 
     featurespec=CellFeature(feature_opts)
-    subpath(x) = joinpath(workdir, x)
+    subpath(x) = joinpath(buildstate.workdir, x)
     iteration = buildstate.iteration
 
     # if the ensemble file exists, then we have trained for this iteration
@@ -333,7 +333,7 @@ function step!(buildstate::BuildState;
         @info "$(nstruct) existing structures found"
         # Build to the specified number of structure
         if n_initial - nstruct > 0
-            build_cells(seedfile, curdir, n_initial - nstruct; save_as_res=true, build_timeout)
+            build_cells(buildstate.seedfile, curdir, n_initial - nstruct; save_as_res=true, build_timeout)
         end
 
         @info "DFT for the initial dataset"
@@ -358,7 +358,7 @@ function step!(buildstate::BuildState;
         nstruct = length(existing_relaxed)
         @info "$(nstruct) existing structures found"
         if per_generation - nstruct > 0
-            build_and_relax(per_generation - nstruct, seedfile, relax_path, ensemble, featurespec;timeout=build_timeout)
+            build_and_relax(per_generation - nstruct, buildstate.seedfile, relax_path, ensemble, featurespec;timeout=build_timeout)
         end
 
         # Shake the structures that are just relaxed
