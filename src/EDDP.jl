@@ -18,6 +18,7 @@ include("training.jl")
 include("preprocessing.jl")
 include("evaluate.jl")
 include("tools.jl")
+include("iterative_build.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export distance_between, distance_squared_between, displace!, clip, Cell, supercell

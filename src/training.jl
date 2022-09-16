@@ -502,7 +502,7 @@ function rmse(ensemble::ModelEnsemble, x::AbstractVector, y::AbstractVector;scal
 end
 
 
-function train_multi_distributed(training_data, savepath, opt::TrainingOptions;featurespec=nothing, ntasks=nthreads())
+function train_multi_distributed(training_data, savepath, opt::TrainingOptions;featurespec=nothing)
 
 
     x_train_norm = training_data.x_train_norm

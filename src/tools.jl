@@ -78,7 +78,7 @@ function train(patterns, outpath,
     traindata = training_data(celldata);
 
     # Train the models
-    output = train_multi(traindata, outpath, training_options;featurespec)
+    output = train_multi_distributed(traindata, outpath, training_options;featurespec)
 
     # Save the ensemble model
     create_ensemble(output.savefile)
@@ -244,262 +244,74 @@ function build_one_cell(seedfile, outdir;save_as_res=true, build_timeout=5, supp
     end
 end
 
-"""
-Status of the build process
-"""
-mutable struct BuildState
-    iteration::Int
-    workdir::String
-    seedfile::String
-    max_iterations::Int
-end
 
-function BuildState(workdir, seedfile;iteration=0, max_iterations=5)
-    BuildState(iteration, workdir, seedfile, max_iterations)
-end
-
-
-"""
-Iteratively build the model by repetitively train the model based on existing data,
-perform searches, do DFT calculations to expand the training set.
-
-Note that the speed of slows down significantly with increasing data point (qudratic at least).
-Hence the training set needs to be selected carefully. 
-"""
-function iterative_build(state::BuildState;
-        per_generation=100, shake_per_minima=10,
-        build_timeout=1, 
-        shake_amp=0.02,
-        shake_amp_cell=0.02,
-        nparallel=1,
-        mpinp=4,
-        feature_opts::FeatureOptions, 
-        n_initial=per_generation * shake_per_minima,
-        datapaths=nothing,
-        training_opts::TrainingOptions
-    )
-    while state.iteration < state.max_iterations
-        step!(state;
-        per_generation, shake_per_minima,
-        build_timeout, shake_amp, shake_amp_cell, nparallel, mpinp, feature_opts,
-        n_initial,
-        datapaths,
-        training_opts 
-        )
-    end
-end
-
-"""
-Run a single iteration of the building process
-"""
-function step!(buildstate::BuildState;
-        per_generation=100, shake_per_minima=10,
-        build_timeout=1, 
-        shake_amp=0.02,
-        shake_amp_cell=0.02,
-        nparallel=1,
-        mpinp=4,
-        feature_opts::FeatureOptions, 
-        n_initial=per_generation * shake_per_minima,
-        datapaths=nothing,
-        training_opts::TrainingOptions
-    )
-
-    featurespec=CellFeature(feature_opts)
-    subpath(x) = joinpath(buildstate.workdir, x)
-    iteration = buildstate.iteration
-
-    # if the ensemble file exists, then we have trained for this iteration
-    ensemble_path = subpath("iter-$(iteration)-ensemble.jld2")
-    if isfile(ensemble_path) 
-        buildstate.iteration += 1
-        return buildstate
-    end
-    
-    # Setup the base folders
-    curdir = subpath("iter-$(iteration)")
-    ensure_dir(curdir)
-    dftdir  = subpath("iter-$(iteration)-dft")
-    ensure_dir(dftdir)
-    if isnothing(datapaths)
-        datapaths = []
-    end
-
-    local ensemble
-    if iteration == 0
-        # build lots of structures
-        @info "Generating initial dataset"
-        # How many structure do we already?
-        nstruct = length(glob(joinpath(curdir, "*.res")))
-        @info "$(nstruct) existing structures found"
-        # Build to the specified number of structure
-        if n_initial - nstruct > 0
-            build_cells(buildstate.seedfile, curdir, n_initial - nstruct; save_as_res=true, build_timeout)
+function run_pp3_many(workdir, indir, outdir, seedfile;n_parallel=1, keep=false)
+    files = glob(joinpath(indir, "*.res"))
+    ensure_dir(workdir)
+    for file in files
+        working_path = joinpath(workdir, splitpath(file)[end])
+        cp(file, working_path, force=true)
+        try
+            run_pp3(working_path, seedfile, joinpath(outdir, splitpath(file)[end]))
+        catch error
+            if typeof(error) <: ArgumentError
+                @warn "Failed to calculate energy for $(file)!"
+                continue
+            end
+            throw(error)
         end
-
-        @info "DFT for the initial dataset"
-        run_crud(buildstate.workdir, curdir, dftdir;mpinp, nparallel)
-
-        @info "Training with the initial dataset"
-        # Train the model
-        push!(datapaths, joinpath(dftdir, "*.res"))
-        ensemble = train(datapaths, ensemble_path, feature_opts, training_opts;)
-    else
-        # Load ensemble of the previous iteration and carry on
-        ensemble_path = subpath("iter-$(iteration-1)-ensemble.jld2")
-        @info "Using ensemble model from $ensemble_path"
-        ensemble = load_ensemble_model(ensemble_path)
-        @info "Model RMSE (train): $(atomic_rmse(ensemble)) eV/atom"
-
-        # Generate new structures
-        @info "Build and relax using ensemble model"
-        existing_relaxed = filter(x -> !contains(x, "shake"), glob(joinpath(curdir, "*.res")))
-        nstruct = length(existing_relaxed)
-        @info "$(nstruct) existing structures found"
-        if per_generation - nstruct > 0
-            build_and_relax(per_generation - nstruct, buildstate.seedfile, curdir, ensemble, featurespec;timeout=build_timeout)
-        end
-
-        # Shake the structures that are just relaxed
-        @info "Shaking relaxed structures"
-        new_relaxed = filter(x -> !contains(x, "shake") && !(x in existing_relaxed), glob(joinpath(curdir, "*.res")))
-        shake_res(new_relaxed, shake_per_minima, shake_amp, shake_amp_cell)
-
-        # Now do DFT
-        outdir  = subpath("iter-$(iteration)-dft")
-        @info "Running CASTEP for singlepoint energies"
-        run_crud(buildstate.workdir, curdir, outdir;mpinp, nparallel)
-
-        @info "Retrain using latest data"
-        # Add newly generated data for training
-        for i in 0:iteration
-            if !(subpath("iter-$i-dft/*.res") in datapaths)
-                push!(datapaths, subpath("iter-$i-dft/*.res"))
+        if !keep
+            for suffix in [".cell", ".conv", "-out.cell", ".pp", ".res"]
+                rm(swapext(working_path, suffix)) 
             end
         end
-        # Output ensemble file
-        ensemble_path = subpath("iter-$(iteration)-ensemble.jld2")
-        # Train the model
-        ensemble = train(datapaths, ensemble_path, feature_opts, training_opts;)
-        @info "Model RMSE (train): $(atomic_rmse(ensemble)) eV/atom"
     end
-    buildstate.iteration += 1
-    @info "Iterative build completed"
-    @info "Model RMSE (train): $(atomic_rmse(ensemble)) eV/atom"
 end
 
-# """
-# Iteratively build the model by repetitively train the model based on existing data,
-# perform searches, do DFT calculations to expand the training set.
 
-# Note that the speed of slows down significantly with increasing data point (qudratic at least).
-# Hence the training set needs to be selected carefully. 
-# """
-# function iterative_build(workdir, seedfile, per_generation=100, shake_per_minima=10;
-#                          build_timeout=1, 
-#                          niter=5,
-#                          shake_amp=0.02,
-#                          nparallel=1,
-#                          mpinp=4,
-#                          start_iteration=0,
-#                          feature_opts::FeatureOptions, 
-#                          start_from_training=false,
-#                          n_initial=per_generation * shake_per_minima,
-#                          datapaths=nothing,
-#                          training_opts::TrainingOptions)
+function run_pp3(file::AbstractString, seedfile::AbstractString, outpath::AbstractString)
+    if endswith(file, ".res")
+        cell = CellBase.read_res(file)
+        # Write as cell file
+        CellBase.write_cell(swapext(file, ".cell"), cell)
+    else
+        cell = CellBase.read_cell(file)
+    end
+    # Copy the seed file
+    cp(swapext(seedfile, ".pp"), swapext(file, ".pp"), force=true)
+    # Run pp3 relax
+    # Read enthalpy
+    enthalpy=0.
+    pressure=0.
+    for line in eachline(pipeline(`pp3 -n $(splitext(file)[1])`))
+        if contains(line, "Enthalpy")
+            enthalpy = parse(Float64, split(line)[end])
+        end
+        if contains(line, "Pressure")
+            pressure = parse(Float64, split(line)[end])
+        end
+    end 
+    # Write res
+    cell.metadata[:enthalpy] = enthalpy
+    cell.metadata[:pressure] = pressure
+    cell.metadata[:label] = stem(file)
+    CellBase.write_res(outpath, cell)
+    cell
+end
 
-#     featurespec=CellFeature(feature_opts)
-#     subpath(x) = joinpath(workdir, x)
-#     iteration = start_iteration
+swapext(fname, new) = splitext(fname)[1] * new
 
-#     # Are we starting from scratch?
-#     if isnothing(datapaths)
-#         datapaths = []
-#     end
-
-#     if iteration == 0
-#         curdir = subpath("iter-0")
-#         ensure_dir(curdir)
-#         outdir  = subpath("iter-0-dft")
-#         indir = subpath("iter-0")
-#         if !start_from_training
-#             # build lots of structures
-#             @info "Generating initial dataset"
-#             build_cells(seedfile, curdir, n_initial;save_as_res=true, build_timeout)
-#             @info "DFT for the initial dataset"
-#             run_crud(workdir, indir, outdir;mpinp, nparallel)
-#             start_from_training=false
-#         end
-
-#         # Output ensemble file
-#         ensemble_path = subpath("iter-$(iteration)-ensemble.jld2")
-#         # Train the model
-#         push!(datapaths, joinpath(outdir, "*.res"))
-#         @info "Training with the initial dataset"
-#         train(datapaths, ensemble_path, feature_opts, training_opts;)
-
-#         ensemble = load_ensemble_model(ensemble_path)
-
-#         iteration += 1
-#     else
-#         # Load ensemble of the previous iteration and carry on
-#         ensemble_path = subpath("iter-$(iteration-1)-ensemble.jld2")
-#         @info "Using ensemble model from $ensemble_path"
-#         ensemble = load_ensemble_model(ensemble_path)
-#         @info "Model RMSE (train): $(atomic_rmse(ensemble)) eV/atom"
-#     end
-
-#     # Start the main iteration process
-#     @info "Starting main loop"
-#     while iteration <= niter
-#         @info "Staring iteration $iteration"
-
-#         # Generate new structures
-#         relax_path = subpath("iter-$(iteration)-relax")
-#         ensure_dir(relax_path)
-#         @info "Build and relax using ensemble model"
-#         build_and_relax(per_generation, seedfile, relax_path, ensemble, featurespec;timeout=build_timeout)
-
-#         # Shake the structures that are just relaxed
-#         @info "Shaking relaxed structures"
-#         shake_res(glob("$(relax_path)/*.res"), shake_per_minima, shake_amp)
-
-#         # Now do DFT
-#         outdir  = subpath("iter-$(iteration)-dft")
-#         @info "Running CASTEP for singlepoint energies"
-#         run_crud(workdir, relax_path, outdir;mpinp,nparallel)
-
-#         @info "Retrain using latest data"
-
-#         # Train data
-#         # Add newly generated data for training
-#         fit_path = subpath("iter-$(iteration)-dft")   
-#         push!(datapaths, joinpath(fit_path, "*.res"))
-
-#         # Output ensemble file
-#         ensemble_path = subpath("iter-$(iteration)-ensemble.jld2")
-#         # Train the model
-#         train(datapaths, ensemble_path, feature_opts, training_opts;)
-#         # Load this latest ensemble model
-#         ensemble = load_ensemble_model(ensemble_path)
-#         @info "Model RMSE (train): $(atomic_rmse(ensemble)) eV/atom"
-#         iteration += 1
-#     end
-#     @info "Iterative build completed"
-#     @info "Model RMSE (train): $(atomic_rmse(ensemble)) eV/atom"
-
-# end
 
 
 """
-    run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
+    run_crud(workdir, indir, outdir;n_parallel=1, mpinp=4)
 
 Use `crud.pl` to calculate energies of all files in the input folder and store
 the results to the output folder.
 It is assumed that the files are named like `SEED-XX-XX-XX.res` and the parameters
 for calculations are stored under `<workdir>/SEED.cell` and `<workdir>/SEED.param`. 
 """
-function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
+function run_crud(workdir, indir, outdir;n_parallel=1, mpinp=4)
     hopper_folder =joinpath(workdir, "hopper") 
     gd_folder =joinpath(workdir, "good_castep") 
     ensure_dir(hopper_folder)
@@ -520,15 +332,22 @@ function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
     end
     @info "Number of files to calculate: $(nfiles)"
 
-    # Run nparallel instances of crud.pl
+    # Run n_parallel instances of crud.pl
     # TODO: This is only a temporary solution - should implement crud-like 
     # tool in Julia itself
-    # Ctrl-C does not work here!
-    @sync begin
-        for i=1:nparallel
-            @async run(setenv(`crud.pl -singlepoint -mpinp $mpinp`, dir=workdir))
-            sleep(0.01)
+    tasks = []
+    try
+        @sync begin
+            for i=1:n_parallel
+                push!(tasks, @async run(setenv(`crud.pl -singlepoint -mpinp $mpinp`, dir=workdir)))
+                sleep(0.01)
+            end
         end
+    catch error
+        if typeof(error) <: InterruptException
+            Base.throwto.(tasks, InterruptException())
+        end
+        throw(error)
     end
 
     # Transfer files to the target folder
