@@ -505,6 +505,9 @@ function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
     ensure_dir(hopper_folder)
     ensure_dir(outdir)
 
+    # Clean the hopper folder
+    rm.(glob(joinpath(hopper_folder, "*.res")))
+
     infiles = glob(joinpath(indir, "*.res"))
     existing_file_names = map(stem, glob(joinpath(outdir, "*.res")))
 
@@ -518,6 +521,9 @@ function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
     @info "Number of files to calculate: $(nfiles)"
 
     # Run nparallel instances of crud.pl
+    # TODO: This is only a temporary solution - should implement crud-like 
+    # tool in Julia itself
+    # Ctrl-C does not work here!
     @sync begin
         for i=1:nparallel
             @async run(setenv(`crud.pl -singlepoint -mpinp $mpinp`, dir=workdir))
@@ -558,14 +564,17 @@ Shake the given structures and write new files with suffix `-shake-N.res`.
 function shake_res(files::Vector, nshake::Int, amp::Real, cellamp::Real=0.02)
     for f in files
         cell = read_res(f)
-        pos_backup = copy(cell.positions)
+        pos_backup = get_positions(cell)
+        cellmat_backup = get_cellmat(cell)
         label = cell.metadata[:label]
         for i in 1:nshake
-            cell.positions .= pos_backup
             rattle!(cell, amp)
             rattle_cell!(cell, cellamp)
             cell.metadata[:label] = label * "-shake-$i"
             write_res(splitext(f)[1] * "-shake-$i.res", cell)
+            # Reset the original cellmatrix and positions
+            set_cellmat!(cell, cellmat_backup)
+            set_positions!(cell, pos_backup)
         end
     end
 end

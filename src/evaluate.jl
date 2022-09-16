@@ -9,7 +9,7 @@ using LineSearches: HagerZhang
 using LinearAlgebra
 import Base
 import CellBase
-import CellBase: rebuild!, update!
+import CellBase: rebuild!, update!, set_positions!, set_cellmat!
 export rebuild!, update!
 
 """
@@ -405,9 +405,9 @@ CellBase.get_positions(c::CellWorkSpace) = CellBase.get_positions(c.cell)
 
 # Setter
 "Set the cell matrix"
-CellBase.set_cellmat!(c::CellCalculator, cellmat) = CellBase.set_cellmat!(c.workspace.cell, cellmat)
+set_cellmat!(c::CellCalculator, cellmat) = set_cellmat!(c.workspace.cell, cellmat)
 "Set the positions"
-CellBase.set_positions!(c::CellCalculator, pos) = CellBase.set_positions!(c.workspace.cell, pos)
+set_positions!(c::CellCalculator, pos) = set_positions!(c.workspace.cell, pos)
 
 #=
 Optimisation
