@@ -249,13 +249,13 @@ Status of the build process
 """
 mutable struct BuildState
     iteration::Int
-    working_directory::String
+    workdir::String
     seedfile::String
     max_iterations::Int
 end
 
-function BuildState(working_directory, seedfile;iteration=0, max_iterations=5)
-    BuildState(iteration, working_directory, seedfile, max_iterations)
+function BuildState(workdir, seedfile;iteration=0, max_iterations=5)
+    BuildState(iteration, workdir, seedfile, max_iterations)
 end
 
 
@@ -319,17 +319,18 @@ function step!(buildstate::BuildState;
     # Setup the base folders
     curdir = subpath("iter-$(iteration)")
     ensure_dir(curdir)
-    outdir  = subpath("iter-$(iteration)-dft")
-    indir = subpath("iter-$(iteration)")
+    dftdir  = subpath("iter-$(iteration)-dft")
+    ensure_dir(dftdir)
     if isnothing(datapaths)
         datapaths = []
     end
 
+    local ensemble
     if iteration == 0
         # build lots of structures
         @info "Generating initial dataset"
         # How many structure do we already?
-        nstruct = length(glob(joinpath(indir, "*.res")))
+        nstruct = length(glob(joinpath(curdir, "*.res")))
         @info "$(nstruct) existing structures found"
         # Build to the specified number of structure
         if n_initial - nstruct > 0
@@ -337,12 +338,12 @@ function step!(buildstate::BuildState;
         end
 
         @info "DFT for the initial dataset"
-        run_crud(workdir, indir, outdir;mpinp, nparallel)
+        run_crud(buildstate.workdir, curdir, dftdir;mpinp, nparallel)
 
         @info "Training with the initial dataset"
         # Train the model
-        push!(datapaths, joinpath(outdir, "*.res"))
-        train(datapaths, ensemble_path, feature_opts, training_opts;)
+        push!(datapaths, joinpath(dftdir, "*.res"))
+        ensemble = train(datapaths, ensemble_path, feature_opts, training_opts;)
     else
         # Load ensemble of the previous iteration and carry on
         ensemble_path = subpath("iter-$(iteration-1)-ensemble.jld2")
@@ -351,28 +352,25 @@ function step!(buildstate::BuildState;
         @info "Model RMSE (train): $(atomic_rmse(ensemble)) eV/atom"
 
         # Generate new structures
-        relax_path = subpath("iter-$(iteration)-relax")
-        ensure_dir(relax_path)
         @info "Build and relax using ensemble model"
-        existing_relaxed = filter(x -> !contains(x, "shake"), glob(joinpath(relax_path, "*.res")))
+        existing_relaxed = filter(x -> !contains(x, "shake"), glob(joinpath(curdir, "*.res")))
         nstruct = length(existing_relaxed)
         @info "$(nstruct) existing structures found"
         if per_generation - nstruct > 0
-            build_and_relax(per_generation - nstruct, buildstate.seedfile, relax_path, ensemble, featurespec;timeout=build_timeout)
+            build_and_relax(per_generation - nstruct, buildstate.seedfile, curdir, ensemble, featurespec;timeout=build_timeout)
         end
 
         # Shake the structures that are just relaxed
         @info "Shaking relaxed structures"
-        new_relaxed = filter(x -> !contains(x, "shake") && !(x in existing_relaxed), glob(joinpath(relax_path, "*.res")))
+        new_relaxed = filter(x -> !contains(x, "shake") && !(x in existing_relaxed), glob(joinpath(curdir, "*.res")))
         shake_res(new_relaxed, shake_per_minima, shake_amp, shake_amp_cell)
 
         # Now do DFT
         outdir  = subpath("iter-$(iteration)-dft")
         @info "Running CASTEP for singlepoint energies"
-        run_crud(workdir, relax_path, outdir;mpinp, nparallel)
+        run_crud(buildstate.workdir, curdir, outdir;mpinp, nparallel)
 
         @info "Retrain using latest data"
-
         # Add newly generated data for training
         for i in 0:iteration
             if !(subpath("iter-$i-dft/*.res") in datapaths)
@@ -533,16 +531,22 @@ function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
         fname = stem(file) * ".res"
         fsrc = joinpath(gd_folder, fname)
         fdst = joinpath(outdir, fname)
-        isfile(fsrc) && cp(fsrc, fdst, force=true)  && rm(fsrc)
+        if isfile(fsrc)
+            cp(fsrc, fdst, force=true)  
+            rm(fsrc)
+            nfiles += 1
+        end
 
         # Copy CASTEP files is there is any
         fname = stem(file) * ".castep"
         fsrc = joinpath(gd_folder, fname)
         fdst = joinpath(outdir, fname)
-        isfile(fsrc) && cp(fsrc, fdst, force=true)  && rm(fsrc)
-        nfiles += 1
+        if isfile(fsrc)
+            cp(fsrc, fdst, force=true)
+            rm(fsrc)
+        end
     end
-    @info "Number of new structure calculated: $(nfiles)"
+    @info "Number of new structures calculated: $(nfiles)"
 end
 
 """
@@ -577,12 +581,18 @@ Rattle the cell shape based on random fractional changes on the cell parameters.
 """
 function rattle_cell!(cell::Cell, amp::Real)
     local new_cellpar
+    i = 0
     while true
         new_cellpar = [x * (1 + rand()*amp) for x in cellpar(cell)]
         CellBase.isvalidcellpar(new_cellpar...) && break
+        # Cannot found a valid cell parameters?
+        if i > 10
+            return cell
+        end 
+        i += 1
     end
     new_lattice = Lattice(new_cellpar)
-    spos = CellBase.scaled_positions(cell)
+    spos = get_scaled_positions(cell)
     CellBase.set_cellmat!(cell, cellmat(new_lattice))
     positions(cell) .= cellmat(cell) * spos
     cell
