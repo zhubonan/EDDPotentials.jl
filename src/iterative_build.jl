@@ -97,7 +97,6 @@ function step!(state::BuildOptions;
         end
         if state.build_only
             @info "BUILD ONLY: Iteration 0 structures are generated"
-            state.iteration += 1
             return
         end
         @info "DFT for the initial dataset"
