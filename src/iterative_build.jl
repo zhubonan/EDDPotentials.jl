@@ -1,4 +1,5 @@
 using Parameters
+using JSON
 
 """
     BuildOPtions
@@ -25,6 +26,7 @@ Mandatory Keyword arguments:
     datapaths::Vector{String}=[]
     dft_mode::String="castep"
     build_only::Bool = false
+    relax_extra_opts::Dict{Symbol,Any} = Dict()
 end
 
 """
@@ -54,9 +56,78 @@ function run_relaxation(state::BuildOptions, indir, outdir)
         run_crud(state.workdir, indir, outdir;state.mpinp, state.n_parallel)
     elseif  state.dft_mode == "pp3"
         run_pp3_many(joinpath(state.workdir, ".pp3_work"), indir, outdir, state.seedfile;n_parallel=state.n_parallel)
+    elseif  state.dft_mode == "disp-castep"
+        run_disp_castep(indir, outdir, state.seedfile;state.relax_extra_opts...)
     else
         throw(ErrorException("Unknown dft_mode: $(state.dft_mode)"))
     end
+end
+
+"""
+Run relaxation through DISP
+"""
+function run_disp_castep(indir, outdir, seedfile;categories, priority=90, project_prefix="eddp.jl",
+                         watch_every=60,
+                         kwargs...)
+    file_pattern = joinpath(indir, "*.res")
+    seed = splitext(seedfile)[1]
+    # Setup the inputs
+    project_name = joinpath([gethostname(), project_prefix, abspath(indir)])
+    seed_stem = splitext(basename(seedfile))[1]
+    cmd=`disp deploy singlepoint --seed $seed_stem --base-cell $seed.cell --param $seed.param --cell $file_pattern --project $project_name --priority $priority` 
+
+    # Define the categories
+    for category in categories
+        push!(cmd.exec, "--category")
+        push!(cmd.exec, category)
+    end
+
+    @info "Command to be run $(cmd)"
+    run(cmd)
+
+    # Start to monitor the progress
+    sleep(watch_every)
+    @info "Start watching for progress)"
+    while true
+        cmd = `disp db summary --singlepoint --project $project_name --json`
+        json_string = readchomp(pipeline(cmd))
+        data = parse_disp_output(json_string)
+        ncomplete = get(data, "COMPLETED", 0) 
+        nall = get(data, "ALL", -1)
+        if get(data, "COMPLETED", 0) == get(data, "ALL", -1)
+            @info "All calculation finished!"
+            break
+        else
+            @info "Completed calculations: $(ncomplete)/$(nall)"
+        end
+        sleep(watch_every)
+    end
+    # Pulling calculations down
+    cmd = Cmd(`disp db retrieve-project --project $project_name`, dir=outdir)
+    run(cmd)
+    @info "Calculation results pulled into $outdir."
+end
+
+
+"""
+    parse_disp_output(json_string)
+
+Parse the output of `disp db summary`
+"""
+function parse_disp_output(json_string)
+    tmp = JSON.parse(json_string)
+    data = Dict{String, Int}()
+    for (x, y) in tmp
+        # How to unpack this way due to nested multi-index
+        if contains(x, "RES")
+            data["RES"] = first(values(first(values(y))))
+        elseif contains(x, "ALL")
+            data["ALL"] = first(values(first(values(y))))
+        elseif contains(x, "COMPLETED")
+            data["COMPLETED"] = first(values(first(values(y))))
+        end
+    end
+    data
 end
 
 """
