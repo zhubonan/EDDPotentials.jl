@@ -17,8 +17,8 @@ Mandatory Keyword arguments:
     per_generation::Int=100
     shake_per_minima::Int=10
     build_timeout::Float64=1.
-    shake_amp::Float64=0.2
-    shake_cell_amp::Float64=0.2
+    shake_amp::Float64=0.02
+    shake_cell_amp::Float64=0.02
     n_parallel::Int=1
     mpinp::Int=2
     n_initial::Int=1000
@@ -66,13 +66,16 @@ function step!(state::BuildOptions;
         feature_opts::FeatureOptions, 
         training_opts::TrainingOptions
     )
+    @info "Iterations $(state.iteration)"
 
     featurespec=CellFeature(feature_opts)
     subpath(x) = joinpath(state.workdir, x)
 
     # if the ensemble file exists, then we have trained for this iteration
     ensemble_path = subpath("iter-$(state.iteration)-ensemble.jld2")
+    @info "Ensemble path $(ensemble_path)"
     if isfile(ensemble_path) && has_ensemble_model(ensemble_path)
+        @info "Ensemble build completed for this iteration - no further action needed."
         state.iteration += 1
         return state
     end
@@ -148,7 +151,8 @@ Retrain with all existing data
 function retrain_all_data(state::BuildOptions, feature_opts::FeatureOptions, training_opts::TrainingOptions)
     @info "Retrain using latest data"
     # Add newly generated data for training
-    for i in 0:iteration
+    subpath(x) = joinpath(state.workdir, x)
+    for i in 0:state.iteration
         if !(subpath("iter-$i-dft/*.res") in state.datapaths)
             push!(state.datapaths, subpath("iter-$i-dft/*.res"))
         end

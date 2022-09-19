@@ -323,7 +323,7 @@ const FEATURESPEC_NAME="cf"
     show_progress::Bool=false
     "Store the data used for training in the archive"
     store_training_data::Bool=true
-    rmse_threshold::Float64=0.1
+    rmse_threshold::Float64=0.5
 end
 
 """
