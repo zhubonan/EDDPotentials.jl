@@ -542,9 +542,19 @@ function train_multi_distributed(training_data, savepath, opt::TrainingOptions;f
     for i=1:nmodels
         put!(job_channel, i)
     end
-
+    futures = []
     for p in workers()
-        remote_do(worker_train_one, p, training_data, opt, job_channel, results_channel, nfeature)
+        push!(futures, remote_do(worker_train_one, p, training_data, opt, job_channel, results_channel, nfeature))
+    end
+
+    # Check for any errors - works should not return until they are explicitly signaled
+    sleep(0.1)
+    for future in futures
+        if isready(future)
+            output = fetch(future)
+            @error "Error detected for the worker $output"
+            throw(output)
+        end
     end
 
 

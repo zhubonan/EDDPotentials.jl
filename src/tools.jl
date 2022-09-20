@@ -10,17 +10,20 @@ using Dates
 using UUIDs
 
 """
-generate_vc(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
+    VariableLatticeFilter(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
 
-Generate a VariableCellFiler that handles variable cell relaxation
+Generate a VariableLatticeFilter that handles variable cell relaxation
 """
-function generate_vc(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
-    copy_cell && deepcopy(cell)
-    cw = CellWorkSpace(cell;cf, nmax, rcut)
-    calc = CellCalculator(cw, ensemble)
+function VariableLatticeFilter(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
+    calc = CellCalculator(cell, ensemble, cf;copy_cell, rcut, nmax)
     VariableLatticeFilter(calc)
 end
 
+function CellCalculator(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
+    copy_cell && deepcopy(cell)
+    cw = CellWorkSpace(cell;cf, nmax, rcut)
+    CellCalculator(cw, ensemble)
+end
 
 function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;energy_threshold=20., savepath="relaxed", skip_existing=true)
 
@@ -40,7 +43,7 @@ function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;e
         # Skip and existing file
         skip_existing && isfile(joinpath(savepath, fname)) && return
 
-        vc = generate_vc(loaded.cells[i], ensemble, cf)
+        vc = VariableLatticeFilter(loaded.cells[i], ensemble, cf)
 
         try
             optimise_cell!(vc)
@@ -105,7 +108,7 @@ end
 """
     write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="EDDP")
 
-Write structure in VariableCellFiler as SHELX file.
+Write structure in VariableLatticeFilter as SHELX file.
 """
 function write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="EDDP")
     update_metadata!(vc, label;symprec)
@@ -118,7 +121,7 @@ end
 Build the structure and relax it
 
 """
-function build_and_relax(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10)
+function build_and_relax(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, write=true, nmax=500)
     lines = open(seedfile, "r") do seed 
         cellout = read(pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull), String)
         split(cellout, "\n")
@@ -128,13 +131,17 @@ function build_and_relax(seedfile::AbstractString, outdir::AbstractString, ensem
     label = get_label(stem(seedfile))
 
     cell = read_cell(lines)
-    vc = generate_vc(cell, ensemble, cf)
+    vc = VariableLatticeFilter(cell, ensemble, cf;nmax)
     optimise_cell!(vc)
     update_metadata!(vc, label)
     outpath = joinpath(outdir, "$(label).res")
 
     # Write out SHELX file
-    write_res(outpath, get_cell(vc))
+    relaxed = get_cell(vc)
+    if write
+        write_res(outpath, relaxed)
+    end
+    relaxed
 end
 
 """
@@ -142,29 +149,49 @@ end
 
 Build and relax a single structure, ensure that the process *does* generate a new structure.
 """
-function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, warn=true, max_attempts=999)
+function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;nmax=500, timeout=10, warn=true, max_attempts=999, write=true)
     not_ok = true
     n = 1
+    relaxed = nothing
     while not_ok && n <= max_attempts
         try
-            build_and_relax(seedfile, outdir, ensemble, cf;timeout)
+            relaxed = build_and_relax(seedfile, outdir, ensemble, cf;timeout, write, nmax)
         catch err 
             if !isa(err, InterruptException)
                 if warn
                     if typeof(err) <: ProcessFailedException 
-                        println(stderr, "WARNING: `buildcell` failed to make the structure")
+                        @warn " `buildcell` failed to make the structure"
                     else
-                        println(stderr, "WARNING: relaxation errored!")
-                        println(stderr, "Error: $err")
+                        @warn "relaxation errored with $err"
                     end
                 end
             else
+                # Throw Ctrl-C interruptions
                 throw(err)
             end
             n += 1
             continue
         end
         not_ok=false
+    end
+    relaxed 
+end
+
+"""
+    worker_build_and_relax_one(channel::AbstractChannel, args...; kwargs...)
+
+Worker function that put the results into the channel
+"""
+function worker_build_and_relax_one(job_channel, result_channel, seed_file, outdir, ensemble, cf; 
+    nmax=500, timeout=10, warn=true, max_attempts=999, write=true)
+    @info "Starting worker function"
+    while true
+        job_id = take!(job_channel)
+        if job_id < 0
+            break
+        end
+        relaxed = build_and_relax_one(seed_file, outdir, ensemble, cf;nmax, timeout, warn, max_attempts, write)
+        put!(result_channel, relaxed)
     end
 end
 
@@ -173,12 +200,92 @@ end
 
 Build and relax `num` structures in parallel (threads) using passed `ModuleEnsemble` and `CellFeature`
 """
-function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10)
-    pbar = Progress(num;desc="Build and relax: ")
-    for i in 1:num
-        build_and_relax_one(seedfile, outdir, ensemble, cf;timeout,warn=true)
-        next!(pbar)
+function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, nmax=500, deduplicate=false)
+    results_channel = RemoteChannel(() -> Channel(num))
+    job_channel = RemoteChannel(() -> Channel(num))
+
+    # Put the jobs
+    for i=1:num
+        put!(job_channel, i)
     end
+
+    @info "Launching workers"
+
+    # Launch the workers
+    futures = []
+    for worker in workers()
+        push!(futures, remotecall(worker_build_and_relax_one, worker, job_channel, results_channel,  seedfile, outdir, ensemble, cf; timeout, warn=true, write=false, nmax))
+    end
+    sleep(0.1)
+    # None of the futures should be ready
+    for future in futures
+        if isready(future)
+            output = fetch(future)
+            @error "Error detected for the worker $output"
+            throw(output)
+        end
+    end
+
+    @info "Start the receiving loop"
+    # Receive the data and update the progress
+    i = 1 
+    progress = Progress(num)
+    # Fingerprint vectors used for deduplication
+    all_fvecs = []
+    try 
+        while i <= num
+            res = take!(results_channel)
+            label = res.metadata[:label]
+            # Get feature vector
+            # Compare feature vector
+            if deduplicate
+                fvec = CellBase.fingerprint(res)
+                if is_unique_fvec(all_fvecs, fvec)
+                    push!(all_fvecs, fvec)
+                    # Unique structure - write it out
+                    write_res(joinpath(outdir, "$(label).res"), res)
+                    ProgressMeter.next!(progress;)
+                    i += 1
+                else
+                    @warn "This structure has been seen before"
+                    # Resubmit the job
+                    put!(job_channel, i)
+                end
+            else
+                write_res(joinpath(outdir, "$(label).res"), res)
+                ProgressMeter.next!(progress;)
+                i += 1
+            end
+        end
+    catch err
+        if isa(err, InterruptException)
+            # interrupt workers
+            Distributed.interrupt()
+        else
+            throw(err)
+        end
+    finally 
+        foreach(x -> put!(job_channel, -1), 1:length(workers()))
+        sleep(1.0)
+        close(job_channel)
+        close(results_channel)
+    end
+
+end
+
+"""
+Check if a feature vector already present in an array of vectors
+"""
+function is_unique_fvec(all_fvecs, fvec;tol=1e-2, lim=5)
+    match = false
+    for ref in all_fvecs
+        dist = CellBase.fingerprint_distance(ref, fvec; lim)
+        if dist < tol
+            match = true
+            break
+        end
+    end 
+    !match
 end
 
 """
@@ -186,10 +293,10 @@ end
 
 Build the structure and relax it
 """
-function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble_file::AbstractString;timeout=10)
+function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble_file::AbstractString;timeout=10, kwargs...)
     ensemble = load_ensemble_model(ensemble_file)
     featurespec = load_featurespec(ensemble_file)
-    build_and_relax(num, seedfile, outdir, ensemble, featurespec;timeout)
+    build_and_relax(num, seedfile, outdir, ensemble, featurespec;timeout, kwargs...)
 end
 
 
