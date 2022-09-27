@@ -1,0 +1,6 @@
+
+12B search - found the alpha phase
+28B fixed cell search - found the gamma phase
+
+In both cases, the actual phase only appear after DFT relaxation. 
+The EDDP relaxed structure have similar atomic arrangements but the distribution of the bond lengths are very different... 

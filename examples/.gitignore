@@ -1,0 +1,5 @@
+*.res
+*.conv
+*.jld2
+
+!packed.res
