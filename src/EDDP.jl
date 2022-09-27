@@ -9,7 +9,7 @@ export mean
 
 # External
 include("nnls.jl")
-include("potential.jl")
+include("feature.jl")
 include("backprop.jl")
 include("gradient.jl")
 include("nntools.jl")
