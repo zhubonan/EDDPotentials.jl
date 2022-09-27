@@ -2,4 +2,4 @@
 *.conv
 *.jld2
 
-!packed.res
+!*packed.res

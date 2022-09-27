@@ -278,51 +278,6 @@ function withgradient!(e::Matrix, g::Matrix, f::ThreeBodyFeature, rij, rik, rjk,
     e, g
 end
 
-"""
-    SpeciesMap
-
-Map species types to integer indices for internal representations
-"""
-struct SpeciesMap
-    symbols::Vector{Symbol}
-    indices::Vector{Int}
-    unique::Vector{Symbol}
-end
-
-"""
-    SpeciesMap(symbols)
-
-Construct an SpeciesMap from an array of symbols.
-"""
-function SpeciesMap(symbols)
-    us = unique(symbols)
-    indices = zeros(Int, length(symbols))
-    for (idx, sym) in enumerate(symbols)
-        indices[idx] = findfirst(x -> x == sym, us)
-    end
-    SpeciesMap(symbols, indices, us)
-end
-
-"Get the mapped index for a given symbol"
-index(smap::SpeciesMap, sym::Symbol) = findfirst(x -> x==sym, smap.us)
-"Get the symbol index for a given integer index"
-symbol(smap::SpeciesMap, sidx::Int) = smap.us[sidx]
-
-"""
-    integer_specie_index(cell::Cell)
-
-Return an integer indexing array for the species
-"""
-function integer_specie_index(cell::Cell)
-    sym = species(cell)
-    us = unique(sym)
-    out = zeros(Int, length(sym))
-    for (idx, specie) in enumerate(sym)
-        out[idx] = findfirst(x -> x == specie, us)
-    end
-    out, us
-end
-
 
 """
     feature_vector(features::Vector{T}, cell::Cell) where T
@@ -401,9 +356,9 @@ end
 Construct a vector containing the TwoBodyFeatures
 """
 function two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func=fr, gfunc=gfr)
-    indx, us = integer_specie_index(cell)
+    us = unique(species(cell))
     features = TwoBodyFeature{typeof(func), typeof(gfunc)}[]
-    for (i, map_pair) in enumerate(p_mapping)
+    for map_pair in p_mapping
         a, b = map_pair[1]
         p = map_pair[2]
         push!(features, TwoBodyFeature(func, gfunc, p, (a, b), Float64(rcut)))
@@ -426,9 +381,9 @@ end
 Construct a vector containing the TwoBodyFeatures
 """
 function three_body_feature_from_mapping(cell::Cell, pq_mapping, rcut, func=fr, gfunc=gfr;check=false)
-    indx, us = integer_specie_index(cell)
+    us = unique(species(cell))
     features = ThreeBodyFeature{typeof(func), typeof(gfunc)}[]
-    for (i, map_pair) in enumerate(pq_mapping)
+    for map_pair in pq_mapping
         a, b, c = map_pair[1]
         p, q= map_pair[2]
         ii = findfirst(x -> x == a, us)
@@ -529,12 +484,12 @@ function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=
     CellFeature(elements, two_body_features, three_body_features)
 end
 
-# function CellFeature(opts::FeatureOptions=FeatureOptions())
-#     @unpack p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3 = opts
-#     CellFeature(opts.elements;p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3) 
-# end
+"""
+    CellFeature(opts::FeatureOptions;kwargs...)
 
-function CellFeature(opts::FeatureOptions=FeatureOptions();kwargs...)
+Obtain a CellFeature from FeatureOptions
+"""
+function CellFeature(opts::FeatureOptions;kwargs...)
     new_opts = FeatureOptions(opts;kwargs...)
     @unpack p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3 = new_opts
     CellFeature(opts.elements;p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3) 
@@ -596,9 +551,26 @@ function feature_vector(cf::CellFeature, cell::Cell;nmax=500)
     vcat(v1, v2, v3)
 end
 
+"""
+    one_body_vectors(cell::Cell)
+
+Construct one-body features for the structure.
+The one-body feature is essentially an one-hot encoding of the specie labels 
+"""
+function one_body_vectors(cell::Cell)
+    numbers = atomic_numbers(cell)
+    us = unique(numbers)
+    vecs = zeros(length(us), nions(cell))
+    one_body_vectors!(vecs, cell)
+end
+
+"""
+    one_body_vectors!(v, cell::Cell)
+
+Construct one-body features for the structure.
+The one-body feature is essentially an one-hot encoding of the specie labels 
+"""
 function one_body_vectors!(v, cell::Cell)
-    # One body vector is essentially an one-hot encoding of the specie labels 
-    # assuming no "mixture" atoms of course
     numbers = atomic_numbers(cell)
     us = unique(numbers)
     sort!(us)
@@ -612,19 +584,11 @@ function one_body_vectors!(v, cell::Cell)
     v
 end
 
-function one_body_vectors(cell)
-    numbers = atomic_numbers(cell)
-    us = unique(numbers)
-    vecs = zeros(length(us), nions(cell))
-    one_body_vectors!(vecs, cell)
-end
-
-
 """
 Get a suggested rcut for NN list for a CellFeature
 """
-function suggest_rcut(cf::CellFeature)
+function suggest_rcut(cf::CellFeature, offset=1.0)
     r3 = maximum(x.rcut for x in cf.two_body)
     r2 = maximum(x.rcut for x in cf.three_body)
-    max(r3, r2) + 1.0
+    max(r3, r2) + offset
 end
