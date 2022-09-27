@@ -12,6 +12,7 @@ using Test
     @test all(isapprox.(spos, CellBase.scaled_positions(cell), atol=1e-10))
 end
 
+include("test_preprocess.jl")
 include("gptest.jl")
 include("gtest.jl")
 include("backproptest.jl")
