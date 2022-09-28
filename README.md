@@ -11,10 +11,12 @@ An alternative [Julia](https://julialang.org/) implementation of the ephemeral d
 
 ## Todo
 
-* [ ] Workflow system for easy construction of the potentials
-* [ ] Validation of the boron system
+* [x] Workflow system for easy construction of the potentials
+* [x] Validation of the boron system
 * [ ] Documentations
 * [ ] Change the dispatch signature of two-body/three-body - there is no need to use type dispatch here. So we can lift the need of the input begin a Vector (e.g. using Tuple instead). This allow mix/match of features with different f(r)
+* [ ] Generalise Neutral network interfaces so different NN implementations can be used interchangeably
+* [ ] Benchmark against the Fortran [EDDP](https://www.mtg.msm.cam.ac.uk/Codes/EDDP) package
 
 ## Training workflow
 
