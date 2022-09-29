@@ -24,23 +24,6 @@ function update_param!(model, param)
 end
 
 
-"""
-    paramvector(model)
-
-Return a vector containing all parameters of a model concatenated as a vector
-"""
-function paramvector(model)
-    i = 1
-    fparam = Flux.params(model)
-    np = sum(length, fparam)
-    out = zeros(eltype(fparam[1]), np)
-    for item in fparam
-        l = length(item)
-        out[i: i+l-1] .= item[:]
-        i += l
-    end
-    out
-end
 
 """
     setup_fg_backprop(model, data::AbstractVector, y)
@@ -121,6 +104,7 @@ function collect_gradients!(gvec::AbstractVector, gbuff::ChainGradients)
             i += 1
         end
     end
+    gvec
 end
 
 """

@@ -10,7 +10,7 @@ export mean
 # External
 include("nnls.jl")
 include("feature.jl")
-include("backprop.jl")
+include("nn/interface.jl")
 include("gradient.jl")
 include("nntools.jl")
 include("lmsolve.jl")
