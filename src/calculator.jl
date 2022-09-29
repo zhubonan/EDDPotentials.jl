@@ -8,7 +8,7 @@ const AC=AbstractCalc
 function get_cell(ac::AC) end
 function get_energy(ac::AC) end
 
-function calculate!(ac::Ac) end
+function calculate!(ac::AC) end
 
 function get_forces(calc::AC) end
 
@@ -35,14 +35,12 @@ end
 
 ### Concrete implementation
 
-mutable struct NNCalc{T, N<:NeighbourList, M<:CellFeature, X<:AbstractNNInterface, K} <: AbstractCalc
+mutable struct NNCalc{T, N<:NeighbourList, M<:CellFeature, X<:AbstractNNInterface} <: AbstractCalc
     cell::Cell{T}
     last_cell::Cell{T}
     "NeighbourList"
     nl::N
     cf::M
-    # Feature vectors
-    feature_vectors::NTuple{K, Matrix{T}}
     "Combined Feature Vector"
     v::Matrix{T}
     "Gradient of the feature vector"
@@ -68,13 +66,14 @@ get_cell(ac::NNCalc) = ac.cell
 """
 Copy the lattice and positions from one cell to the other
 """
-function copycell(cell_from::Cell, cell_to::Cell)
+function copycell!(cell_from::Cell, cell_to::Cell)
     set_cellmat!(cell_to, cellmat(cell_from))
     set_positions!(cell_to, positions(cell_from))
+    species(cell_to) .= species(cell_from)
 end
 
 function is_equal(cell_a, cell_b)
-    all(cellmat(cell_a) .== cellmat(cell_b)) && all(positions(cell_a) .== positions(cell_b))
+    all(cellmat(cell_a) .== cellmat(cell_b)) && all(positions(cell_a) .== positions(cell_b)) && all(species(cell_a) .== species(cell_b))
 end
 
 
@@ -84,17 +83,19 @@ function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface;rcut=sug
     v = zeros(T, nfeatures(cf;ignore_one_body=false), length(cell))
     v2 = zeros(T, nfeatures(cf;ignore_one_body=true), length(cell))
 
-    NNCalc(cell, deepcopy(cell), nl, cf, 
-          (one_body, two_body, three_body),  # Feature Vectors 
+    NNCalc(cell, 
+           deepcopy(cell), 
+           nl, 
+           cf, 
            v,           
            similar(v),  # Gradient of the input to the NN 
     ForceBuffer{T}(v2), # Buffer for force calculation 
-    zeros(eltype(two_body), ndims, nions(cell)),  # Forces 
-    zeros(eltype(two_body), ndims, ndims),  # Stress
-    zeros(eltype(two_body), nions(cell)), # Energy
+    zeros(T, ndims, nions(cell)),  # Forces 
+    zeros(T, ndims, ndims),  # Stress
+    zeros(T, nions(cell)), # Energy
     ignore_one_body,
     false,
-    nn;
+    nn
     )
 end
 

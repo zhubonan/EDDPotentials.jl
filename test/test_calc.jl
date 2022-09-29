@@ -13,4 +13,9 @@ include("utils.jl")
         length(cell)
         )
     calc = EDDP.NNCalc(cell, cf, nnitf)
+    
+    cell2 = deepcopy(cell)
+    positions(cell2) .= 0.
+    EDDP.copycell!(cell, cell2)
+    @test EDDP.is_equal(cell, cell2)
 end

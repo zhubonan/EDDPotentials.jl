@@ -19,7 +19,7 @@ struct ForceBuffer{T}
     forces::Array{T, 2}
     "Calculated stress"
     stress::Array{T, 2}
-    gbuff::Array{T, 2}
+    gbuffer::Vector{T}
 end
 
 
