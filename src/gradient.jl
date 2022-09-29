@@ -19,7 +19,7 @@ struct ForceBuffer{T}
     forces::Array{T, 2}
     "Calculated stress"
     stress::Array{T, 2}
-    gbuffer::Vector{T}
+    gbuffer::Matrix{T}
 end
 
 
@@ -33,7 +33,7 @@ function ForceBuffer{T}(fvec::Array{T};ndims=3) where {T}
     stotv = zeros(T, nf, nat, ndims, ndims)
     forces = zeros(T, ndims, nat)
     stress = zeros(T, ndims, ndims)
-    ForceBuffer(fvec, gvec, svec, stotv, forces, stress, zeros(T, nf))
+    ForceBuffer(fvec, gvec, svec, stotv, forces, stress, zeros(T, 3, nf))
 end
 
 
@@ -50,8 +50,8 @@ function compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeatur
     # gvec -> size (ndims, nfeature, nions)
     # Feature vectors
     fvec = fb.fvec
-    gvec = fb.gvec
-    svec = fb.svec
+    gvecs = fb.gvec
+    svecs = fb.svec
     gbuffer = fb.gbuffer # Buffer for holding d(f(r)^p)/dr
     fill!(gbuffer, 0)
 
@@ -61,8 +61,8 @@ function compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeatur
     sym = species(cell)
 
     fvec[offset+1:offset+totalfe, :] .= 0 # Size of (nfe, nat) - feature vectors for each atom
-    gvec[offset+1:offset+totalfe, :, :, :] .= 0 # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
-    svec[offset+1:offset+totalfe, :, :, :, :] .= 0 # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
+    gvecs[offset+1:offset+totalfe, :, :, :] .= 0 # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
+    svecs[offset+1:offset+totalfe, :, :, :, :] .= 0 # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
 
     maxrcut = maximum(x -> x.rcut, features)
     for iat = 1:nat  # Each central atom
@@ -82,8 +82,8 @@ function compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeatur
                 vtmp = gbuffer[i] .* vij / rij
                 # Gradient 
                 for idx in 1:size(vtmp, 1)
-                    @inbounds gvec[j, iat, idx, iat] -= vtmp[idx]
-                    @inbounds gvec[j, iat, idx, jat] += vtmp[idx]
+                    @inbounds gvecs[j, iat, idx, iat] -= vtmp[idx]
+                    @inbounds gvecs[j, iat, idx, jat] += vtmp[idx]
                 end
 
                 # Derivative of the cell deformation (stress)
@@ -92,16 +92,15 @@ function compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeatur
                 stmp = vij * vtmp' ./ 2
                 for jdx in 1:size(stmp, 2)
                     for idx in 1:size(stmp, 1)
-                        @inbounds svec[j, iat, idx, jdx, iat] += stmp[idx, jdx]
-                        @inbounds svec[j, iat, idx, jdx, jat] += stmp[idx, jdx]
+                        @inbounds svecs[j, iat, idx, jdx, iat] += stmp[idx, jdx]
+                        @inbounds svecs[j, iat, idx, jdx, jat] += stmp[idx, jdx]
                     end
                 end
             end
         end
     end
-    fvec, gvec, svec
+    fvec, gvecs, svecs
 end
-
 
 """
     compute_three_body_fv_gv!(fvecs, gvecs, features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
@@ -113,8 +112,8 @@ function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{ThreeBodyFe
     # gvec -> size (ndims, nfeature, nions)
     # Feature vectors
     fvec = fb.fvec
-    gvec = fb.gvec
-    svec = fb.svec
+    gvecs = fb.gvec
+    svecs = fb.svec
     gbuffer = fb.gbuffer # Buffer for holding d(f(r)^p)/dr
     fill!(gbuffer, zero(eltype(gbuffer)))
 
@@ -123,8 +122,8 @@ function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{ThreeBodyFe
     nat = natoms(cell)
     sym = species(cell)
     fvec[offset+1:offset+totalfe, :] .= 0 # Size of (nfe, nat) - feature vectors for each atom
-    gvec[offset+1:offset+totalfe, :, :, :] .= 0 # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
-    svec[offset+1:offset+totalfe, :, :, :, :] .= 0 # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
+    gvecs[offset+1:offset+totalfe, :, :, :] .= 0 # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
+    svecs[offset+1:offset+totalfe, :, :, :, :] .= 0 # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
 
 
     maxrcut = maximum(x -> x.rcut, features)
@@ -147,7 +146,7 @@ function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{ThreeBodyFe
                 ist = 1 + offset
                 for (ife, f) in enumerate(features)
                     # populate the buffer storing the gradients against rij, rik, rjk
-                    withgradient!(evecs, gbuffer, f, rij, rik, rjk, sym[iat], sym[jat], sym[kat], iat, ist)
+                    withgradient!(fvec, gbuffer, f, rij, rik, rjk, sym[iat], sym[jat], sym[kat], iat, ist)
                     ist += nfe[ife]
                 end
                 # Update forces and the stres
@@ -184,7 +183,7 @@ function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{ThreeBodyFe
             end
         end
     end
-    evecs, gvecs, svecs
+    fvec, gvecs, svecs
 end
 
 
@@ -195,7 +194,7 @@ Propagate chain rule to obtain the forces
 """
 function _force_update!(fb::ForceBuffer, gv) where {T}
     # Zero the buffer
-    gf_at = fb.fvec
+    gf_at = fb.gvec
     fill!(fb.forces, 0)
     for iat in axes(gf_at, 4)
         for j in axes(gf_at, 2)
@@ -215,7 +214,7 @@ Propagate chain rule to obtain the stress
 """
 function _stress_update!(fb::ForceBuffer, gv) where {T}
     # Zero the buffer
-    gf_at = fb.svtot
+    gf_at = fb.stotv
     fill!(fb.stress, 0)
     for j in axes(gf_at, 2)
         for i in axes(gf_at, 1)

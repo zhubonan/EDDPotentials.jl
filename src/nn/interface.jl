@@ -56,12 +56,12 @@ end
 
 ManualFluxBackPropInterface(chain::Chain, n::Int) = ManualFluxBackPropInterface(chain, ChainGradients(chain, n), nothing, nothing)
 
-function forward!(itf::ManualFluxBackPropInterface, inp)
+function forward!(itf::ManualFluxBackPropInterface, inp::AbstractArray)
     # Apply x transformation
     if !isnothing(itf.xt)
         transform!(itf.xt, @view(inp[end-nl:end, :]))
-        out = forward!(itf.gchain, itf.chain, inp)
     end
+    out = forward!(itf.gchain, itf.chain, inp)
     # Apply y transformation
     if !isnothing(itf.yt)
         reconstruct!(itf.yt, out)
@@ -84,8 +84,7 @@ Return the gradient of the input matrix ``X`` against the sum of the output ``su
 function gradinp!(gvec::AbstractVecOrMat, itf::ManualFluxBackPropInterface)
     backward!(itf)
     # Collect 
-    input_gradient(itf.gchain.layers[1])
-    gvec .= input_gradient
+    gvec .= input_gradient(itf.gchain.layers[1])
     # If transform is applied then we have to scale the gradient
     if !isnothing(itf.xt)
         nl = length(itf.xt.scale)
