@@ -79,7 +79,7 @@ function compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeatur
             # We now have the gbuffer filled
             for i = 1:totalfe
                 j = i + offset
-                vtmp = gbuffer[i] .* vij / rij
+                vtmp = gbuffer[j] .* vij / rij
                 # Gradient 
                 for idx in 1:size(vtmp, 1)
                     @inbounds gvecs[j, iat, idx, iat] -= vtmp[idx]
@@ -152,9 +152,9 @@ function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{ThreeBodyFe
                 # Update forces and the stres
                 for i = 1:totalfe
                     j = i + offset
-                    @inbounds tij = gbuffer[1, i] * vij / rij
-                    @inbounds tik = gbuffer[2, i] * vik / rik
-                    @inbounds tjk = gbuffer[3, i] * vjk / rjk
+                    tij = gbuffer[1, j] * vij / rij
+                    tik = gbuffer[2, j] * vik / rik
+                    tjk = gbuffer[3, j] * vjk / rjk
                     # Gradient with positions
                     for idx in 1:length(tij)
                         @inbounds gvecs[j, iat, idx, iat] -= tij[idx]
@@ -164,7 +164,6 @@ function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{ThreeBodyFe
                         @inbounds gvecs[j, iat, idx, jat] -= tjk[idx]
                         @inbounds gvecs[j, iat, idx, kat] += tjk[idx]
                     end
-
                     # Stress (gradient on cell deformation)
                     sij = vij .* tij' ./ 2
                     sik = vik .* tik' ./ 2

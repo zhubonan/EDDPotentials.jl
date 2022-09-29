@@ -80,7 +80,7 @@ end
 
 
 function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; rcut=suggest_rcut(cf),
-    nmax=500, savevec=true, ndims=3, ignore_one_body=true) where {T}
+    nmax=500, savevec=true, ignore_one_body=false) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf; ignore_one_body=false), length(cell))
     v2 = zeros(T, nfeatures(cf; ignore_one_body=true), length(cell))
@@ -151,6 +151,8 @@ function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
         n1bd = feature_size(calc.cf)[1]
         # Force is only applicable on n-body features where N>1
         apply_chainrule!(calc.force_buffer, @view(calc.gv[n1bd+1:end, :]))
+        # Scale stress by the volume
+        calc.stress ./= volume(get_cell(calc))
         calc.forces_calculated = true
     end
     # Update as the last calculated cell
