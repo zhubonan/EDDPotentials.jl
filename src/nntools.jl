@@ -6,24 +6,6 @@ Direct minimisation require accessing individual predictions and the jacobian ma
 =#
 using Flux
 
-"""
-    update_param!(model, param)
-
-Update the parameters of a model from a given vector
-"""
-function update_param!(model, param)
-    fparams = Flux.params(model)
-    @assert sum(length, fparams) == length(param)
-    i = 1
-    for item in fparams
-        l = length(item)
-        item[:] .= param[i:i+l-1]
-        i += l
-    end
-    model
-end
-
-
 
 """
     setup_fg_backprop(model, data::AbstractVector, y)
