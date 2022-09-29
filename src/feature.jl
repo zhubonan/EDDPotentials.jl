@@ -284,18 +284,19 @@ end
 
 Compute the feature vector for a give set of two body interactions
 """
-function feature_vector!(fvecs, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where {T, N}
+function feature_vector!(fvecs, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T, N}
     # Feature vectors
     nfe = map(nfeatures, features) 
     nat = natoms(cell)
     sym = species(cell)
-    fill!(fvecs, zero(eltype(fvecs)))
+    # Set the feature vectors elements to be updated to zero
+    fvecs[1+offset:sum(nfe) + offset, :] .= 0
     rcut = maximum(x -> x.rcut, features)
     for iat = 1:nat
         for (jat, jextend, rij) in eachneighbour(nl, iat)
             rij > rcut && continue
             # Accumulate feature vectors
-            ist = 1
+            ist = 1 + offset
             for (ife, f) in enumerate(features)
                 f(fvecs, rij, sym[iat], sym[jat], iat, ist)
                 ist += nfe[ife]
@@ -319,12 +320,13 @@ end
 
 Compute the feature vector for each atom a give set of three body interactions
 """
-function feature_vector!(fvecs, features::Vector{ThreeBodyFeature{T, M}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where {T, M}
+function feature_vector!(fvecs, features::Vector{ThreeBodyFeature{T, M}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T, M}
     nat = natoms(cell)
     nfe = map(nfeatures, features) 
     # Note - need to use twice the cut off to ensure distance between j-k is included
     sym = species(cell)
-    fill!(fvecs, zero(eltype(fvecs)))
+    # Set the feature vectors to be zero
+    fvecs[1+offset:sum(nfe) + offset, :] .= 0
     rcut = maximum(x -> x.rcut, features)
     for iat = 1:nat
         for (jat, jextend, rij) in eachneighbour(nl, iat)
@@ -339,7 +341,7 @@ function feature_vector!(fvecs, features::Vector{ThreeBodyFeature{T, M}}, cell::
                 rjk = distance_between(nl.ea.positions[jextend], nl.ea.positions[kextend])
                 rjk > rcut && continue
                 # accumulate the feature vector
-                ist = 1
+                ist = 1 + offset
                 for (ife, f) in enumerate(features)
                     f(fvecs, rij, rik, rjk, sym[iat], sym[jat], sym[kat], iat, ist)
                     ist += nfe[ife]
@@ -512,13 +514,7 @@ end
 
 function nfeatures(c::CellFeature;ignore_one_body=(length(c.elements) == 1))
     ignore_one_body ? n = 0 : n = length(c.elements)
-    for f in c.two_body
-        n += nfeatures(f)
-    end
-    for f in c.three_body
-        n += nfeatures(f)
-    end
-    n
+    n + sum(nfeatures, c.two_body) + sum(nfeatures, c.three_body)
 end
 
 """
@@ -552,36 +548,36 @@ function feature_vector(cf::CellFeature, cell::Cell;nmax=500)
 end
 
 """
-    one_body_vectors(cell::Cell)
+    one_body_vectors(cell::Cell, cf::CellFeature)
 
 Construct one-body features for the structure.
 The one-body feature is essentially an one-hot encoding of the specie labels 
 """
-function one_body_vectors(cell::Cell)
-    numbers = atomic_numbers(cell)
-    us = unique(numbers)
-    vecs = zeros(length(us), nions(cell))
-    one_body_vectors!(vecs, cell)
+function one_body_vectors(cell::Cell, cf::CellFeature;offset=0)
+    vecs = zeros(length(cf.elements), length(cell))
+    one_body_vectors!(vecs, cell, cf)
 end
 
 """
-    one_body_vectors!(v, cell::Cell)
+    one_body_vectors!(v, cell::Cell, cf::CellFeature)
 
 Construct one-body features for the structure.
 The one-body feature is essentially an one-hot encoding of the specie labels 
 """
-function one_body_vectors!(v, cell::Cell)
-    numbers = atomic_numbers(cell)
-    us = unique(numbers)
-    sort!(us)
-    for (iat, Z) in enumerate(numbers)
-        for (ispec, sZ) in enumerate(us)
-            if Z == sZ
-                v[ispec, iat] = 1.
+function one_body_vectors!(v::AbstractMatrix, cell::Cell, cf::CellFeature;offset=0)
+    symbols = species(cell)
+    for (iat, s) in enumerate(symbols)
+        for (ispec, sZ) in enumerate(cf.elements)
+            if s == sZ
+                v[ispec + offset, iat] = 1.
             end
         end
     end
     v
+end
+
+function feature_size(cf::CellFeature)
+    (length(cf.elements), sum(nfeatures, cf.two_body), sum(nfeatures, cf.three_body)) 
 end
 
 """

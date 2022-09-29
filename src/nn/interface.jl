@@ -1,6 +1,7 @@
 #=
 Interface for Neutron network implementations
 =#
+using StatsBase: ZScoreTransform, fit, transform!, reconstruct!
 
 abstract type AbstractNNInterface end
 
@@ -38,30 +39,62 @@ function gradparam!(gvec::AbstractVecOrMat, itf::AbstractNNInterface, inp::Abstr
     gradparam!(gvec, itf)
 end
 
+## Standardisation
+
 include("backprop.jl")
 
 #=
 Interface for DenseGradient implementation 
 =#
 
-struct ManualFluxBackPropInterface{T, G}
+struct ManualFluxBackPropInterface{T, G, Z} <: AbstractNNInterface
     chain::T
     gchain::ChainGradients{G}
+    xt::Z
+    yt::Z
 end
 
-ManualFluxBackPropInterface(chain::Chain, n::Int) = ManualFluxBackPropInterface(chain, ChainGradients(chain, n))
+ManualFluxBackPropInterface(chain::Chain, n::Int) = ManualFluxBackPropInterface(chain, ChainGradients(chain, n), nothing, nothing)
 
-forward!(itf::ManualFluxBackPropInterface, inp) = forward!(itf.gchain, itf.chain, inp)
+function forward!(itf::ManualFluxBackPropInterface, inp)
+    # Apply x transformation
+    if !isnothing(itf.xt)
+        transform!(itf.xt, @view(inp[end-nl:end, :]))
+        out = forward!(itf.gchain, itf.chain, inp)
+    end
+    # Apply y transformation
+    if !isnothing(itf.yt)
+        reconstruct!(itf.yt, out)
+    end
+    out
+end
 
 function gradparam!(gvec::AbstractVector, itf::ManualFluxBackPropInterface)
     backward!(itf)
-    collect_gradients!(gvec, itf.gchain)
+    grad = collect_gradients!(gvec, itf.gchain)
+    if !isnothing(itf.yt)
+        grad .*= itf.yt.scale
+    end
+    grad
 end
 
+"""
+Return the gradient of the input matrix ``X`` against the sum of the output ``sum(G(X))``.
+"""
 function gradinp!(gvec::AbstractVecOrMat, itf::ManualFluxBackPropInterface)
     backward!(itf)
     # Collect 
     input_gradient(itf.gchain.layers[1])
+    gvec .= input_gradient
+    # If transform is applied then we have to scale the gradient
+    if !isnothing(itf.xt)
+        nl = length(itf.xt.scale)
+        gvec[end-nl:end, :] ./= xt.scale
+    end
+    if !isnothing(itf.yt)
+        gvec .*= itf.yt.scale
+    end
+    gvec
 end
 
 backward!(itf::ManualFluxBackPropInterface;kwargs...) = backward!(itf.gchain, itf.chain;kwargs...)

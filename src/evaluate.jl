@@ -11,37 +11,6 @@ import Base
 import CellBase
 import CellBase: rebuild!, update!, set_positions!, set_cellmat!
 export rebuild!, update!
-
-"""
-    ForceBuffer{T}
-
-Buffer for storing forces and stress and support their calculations
-"""
-struct ForceBuffer{T}
-    "dF/dri"
-    gvec::Array{T, 4}
-    "dF/dσi"
-    svec::Array{T, 5}
-    "dF/dσ"
-    stotv::Array{T, 4}
-    "Calculated forces"
-    forces::Array{T, 2}
-    "Calculated stress"
-    stress::Array{T, 2}
-end
-
-"""
-Initialise a buffer for computing forces
-"""
-function ForceBuffer{T}(nf, nat;ndims=3) where {T}
-    gvec = zeros(T, nf, nat, ndims, nat)
-    svec = zeros(T, nf, nat, ndims, ndims, nat)
-    stotv = zeros(T, nf, nat, ndims, ndims)
-    forces = zeros(T, ndims, nat)
-    stress = zeros(T, ndims, ndims)
-    ForceBuffer(gvec, svec, stotv, forces, stress)
-end
-
 const WORKSPACE_T = Float64
 
 """

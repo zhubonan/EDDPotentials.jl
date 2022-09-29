@@ -1,3 +1,12 @@
 Manifest.toml
 *code-workspace
 *.cov
+*.cell
+*.param
+*.castep
+*.usp
+*.pp
+*.conv
+*.gz
+*.err
+*.cif

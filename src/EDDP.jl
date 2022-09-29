@@ -10,13 +10,14 @@ export mean
 # External
 include("nnls.jl")
 include("feature.jl")
-include("nn/interface.jl")
 include("gradient.jl")
+include("nn/interface.jl")
 include("nntools.jl")
 include("lmsolve.jl")
 include("training.jl")
 include("preprocessing.jl")
-include("evaluate.jl")
+#include("evaluate.jl")
+include("calculator.jl")
 include("tools.jl")
 include("iterative_build.jl")
 
