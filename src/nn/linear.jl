@@ -4,13 +4,20 @@ Simply linear implementation, e.g. without NN
 =#
 
 
-struct LinearInterface{T} <: AbstractNNInterface
+mutable struct LinearInterface{T} <: AbstractNNInterface
     param::Matrix{T}
+    inp
 end
 
-LinearInterface(param::AbstractVector) = LinearInterface(collect(transpose(param)))
+LinearInterface(x) = LinearInterface(x, nothing)
 
-forward!(itf::LinearInterface, inp::AbstractVecOrMat) = itf.param * inp
+LinearInterface(param::AbstractVector) = LinearInterface(collect(transpose(param)), Matrix{eltype(param)}(undef, 0, 0))
+
+function forward!(itf::LinearInterface, inp::AbstractMatrix)
+    out = itf.param * inp
+    itf.inp = inp
+    out
+end
 
 paramvector(itf::LinearInterface) = itf.param[:]
 
@@ -24,17 +31,19 @@ function setparamvector!(itf::LinearInterface, vec)
     itf.parma[:] .= vec
 end
 
-function gradinp!(gvec, itf::LinearInterface, inp::AbstractArray)
+function gradinp!(gvec, itf::LinearInterface, inp=itf.inp)
     for i ∈ axes(inp, 2)
         gvec[:, i] = itf.param
     end
     gvec
 end
 
-function gradparam!(gvec, itf::LinearInterface, inp::AbstractArray)
+function gradparam!(gvec, itf::LinearInterface, inp=itf.inp)
     gvec .= transpose(sum(inp, dims=2))[:]
 end
 
 function (itf::LinearInterface)(inp::AbstractArray)
     forward!(itf, inp)
 end
+
+function backward!(itf::LinearInterface, args...;kwargs...) end
