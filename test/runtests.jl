@@ -13,6 +13,8 @@ using Test
 end
 
 include("test_preprocess.jl")
+include("test_nninterface.jl")
+include("test_calc.jl")
 include("gptest.jl")
 include("gtest.jl")
 include("backproptest.jl")

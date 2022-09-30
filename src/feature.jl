@@ -539,7 +539,7 @@ function feature_vector(cf::CellFeature, cell::Cell;nmax=500)
 
     # One body vector is essentially an one-hot encoding of the specie labels 
     # assuming no "mixture" atoms of course
-    v1 = one_body_vectors(cell)
+    v1 = one_body_vectors(cell, cf)
     # Concatenated two body vectors 
     v2 = feature_vector(cf.two_body, cell;nl=nl)
     # Concatenated three body vectors 
