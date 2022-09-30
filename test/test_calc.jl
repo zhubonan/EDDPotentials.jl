@@ -12,7 +12,7 @@ include("utils.jl")
         EDDP.FeatureOptions(elements=unique(species(cell)), p2=[2], q3=[2, 3], p3=[2, 3])
     )
 
-    function _test_forces_fd(calc, amp=1e-9, rtol=1e-5)
+    function _test_forces_fd(calc, amp=1e-7, rtol=1e-5)
         ftmp = copy(EDDP.get_forces(calc))
         etmp = EDDP.get_energy(calc)
         positions(get_cell(calc))[1] += amp
@@ -56,7 +56,7 @@ include("utils.jl")
         eng = get_energy(calc)
         forces = get_forces(calc)
         stress = get_stress(calc)
-        
+
         @test isa(eng, Float64)
 
         @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10 )) 
@@ -64,5 +64,22 @@ include("utils.jl")
         @test any(stress .!== 0.)
 
         _test_forces_fd(calc)
+    end
+    
+    @testset "VCFilter" begin
+        nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf;ignore_one_body=false)))
+        calc = EDDP.NNCalc(cell, cf, nnitf)
+        filter =  EDDP.VariableCellCalc(calc)
+        _test_forces_fd(filter)
+        stress = get_stress(filter)
+        @test size(stress) == (3,3)
+        @test any(stress .!== 0.)
+
+        # Sizes of the positions
+        pos = get_positions(filter)
+        @test size(pos) == (3, 5)
+        pos[1] += 1e-9
+        set_positions!(filter, pos)
+        @test EDDP._need_calc(filter, false)
     end
 end

@@ -5,14 +5,15 @@ const AC = AbstractCalc
 
 ## Methods to be implemented for the Abstract type
 
-function get_cell(ac::AC) end
-function get_energy(ac::AC) end
+function get_cell end
 
-function calculate!(ac::AC) end
+function get_energy end
 
-function get_forces(calc::AC) end
+function calculate! end
 
-function get_stress(calc::AC) end
+function get_forces end
+
+function get_stress end
 
 
 ## Base default implementation 
@@ -119,7 +120,7 @@ function get_stress(calc::NNCalc;rebuild_nl=true)
     calc.stress
 end
 
-function _need_calc(calc, forces)
+function _need_calc(calc::NNCalc, forces)
     if is_equal(get_cell(calc), calc.last_cell) && calc.energy_calculated
         if forces
             calc.forces_calculated && return false
@@ -129,6 +130,8 @@ function _need_calc(calc, forces)
     end
     return true
 end
+
+
 
 function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
     # Nothing to do if the cell has not changed since last time
@@ -188,3 +191,118 @@ function update_feature_vector!(calc::NNCalc; rebuild_nl=true, gradients=true, g
     calc.v[n1bd+1:end, :] .= calc.force_buffer.fvec
     calc.v
 end
+
+"""
+    get_pressure_gpa(vc::AbstractCalc) 
+
+Return pressure in unit of GPa.
+"""
+function get_pressure_gpa(vc::AbstractCalc) 
+    eVAngToGPa(tr(EDDP.get_stress(vc)) / 3.)
+end
+### Filter for allowing variable cell optimisation
+
+
+"""
+
+Filter for including lattice vectors in the optimisation
+
+
+Reference: 
+ E. B. Tadmor, G. S. Smith, N. Bernstein, and E. Kaxiras,
+            Phys. Rev. B 59, 235 (1999)
+
+Base on ase.constraints.UnitCellFilter
+"""
+struct VariableCellCalc{T, C} <: AbstractCalc
+    calc::C
+    orig_lattice::Lattice{T}
+    lattice_factor::Float64
+end
+
+_need_calc(calc::VariableCellCalc, forces) = _need_calc(calc.calc, forces)
+get_cell(c::VariableCellCalc) = get_cell(c.calc)
+get_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) = get_energy(c.calc;rebuild_nl, kwargs...)
+
+VariableCellCalc(calc) = VariableCellCalc(calc, Lattice(copy(cellmat(get_cell(calc)))), Float64(nions(get_cell(calc))))
+
+raw"""
+Obtain the deformation gradient matrix such that 
+
+$$F C = C'$$
+"""
+function deformgradient(vc::VariableCellCalc)
+    copy(
+        transpose(
+        transpose(cellmat(vc.orig_lattice)) \ transpose(cellmat(get_cell(vc)))
+        )
+    )
+end
+
+"""
+    get_positions(cf::VariableCellCalc)
+
+Composed positions vectors including cell defromations
+"""
+function CellBase.get_positions(vc::VariableCellCalc)
+    cell = get_cell(vc)
+    dgrad = deformgradient(vc)
+    apos = dgrad \ positions(cell)
+    lpos = vc.lattice_factor .* dgrad'
+    hcat(apos, lpos)
+end
+
+
+"""
+    _get_forces_and_stress(cf::VariableCellCalc;rebuild_nl)
+
+Construct force and stress for the filter object
+"""
+function _get_forces_and_stress(vc::VariableCellCalc;rebuild_nl, kwargs... )
+    calculate!(vc.calc;forces=true, rebuild_nl, kwargs...) 
+    dgrad = deformgradient(vc)
+    vol = volume(get_cell(vc))
+    stress = get_stress(vc.calc)
+    forces = get_forces(vc.calc)
+
+    virial = (dgrad  \ (vol .* stress))
+    # Deformed forces
+    atomic_forces = dgrad * forces
+
+    out_forces = hcat(atomic_forces, virial ./ vc.lattice_factor)
+    out_stress = -virial / vol
+    out_forces, out_stress
+end
+
+"""
+Forces including the stress contributions that is consistent with the augmented positions
+"""
+get_forces(vc::VariableCellCalc;rebuild_nl=true, kwargs...) = _get_forces_and_stress(vc;rebuild_nl, kwargs...)[1]
+get_stress(vc::VariableCellCalc;rebuild_nl=true, kwargs...) = _get_forces_and_stress(vc;rebuild_nl, kwargs...)[2]
+
+
+"""
+Update the positions passing through the filter
+"""
+function set_positions!(vc::VariableCellCalc, new)
+    cell = get_cell(vc)
+    nat = nions(cell)
+    pos = new[:, 1:nat]
+    new_dgrad = transpose(new[:, nat+1:end]) ./ vc.lattice_factor
+
+    # Set the cell according to the deformation
+    set_cellmat!(cell, new_dgrad * cellmat(vc.orig_lattice))
+
+    # Set the positions
+    cell.positions .= new_dgrad * pos
+end
+
+"Return the energy of the VariableCellCalc"
+function get_energy(vc::VariableCellCalc;rebuild_nl=true, kwargs...)
+    calculate!(vc.calc;rebuild_nl, kwargs...)
+    get_energy(vc.calc)
+end
+
+
+"Covert eV/Å^3 to GPa"
+eVAngToGPa(x) = 160.21766208 * x
