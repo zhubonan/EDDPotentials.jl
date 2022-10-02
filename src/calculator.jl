@@ -1,3 +1,7 @@
+import Optim
+import Base
+using Optim: LBFGS, optimize
+using LineSearches: HagerZhang
 import CellBase: set_cellmat!, set_positions!, get_cellmat, get_positions
 using StatsBase: ZScoreTransform, transform!
 abstract type AbstractCalc end
@@ -33,6 +37,15 @@ function set_positions!(calc::AC, positions)
     set_positions!(get_cell(calc), positions)
 end
 
+function Base.show(io::IO, c::AbstractCalc)
+    println(io, "$(typeof(c)) for: ")
+    Base.show(io, get_cell(c))
+end
+
+function Base.show(io::IO, m::MIME"text/plain", cw::AbstractCalc)
+    println(io, "$(typeof(c)) for: ")
+    Base.show(io, m, cw.cell)
+end
 
 ### Concrete implementation
 
@@ -105,18 +118,18 @@ function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; rcut=su
 end
 
 
-function get_energy(calc::NNCalc;forces=false, rebuild_nl=true)
-    calculate!(calc;forces, rebuild_nl)
+function get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
+    calculate!(calc; forces, rebuild_nl)
     sum(calc.eng)
 end
 
-function get_forces(calc::NNCalc;rebuild_nl=true)
-    calculate!(calc;forces=true, rebuild_nl)
+function get_forces(calc::NNCalc; rebuild_nl=true)
+    calculate!(calc; forces=true, rebuild_nl)
     calc.forces
 end
 
-function get_stress(calc::NNCalc;rebuild_nl=true)
-    calculate!(calc;forces=true, rebuild_nl)
+function get_stress(calc::NNCalc; rebuild_nl=true)
+    calculate!(calc; forces=true, rebuild_nl)
     calc.stress
 end
 
@@ -197,8 +210,8 @@ end
 
 Return pressure in unit of GPa.
 """
-function get_pressure_gpa(vc::AbstractCalc) 
-    eVAngToGPa(tr(EDDP.get_stress(vc)) / 3.)
+function get_pressure_gpa(vc::AbstractCalc)
+    eVAngToGPa(tr(EDDP.get_stress(vc)) / 3.0)
 end
 ### Filter for allowing variable cell optimisation
 
@@ -214,7 +227,7 @@ Reference:
 
 Base on ase.constraints.UnitCellFilter
 """
-struct VariableCellCalc{T, C} <: AbstractCalc
+struct VariableCellCalc{T,C} <: AbstractCalc
     calc::C
     orig_lattice::Lattice{T}
     lattice_factor::Float64
@@ -222,7 +235,7 @@ end
 
 _need_calc(calc::VariableCellCalc, forces) = _need_calc(calc.calc, forces)
 get_cell(c::VariableCellCalc) = get_cell(c.calc)
-get_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) = get_energy(c.calc;rebuild_nl, kwargs...)
+get_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) = get_energy(c.calc; rebuild_nl, kwargs...)
 
 VariableCellCalc(calc) = VariableCellCalc(calc, Lattice(copy(cellmat(get_cell(calc)))), Float64(nions(get_cell(calc))))
 
@@ -234,7 +247,7 @@ $$F C = C'$$
 function deformgradient(vc::VariableCellCalc)
     copy(
         transpose(
-        transpose(cellmat(vc.orig_lattice)) \ transpose(cellmat(get_cell(vc)))
+            transpose(cellmat(vc.orig_lattice)) \ transpose(cellmat(get_cell(vc)))
         )
     )
 end
@@ -258,14 +271,14 @@ end
 
 Construct force and stress for the filter object
 """
-function _get_forces_and_stress(vc::VariableCellCalc;rebuild_nl, kwargs... )
-    calculate!(vc.calc;forces=true, rebuild_nl, kwargs...) 
+function _get_forces_and_stress(vc::VariableCellCalc; rebuild_nl, kwargs...)
+    calculate!(vc.calc; forces=true, rebuild_nl, kwargs...)
     dgrad = deformgradient(vc)
     vol = volume(get_cell(vc))
     stress = get_stress(vc.calc)
     forces = get_forces(vc.calc)
 
-    virial = (dgrad  \ (vol .* stress))
+    virial = (dgrad \ (vol .* stress))
     # Deformed forces
     atomic_forces = dgrad * forces
 
@@ -277,8 +290,8 @@ end
 """
 Forces including the stress contributions that is consistent with the augmented positions
 """
-get_forces(vc::VariableCellCalc;rebuild_nl=true, kwargs...) = _get_forces_and_stress(vc;rebuild_nl, kwargs...)[1]
-get_stress(vc::VariableCellCalc;rebuild_nl=true, kwargs...) = _get_forces_and_stress(vc;rebuild_nl, kwargs...)[2]
+get_forces(vc::VariableCellCalc; rebuild_nl=true, kwargs...) = _get_forces_and_stress(vc; rebuild_nl, kwargs...)[1]
+get_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) = _get_forces_and_stress(vc; rebuild_nl, kwargs...)[2]
 
 
 """
@@ -297,12 +310,61 @@ function set_positions!(vc::VariableCellCalc, new)
     cell.positions .= new_dgrad * pos
 end
 
-"Return the energy of the VariableCellCalc"
-function get_energy(vc::VariableCellCalc;rebuild_nl=true, kwargs...)
-    calculate!(vc.calc;rebuild_nl, kwargs...)
-    get_energy(vc.calc)
-end
-
 
 "Covert eV/Å^3 to GPa"
 eVAngToGPa(x) = 160.21766208 * x
+
+"""
+    optimise!(calc::AbstractCalc)
+
+Optimise the cell with LBFGS from Optim. Collect the trajectory if requested.
+Note that the trajectory is collected for all force evaluations and may not 
+corresponds to the actual iterations of the underlying LBFGS iterations.
+"""
+function optimise!(calc::AbstractCalc; show_trace=false, record_trajectory=false, stepmax=2.0, 
+                   g_abstol=1e-6, f_reltol=0.0, successive_f_tol=2, 
+                   method=LBFGS(; linesearch=HagerZhang(; alphamax=stepmax)))
+    p0 = get_positions(calc)[:]
+    traj = []
+
+    "Energy"
+    function fo(x, calc)
+        set_positions!(calc, reshape(x, 3, :))
+        get_energy(calc)
+    end
+
+    "Gradient"
+    function go(x, calc)
+        set_positions!(calc, reshape(x, 3, :))
+        forces = get_forces(calc)
+        # ∇E = -F
+        forces .*= -1
+        # Collect the trajectory if requested
+        if record_trajectory
+            cell = deepcopy(get_cell(calc))
+            cell.metadata[:enthalpy] = get_energy(calc)
+            cell.arrays[:forces] = get_forces(calc)
+            push!(traj, cell)
+        end
+        forces
+    end
+    res = optimize(x -> fo(x, calc), x -> go(x, calc), p0, method, Optim.Options(; show_trace=show_trace, g_abstol, f_reltol, successive_f_tol); inplace=false)
+    res, traj
+end
+
+
+"""
+     check_global_minsep(nl::NeighbourList, threshold)
+
+Check if there are atoms that are too close to each other.
+"""
+function check_global_minsep(nl::NeighbourList, threshold)
+    for i in 1:length(nl.nneigh)
+        for (_, _, d) in eachneighbour(nl, i)
+            if d < threshold
+                return false
+            end
+        end
+    end
+    return true
+end

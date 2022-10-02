@@ -4,11 +4,11 @@ Common functions for helping tests
 using EDDP
 using CellBase
 
-function _h2_cell()
+function _h2_cell(l=2.0, factor=1.0)
     tmp = Float64[0 0.1  
     0 1  
-    0.1 0]
-    Cell(Lattice(2., 2., 2.), [:H, :H], tmp)
+    0.1 0] .* factor
+    Cell(Lattice(l, l, l), [:H, :H], tmp)
 end
 
 function _generate_cf(cell::Cell)

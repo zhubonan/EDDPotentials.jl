@@ -19,11 +19,9 @@ using Test
             gradinp!(grad, l, x)
             grad[:, 1] == l.param[:]
         end
-
+        EDDP.backward!(l)
         grad = copy(paramvector(l))
-        @show grad
         gradparam!(grad, l, x)
-        @show grad
         @test grad == sum(x, dims=2)[:]
     end
 
@@ -52,5 +50,54 @@ using Test
         pvec[1:10] .= 0.
         EDDP.setparamvector!(itf, pvec)
         @test all(chain.layers[1].weight[1:10] .== 0.)
+    end
+
+    @testset "Ensemble" begin
+        function linearitf() 
+            coeff = [0.1 0.2 0.3]
+            LinearInterface(coeff)
+        end
+
+        # Test combining two Linear interfaces
+        itf = EDDP.EnsembleNNInterface((linearitf(), linearitf()), [0.5, 0.5])
+        coeff = [0.1, 0.2, 0.3]
+        x = repeat(coeff, 1, 2)
+        @test size(EDDP.forward!(itf, x)) == (1, 2)
+        @test itf(x) == [sum(coeff.*coeff) sum(coeff.*coeff)]
+        itf(x)  # Forward step - implied
+        @test begin
+            grad = similar(x)
+            gradinp!(grad, itf)
+            grad[:] == [itf.models[1].param[:]..., itf.models[2].param[:]...]
+        end
+        EDDP.backward!(itf)
+        grad = copy(paramvector(itf))
+        gradparam!(grad, itf)
+        @test grad == repeat(sum(x, dims=2)[:], 2)
+
+        # test combining two manual back prop interfaces
+        function _get_chainitf()
+            chain = Chain(Dense(rand(10, 10)), Dense(rand(10, 10)))
+            EDDP.ManualFluxBackPropInterface(chain, 10)
+        end
+        inp = rand(10, 10)
+        itf = EDDP.EnsembleNNInterface((_get_chainitf(), _get_chainitf()), [0.8, 0.2])
+        # Forward step
+        itf(inp)
+        EDDP.backward!(itf)
+        # Collect gradients
+        gv = similar(inp)
+        gv .= 0
+        EDDP.gradinp!(gv, itf)
+
+        # Manually compute the gradients....
+        g1 = EDDP.gradinp!(zeros(size(inp)...), itf.models[1])
+        g2 = EDDP.gradinp!(zeros(size(inp)...), itf.models[2])
+        g3 = @. g1 * 0.8 + g2 *0.2
+        @test g3 == gv
+
+        gp = zeros(nparams(itf))
+        EDDP.paramvector!(gp, itf)
+        @test gp[1:nparams(itf.models[1])] == EDDP.paramvector(itf.models[1])
     end
 end

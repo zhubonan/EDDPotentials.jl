@@ -83,3 +83,36 @@ include("utils.jl")
         @test EDDP._need_calc(filter, false)
     end
 end
+
+
+@testset "Relax" begin
+    cell = _h2_cell(10, 1.5)
+    cf = EDDP.CellFeature(
+        EDDP.FeatureOptions(elements=unique(species(cell)), rcut2=3.5, p2=[6, 12], p3=[], q3=[])
+    )
+
+    nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf;ignore_one_body=false)))
+    # Attractive potential with -5f(x)^6 + f(x)^12
+    EDDP.setparamvector!(nnitf, [0, -5, 1])
+    calc = EDDP.NNCalc(cell, cf, nnitf)
+    # Perform relaxation
+    EDDP.optimise!(calc)
+
+    # Expected distance
+    rexp = (1 - (5/2/2^6)^(1/6)) * 3.5
+    dd = distance_between(cell[1], cell[2])
+    @test dd ≈ rexp atol=1e-6
+
+    # Test recording trajectory
+    cell = _h2_cell(10, 1.5)
+    calc = EDDP.NNCalc(cell, cf, nnitf)
+    global res, traj
+    res, traj = EDDP.optimise!(calc, record_trajectory=true)
+    @test res.g_converged
+
+    dd = distance_between(cell[1], cell[2])
+    @test dd ≈ rexp atol=1e-6
+
+    @test length(traj) > 1
+    @test :enthalpy in keys(traj[1].metadata)
+end

@@ -13,7 +13,7 @@ LinearInterface(x) = LinearInterface(x, nothing)
 
 LinearInterface(param::AbstractVector) = LinearInterface(collect(transpose(param)), Matrix{eltype(param)}(undef, 0, 0))
 
-function forward!(itf::LinearInterface, inp::AbstractMatrix)
+function forward!(itf::LinearInterface, inp)
     out = itf.param * inp
     itf.inp = inp
     out
@@ -25,10 +25,10 @@ function paramvector!(vec, itf::LinearInterface)
     vec.= itf.param[:]
 end
 
-nparams(itf::LinearInterface) = length(itf.parmas)
+nparams(itf::LinearInterface) = length(itf.param)
 
-function setparamvector!(itf::LinearInterface, vec)  
-    itf.parma[:] .= vec
+function setparamvector!(itf::LinearInterface, param)  
+    vec(itf.param) .= vec(param)
 end
 
 function gradinp!(gvec, itf::LinearInterface, inp=itf.inp)
@@ -42,7 +42,7 @@ function gradparam!(gvec, itf::LinearInterface, inp=itf.inp)
     gvec .= transpose(sum(inp, dims=2))[:]
 end
 
-function (itf::LinearInterface)(inp::AbstractArray)
+function (itf::LinearInterface)(inp)
     forward!(itf, inp)
 end
 

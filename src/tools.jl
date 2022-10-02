@@ -9,21 +9,21 @@ using JLD2
 using Dates
 using UUIDs
 
-"""
-    VariableLatticeFilter(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
+# """
+#     VariableLatticeFilter(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
 
-Generate a VariableLatticeFilter that handles variable cell relaxation
-"""
-function VariableLatticeFilter(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
-    calc = CellCalculator(cell, ensemble, cf;copy_cell, rcut, nmax)
-    VariableLatticeFilter(calc)
-end
+# Generate a VariableLatticeFilter that handles variable cell relaxation
+# """
+# function VariableLatticeFilter(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
+#     calc = CellCalculator(cell, ensemble, cf;copy_cell, rcut, nmax)
+#     VariableLatticeFilter(calc)
+# end
 
-function CellCalculator(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
-    copy_cell && deepcopy(cell)
-    cw = CellWorkSpace(cell;cf, nmax, rcut)
-    CellCalculator(cw, ensemble)
-end
+# function CellCalculator(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
+#     copy_cell && deepcopy(cell)
+#     cw = CellWorkSpace(cell;cf, nmax, rcut)
+#     CellCalculator(cw, ensemble)
+# end
 
 function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;energy_threshold=20., savepath="relaxed", skip_existing=true)
 
@@ -88,11 +88,11 @@ function train(patterns, outpath,
 end
 
 """
-    update_metadata!(vc::VariableLatticeFilter, label;symprec=1e-2)
+    update_metadata!(vc::VariableCellCalc, label;symprec=1e-2)
 
 Update the metadata attached to a `Cell`` object
 """
-function update_metadata!(vc::VariableLatticeFilter, label;symprec=1e-2)
+function update_metadata!(vc::VariableCellCalc, label;symprec=1e-2)
     this_cell = get_cell(vc)
     # Set metadata
     this_cell.metadata[:enthalpy] = get_energy(vc)
@@ -106,11 +106,11 @@ function update_metadata!(vc::VariableLatticeFilter, label;symprec=1e-2)
 end
 
 """
-    write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="EDDP")
+    write_res(path, vc::VariableCellCalc;symprec=1e-2, label="EDDP")
 
-Write structure in VariableLatticeFilter as SHELX file.
+Write structure in VariableCellCalc as SHELX file.
 """
-function write_res(path, vc::VariableLatticeFilter;symprec=1e-2, label="EDDP")
+function write_res(path, vc::VariableCellCalc;symprec=1e-2, label="EDDP")
     update_metadata!(vc, label;symprec)
     write_res(path, get_cell(vc))
 end
@@ -131,7 +131,8 @@ function build_and_relax(seedfile::AbstractString, outdir::AbstractString, ensem
     label = get_label(stem(seedfile))
 
     cell = read_cell(lines)
-    vc = VariableLatticeFilter(cell, ensemble, cf;nmax)
+    # Broken
+    vc = VariableCellCalc(cell, ensemble, cf;nmax)
     optimise_cell!(vc)
     update_metadata!(vc, label)
     outpath = joinpath(outdir, "$(label).res")

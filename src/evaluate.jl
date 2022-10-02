@@ -489,17 +489,7 @@ function get_energy(cf::VariableLatticeFilter;rebuild_nl=true)
 end
 
 
-"Covert eV/Å^3 to GPa"
-eVAngToGPa(x) = 160.21766208 * x
 
-"""
-    get_pressure_gpa(vc::Union{VariableLatticeFilter, CellCalculator}) 
-
-Return pressure in unit of GPa.
-"""
-function get_pressure_gpa(vc::Union{VariableLatticeFilter, CellCalculator}) 
-    eVAngToGPa(tr(EDDP.get_stress(vc)) / 3.)
-end
 
 
 """

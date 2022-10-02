@@ -87,9 +87,35 @@ function Base.show(io::IO, ::MIME"text/plain", x::TwoBodyFeature)
     println(io, "  rcut: $(x.rcut)")
 end
 
-"Equation 7 in  the EDDP paper"
+@doc raw"""
+    fr(r, rcut)
+
+Equation 7 in Pickard 2022 describing interactions with well-behaved cut offs:
+
+```math
+f(r)= \begin{cases} 
+    2(1 - r / r_{rc}) & r \leq r_{rc} \\ 
+    0 & r > r_{rc} 
+    \end{cases}
+```
+
+"""
 fr(r::T, rcut) where {T} =  r <= rcut ? 2 * (1 - r / rcut) : zero(T)
-"Gradient of Eq. 7 in  the EDDP paper"
+
+
+@doc raw"""
+    gr(r, rcut)
+
+Gradient of the Equation 7 in Pickard 2022 describing interactions with well-behaved cut offs:
+
+```math
+g(r)= \begin{cases} 
+    -2 / r_{rc} & r \leq r_{rc} \\ 
+    0 & r > r_{rc} 
+    \end{cases}
+```
+
+"""
 gfr(r::T, rcut) where {T} =  r <= rcut ? -2 / rcut : zero(T)
 
 TwoBodyFeature(f, g, p, sij_idx, rcut::Real) = TwoBodyFeature(f, g, collect(p), sortedtuple(sij_idx), rcut, length(p))
