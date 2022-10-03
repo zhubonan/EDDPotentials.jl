@@ -186,7 +186,7 @@ function update_feature_vector!(calc::NNCalc; rebuild_nl=true, gradients=true, g
     nl = calc.nl
 
     # Update or rebuild the neighbour list
-    rebuild_nl ? rebuild!(nl, cell) : update!(nl, cell)
+    rebuild_nl ? rebuild!(nl, cell) : CellBase.update!(nl, cell)
 
     # Update the vectors
     one_body_vectors!(calc.v, cell, calc.cf)
