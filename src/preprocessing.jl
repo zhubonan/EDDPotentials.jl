@@ -177,7 +177,7 @@ function training_data(fc::FeatureContainer;ratio_test=0.1, shuffle_data=true, i
     total_x_train = reduce(hcat, x_train)
 
     # Fit normalisation using all of the training data
-    xt = fit(StatsBase.ZScoreTransform, total_x_train) 
+    xt = fit(StatsBase.ZScoreTransform, total_x_train, dims=2) 
     # Apply transform for individual data set
     x_train_norm = map(x -> StatsBase.transform(xt, x), x_train)
     x_test_norm = map(x -> StatsBase.transform(xt, x), x_test)
@@ -229,7 +229,7 @@ function training_data(cell_data::NamedTuple;ratio_test=0.1, shuffle_data=true, 
     # Normalization - peratom
     total_x_train = reduce(hcat, x_train)
     # Fit normalisation using all of the training data
-    xt = fit(StatsBase.ZScoreTransform, total_x_train) 
+    xt = fit(StatsBase.ZScoreTransform, total_x_train, dims=2) 
     x_train_norm = map(x -> StatsBase.transform(xt, x), x_train)
     x_test_norm = map(x -> StatsBase.transform(xt, x), x_test)
 

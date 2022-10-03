@@ -6,7 +6,7 @@ name: Testing
 # events but only for the master branch
 on:
   push:
-    branches: [ master, static ]
+    branches: [ master, nninterface ]
   pull_request:
     branches: [ master ]
 

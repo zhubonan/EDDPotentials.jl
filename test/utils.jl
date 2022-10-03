@@ -17,3 +17,19 @@ function _generate_cf(cell::Cell)
     )
     cf
 end
+
+
+function _get_calc()
+    cell = _h2_cell()
+    cf = _generate_cf(cell)
+    itf = EDDP.ManualFluxBackPropInterface(
+        Chain(Dense(rand(5, EDDP.nfeatures(cf;ignore_one_body=false))), Dense(rand(1, 5))),
+        length(cell)
+    )
+    calc = EDDP.NNCalc(cell, cf, itf)
+    calc
+end
+
+function allclose(x, y;kwargs...)
+    all(isapprox.(x, y; kwargs...))
+end

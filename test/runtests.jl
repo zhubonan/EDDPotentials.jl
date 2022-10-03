@@ -12,11 +12,10 @@ using Test
     @test all(isapprox.(spos, CellBase.scaled_positions(cell), atol=1e-10))
 end
 
-include("test_preprocess.jl")
+include("test_cellfeature.jl")
+include("test_gradients.jl")
+include("test_backprop.jl")
 include("test_nninterface.jl")
 include("test_calc.jl")
-include("gptest.jl")
-include("gtest.jl")
-include("backproptest.jl")
-include("dotcasteptest.jl")
-include("gtest2.jl")
+include("test_preprocess.jl")
+include("test_dotcastep.jl")

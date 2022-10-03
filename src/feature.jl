@@ -538,7 +538,7 @@ function Base.show(io::IO, z::MIME"text/plain", cf::CellFeature)
 end
 
 
-function nfeatures(c::CellFeature;ignore_one_body=(length(c.elements) == 1))
+function nfeatures(c::CellFeature;ignore_one_body=false)
     ignore_one_body ? n = 0 : n = length(c.elements)
     n + sum(nfeatures, c.two_body) + sum(nfeatures, c.three_body)
 end

@@ -43,7 +43,7 @@ function Base.show(io::IO, c::AbstractCalc)
 end
 
 function Base.show(io::IO, m::MIME"text/plain", cw::AbstractCalc)
-    println(io, "$(typeof(c)) for: ")
+    println(io, "$(typeof(cw)) for: ")
     Base.show(io, m, cw.cell)
 end
 
@@ -99,7 +99,7 @@ function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; rcut=su
     v = zeros(T, nfeatures(cf; ignore_one_body=false), length(cell))
     v2 = zeros(T, nfeatures(cf; ignore_one_body=true), length(cell))
 
-    fb = ForceBuffer{T}(v2) # Buffer for force calculation 
+    fb = ForceBuffer(v2) # Buffer for force calculation 
     NNCalc(cell,
         deepcopy(cell),
         nl,

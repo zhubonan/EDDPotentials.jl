@@ -26,7 +26,7 @@ end
 """
 Initialise a buffer for computing forces
 """
-function ForceBuffer{T}(fvec::Array{T};ndims=3) where {T}
+function ForceBuffer(fvec::Matrix{T};ndims=3) where {T}
     nf, nat = size(fvec)
     gvec = zeros(T, nf, nat, ndims, nat)
     svec = zeros(T, nf, nat, ndims, ndims, nat)
@@ -36,16 +36,17 @@ function ForceBuffer{T}(fvec::Array{T};ndims=3) where {T}
     ForceBuffer(fvec, gvec, svec, stotv, forces, stress, zeros(T, 3, nf))
 end
 
+_collect_stress!(fb::ForceBuffer) = fb.stotv .= sum(fb.svec, dims=5)
 
 """
-    compute_two_body_fv_gv!(fvecs, gvecs, features::Vector{TwoBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+    compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T, N}
 
 Compute the feature vector for a given set of two body interactions, compute gradients as well.
 
 Args:
     - offset: an integer offset when updating the feature vectors
 """
-function compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T, N}
+function compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut;savevec=true), offset=0) where {T, N}
     # vecs -> size (nfeature, nions)
     # gvec -> size (ndims, nfeature, nions)
     # Feature vectors
@@ -107,7 +108,7 @@ end
 
 Compute the feature vector for a given set of three body interactions, compute gradients as well.
 """
-function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{ThreeBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T, N}
+function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{ThreeBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut;savevec=true), offset=0) where {T, N}
     # vecs -> size (nfeature, nions)
     # gvec -> size (ndims, nfeature, nions)
     # Feature vectors
