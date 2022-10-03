@@ -239,30 +239,37 @@ end
 Interface for DenseGradient implementation 
 =#
 
-struct ManualFluxBackPropInterface{T, G, Z} <: AbstractNNInterface
+mutable struct ManualFluxBackPropInterface{T, G, Z} <: AbstractNNInterface
     chain::T
     gchain::ChainGradients{G}
     xt::Z
     yt::Z
+    "Wether we expect unscaled X or not..."
+    expect_unscaled_x::Bool
 end
 
-ManualFluxBackPropInterface(chain::Chain, n::Int) = ManualFluxBackPropInterface(chain, ChainGradients(chain, n), nothing, nothing)
+function ManualFluxBackPropInterface(chain::Chain, n::Int;xt=nothing, yt=nothing, expect_unscaled_x=true) 
+    ManualFluxBackPropInterface(chain, ChainGradients(chain, n), xt, yt, expect_unscaled_x)
+end
 
 function forward!(itf::ManualFluxBackPropInterface, inp)
     # Apply x transformation
-    if !isnothing(itf.xt)
-        transform!(itf.xt, @view(inp[end-nl:end, :]))
+    if !isnothing(itf.xt) && itf.expect_unscaled_x
+        nl = itf.xt.len
+        inp2 = copy(inp)
+        transform!(itf.xt, @view(inp2[end-nl+1:end, :]))
     end
     out = forward!(itf.gchain, itf.chain, inp)
     # Apply y transformation
     if !isnothing(itf.yt)
-        reconstruct!(itf.yt, out)
+        out .*= itf.yt.scale[1]
+        out .+= itf.yt.mean[1]
     end
     out
 end
 
 function (itf::ManualFluxBackPropInterface)(inp)
-    itf.chain(inp)
+    forward!(itf, inp)
 end
 
 function gradparam!(gvec::AbstractVector, itf::ManualFluxBackPropInterface)
@@ -280,8 +287,8 @@ function gradinp!(gvec::AbstractVecOrMat, itf::ManualFluxBackPropInterface)
     # Collect 
     gvec .= input_gradient(itf.gchain.layers[1])
     # If transform is applied then we have to scale the gradient
-    if !isnothing(itf.xt)
-        nl = length(itf.xt.scale)
+    if !isnothing(itf.xt) && itf.expect_unscaled_x 
+        nl = itf.xt.len
         gvec[end-nl:end, :] ./= xt.scale
     end
     if !isnothing(itf.yt)

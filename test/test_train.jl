@@ -2,6 +2,7 @@ using EDDP
 
 using Test
 using Flux
+using StatsBase
 using NLSolversBase
 
 
@@ -50,3 +51,25 @@ using NLSolversBase
     opt_res, _, _ = EDDP.train!(model, data, y;)
     @test sum(model(data[2])) ≈ 1.5 atol=0.1
 end
+
+path = "/home/bonan/appdir/jdev/CellTools-project/EDDP.jl/test/data/training/*.res" 
+path = relpath(path, pwd())
+sc = EDDP.StructureContainer([path])
+cf = EDDP.CellFeature(EDDP.FeatureOptions(elements=[:B]))
+fc = EDDP.FeatureContainer(sc, cf)
+
+tdata = EDDP.training_data(fc;ratio_test=0.5)
+tdata.x_train
+
+# Scale X
+EDDP.transform_x!(tdata.xt, tdata.x_train)
+EDDP.transform_x!(tdata.xt, tdata.x_test)
+
+model = EDDP.ManualFluxBackPropInterface(
+    Chain(Dense(rand(5, EDDP.nfeatures(fc.feature))), Dense(rand(1, 5))),
+    length(sc[1]);
+    xt=tdata.xt, yt=tdata.yt, expect_unscaled_x=false,
+)
+
+
+EDDP.train!(model, tdata.x_train, tdata.y_train; y_test=tdata.y_test, x_test=tdata.x_test)

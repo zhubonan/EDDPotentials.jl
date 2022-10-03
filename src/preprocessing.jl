@@ -3,6 +3,7 @@ using StatsBase
 using Random
 using Glob
 using CellBase
+import CellBase: natoms
 
 
 """
@@ -108,6 +109,9 @@ end
 enthalpy_per_atom(sc::StructureContainer) = sc.H ./ natoms.(sc.structures)
 enthalpy_per_atom(fc::FeatureContainer) = enthalpy_per_atom(fc.structure_container)
 
+natoms(fc::FeatureContainer) = natoms(fc.structure_container)
+natoms(fc::StructureContainer) = natoms.(fc.structures)
+
 """
 Load all structures from many paths
 """
@@ -155,39 +159,56 @@ end
 
 load_structures(files::AbstractString, featurespec;energy_threshold=20., nmax=500) = load_structures(glob(files), featurespec;energy_threshold, nmax)
 
-function training_data(fc::FeatureContainer;ratio_test=0.1, shuffle_data=true, ignore_one_body=true)
+function training_data(fc::FeatureContainer;ratio_test=0.1, shuffle_data=true)
 
     fc_train, fc_test = train_test_split(fc;ratio_test,shuffle=shuffle_data)
 
     # trim the size of the feature vectors
-    nfe = nfeatures(fc.feature;ignore_one_body)  # expected number of features
-    if any(size.(fc.fvecs, 1) .!= nfe)
-        x_train = map(x -> x[end-nfe+1:end, :], fc_train.fvecs)
-        x_test = map(x -> x[end-nfe+1:end, :], fc_test.fvecs)
-    else
-        x_train = fc_train.fvecs
-        x_test = fc_test.fvecs
-    end
+    nfe = nfeatures(fc.feature;ignore_one_body=false)  # expected number of features
+    n1 = feature_size(fc.feature)[1]
+
 
     # enthalpy per atom for normalisation
-    y_train = enthalpy_per_atom(fc_train)
-    y_test = enthalpy_per_atom(fc_test)
+    y_train = fc_train.structure_container.H
+    y_test = fc_test.structure_container.H
+    x_train = fc_train.fvecs
+    x_test = fc_test.fvecs
 
     # Normalization - peratom
     total_x_train = reduce(hcat, x_train)
 
-    # Fit normalisation using all of the training data
-    xt = fit(StatsBase.ZScoreTransform, total_x_train, dims=2) 
-    # Apply transform for individual data set
-    x_train_norm = map(x -> StatsBase.transform(xt, x), x_train)
-    x_test_norm = map(x -> StatsBase.transform(xt, x), x_test)
+    # Check if we need to drop one-body terms
+    x_1bd = @view total_x_train[1:n1, :]
+    if any(std.(eachrow(x_1bd)) .== 0.)
+        # Need to exclude the one-body term
+        xt = fit(StatsBase.ZScoreTransform, @view(total_x_train[n1+1:end, :]), dims=2) 
+    else
+        # Fit normalisation using all of the training data
+        xt = fit(StatsBase.ZScoreTransform, total_x_train, dims=2) 
+    end
 
     # Normalise y data
     yt = fit(ZScoreTransform, y_train)
-    y_train_norm = StatsBase.transform(yt, y_train)
-    y_test_norm = StatsBase.transform(yt, y_test)
 
-    (;x_train_norm, y_train_norm, x_test_norm, y_test_norm, xt, yt)
+    (;x_train, y_train, x_test, y_test, xt, yt)
+end
+
+function transform_x!(xt, x_train)
+    for data in x_train
+        if size(data, 1) > xt.len
+            transform!(xt, @view(data[end-xt.len+1:end]))
+        end
+    end
+    x_train
+end
+
+function reconstruct_x(xt, x_train)
+    for data in x_train
+        if size(data, 1) > xt.len
+            reconstruct!(xt, @view(data[end-xt.len+1:end]))
+        end
+    end
+    x_train
 end
 
 """
