@@ -177,15 +177,8 @@ function training_data(fc::FeatureContainer;ratio_test=0.1, shuffle_data=true)
     # Normalization - peratom
     total_x_train = reduce(hcat, x_train)
 
-    # Check if we need to drop one-body terms
-    x_1bd = @view total_x_train[1:n1, :]
-    if any(std.(eachrow(x_1bd)) .== 0.)
-        # Need to exclude the one-body term
-        xt = fit(StatsBase.ZScoreTransform, @view(total_x_train[n1+1:end, :]), dims=2) 
-    else
-        # Fit normalisation using all of the training data
-        xt = fit(StatsBase.ZScoreTransform, total_x_train, dims=2) 
-    end
+    # Check fitting the transform should exclude the one-body vectors as they are one-hot encoders....
+    xt = fit(StatsBase.ZScoreTransform, @view(total_x_train[n1+1:end, :]), dims=2) 
 
     # Normalise y data
     yt = fit(ZScoreTransform, y_train)

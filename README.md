@@ -18,6 +18,11 @@ An alternative [Julia](https://julialang.org/) implementation of the ephemeral d
 * [ ] Generalise Neutral network interfaces so different NN implementations can be used interchangeably
 * [ ] Benchmark against the Fortran [EDDP](https://www.mtg.msm.cam.ac.uk/Codes/EDDP) package
 
+## Scaling the feature vectors
+
+Scaling is performed for neuron networks, for linear fits this is not needed.
+In all cases, the one-body vectors should not be scaled as they are one-hot encoders.
+
 ## Training workflow
 
 1. Generate the initial set of random structures and compute DFT singlepoint energies
