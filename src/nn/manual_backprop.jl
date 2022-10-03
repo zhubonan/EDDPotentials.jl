@@ -261,6 +261,10 @@ function forward!(itf::ManualFluxBackPropInterface, inp)
     out
 end
 
+function (itf::ManualFluxBackPropInterface)(inp)
+    itf.chain(inp)
+end
+
 function gradparam!(gvec::AbstractVector, itf::ManualFluxBackPropInterface)
     grad = collect_gradients!(gvec, itf.gchain)
     if !isnothing(itf.yt)

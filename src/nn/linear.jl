@@ -43,7 +43,7 @@ function gradparam!(gvec, itf::LinearInterface, inp=itf.inp)
 end
 
 function (itf::LinearInterface)(inp)
-    forward!(itf, inp)
+    itf.param * inp
 end
 
 function backward!(itf::LinearInterface, args...;kwargs...) end

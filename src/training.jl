@@ -18,48 +18,14 @@ using Parameters
 
 Predict the per-atom energy from a model, no pre/post-scaling of the input vectors are performed
 """
-function predict_energy!(f, model, x::AbstractVector)
+function predict_energy!(f, model, x)
     for (i, inp) in enumerate(x)
         f[i] = mean(model(inp))
     end
     f
 end
 
-predict_energy(model, x::AbstractVector) = mean.(model.(x))
-
-# """
-#     predict_energy!(f, model, x;total=reduce(hcat, x))
-
-# Predict the energy for a given model, assuming data is already normalised.
-# """
-# function predict_energy!(f, model, x::AbstractVector;total=reduce(hcat, x))
-#     all_E = model(total)
-#     ct = 1
-#     for i in 1:length(f)
-#         lv = size(x[i], 2)
-#         f[i] = elemmean(all_E, ct, lv)
-#         ct += lv
-#     end
-#     f
-# end
-
-# predict_energy(model, x::AbstractMatrix) = mean(model(x))
-# predict_energy(model, x::Vector{Matrix{T}};total=reduce(hcat, x)) where {T} = predict_energy!(zeros(T, length(x)), model, x;total)
-
-
-# "Take mean to obtain atomic energy of each frame"
-# function elemmean(vec, i, n)
-#    elemsum(vec, i, n) / n
-# end
-
-# "Take sum to obtain total energy of each frame"
-# function elemsum(vec, i, n)
-#     val = 0.
-#     for j in i:i+n-1
-#         val += vec[j]
-#     end
-#     val
-# end
+predict_energy(model, x) = mean.(model.(x))
 
 
 """
@@ -351,7 +317,7 @@ function train_multi(training_data, savepath;args...)
     train_multi(training_data, savepath, opt)
 end
 
-function train_multi(training_data, savepath, opt::TrainingOptions;featurespec=nothing, ntasks=nthreads())
+function train_multi(training_data, savepath, opt::TrainingOptions;featurespec=nothing, ntasks=nthreads(), itf=ManualFluxBackPropInterface)
 
 
     x_train_norm = training_data.x_train_norm
@@ -618,3 +584,52 @@ function worker_train_one(training_data, opt, jobs, results_channel, nfeature)
         put!(results_channel, (tf, out))
     end
 end
+
+predict_energy(itf::AbstractNNInterface, vec) = sum(itf(vec))
+"""
+Perform training for the given TrainingConfig
+"""
+function train!(itf::T, x, y;
+                   p0=EDDP.paramvector(itf),
+                   maxIter=1000,
+                   show_progress=false,
+                   x_test=x, y_test=y,
+                   earlystop=50,
+                   keep_best=true,
+                   p=1.25,
+                   args...
+                   ) where {T<:AbstractNNInterface}
+    rec = []
+    
+    train_natoms = [size(v, 2) for v in x]
+    test_natoms = [size(v, 2) for v in x_test]
+
+    function progress_tracker()
+        rmse_train = per_atom_rmse(itf, x, y, train_natoms)
+
+        if x_test === x
+            rmse_test = rmse_train
+        else
+            rmse_test = per_atom_rmse(itf, x_test, y_test, test_natoms)
+        end
+        show_progress && @printf "RMSE Train %10.5f eV | Test %10.5f eV\n" rmse_train rmse_test
+        flush(stdout)
+        push!(rec, (rmse_train, rmse_test))
+        rmse_test, paramvector(itf)
+    end
+
+    # Setting up the object for minimization
+    f!, j!, fj! = setup_fj(itf, x, y);
+    od2 = OnceDifferentiable(f!, j!, fj!, p0, zeros(eltype(x[1]), length(x)), inplace=true);
+
+    callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
+    
+    opt_res = levenberg_marquardt(od2, p0;show_trace=false, 
+                                  callback=callback, p=p, 
+                                  maxIter=maxIter, keep_best=keep_best, earlystop, args...)
+    # Update the p0 of the training configuration
+    opt_res, paramvector(itf), [map(x->x[1], rec) map(x->x[2], rec)]
+end
+
+        
+per_atom_rmse(itf::AbstractNNInterface, x, y, nat) = (((predict_energy.(Ref(itf), x) .- y) ./ nat) .^ 2) |> mean |> sqrt
