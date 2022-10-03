@@ -1,0 +1,5 @@
+ignore:
+  # Ignore the coverage for the nnls module which is a copy from NNLS.jl
+  - src/nnls.jl
+  # Only abstract definitions
+  - src/nn/interface.jl
