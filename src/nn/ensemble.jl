@@ -4,7 +4,7 @@
 
 Ensemble of many models
 """
-struct EnsembleNNInterface{T<:Tuple} 
+struct EnsembleNNInterface{T<:Tuple} <: AbstractNNInterface
     models::T
     weights::Vector{Float64}
     function EnsembleNNInterface(models, weights)
@@ -13,6 +13,7 @@ struct EnsembleNNInterface{T<:Tuple}
         new{typeof(models)}(models, weights)
     end
 end
+
 function (itf::EnsembleNNInterface)(inp, args...;kwargs...)
     forward!(itf, inp, args...;kwargs...)
 end

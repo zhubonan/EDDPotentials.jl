@@ -4,6 +4,7 @@ Routine for working with NN
 Allow using forward autodiff for training small scale neutron networks with direct minimisation.
 Direct minimisation require accessing individual predictions and the jacobian matrix.
 =#
+using Random
 using Flux
 
 
@@ -70,29 +71,6 @@ function compute_diff_with_forward!(f, gbuffs, model, data::AbstractVector, y)
     f
 end
 
-# function setup_fj(model::ManualFluxBackPropInterface, data::AbstractVector, y)
-#     # Unique sizes of the Cells
-#     batch_sizes = unique(size.(data, 2))
-#     # Create copies of the ManualFluxBackPropInterface
-#     itfs = ManualFluxBackPropInterface.(Ref(model.chain), batch_sizes)
-#     jtmp = similar(paramvector(model))
-#     function fj!(fvec, jmat, param)
-#         setparamvector!(model, param)
-#         # Compute the gradients
-#         compute_objectives_diff_bp(fvec, jmat, itfs, data, y;jtmp)
-#         fvec, jmat
-#     end
-#     function f!(fvec, param)
-#         setparamvector!(model, param)
-#         compute_objectives_bp(fvec, itfs, data, y)
-#         fvec
-#     end
-#     function j!(jmat, param)
-#         fj!(nothing, jmat, param)[2]
-#     end
-
-#     return f!, j!, fj!
-# end
 
 function setup_fj(model::AbstractNNInterface, data::AbstractVector, y)
     jtmp = similar(paramvector(model))
@@ -113,15 +91,6 @@ function setup_fj(model::AbstractNNInterface, data::AbstractVector, y)
     return f!, j!, fj!
 end
 
-# function compute_objectives_bp(f, itfs, data::AbstractVector, y)
-#     for (i, inp) in enumerate(data)
-#         sinp = size(inp, 2)
-#         itf = itfs[findfirst(x -> x.gchain.n == sinp, itfs)]
-#         out = forward!(itf, inp)
-#         f[i] = sum(out) - y[i]
-#     end
-#     f
-# end
 
 function compute_objectives(f, itf, data::AbstractVector, y)
     for (i, inp) in enumerate(data)
@@ -130,19 +99,6 @@ function compute_objectives(f, itf, data::AbstractVector, y)
     end
     f
 end
-
-# function compute_objectives_diff_bp(f, jmat, itfs, data::AbstractVector, y;jtmp = jmat[1, :])
-#     for (i, inp) in enumerate(data)
-#         sinp = size(inp, 2)
-#         itf = itfs[findfirst(x -> x.gchain.n == sinp, itfs)]
-#         out = forward!(itf, inp)
-#         backward!(itf)
-#         gradparam!(jtmp, itf)
-#         jmat[i, :] .= jtmp
-#         isnothing(f) || (f[i] = sum(out) - y[i])
-#     end
-#     jmat
-# end
 
 function compute_objectives_diff(f, jmat, itf, data::AbstractVector, y;jtmp = jmat[1, :])
     for (i, inp) in enumerate(data)
@@ -191,3 +147,50 @@ function atomic_rmse(pred, y, yt)
     rec = StatsBase.reconstruct(yt, pred)
     sqrt(Flux.mse(rec, y))
 end
+
+
+
+if VERSION >= v"1.7"
+  @doc """
+      default_rng_value()
+  Create an instance of the default RNG depending on Julia's version.
+  - Julia version is < 1.7: `Random.GLOBAL_RNG`
+  - Julia version is >= 1.7: `Random.default_rng()`
+  """
+  default_rng_value() = Random.default_rng()
+else
+  default_rng_value() = Random.GLOBAL_RNG
+end
+
+
+function glorot_uniform_f64(rng::AbstractRNG, dims::Integer...; gain::Real=1)
+  scale = Float64(gain) * sqrt(24.0f0 / sum(Flux.nfan(dims...)))
+  (rand(rng, Float32, dims...) .- 0.5f0) .* scale
+end
+glorot_uniform_f64(dims::Integer...; kw...) = glorot_uniform_f64(default_rng_value(), dims...; kw...)
+glorot_uniform_f64(rng::AbstractRNG=default_rng_value(); init_kwargs...) = (dims...; kwargs...) -> glorot_uniform_f64(rng, dims...; init_kwargs..., kwargs...)
+
+const ginit = glorot_uniform_f64
+
+
+# For reinitialising the weights
+function reinit!(chain::Chain, init=ginit)
+    for layer in chain.layers
+        reinit!(layer, init)
+    end
+    chain
+end
+
+
+function reinit!(layer::Dense, init=ginit)
+    layer.weight .= init(size(layer.weight)...)
+    layer.bias .= init(size(layer.bias)...)
+    layer
+end
+
+function reinit!(itf::ManualFluxBackPropInterface, init=ginit) 
+    reinit!(itf.chain, init)
+    itf
+end
+
+reinit(itf::ManualFluxBackPropInterface, init=ginit) = reinit!(deepcopy(itf), init)

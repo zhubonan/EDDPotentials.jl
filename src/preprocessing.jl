@@ -148,7 +148,9 @@ Apply transformation for training X inputs
 function transform_x!(xt, x_train)
     for data in x_train
         if size(data, 1) > xt.len
-            transform!(xt, @view(data[end-xt.len+1:end]))
+            transform!(xt, @view(data[end-xt.len+1:end, :]))
+        else
+            transform!(xt, data)
         end
     end
     x_train
@@ -160,7 +162,7 @@ Recover training X inputs
 function reconstruct_x!(xt, x_train)
     for data in x_train
         if size(data, 1) > xt.len
-            reconstruct!(xt, @view(data[end-xt.len+1:end]))
+            reconstruct!(xt, @view(data[end-xt.len+1:end, :]))
         end
     end
     x_train

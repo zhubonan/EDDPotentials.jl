@@ -19,4 +19,14 @@ datadir = joinpath(splitdir(@__FILE__)[1], "data")
     @test length(fc_train) == 5
 
     train_data = EDDP.training_data(fc, ratio_test=0.5)
+
+    # Test data scaling
+    xdata = [rand(10, 10) for _ in 1:10]
+    xtot = reduce(hcat, xdata)
+    xt = fit(StatsBase.ZScoreTransform, xtot[2:end, :], dims=2)
+
+    EDDP.transform_x!(xt, xdata)
+    @test std(reduce(hcat, xdata)[end, :]) ≈ 1 atol=1e-7
+    @test mean(reduce(hcat, xdata)[end, :]) ≈ 0 atol=1e-7
+
 end
