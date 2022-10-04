@@ -9,11 +9,13 @@ using NLSolversBase
 
 @testset "Training Tools" begin
     data = vcat([rand(100, 3) for _ in 1:10], [rand(100, 2) for _ in 1:10])
-    model = EDDP.ManualFluxBackPropInterface(
-        Chain(Dense(rand(1, 100), rand(1), tanh)))
 
     f = zeros(length(data))
-    y = size.(data, 2) ./ 2.
+    y = rand(length(data))
+    yt = StatsBase.fit(StatsBase.ZScoreTransform, reshape(y, 1, length(y)))
+
+    model = EDDP.ManualFluxBackPropInterface(
+        Chain(Dense(rand(1, 100), rand(1), tanh)), yt=yt)
     EDDP.compute_objectives(f, model, data, f)
     @test any(f != 0.)
 
@@ -25,6 +27,20 @@ using NLSolversBase
     # Setting up and minimising
     f!, j!, fj! = EDDP.setup_fj(model, data, y)
     p0 = EDDP.paramvector(model)
+
+    # Manual diff
+    jmat = zeros(length(y), length(p0))
+    j!(jmat, p0)
+    dp = 1e-4
+    out = similar(y)
+    f!(out, p0)
+    p0[1] += dp
+    out2 = similar(y)
+    f!(out2, p0)
+    val = (out2[1] - out[1]) / dp
+    @test abs(val - jmat[1]) < 1e-7
+
+    # Optimisation 
     od2 = OnceDifferentiable(f!, j!, fj!, p0, zeros(eltype(data[1]), length(data)), inplace=true);
     opt_res = EDDP.levenberg_marquardt(od2, p0;show_trace=false)
 
@@ -40,7 +56,7 @@ using NLSolversBase
     EDDP.train!(model, data, y;)
     out = model(data[2])
     # Check we have successfully performed the fit
-    @test sum(out) ≈ 1.5 atol=1e-5
+    @test sum(out) ≈ y[2] atol=1e-5
 
     data = vcat([rand(100, 3) for _ in 1:10], [rand(100, 2) for _ in 1:10])
     y = size.(data, 2) ./ 2

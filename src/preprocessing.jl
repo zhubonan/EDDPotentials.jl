@@ -136,8 +136,8 @@ function training_data(fc::FeatureContainer;ratio_test=0.1, shuffle_data=true)
     n1 = feature_size(fc.feature)[1]
     xt = fit(StatsBase.ZScoreTransform, @view(total_x_train[n1+1:end, :]), dims=2) 
 
-    # Normalise y data
-    yt = fit(ZScoreTransform, reshape(y_train, 1, length(y_train)), dims=2)
+    # Standardise the per-atom y data
+    yt = fit(ZScoreTransform, reshape(y_train ./ natoms(fc_train), 1, length(y_train)), dims=2)
 
     (;x_train, y_train, x_test, y_test, xt, yt)
 end

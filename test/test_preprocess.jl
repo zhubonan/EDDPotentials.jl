@@ -1,6 +1,7 @@
 using EDDP
 using CellBase
 using Test
+using StatsBase
 
 datadir = joinpath(splitdir(@__FILE__)[1], "data")
 @testset "Preprocess" begin
@@ -23,7 +24,7 @@ datadir = joinpath(splitdir(@__FILE__)[1], "data")
     # Test data scaling
     xdata = [rand(10, 10) for _ in 1:10]
     xtot = reduce(hcat, xdata)
-    xt = fit(StatsBase.ZScoreTransform, xtot[2:end, :], dims=2)
+    xt = StatsBase.fit(StatsBase.ZScoreTransform, xtot[2:end, :], dims=2)
 
     EDDP.transform_x!(xt, xdata)
     @test std(reduce(hcat, xdata)[end, :]) ≈ 1 atol=1e-7

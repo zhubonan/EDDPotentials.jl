@@ -5,6 +5,7 @@ The reason for having an explicity implementation is that the overhead associate
 it inefficient for calling many *small* neuron networks.
 =#
 
+import Base
 using LinearAlgebra
 using Flux
 import Zygote
@@ -35,6 +36,8 @@ struct DenseGradient{N, T}
     x::Matrix{T}
     "Value of the output"
     out::Matrix{T}
+    "Value of the output used as return value"
+    out_return::Matrix{T}
 end
 
 """
@@ -61,7 +64,7 @@ function DenseGradient(dense::Dense, gσ, n, out)
     gu = zeros(eltype(dense.weight), m, n)
     gx = zeros(eltype(dense.weight), k, n)
     x = zeros(eltype(dense.weight), k, n)
-    DenseGradient(gw, gb, gu, gx, n, gσ, wx, x, out)
+    DenseGradient(gw, gb, gu, gx, n, gσ, wx, x, out, copy(out))
 end
 
 function DenseGradient(dense::Dense, gσ, n)
@@ -137,7 +140,7 @@ function ChainGradients(chain::Chain, n::Int)
 end
 
 """
-    forward!(chaing::ChainGradients, chain::Chain, x)
+    forward!(chaing::ChainGradients, chain::Chain, x;copy=false)
 
 Do a forward pass compute the intermediate quantities for each layer
 """
@@ -150,9 +153,14 @@ function forward!(chaing::ChainGradients, chain::Chain, x)
     end
     # Last layer
     forward!(chaing.layers[end], chain.layers[end], chaing.layers[end], x, nlayers, nlayers)
-    chaing.layers[end].out
+    # Copy the output to a new array. The latter may be mutated by down stream, for example reconstructions
+    chaing.layers[end].out_return .= chaing.layers[end].out
+    chaing.layers[end].out_return
 end
 
+"""
+Internal per-layer forward pass
+"""
 function forward!(gradient::DenseGradient, layer::Dense, next_gradient::DenseGradient, x, i, nlayers)
     # Input of the first layer
     i == 1 && (gradient.x .= x)
@@ -252,6 +260,12 @@ function ManualFluxBackPropInterface(chain::Chain;xt=nothing, yt=nothing)
     ManualFluxBackPropInterface(chain, typeof(cg)[cg], Int[1], xt, yt)
 end
 
+function Base.show(io::IO, m::MIME"text/plain", x::ManualFluxBackPropInterface )
+    println(io, "ManualFluxBackPropInterface(")
+    Base.show(io, m, x.chain)
+    print(io, "\n)")
+end
+
 """
 Select the ChainGradients with the right size
 """
@@ -270,13 +284,13 @@ function _get_or_create_chaingradients(itf, inp)
 end
 
 
-function forward!(itf::ManualFluxBackPropInterface, inp)
+function forward!(itf::ManualFluxBackPropInterface, inp;make_copy=false)
 
     gchain = _get_or_create_chaingradients(itf, inp)
     # Apply x transformation
     if !isnothing(itf.xt)
         nl = itf.xt.len
-        inptmp = copy(inp)
+        inptmp = make_copy(inp)
         transform!(itf.xt, @view(inptmp[end-nl+1:end, :]))
         out = forward!(gchain, itf.chain, inptmp)
     else
@@ -286,10 +300,10 @@ function forward!(itf::ManualFluxBackPropInterface, inp)
     if !isnothing(itf.yt)
         reconstruct!(itf.yt, out)
     end
-    out
+    !make_copy ? out : copy(out)
 end
 
-function forward!(itf::ManualFluxBackPropInterface, inp, inptmp)
+function forward!(itf::ManualFluxBackPropInterface, inp, inptmp;make_copy=false)
     gchain = _get_or_create_chaingradients(itf, inp)
     # Apply x transformation
     if !isnothing(itf.xt)
@@ -304,11 +318,11 @@ function forward!(itf::ManualFluxBackPropInterface, inp, inptmp)
     if !isnothing(itf.yt)
         reconstruct!(itf.yt, out)
     end
-    out
+    !make_copy ? out : copy(out)
 end
 
-function (itf::ManualFluxBackPropInterface)(inp)
-    forward!(itf, inp)
+function (itf::ManualFluxBackPropInterface)(inp;make_copy=false)
+    forward!(itf, inp;make_copy)
 end
 
 function gradparam!(gvec::AbstractVector, itf::ManualFluxBackPropInterface)
@@ -347,3 +361,15 @@ function setparamvector!(itf::ManualFluxBackPropInterface, vec::AbstractVector)
 end
 
 nparams(itf::ManualFluxBackPropInterface) = nparams(itf.chain)
+
+function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_uniform_f64, xt=nothing, yt=nothing, σ=tanh)
+    input = Dense(nfeatures(cf) => nodes[1], σ;init)
+    layers = Any[input]
+    i = 1
+    while i < length(nodes)
+        i += 1
+        push!(layers, Dense(nodes[i-1]=>nodes[i], σ; init))
+    end
+    push!(layers, Dense(nodes[i]=>1;init))
+    ManualFluxBackPropInterface(Chain(layers...); xt, yt)
+end

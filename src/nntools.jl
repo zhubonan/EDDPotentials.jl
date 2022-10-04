@@ -8,68 +8,68 @@ using Random
 using Flux
 
 
-"""
-    setup_fg_backprop(model, data::AbstractVector, y)
+# """
+#     setup_fg_backprop(model, data::AbstractVector, y)
 
-Get a function for computing both the objective function and the 
-jacobian matrix for the **mean atomic energy**.
-"""
-function setup_fg_backprop(model, data::AbstractVector, y)
-    batch_sizes = unique(size.(data, 2))
-    gbuffers = ChainGradients.(Ref(model), batch_sizes)
-    function fg!(fvec, jmat, param)
-        update_param!(model, param)
-        if !(jmat === nothing)
-            compute_jacobian_backprop!(jmat, gbuffers, model, data)
-        end
-        if !(fvec === nothing)
-            compute_diff_with_forward!(fvec, gbuffers, model, data, y)
-            return fvec
-        end
-    end
-    return fg!
-end
+# Get a function for computing both the objective function and the 
+# jacobian matrix for the **mean atomic energy**.
+# """
+# function setup_fg_backprop(model, data::AbstractVector, y)
+#     batch_sizes = unique(size.(data, 2))
+#     gbuffers = ChainGradients.(Ref(model), batch_sizes)
+#     function fg!(fvec, jmat, param)
+#         update_param!(model, param)
+#         if !(jmat === nothing)
+#             compute_jacobian_backprop!(jmat, gbuffers, model, data)
+#         end
+#         if !(fvec === nothing)
+#             compute_diff_with_forward!(fvec, gbuffers, model, data, y)
+#             return fvec
+#         end
+#     end
+#     return fg!
+# end
 
 
-"""
-    compute_jacobian_backprop!(jacmat, gbuffs, model, data::AbstractVector)
+# """
+#     compute_jacobian_backprop!(jacmat, gbuffs, model, data::AbstractVector)
 
-Compute jacobian of the NN weights/bias using back-propagation.
-"""
-function compute_jacobian_backprop!(jacmat, gbuffs, model, data::AbstractVector)
-    g1 = zeros(eltype(jacmat), size(jacmat, 2))
-    for (i, inp) in enumerate(data)
-        sinp = size(inp, 2)
-        # Find the buffer of the right shape
-        gbuff = gbuffs[findfirst(x -> x.n == sinp, gbuffs)]
-        forward!(gbuff, model, inp)
-        backward!(gbuff, model)
-        collect_gradients!(g1, gbuff)
-        # Scale the gradient for mean atomic energy rather than the total energy
-        g1 ./= sinp
-        # Copy data to the jacobian matrix
-        for j = 1:size(jacmat, 2)
-            jacmat[i, j] = g1[j]
-        end
-    end
-    jacmat
-end
+# Compute jacobian of the NN weights/bias using back-propagation.
+# """
+# function compute_jacobian_backprop!(jacmat, gbuffs, model, data::AbstractVector)
+#     g1 = zeros(eltype(jacmat), size(jacmat, 2))
+#     for (i, inp) in enumerate(data)
+#         sinp = size(inp, 2)
+#         # Find the buffer of the right shape
+#         gbuff = gbuffs[findfirst(x -> x.n == sinp, gbuffs)]
+#         forward!(gbuff, model, inp)
+#         backward!(gbuff, model)
+#         collect_gradients!(g1, gbuff)
+#         # Scale the gradient for mean atomic energy rather than the total energy
+#         g1 ./= sinp
+#         # Copy data to the jacobian matrix
+#         for j = 1:size(jacmat, 2)
+#             jacmat[i, j] = g1[j]
+#         end
+#     end
+#     jacmat
+# end
 
-raw"""
-    compute_diff_with_forward!(f, gbuffs, model, data::AbstractVector, y)
+# raw"""
+#     compute_diff_with_forward!(f, gbuffs, model, data::AbstractVector, y)
 
-Compute the objective function ($y' - y_ref$).
-"""
-function compute_diff_with_forward!(f, gbuffs, model, data::AbstractVector, y)
-    for (i, inp) in enumerate(data)
-        sinp = size(inp, 2)
-        # Find the buffer of the right shape
-        gbuff = gbuffs[findfirst(x -> x.n == sinp, gbuffs)]
-        out = forward!(gbuff, model, inp)
-        f[i] = mean(out) - y[i]
-    end
-    f
-end
+# Compute the objective function ($y' - y_ref$).
+# """
+# function compute_diff_with_forward!(f, gbuffs, model, data::AbstractVector, y)
+#     for (i, inp) in enumerate(data)
+#         sinp = size(inp, 2)
+#         # Find the buffer of the right shape
+#         gbuff = gbuffs[findfirst(x -> x.n == sinp, gbuffs)]
+#         out = forward!(gbuff, model, inp)
+#         f[i] = mean(out) - y[i]
+#     end
+#     f
+# end
 
 
 function setup_fj(model::AbstractNNInterface, data::AbstractVector, y)

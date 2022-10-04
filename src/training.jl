@@ -168,7 +168,7 @@ function train!(itf::T, x, y;
                                   callback=callback, p=p, 
                                   maxIter=maxIter, keep_best=keep_best, earlystop, args...)
     # Update the p0 of the training configuration
-    opt_res, paramvector(itf), [map(x->x[1], rec) map(x->x[2], rec)]
+    opt_res, paramvector(itf), [map(x->x[1], rec) map(x->x[2], rec)], (f!, j!, fj!)
 end
 
         
