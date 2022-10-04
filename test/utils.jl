@@ -23,7 +23,7 @@ function _get_calc()
     cell = _h2_cell()
     cf = _generate_cf(cell)
     itf = EDDP.ManualFluxBackPropInterface(
-        Chain(Dense(rand(5, EDDP.nfeatures(cf;ignore_one_body=false))), Dense(rand(1, 5))),
+        Chain(Dense(rand(5, EDDP.nfeatures(cf))), Dense(rand(1, 5))),
         length(cell)
     )
     calc = EDDP.NNCalc(cell, cf, itf)

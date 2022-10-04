@@ -68,7 +68,7 @@ EDDP.transform_x!(tdata.xt, tdata.x_test)
 model = EDDP.ManualFluxBackPropInterface(
     Chain(Dense(rand(5, EDDP.nfeatures(fc.feature))), Dense(rand(1, 5))),
     length(sc[1]);
-    xt=tdata.xt, yt=tdata.yt, expect_unscaled_x=false,
+    xt=nothing, yt=tdata.yt
 )
 
 

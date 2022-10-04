@@ -67,8 +67,6 @@ mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface} 
     stress::Matrix{T}
     "atomic_energy"
     eng::Vector{T}
-    "flat to ignore one body interactions or not"
-    ignore_one_body::Bool
     "Has energy being calculated?"
     energy_calculated::Bool
     "Has forces being calculated?"
@@ -94,10 +92,10 @@ end
 
 
 function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; rcut=suggest_rcut(cf),
-    nmax=500, savevec=true, ignore_one_body=false) where {T}
+    nmax=500, savevec=true) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)
-    v = zeros(T, nfeatures(cf; ignore_one_body=false), length(cell))
-    v2 = zeros(T, nfeatures(cf; ignore_one_body=true), length(cell))
+    v = zeros(T, nfeatures(cf), length(cell))
+    v2 = zeros(T, nfeatures(cf), length(cell))
 
     fb = ForceBuffer(v2) # Buffer for force calculation 
     NNCalc(cell,
@@ -110,7 +108,6 @@ function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; rcut=su
         fb.forces,  # Forces
         fb.stress,  # Stress
         zeros(T, nions(cell)), # Energy
-        ignore_one_body,
         false,
         false,
         nn

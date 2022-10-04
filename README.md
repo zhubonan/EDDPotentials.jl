@@ -23,6 +23,11 @@ An alternative [Julia](https://julialang.org/) implementation of the ephemeral d
 Scaling is performed for neuron networks, for linear fits this is not needed.
 In all cases, the one-body vectors should not be scaled as they are one-hot encoders.
 
+## Improve manual backprop 
+
+Allow any input batch size to be used.
+Current we are limited to using only the size that it defined. Can we add another layer and dispatch based on the sizes of the inputs? This would make it much more convenient and avoid allocations?
+
 ## Training workflow
 
 1. Generate the initial set of random structures and compute DFT singlepoint energies

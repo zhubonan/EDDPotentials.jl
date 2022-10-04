@@ -24,7 +24,7 @@ include("utils.jl")
 
     @testset "MBP" begin
         nnitf = EDDP.ManualFluxBackPropInterface(Chain(
-            Dense(rand(5, EDDP.nfeatures(cf;ignore_one_body=false))), Dense(rand(1, 5))
+            Dense(rand(5, EDDP.nfeatures(cf))), Dense(rand(1, 5))
             ),
             length(cell)
             )
@@ -51,7 +51,7 @@ include("utils.jl")
         _test_forces_fd(calc)
     end
     @testset "Linear" begin
-        nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf;ignore_one_body=false)))
+        nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
         calc = EDDP.NNCalc(cell, cf, nnitf)
         eng = get_energy(calc)
         forces = get_forces(calc)
@@ -67,7 +67,7 @@ include("utils.jl")
     end
     
     @testset "VCFilter" begin
-        nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf;ignore_one_body=false)))
+        nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
         calc = EDDP.NNCalc(cell, cf, nnitf)
         filter =  EDDP.VariableCellCalc(calc)
         _test_forces_fd(filter)
@@ -91,7 +91,7 @@ end
         EDDP.FeatureOptions(elements=unique(species(cell)), rcut2=3.5, p2=[6, 12], p3=[], q3=[])
     )
 
-    nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf;ignore_one_body=false)))
+    nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf))
     # Attractive potential with -5f(x)^6 + f(x)^12
     EDDP.setparamvector!(nnitf, [0, -5, 1])
     calc = EDDP.NNCalc(cell, cf, nnitf)
