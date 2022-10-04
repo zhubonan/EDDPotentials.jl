@@ -115,7 +115,7 @@ end
 
 @testset "Gradients" begin
 
-    calc = _get_calc()
+global    calc = _get_calc()
     EDDP.calculate!(calc;forces=true)
 
     gtot = copy(calc.force_buffer.gvec)
@@ -154,7 +154,7 @@ end
 
     ntot = EDDP.nfeatures(calc.cf)    
     model = Chain(Dense(ones(1, ntot)))
-    itf = EDDP.ManualFluxBackPropInterface(model, length(get_cell(calc)))
+    itf = EDDP.ManualFluxBackPropInterface(model)
 
     forces = copy(EDDP.get_forces(calc))
     stress = copy(EDDP.get_stress(calc))

@@ -70,29 +70,29 @@ function compute_diff_with_forward!(f, gbuffs, model, data::AbstractVector, y)
     f
 end
 
-function setup_fj(model::ManualFluxBackPropInterface, data::AbstractVector, y)
-    # Unique sizes of the Cells
-    batch_sizes = unique(size.(data, 2))
-    # Create copies of the ManualFluxBackPropInterface
-    itfs = ManualFluxBackPropInterface.(Ref(model.chain), batch_sizes)
-    jtmp = similar(paramvector(model))
-    function fj!(fvec, jmat, param)
-        setparamvector!(model, param)
-        # Compute the gradients
-        compute_objectives_diff_bp(fvec, jmat, itfs, data, y;jtmp)
-        fvec, jmat
-    end
-    function f!(fvec, param)
-        setparamvector!(model, param)
-        compute_objectives_bp(fvec, itfs, data, y)
-        fvec
-    end
-    function j!(jmat, param)
-        fj!(nothing, jmat, param)[2]
-    end
+# function setup_fj(model::ManualFluxBackPropInterface, data::AbstractVector, y)
+#     # Unique sizes of the Cells
+#     batch_sizes = unique(size.(data, 2))
+#     # Create copies of the ManualFluxBackPropInterface
+#     itfs = ManualFluxBackPropInterface.(Ref(model.chain), batch_sizes)
+#     jtmp = similar(paramvector(model))
+#     function fj!(fvec, jmat, param)
+#         setparamvector!(model, param)
+#         # Compute the gradients
+#         compute_objectives_diff_bp(fvec, jmat, itfs, data, y;jtmp)
+#         fvec, jmat
+#     end
+#     function f!(fvec, param)
+#         setparamvector!(model, param)
+#         compute_objectives_bp(fvec, itfs, data, y)
+#         fvec
+#     end
+#     function j!(jmat, param)
+#         fj!(nothing, jmat, param)[2]
+#     end
 
-    return f!, j!, fj!
-end
+#     return f!, j!, fj!
+# end
 
 function setup_fj(model::AbstractNNInterface, data::AbstractVector, y)
     jtmp = similar(paramvector(model))
@@ -113,15 +113,15 @@ function setup_fj(model::AbstractNNInterface, data::AbstractVector, y)
     return f!, j!, fj!
 end
 
-function compute_objectives_bp(f, itfs, data::AbstractVector, y)
-    for (i, inp) in enumerate(data)
-        sinp = size(inp, 2)
-        itf = itfs[findfirst(x -> x.gchain.n == sinp, itfs)]
-        out = forward!(itf, inp)
-        f[i] = sum(out) - y[i]
-    end
-    f
-end
+# function compute_objectives_bp(f, itfs, data::AbstractVector, y)
+#     for (i, inp) in enumerate(data)
+#         sinp = size(inp, 2)
+#         itf = itfs[findfirst(x -> x.gchain.n == sinp, itfs)]
+#         out = forward!(itf, inp)
+#         f[i] = sum(out) - y[i]
+#     end
+#     f
+# end
 
 function compute_objectives(f, itf, data::AbstractVector, y)
     for (i, inp) in enumerate(data)
@@ -131,18 +131,18 @@ function compute_objectives(f, itf, data::AbstractVector, y)
     f
 end
 
-function compute_objectives_diff_bp(f, jmat, itfs, data::AbstractVector, y;jtmp = jmat[1, :])
-    for (i, inp) in enumerate(data)
-        sinp = size(inp, 2)
-        itf = itfs[findfirst(x -> x.gchain.n == sinp, itfs)]
-        out = forward!(itf, inp)
-        backward!(itf)
-        gradparam!(jtmp, itf)
-        jmat[i, :] .= jtmp
-        isnothing(f) || (f[i] = sum(out) - y[i])
-    end
-    jmat
-end
+# function compute_objectives_diff_bp(f, jmat, itfs, data::AbstractVector, y;jtmp = jmat[1, :])
+#     for (i, inp) in enumerate(data)
+#         sinp = size(inp, 2)
+#         itf = itfs[findfirst(x -> x.gchain.n == sinp, itfs)]
+#         out = forward!(itf, inp)
+#         backward!(itf)
+#         gradparam!(jtmp, itf)
+#         jmat[i, :] .= jtmp
+#         isnothing(f) || (f[i] = sum(out) - y[i])
+#     end
+#     jmat
+# end
 
 function compute_objectives_diff(f, jmat, itf, data::AbstractVector, y;jtmp = jmat[1, :])
     for (i, inp) in enumerate(data)

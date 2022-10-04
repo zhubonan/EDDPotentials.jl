@@ -95,7 +95,7 @@ function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; rcut=su
     nmax=500, savevec=true) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
-    v2 = zeros(T, nfeatures(cf), length(cell))
+    v2 = zeros(T, sum(feature_size(cf)[2:end]), length(cell))
 
     fb = ForceBuffer(v2) # Buffer for force calculation 
     NNCalc(cell,

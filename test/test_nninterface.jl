@@ -27,7 +27,7 @@ using Test
 
     @testset "MBP" begin
         chain = Chain(Dense(rand(10, 10)), Dense(rand(10, 10)))
-        itf = EDDP.ManualFluxBackPropInterface(chain, 10)
+        itf = EDDP.ManualFluxBackPropInterface(chain)
         inp = rand(10, 10)
         output = EDDP.forward!(itf, inp)
         EDDP.backward!(itf)
@@ -37,7 +37,7 @@ using Test
         EDDP.gradparam!(gvec, itf)
         @test any(g1 .!= gvec)
 
-        gout = similar(itf.gchain.layers[1].gx)
+        gout = similar(itf.gchains[2].layers[1].gx)
         EDDP.gradinp!(gout, itf)
 
         @test EDDP.nparams(itf) == 220
@@ -78,7 +78,7 @@ using Test
         # test combining two manual back prop interfaces
         function _get_chainitf()
             chain = Chain(Dense(rand(10, 10)), Dense(rand(10, 10)))
-            EDDP.ManualFluxBackPropInterface(chain, 10)
+            EDDP.ManualFluxBackPropInterface(chain)
         end
         inp = rand(10, 10)
         itf = EDDP.EnsembleNNInterface((_get_chainitf(), _get_chainitf()), [0.8, 0.2])

@@ -5,7 +5,7 @@ using Test
 
 
 
-@testset "Backprop" begin
+@testset "Manual BP" begin
     allclose(x, y, tol=1e-5) = all(abs.(x .- y) .< tol)
 
     @testset "single layer" begin

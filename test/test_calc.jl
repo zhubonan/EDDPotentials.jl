@@ -25,8 +25,7 @@ include("utils.jl")
     @testset "MBP" begin
         nnitf = EDDP.ManualFluxBackPropInterface(Chain(
             Dense(rand(5, EDDP.nfeatures(cf))), Dense(rand(1, 5))
-            ),
-            length(cell)
+            )
             )
         calc = EDDP.NNCalc(cell, cf, nnitf)
         nnitf.chain(calc.v)
@@ -91,7 +90,7 @@ end
         EDDP.FeatureOptions(elements=unique(species(cell)), rcut2=3.5, p2=[6, 12], p3=[], q3=[])
     )
 
-    nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf))
+    nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
     # Attractive potential with -5f(x)^6 + f(x)^12
     EDDP.setparamvector!(nnitf, [0, -5, 1])
     calc = EDDP.NNCalc(cell, cf, nnitf)
