@@ -137,7 +137,6 @@ function train!(itf::T, x, y;
                    earlystop=50,
                    keep_best=true,
                    p=1.25,
-                   yt=nothing,
                    args...
                    ) where {T<:AbstractNNInterface}
     rec = []
@@ -146,12 +145,12 @@ function train!(itf::T, x, y;
     test_natoms = [size(v, 2) for v in x_test]
 
     function progress_tracker()
-        rmse_train = per_atom_rmse(itf, x, y, train_natoms;yt)
+        rmse_train = per_atom_rmse(itf, x, y, train_natoms)
 
         if x_test === x
             rmse_test = rmse_train
         else
-            rmse_test = per_atom_rmse(itf, x_test, y_test, test_natoms; yt)
+            rmse_test = per_atom_rmse(itf, x_test, y_test, test_natoms)
         end
         show_progress && @printf "RMSE Train %10.5f eV | Test %10.5f eV\n" rmse_train rmse_test
         flush(stdout)
@@ -173,10 +172,7 @@ function train!(itf::T, x, y;
 end
 
         
-function per_atom_rmse(itf::AbstractNNInterface, x, y, nat; yt)
-    if !isnothing(yt)
-        return (((predict_energy.(Ref(itf), x) .- y) .* yt.scale[1] ./ nat) .^ 2) |> mean |> sqrt
-    end
+function per_atom_rmse(itf::AbstractNNInterface, x, y, nat)
     return (((predict_energy.(Ref(itf), x) .- y) ./ nat) .^ 2) |> mean |> sqrt
 end
 

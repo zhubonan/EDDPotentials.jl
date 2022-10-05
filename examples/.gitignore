@@ -3,3 +3,4 @@
 *.jld2
 
 !*packed.res
+!*packed.res.gz
