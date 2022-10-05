@@ -26,9 +26,9 @@ Base.length(v::StructureContainer) = length(v.H)
 Args:
 
     - `energy_threshold`: structures with per-atom energy higher than this are excluded. 
-      Relative to the minimum energy.
+      Relative to the median energy.
 """
-function StructureContainer(paths::Vector;energy_threshold=15.)
+function StructureContainer(paths::Vector;energy_threshold=10.)
     resolved_paths = String[]
     for path in paths
         if contains(path, "*") || contains(path, "?")
@@ -54,7 +54,7 @@ function StructureContainer(paths::Vector;energy_threshold=15.)
     H = [cell.metadata[:enthalpy] for cell in structures]
     Ha = H ./ natoms.(structures)
 
-    mask = Ha .< (minimum(Ha) + energy_threshold)
+    mask = Ha .< (median(Ha) + energy_threshold)
     StructureContainer(actual_paths[mask], H[mask], structures[mask])
 end
 
