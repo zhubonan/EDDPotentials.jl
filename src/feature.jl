@@ -11,7 +11,7 @@ abstract type AbstractNBodyFeature end
 """
 Faster version of (^) by expanding more integer power into multiplications
 """
-@inline function fast_pow(x, y)
+@inline function fast_pow(x, y::Int)
     y == -1 && return inv(x)
     y == 0 && return one(x)
     y == 1 && return x
@@ -28,6 +28,8 @@ Faster version of (^) by expanding more integer power into multiplications
     y == 12 && return x * x * x * x * x * x * x * x * x * x * x * x 
     ^(x, y)
 end
+
+fast_pow(x, y) = x^y
 
 sortedtuple(iter) = Tuple(sort(collect(iter)))
 
@@ -63,13 +65,13 @@ TwoBodyFeature{T, M} <: AbstractNBodyFeature
 
 Type for constructing the feature vector of the two-body interactions.
 """
-struct TwoBodyFeature{T, M} <: AbstractNBodyFeature
+struct TwoBodyFeature{T, M, P} <: AbstractNBodyFeature
     "Function of distance"
     f::T
     "df(r)/r"
     g::M
     "Exponents"
-    p::Vector{Int}
+    p::Vector{P}
     "Specie indices"
     sij_idx::Tuple{Symbol, Symbol}
     "Cut off distance"
@@ -188,15 +190,15 @@ nfeatures(f::TwoBodyFeature) = f.np
 
 Type for constructing the feature vector of the three-body interactions.
 """
-struct ThreeBodyFeature{T, M} <: AbstractNBodyFeature
+struct ThreeBodyFeature{T, M, P, Q} <: AbstractNBodyFeature
     "Basis function"
     f::T
     "df(r)/r"
     g::M
     "Exponents for p"
-    p::Vector{Int}
+    p::Vector{P}
     "Exponents for q"
-    q::Vector{Int}
+    q::Vector{Q}
     "Specie indices"
     sijk_idx::Tuple{Symbol, Symbol, Symbol}
     "Cut off distance"
@@ -467,9 +469,9 @@ Options for constructing CellFeature
 """
 @with_kw struct FeatureOptions
     elements::Vector{Symbol}
-    p2::Vector{Int}=[2,4,6,8]
-    p3::Vector{Int}=[2,4,6,8]
-    q3::Vector{Int}=[2,4,6,8]
+    p2::Vector=[2,4,6,8]
+    p3::Vector=[2,4,6,8]
+    q3::Vector=[2,4,6,8]
     rcut2::Float64=4.0
     rcut3::Float64=4.0
     f2=fr
@@ -491,7 +493,7 @@ function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=
     for e1 in elements
         for e2 in elements
             if !(any(x -> permequal(x, e1, e2), existing_comb))
-                push!(two_body_features, TwoBodyFeature(f2, g2, collect(Int, p2), (e1, e2), rcut2))
+                push!(two_body_features, TwoBodyFeature(f2, g2, collect(p2), (e1, e2), rcut2))
                 push!(existing_comb, (e1, e2))
             end
         end
@@ -503,7 +505,7 @@ function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=
         for e2 in elements
             for e3 in elements
                 if !(any(x -> permequal(x, e1, e2, e3), existing_comb))
-                    push!(three_body_features, ThreeBodyFeature(f3, g3, collect(Int, p3), collect(Int, q3), (e1, e2, e3), rcut3))
+                    push!(three_body_features, ThreeBodyFeature(f3, g3, collect(p3), collect(q3), (e1, e2, e3), rcut3))
                     push!(existing_comb, (e1, e2, e3))
                 end
             end

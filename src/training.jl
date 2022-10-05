@@ -126,10 +126,11 @@ function create_ensemble(models::AbstractVector, x::AbstractVector, y::AbstractV
 end
 
 predict_energy(itf::AbstractNNInterface, vec) = sum(itf(vec))
+
 """
 Perform training for the given TrainingConfig
 """
-function train!(itf::T, x, y;
+function train!(itf::AbstractNNInterface, x, y;
                    p0=EDDP.paramvector(itf),
                    maxIter=1000,
                    show_progress=false,
@@ -138,19 +139,19 @@ function train!(itf::T, x, y;
                    keep_best=true,
                    p=1.25,
                    args...
-                   ) where {T<:AbstractNNInterface}
+                   ) 
     rec = []
     
     train_natoms = [size(v, 2) for v in x]
     test_natoms = [size(v, 2) for v in x_test]
 
     function progress_tracker()
-        rmse_train = per_atom_rmse(itf, x, y, train_natoms)
+        rmse_train = rmse_per_atom(itf, x, y, train_natoms)
 
         if x_test === x
             rmse_test = rmse_train
         else
-            rmse_test = per_atom_rmse(itf, x_test, y_test, test_natoms)
+            rmse_test = rmse_per_atom(itf, x_test, y_test, test_natoms)
         end
         show_progress && @printf "RMSE Train %10.5f eV | Test %10.5f eV\n" rmse_train rmse_test
         flush(stdout)
@@ -171,11 +172,51 @@ function train!(itf::T, x, y;
     opt_res, paramvector(itf), [map(x->x[1], rec) map(x->x[2], rec)], (f!, j!, fj!)
 end
 
-        
-function per_atom_rmse(itf::AbstractNNInterface, x, y, nat)
+function train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_test::FeatureContainer
+                ;kwargs...)
+    x_train, y_train = get_fit_data(fc_train)
+    x_test, y_test = get_fit_data(fc_test)
+    train!(itf, x_train, y_train;x_test, y_test, kwargs...)
+end
+
+"""
+    rmse_per_atom(itf::AbstractNNInterface, x, y, nat)
+
+Return per-atom root-mean square error.
+"""
+function rmse_per_atom(itf::AbstractNNInterface, x, y, nat)
     return (((predict_energy.(Ref(itf), x) .- y) ./ nat) .^ 2) |> mean |> sqrt
 end
 
+"""
+    mae_per_atom(itf::AbstractNNInterface, x, y, nat)
+
+Return per-atom-mean absolute error.
+"""
+function mae_per_atom(itf::AbstractNNInterface, x, y, nat)
+    return abs.((predict_energy.(Ref(itf), x) .- y) ./ nat) |> mean
+end
+
+function max_ae_per_atom(itf, x, y, nat)
+    return abs.((predict_energy.(Ref(itf), x) .- y) ./ nat) |> maximum
+end
+
+"""
+Allow func(itf, fc) signature to be used....
+"""
+macro _itf_per_atom_wrap(expr)
+    quote 
+        function $(esc(expr))(itf::AbstractNNInterface, fc::FeatureContainer)
+            x, y=  get_fit_data(fc)
+            nat = size.(x, 2)
+            $expr(itf, x, y, nat)
+        end
+    end
+end
+
+@_itf_per_atom_wrap(rmse_per_atom)
+@_itf_per_atom_wrap(max_ae_per_atom)
+@_itf_per_atom_wrap(mae_per_atom)
 
 function train_multi_distributed(itf, x, y; nmodels=10, kwargs...)
                   

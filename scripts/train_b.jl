@@ -1,6 +1,7 @@
 ##
 using StatsBase
 using EDDP
+using Test
 
 path = "examples/new-test/iter*-dft/*.res" 
 path = "examples/new-test/all-res/*.res.gz" 
@@ -22,16 +23,12 @@ fc = EDDP.FeatureContainer(sc, cf)
 ##
 
 ##
-tdata = EDDP.training_data(fc;ratio_test=0.1)
-tdata.x_train
+ftrain, fttest, fvalidate = split(fc, 0.8, 0.1, 0.1)
+
+EDDP.standardize!(ftrain, fttest, fvalidate)
 
 # Scale X
-EDDP.transform_x!(tdata.xt, tdata.x_train)
-EDDP.transform_x!(tdata.xt, tdata.x_test)
-@test std(reduce(hcat, tdata.x_train)[end, :]) ≈ 1 atol=1e-7
-@test mean(reduce(hcat, tdata.x_train)[end, :]) ≈ 0 atol=1e-7
 
-model = EDDP.ManualFluxBackPropInterface(cf, 15, 10, 5;yt=tdata.yt)
+model = EDDP.ManualFluxBackPropInterface(cf, 5;yt=ftrain.yt)
 
-res = EDDP.train!(model, tdata.x_train, tdata.y_train;
-                  x_test=tdata.x_test, y_test=tdata.y_test, show_progress=true, earlystop=50, maxIter=50)
+res = EDDP.train!(model, ftrain, fttest;show_progress=true);
