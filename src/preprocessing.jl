@@ -97,13 +97,13 @@ end
 Split the training 
 """
 function train_test_split(v::Union{FeatureContainer, StructureContainer}; ratio_test=0.1, shuffle=true)
+    ntest = Int(floor(length(v) * ratio_test))
+    ntrain = length(v) - ntest
     if shuffle
         perm = randperm(length(v))
-        ntest = Int(floor(length(v) * ratio_test))
-        ntrain = length(v) - ntest
-        return v[perm[ntrain+1:end]], v[perm[1:ntrain]] 
+        return v[perm[1:ntrain]], v[perm[ntrain+1:end]] 
     end
-    return v[train+1:end], v[1:ntrain] 
+    return v[1:ntrain], v[train+1:end]
 end
 
 enthalpy_per_atom(sc::StructureContainer) = sc.H ./ natoms.(sc.structures)

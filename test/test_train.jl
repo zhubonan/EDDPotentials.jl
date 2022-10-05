@@ -79,11 +79,9 @@ end
 
     # Scale X
     EDDP.transform_x!(tdata.xt, tdata.x_train)
-    global tdata
+    EDDP.transform_x!(tdata.xt, tdata.x_test)
     @test std(reduce(hcat, tdata.x_train)[end, :]) ≈ 1 atol=1e-7
     @test mean(reduce(hcat, tdata.x_train)[end, :]) ≈ 0 atol=1e-7
-
-    EDDP.transform_x!(tdata.xt, tdata.x_test)
 
     models = []
 

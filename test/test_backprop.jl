@@ -1,6 +1,7 @@
 using Flux
 
 using EDDP: backward!, forward!, ChainGradients
+using EDDP
 using Test
 
 
@@ -68,16 +69,34 @@ using Test
     @testset "jacobian" begin
         ## Compare hand written backprop vs Zytoge
         chain = EDDP.generate_chain(21, [5])
-        inp = [rand(Float32, 21)]
-        gd = Flux.gradient(() -> mean(chain(inp[1])), Flux.params(chain))
-        gp! = EDDP.setup_fg_backprop(chain, inp, [1.0])
-        jmat = zeros(eltype(inp[1]), 1, 116)
-        gp!([0.], jmat, EDDP.paramvector(chain))
+        chain.layers[1].bias .= rand(5)
+        chain.layers[2].bias .= rand(1)
+        inp = [rand(Float32, 21, 2), rand(Float32, 21, 2)]
+        gd = Flux.jacobian(() -> [sum(chain(x)) for x in inp], Flux.params(chain))
+        gp! = EDDP.setup_fg_backprop(chain, inp, [1.0, 1.0])
+        jmat = zeros(eltype(inp[1]), 2, 116)
+        gp!([0., 1.0], jmat, EDDP.paramvector(chain))
 
-        @test allclose(jmat[1, 1:105], vec(gd.grads[gd.params[1]]))
-        @test allclose(jmat[1, 106:110], vec(gd.grads[gd.params[2]]))
-        @test allclose(jmat[1, 111:115], vec(gd.grads[gd.params[3]]))
-        @test allclose(jmat[1, 116:116], vec(gd.grads[gd.params[4]]))
+        @test allclose(jmat[:, 1:105], gd.grads[gd.params[1]])
+        @test allclose(jmat[:, 106:110], gd.grads[gd.params[2]])
+        @test allclose(jmat[:, 111:115], gd.grads[gd.params[3]])
+        @test allclose(jmat[:, 116:116], gd.grads[gd.params[4]])
+
+        ## Compare hand written backprop vs Zytoge
+        chain = EDDP.generate_chain(21, [5, 10])
+        chain.layers[1].bias .= rand(5)
+        chain.layers[2].bias .= rand(1)
+        inp = [rand(Float32, 21, 2), rand(Float32, 21, 2)]
+        gd = Flux.jacobian(() -> [sum(chain(x)) for x in inp], Flux.params(chain))
+        gp! = EDDP.setup_fg_backprop(chain, inp, [1.0, 1.0])
+        jmat = zeros(eltype(inp[1]), length(inp), 181)
+        gp!([0., 1.], jmat, EDDP.paramvector(chain))
+        @test allclose(jmat[:, 1:105], gd.grads[gd.params[1]])
+        @test allclose(jmat[:, 106:110], gd.grads[gd.params[2]])
+        @test allclose(jmat[:, 111:160], gd.grads[gd.params[3]])
+        @test allclose(jmat[:, 161:170], gd.grads[gd.params[4]])
+        @test allclose(jmat[:, 171:180], gd.grads[gd.params[5]])
+        @test allclose(jmat[:, 181:181], gd.grads[gd.params[6]])
     end
 
 end
