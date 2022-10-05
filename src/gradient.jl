@@ -39,14 +39,14 @@ end
 _collect_stress!(fb::ForceBuffer) = fb.stotv .= sum(fb.svec, dims=5)
 
 """
-    compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T, N}
+    compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeature}, cell::Cell;...) 
 
 Compute the feature vector for a given set of two body interactions, compute gradients as well.
 
 Args:
     - offset: an integer offset when updating the feature vectors
 """
-function compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut;savevec=true), offset=0) where {T, N}
+function compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{T}, cell::Cell;nl=NeighbourList(cell, features[1].rcut;savevec=true), offset=0) where {T<:TwoBodyFeature}
     # vecs -> size (nfeature, nions)
     # gvec -> size (ndims, nfeature, nions)
     # Feature vectors
@@ -104,11 +104,11 @@ function compute_two_body_fv_gv!(fb::ForceBuffer, features::Vector{TwoBodyFeatur
 end
 
 """
-    compute_three_body_fv_gv!(fvecs, gvecs, features::Vector{ThreeBodyFeature{T}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut)) where T
+    compute_three_body_fv_gv!(fvecs, gvecs, features::Vector{ThreeBodyFeature}, cell::Cell;nl=NeighbourList(cell, features[1].rcut))
 
 Compute the feature vector for a given set of three body interactions, compute gradients as well.
 """
-function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{ThreeBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut;savevec=true), offset=0) where {T, N}
+function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{T}, cell::Cell;nl=NeighbourList(cell, features[1].rcut;savevec=true), offset=0) where {T<:ThreeBodyFeature}
     # vecs -> size (nfeature, nions)
     # gvec -> size (ndims, nfeature, nions)
     # Feature vectors

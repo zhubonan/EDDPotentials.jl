@@ -312,7 +312,7 @@ end
 
 Compute the feature vector for a give set of two body interactions
 """
-function feature_vector!(fvecs, features::Vector{TwoBodyFeature{T, N}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T, N}
+function feature_vector!(fvecs, features::Vector{T}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T<:TwoBodyFeature}
     # Feature vectors
     nfe = map(nfeatures, features) 
     nat = natoms(cell)
@@ -348,7 +348,7 @@ end
 
 Compute the feature vector for each atom a give set of three body interactions
 """
-function feature_vector!(fvecs, features::Vector{ThreeBodyFeature{T, M}}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T, M}
+function feature_vector!(fvecs, features::Vector{T}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T<:ThreeBodyFeature}
     nat = natoms(cell)
     nfe = map(nfeatures, features) 
     # Note - need to use twice the cut off to ensure distance between j-k is included
@@ -441,14 +441,14 @@ end
 
 
 """
-    CellFeature{T, N, M, G}
+   CellFeature{T, G} where {T<:TwoBodyFeature, G<:ThreeBodyFeature}
 
 Collection of Feature specifications and cell
 """
-mutable struct CellFeature{T, N, M, G}
+mutable struct CellFeature{T, G} 
     elements::Vector{Symbol}
-    two_body::Vector{TwoBodyFeature{T, M}}
-    three_body::Vector{ThreeBodyFeature{N, G}}
+    two_body::Vector{T}
+    three_body::Vector{G}
 end
 
 """
@@ -488,7 +488,7 @@ function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=
     # Sort the elements to ensure stability
     elements = sort(unique(elements))
     # Two body terms
-    two_body_features = TwoBodyFeature{typeof(f2), typeof(g2)}[]
+    two_body_features = TwoBodyFeature{typeof(f2), typeof(g2), eltype(p2)}[]
     existing_comb = []
     for e1 in elements
         for e2 in elements
@@ -500,7 +500,7 @@ function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=
     end
 
     empty!(existing_comb)
-    three_body_features = ThreeBodyFeature{typeof(f3), typeof(g3)}[]
+    three_body_features = ThreeBodyFeature{typeof(f3), typeof(g3), eltype(p3), eltype(q3)}[]
     for e1 in elements
         for e2 in elements
             for e3 in elements

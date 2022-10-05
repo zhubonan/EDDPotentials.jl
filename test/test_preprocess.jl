@@ -24,6 +24,7 @@ datadir = joinpath(splitdir(@__FILE__)[1], "data")
     sc_train, sc_test = EDDP.train_test_split(sc, ratio_test=0.5)
     @test length(sc_train) == 6
     fc = EDDP.FeatureContainer(sc, EDDP.FeatureOptions(elements=[:B]))
+    # Default FeatureOPtions
     fc = EDDP.FeatureContainer(sc)
     @test length(fc) == 11
     fc_train, fc_test = EDDP.train_test_split(fc, ratio_test=0.5)
@@ -39,5 +40,18 @@ datadir = joinpath(splitdir(@__FILE__)[1], "data")
     EDDP.transform_x!(xt, xdata)
     @test std(reduce(hcat, xdata)[end, :]) ≈ 1 atol=1e-7
     @test mean(reduce(hcat, xdata)[end, :]) ≈ 0 atol=1e-7
+
+    # Test standardisation
+    fc1, fc2 = split(fc[1:10], 5, 3;shuffle=false)
+    EDDP.standardize!(fc1, fc2)
+    @test fc.xt === nothing
+    @test fc.yt === nothing
+    @test fc1.fvecs[1] != fc.fvecs[1]
+    @test !isnothing(fc1.xt)
+    @test !isnothing(fc2.xt)
+    @test fc1.xt === fc2.xt
+    @test fc1.yt === fc2.yt
+    @test mean(reduce(hcat, fc1.fvecs)[2, :]) ≈ 0. atol=1e-8
+    @test !isapprox(mean(reduce(hcat, fc2.fvecs)[2, :]),  0.; atol=1e-8) 
 
 end
