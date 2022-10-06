@@ -59,6 +59,34 @@ function StructureContainer(paths::Vector;energy_threshold=10.)
     StructureContainer(actual_paths[mask], H[mask], structures[mask])
 end
 
+
+"""
+Split a vector by integer numbres
+"""
+function _split_vector(c, nsplit::Vararg{Int};shuffle=true)
+    out = []
+    if shuffle
+        perm = randperm(length(c))
+    else
+        perm = collect(1:length(c))
+    end
+    i = 1
+    for n in nsplit
+        push!(out, c[perm[i:n-1+i]])
+        i += n
+    end
+    Tuple(out)
+end
+
+"""
+Split a vector by fractions
+"""
+function _split_vector(c, nsplit::Vararg{Real};shuffle=true)
+    ntot = length(c)
+    intsplit = nsplit .* ntot .|> floor .|> Int
+    _split_vector(c, intsplit...;shuffle)
+end
+
 """
     FeatureContainer{T,N}
 
@@ -73,6 +101,73 @@ mutable struct FeatureContainer{T, N}
     xt
     yt
 end
+
+function Base.show(io::IO, o::MIME"text/plain", v::StructureContainer)
+    ls = length.(v.structures)
+    size_max = length(v.structures[findfirst(x -> x == maximum(ls), ls)])
+    size_min = length(v.structures[findfirst(x -> x == minimum(ls), ls)])
+
+    println(io, "StructureContainer:")
+    println(io, "  $(length(v)) structures ")
+    println(io, "  Max size: $(size_max)")
+    println(io, "  Min size: $(size_min)")
+    println(io, "  Max enthalpy_per_atom: $(maximum(enthalpy_per_atom(v)))")
+    print(io, "  Min enthalpy_per_atom: $(minimum(enthalpy_per_atom(v)))")
+end
+
+function Base.show(io::IO, o::MIME"text/plain", v::FeatureContainer)
+    ls = length.(v.structures)
+    size_max = length(v.fvecs[findfirst(x -> x == maximum(ls), ls)])
+    size_min = length(v.fvecs[findfirst(x -> x == minimum(ls), ls)])
+
+    println(io, "StructureContainer:")
+    println(io, "  $(length(v)) data points ")
+    println(io, "  Max structure size: $(size_max)")
+    println(io, "  Min structure size: $(size_min)")
+    println(io, "With CellFeature:")
+    show(io, o, v.feature)
+end
+
+
+"""
+    save_fc(fc, fname)
+
+Save FeatureContainer into a file.
+"""
+function save_fc(fc, fname)
+    jldopen(fname, "w") do fhandle 
+        fhandle["version"] = "1.0"
+        fhandle["fvecs"] = fc.fvecs
+        fhandle["feature"] = fc.feature
+        fhandle["H"] = fc.H
+        fhandle["labels"] = fc.labels
+        fhandle["metadata"] = fc.metadata
+        fhandle["yt"] = fc.yt
+        fhandle["xy"] = fc.xt
+    end
+end
+
+"""
+    load_fc(fname)
+
+Load FeatureContainer from a file.
+"""
+function load_fc(fname)
+    vreq = "1.0"
+    jldopen(fname, "r") do fhandle 
+        ver = fhandle["version"]
+        @assert fhandle["version"] == vreq "Inconsistent FeatureContainer version current $(ver) required $(vreq)."
+        fvecs = fhandle["fvecs"] 
+        feature = fhandle["feature"]
+        H = fhandle["H"]
+        labels = fhandle["labels"]
+        metadata = fhandle["metadata"]
+        yt = fhandle["yt"]
+        xt = fhandle["xy"]
+        FeatureContainer(fvecs, feature, H, labels, metadata, yt, xt)
+    end
+end
+
 
 Base.length(v::FeatureContainer) = length(v.fvecs)
 
@@ -90,6 +185,11 @@ function FeatureContainer(sc::StructureContainer, feature::CellFeature; nmax=500
     metadata = [cell.metadata for cell in sc.structures]
     H = copy(sc.H)
     labels = collect(String, m[:label] for m in metadata)
+    for (i, m) in enumerate(metadata)
+        form, nf = CellBase.formula_and_factor(sc.structures[i])
+        m[:formula] = form
+        m[:nformula] = nf
+    end
     FeatureContainer(fvecs, feature, H, labels, metadata, nothing, nothing)
 end
 
@@ -170,32 +270,7 @@ end
 
 Split the container into multiple parts, each with N number of structures.
 """
-function Base.split(c::Union{StructureContainer, FeatureContainer}, nsplit::Vararg{Int, N};shuffle=true) where {N}
-    out = []
-    if shuffle
-        perm = randperm(length(c))
-    else
-        perm = collect(1:length(c))
-    end
-    i = 1
-    for n in nsplit
-        push!(out, c[perm[i:n-1+i]])
-        i += n
-    end
-    (out..., )
-end
-
-"""
-    split(c::Container, f1, f2, ...;shuffle=true)
-
-Split the container into multiple parts, each with faction of the number of structures.
-"""
-function Base.split(c::Union{StructureContainer, FeatureContainer}, nsplit::Vararg{Real, N};shuffle=true) where {N}
-    ntot = length(c)
-    intsplit = nsplit .* ntot .|> floor
-    Base.split(c, collect(Int, intsplit)...;shuffle)
-end
-
+Base.split(c::Union{StructureContainer, FeatureContainer}, nsplit::Vararg;shuffle=true) = _split_vector(c, nsplit...;shuffle)
 
 enthalpy_per_atom(sc::StructureContainer) = sc.H ./ natoms.(sc.structures)
 enthalpy_per_atom(fc::FeatureContainer) = fc.H ./ natoms(fc)
