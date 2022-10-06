@@ -8,11 +8,16 @@ datadir = joinpath(splitdir(@__FILE__)[1], "data")
     fpath = joinpath(datadir, "training/*.res")
     fpath = relpath(fpath, pwd())
     sc = EDDP.StructureContainer([fpath])
-    # test splitting
+
+    # Test indexing
     @test isa(sc[1], Cell) 
     @test isa(sc[1:2], EDDP.StructureContainer) 
     @test length(sc) == 11
+    labels = [x.metadata[:label] for x in sc.structures]
+    @test isa(sc[[labels[1], labels[2]]], EDDP.StructureContainer)
+    @test isa(collect(sc)[1], CellBase.Cell)
 
+    # test splitting
     sc1, sc2 = split(sc, 1, 2)
     @test length(sc1) == 1
     @test length(sc2) == 2
@@ -29,6 +34,9 @@ datadir = joinpath(splitdir(@__FILE__)[1], "data")
     @test length(fc) == 11
     fc_train, fc_test = EDDP.train_test_split(fc, ratio_test=0.5)
     @test length(fc_train) == 6
+
+    @test isa(fc[[labels[1], labels[2]]], EDDP.FeatureContainer)
+    @test isa(collect(fc)[1], Tuple)
 
     train_data = EDDP.training_data(fc, ratio_test=0.5)
 

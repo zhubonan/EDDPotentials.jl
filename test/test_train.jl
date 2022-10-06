@@ -12,7 +12,7 @@ using NLSolversBase
 
     f = zeros(length(data))
     y = rand(length(data))
-    yt = StatsBase.fit(StatsBase.ZScoreTransform, reshape(y, 1, length(y)))
+    yt = StatsBase.fit(StatsBase.ZScoreTransform, reshape(y, 1, length(y)), dims=2)
 
     model = EDDP.ManualFluxBackPropInterface(
         Chain(Dense(rand(1, 100), rand(1), tanh)), yt=yt)

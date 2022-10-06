@@ -12,10 +12,10 @@ import Base
 
 Loader for storing structure data
 """
-struct StructureContainer{T}
+struct StructureContainer{T, N}
     paths::Vector{String}
     "Enthalpy"
-    H::Vector{Float64}
+    H::Vector{N}
     structures::Vector{Cell{T}}
 end
 
@@ -64,15 +64,17 @@ end
 
 Container for holding features from structures.
 """
-mutable struct FeatureContainer{T,N}
-    structure_container::StructureContainer{T}
-    fvecs::Vector{N}
+mutable struct FeatureContainer{T, N}
+    fvecs::Vector{T}
     feature::CellFeature
+    H::Vector{N}
+    labels::Vector{String}
+    metadata::Vector{Dict{Symbol, Any}}
     xt
     yt
 end
 
-Base.length(v::FeatureContainer) = length(v.structure_container)
+Base.length(v::FeatureContainer) = length(v.fvecs)
 
 """
     FeatureContainer(sc::StructureContainer, featurespec; nmax=500, kwargs...)
@@ -85,7 +87,10 @@ function FeatureContainer(sc::StructureContainer, feature::CellFeature; nmax=500
     for i=1:length(sc)
         fvecs[i] = EDDP.feature_vector(feature, sc.structures[i];nmax, kwargs...)
     end
-    FeatureContainer(sc, fvecs, feature, nothing, nothing)
+    metadata = [cell.metadata for cell in sc.structures]
+    H = copy(sc.H)
+    labels = collect(String, m[:label] for m in metadata)
+    FeatureContainer(fvecs, feature, H, labels, metadata, nothing, nothing)
 end
 
 function FeatureContainer(sc::StructureContainer, feature::FeatureOptions; nmax=500, kwargs...)
@@ -99,22 +104,51 @@ end
 
 
 Base.IndexStyle(T::StructureContainer) = IndexLinear()
+Base.IndexStyle(T::FeatureContainer) = IndexLinear()
+
+Base.iterate(v::Union{FeatureContainer, StructureContainer}, state=1) = state > length(v) ? nothing : (v[state], state+1)
+Base.eltype(::Type{StructureContainer{T, N}}) where{T, N} = Cell{T}
+Base.eltype(::Type{FeatureContainer{T, N}})  where{T, N} = Tuple{T, N}
 
 Base.getindex(v::StructureContainer, i::Int) = v.structures[i]
-Base.getindex(v::FeatureContainer, i::Int) = v.structure_container.structures[i]
+Base.getindex(v::FeatureContainer, i::Int) = (v.fvecs[i], v.H[i])
 
-function Base.getindex(v::StructureContainer, idx::Union{UnitRange, Vector})   
+function Base.getindex(v::StructureContainer, idx::Union{UnitRange, Vector{T}}) where {T<: Int}   
     structures = v.structures[idx]
     paths = v.paths[idx]
     H = v.H[idx]
     StructureContainer(paths, H, structures)
 end
 
-function Base.getindex(v::FeatureContainer, idx::Union{UnitRange, Vector})   
-    new_sc = v.structure_container[idx]
-    fcs = v.fvecs[idx]
-    FeatureContainer(new_sc, fcs, v.feature, v.xt, v.yt)
+function Base.getindex(v::FeatureContainer, idx::Union{UnitRange, Vector{T}}) where {T<:Int}   
+    FeatureContainer(v.fvecs[idx], v.feature, v.H[idx], v.labels[idx], v.metadata[idx], v.xt, v.yt)
 end
+function _select_by_label(all_labels, labels)
+    id_selected = Int[]
+    for val in labels
+        id_temp = findfirst(x -> x==val, all_labels)
+        if isnothing(id_temp) 
+            @warn "$(val) is not found and hence skipped!"
+            continue
+        end
+        if id_temp in id_selected
+            @warn "$(val) is duplicated - indexing by label can be seriously broken!"
+        end
+        push!(id_selected, id_temp)
+    end
+    id_selected
+end
+
+
+function Base.getindex(v::StructureContainer, idx::Vector{T}) where {T<: AbstractString}   
+    labels = [x.metadata[:label] for x in v.structures]
+    v[_select_by_label(labels, idx)]
+end
+
+function Base.getindex(v::FeatureContainer, idx::Vector{T}) where {T<:AbstractString}   
+    v[_select_by_label(v.labels, idx)]
+end
+
 
 """
     tain_test_split(v::FeatureContainer; ratio_test=0.1, shuffle=true)
@@ -164,9 +198,9 @@ end
 
 
 enthalpy_per_atom(sc::StructureContainer) = sc.H ./ natoms.(sc.structures)
-enthalpy_per_atom(fc::FeatureContainer) = enthalpy_per_atom(fc.structure_container)
+enthalpy_per_atom(fc::FeatureContainer) = fc.H ./ natoms(fc)
 
-natoms(fc::FeatureContainer) = natoms(fc.structure_container)
+natoms(fc::FeatureContainer) = size.(fc.fvecs, 2)
 natoms(fc::StructureContainer) = natoms.(fc.structures)
 
 load_structures(files::AbstractString, featurespec;energy_threshold=20., nmax=500) = load_structures(glob(files), featurespec;energy_threshold, nmax)
@@ -181,8 +215,8 @@ function training_data(fc::FeatureContainer;ratio_test=0.1, shuffle_data=true)
     fc_train, fc_test = train_test_split(fc;ratio_test,shuffle=shuffle_data)
 
     # enthalpy per atom for normalisation
-    y_train = fc_train.structure_container.H
-    y_test = fc_test.structure_container.H
+    y_train = fc_train.H 
+    y_test = fc_test.H
     x_train = fc_train.fvecs
     x_test = fc_test.fvecs
 
@@ -227,7 +261,7 @@ function standardize!(fc::FeatureContainer; xt=nothing, yt=nothing)
     end
     if yt === nothing
         if isnothing(fc.yt)
-            y = fc.structure_container.H
+            y = fc.H
             yt = fit(ZScoreTransform, reshape(y ./ natoms(fc), 1, length(y)), dims=2)
             fc.yt = yt
         end
@@ -247,9 +281,8 @@ function standardize!(fc_train, fcs...)
 end
 
 
-
 function get_fit_data(fc::FeatureContainer)
-    fc.fvecs, fc.structure_container.H
+    fc.fvecs, fc.H
 end
 
 """
