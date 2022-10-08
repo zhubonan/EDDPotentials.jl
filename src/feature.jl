@@ -418,7 +418,6 @@ function feature_vector_new!(fvecs, features::Vector{T}, cell::Cell;nl=Neighbour
 
             for (kat, kextend, rik) in eachneighbour(nl, iat)
                 rik > rcut && continue
-                pjk_computed = false
  
                 # Avoid double counting i j k is the same as i k j
                 if kextend <= jextend 
@@ -428,14 +427,11 @@ function feature_vector_new!(fvecs, features::Vector{T}, cell::Cell;nl=Neighbour
                 rjk = distance_between(nl.ea.positions[jextend], nl.ea.positions[kextend])
                 rjk > rcut && continue
 
-                if !pjk_computed
-                    for (i, feat) in enumerate(features)
-                        ftmp = feat.f(rik, feat.rcut)
-                        @inbounds for j in 1:length(feat.p)
-                            pik[j, i] = fast_pow(ftmp, feat.p[j])
-                        end
+                for (i, feat) in enumerate(features)
+                    ftmp = feat.f(rik, feat.rcut)
+                    @inbounds for j in 1:length(feat.p)
+                        pik[j, i] = fast_pow(ftmp, feat.p[j])
                     end
-                    pjk_computed = true
                 end
 
                 for (i, feat) in enumerate(features)
