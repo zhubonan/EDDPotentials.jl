@@ -22,6 +22,10 @@ datadir = joinpath(splitdir(@__FILE__)[1], "data")
     @test length(sc1) == 1
     @test length(sc2) == 2
 
+    sc3 = sc1 + sc2
+    @test length(sc3) == length(sc1) + length(sc2)
+    @test length(sc3) == 3
+
     sc1, sc2 = split(sc[1:10], 0.1, 0.2)
     @test length(sc1) == 1
     @test length(sc2) == 2
@@ -51,6 +55,16 @@ datadir = joinpath(splitdir(@__FILE__)[1], "data")
 
     # Test standardisation
     fc1, fc2 = split(fc[1:10], 5, 3;shuffle=false)
+    fc11, fc12 = EDDP.standardize(fc1, fc2)
+    @test mean(reduce(hcat, fc11.fvecs)[2, :]) ≈ 0. atol=1e-8
+    @test fc11.fvecs != fc1.fvecs
+    @test !isapprox(mean(reduce(hcat, fc1.fvecs)[2, :]), 0, atol=1e-8)
+
+    # Combine
+    fc3 = fc1 + fc2
+    @test length(fc3) == length(fc1) + length(fc2)
+
+    @test fc11.fvecs != fc1.fvecs
     EDDP.standardize!(fc1, fc2)
     @test fc.xt === nothing
     @test fc.yt === nothing

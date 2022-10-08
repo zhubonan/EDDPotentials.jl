@@ -29,7 +29,7 @@ Faster version of (^) by expanding more integer power into multiplications
     ^(x, y)
 end
 
-fast_pow(x, y) = x^y
+@inline fast_pow(x, y) = x^y
 
 sortedtuple(iter) = Tuple(sort(collect(iter)))
 
@@ -88,6 +88,7 @@ function Base.show(io::IO, ::MIME"text/plain", x::TwoBodyFeature)
     println(io, "  specie: $(x.sij_idx[1])-$(x.sij_idx[2])")
     println(io, "  rcut: $(x.rcut)")
 end
+
 
 @doc raw"""
     fr(r, rcut)
@@ -237,7 +238,7 @@ function (f::ThreeBodyFeature)(out::AbstractMatrix, rij, rik, rjk, iat, istart=1
     i = istart
     for m in 1:f.np
         ijkp = fast_pow(fij, f.p[m]) * fast_pow(fik, f.p[m]) 
-        for o in 1:f.nq  # Note that q is summed in the inner loop
+        @inbounds for o in 1:f.nq  # Note that q is summed in the inner loop
             #out[i, iat] += (fij ^ f.p[m]) * (fik ^ f.p[m]) * (fjk ^ f.q[o])
             out[i, iat] += ijkp * fast_pow(fjk, f.q[o])
             i += 1
@@ -463,7 +464,7 @@ function Base.:+(a::CellFeature, b::CellFeature)
     CellFeature(elements, two_body, three_body)
 end
 
-
+Base.show(io::IO, x::CellFeature) = Base.show(io, MIME("text/plain"), x)
 """
 Options for constructing CellFeature
 """
@@ -483,7 +484,7 @@ end
 """
 Construct feature specifications
 """
-function CellFeature(elements; p2=2:8, p3=2:8, q3=2:8, rcut2=4.0, rcut3=3.0, f2=fr, g2=gfr, f3=fr, g3=gfr)
+function CellFeature(elements; p2=2:8, p3=p2, q3=p3, rcut2=4.0, rcut3=rcut2, f2=fr, g2=gfr, f3=fr, g3=gfr)
     
     # Sort the elements to ensure stability
     elements = sort(unique(elements))

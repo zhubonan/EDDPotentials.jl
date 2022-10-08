@@ -125,6 +125,8 @@ function create_ensemble(models::AbstractVector, x::AbstractVector, y::AbstractV
     EnsembleNNInterface(Tuple(models[mask]), weights[mask])
 end
 
+EnsembleNNInterface(models, fc::FeatureContainer;threshold=1e-9) = create_ensemble(models, get_fit_data(fc)...;threshold)
+
 predict_energy(itf::AbstractNNInterface, vec) = sum(itf(vec))
 
 """

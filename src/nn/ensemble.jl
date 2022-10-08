@@ -1,3 +1,4 @@
+import Base
 
 """
     EnsembleNNInterface{T<:Tuple} 
@@ -84,3 +85,10 @@ function setparamvector!(itf::EnsembleNNInterface, val)
 end
 
 nparams(itf::EnsembleNNInterface) = sum(nparams, itf.models)
+
+function Base.show(io::IO, m::MIME"text/plain", v::EnsembleNNInterface)
+    println(io, "EnsembleNNInterface:\nModels:")
+    show(io, m, v.models[1])
+    println(io, "\n...\nTotal: $(length(v.models)) models.")
+    println(io, "Weights: $(v.weights)")
+end

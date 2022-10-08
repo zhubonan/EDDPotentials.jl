@@ -115,19 +115,21 @@ function Base.show(io::IO, o::MIME"text/plain", v::StructureContainer)
     print(io, "  Min enthalpy_per_atom: $(minimum(enthalpy_per_atom(v)))")
 end
 
-function Base.show(io::IO, o::MIME"text/plain", v::FeatureContainer)
-    ls = length.(v.structures)
-    size_max = length(v.fvecs[findfirst(x -> x == maximum(ls), ls)])
-    size_min = length(v.fvecs[findfirst(x -> x == minimum(ls), ls)])
 
-    println(io, "StructureContainer:")
+function Base.show(io::IO, o::MIME"text/plain", v::FeatureContainer)
+    ls = length.(v.fvecs)
+    size_max = size(v.fvecs[findfirst(x -> x == maximum(ls), ls)])
+    size_min = size(v.fvecs[findfirst(x -> x == minimum(ls), ls)])
+
+    println(io, "FeatureContainer:")
     println(io, "  $(length(v)) data points ")
-    println(io, "  Max structure size: $(size_max)")
-    println(io, "  Min structure size: $(size_min)")
+    println(io, "  Max size size: $(size_max)")
+    println(io, "  Min size size: $(size_min)")
     println(io, "With CellFeature:")
     show(io, o, v.feature)
 end
 
+Base.show(io::IO, v::Union{StructureContainer, FeatureContainer}) = Base.show(io, MIME("text/plain"), v)
 
 """
     save_fc(fc, fname)
@@ -312,7 +314,9 @@ end
 """
     standardize!(fc::FeatureContainer)
 
-Standardise the data in the `FeatureContainer`. The feature vectors are modified.
+Standardize the data in the `FeatureContainer`. The feature vectors are modified.
+Note that only the input features are fitted and scaled, the outputs are only fitted
+but the standardisation is not applied.
 """
 function standardize!(fc::FeatureContainer; xt=nothing, yt=nothing)
     if xt === nothing
@@ -347,6 +351,11 @@ function standardize!(fc::FeatureContainer; xt=nothing, yt=nothing)
     fc
 end
 
+"""
+    standardize!(fc_train, fcs...) 
+
+Standardise multiple feature containers. Only the first argument is used for fitting.
+"""
 function standardize!(fc_train, fcs...) 
     standardize!(fc_train)
     for fc in fcs
@@ -354,6 +363,22 @@ function standardize!(fc_train, fcs...)
     end
 
 end
+
+"""
+    standardize(fc_train, fcs...) 
+
+Standardise multiple feature containers. Only the first argument is used for fitting.
+"""
+function standardize(fc_train, fcs...) 
+    _fc_train = deepcopy(fc_train)
+    _fcs = deepcopy.(fcs)
+    standardize!(_fc_train)
+    for fc in _fcs
+        standardize!(fc;xt=fc_train.xt, yt=fc_train.yt)
+    end
+    (_fc_train, _fcs...)
+end
+
 
 
 function get_fit_data(fc::FeatureContainer)
@@ -384,4 +409,29 @@ function reconstruct_x!(xt, x_train)
         end
     end
     x_train
+end
+
+
+function Base.:+(a::StructureContainer, b::StructureContainer)
+    StructureContainer(
+        vcat(a.paths, b.paths),
+        vcat(a.H, b.H),
+        vcat(a.structures, b.structures),
+        )
+end
+
+
+function Base.:+(a::FeatureContainer, b::FeatureContainer)
+    @assert a.feature == b.feature
+    @assert a.xt == b.xt
+    @assert a.yt == b.yt
+    FeatureContainer(
+        vcat(a.fvecs, b.fvecs),
+        a.feature,
+        vcat(a.H, b.H),
+        vcat(a.labels, b.labels),
+        vcat(a.metadata, b.metadata),
+        a.xt,
+        b.yt
+        )
 end
