@@ -165,6 +165,7 @@ function compute_three_body_fv_gv!(fb::ForceBuffer, features::Vector{T}, cell::C
                         @inbounds gvecs[j, iat, idx, jat] -= tjk[idx]
                         @inbounds gvecs[j, iat, idx, kat] += tjk[idx]
                     end
+                    iat==2 && jat==1 && i==1 && kextend == 95 &&@show(gvecs[2,2,1,3], jat, kextend)
                     # Stress (gradient on cell deformation)
                     sij = vij .* tij' ./ 2
                     sik = vik .* tik' ./ 2
@@ -258,8 +259,9 @@ function compute_three_body_fv_gv_new!(fb::ForceBuffer, features::Vector{T}, cel
     nat = natoms(cell)
     sym = species(cell)
     fvec[offset+1:offset+totalfe, :] .= 0 # Size of (nfe, nat) - feature vectors for each atom
-    gvecs[offset+1:offset+totalfe, :, :, :] .= 0 # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
-    svecs[offset+1:offset+totalfe, :, :, :, :] .= 0 # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
+
+    #gvecs[offset+1:offset+totalfe, :, :, :] .= 0 # Size of (nfe, nat, 3, nat) - gradients of the feature vectors to atoms
+    #svecs[offset+1:offset+totalfe, :, :, :, :] .= 0 # Size of (nfe, nat, 3, 3, nat) - gradient of the feature vectors to the cell deformation
 
     # All values of P
     npmax = maximum(length(x.p) for x in features)
@@ -268,15 +270,19 @@ function compute_three_body_fv_gv_new!(fb::ForceBuffer, features::Vector{T}, cel
 
     pij = zeros(npmax, lfeat)
     pij_1 = zeros(npmax, lfeat)
-    fij = zeros(lfeat)
+    inv_fij = zeros(lfeat)
 
     pik = zeros(npmax, lfeat)
     pik_1 = zeros(npmax, lfeat)
-    fik = zeros(lfeat)
+    inv_fik = zeros(lfeat)
 
     qjk = zeros(nqmax, lfeat)
     qjk_1 = zeros(nqmax, lfeat)
-    fjk = zeros(lfeat)
+    inv_fjk = zeros(lfeat)
+
+    # Forces
+    gtot = zeros(totalfe, nat, 3, nat)
+    stot = zeros(totalfe, nat, 3, 3)
 
 
     maxrcut = maximum(x -> x.rcut, features)
@@ -286,12 +292,13 @@ function compute_three_body_fv_gv_new!(fb::ForceBuffer, features::Vector{T}, cel
             # Compute pij
             for (i, feat) in enumerate(features)
                 ftmp = feat.f(rij, feat.rcut)
-                fij[i] = ftmp
+                inv_fij[i] = 1. / ftmp
                 @inbounds for j in 1:length(feat.p)
                     pij_1[j, i] = fast_pow(ftmp, feat.p[j]-1)
                     pij[j, i] = pij_1[j, i] * ftmp
                 end
             end
+            modvij = vij / rij
 
             for (kat, kextend, rik, vik) in CellBase.eachneighbourvector(nl, iat)
                 rik > maxrcut && continue
@@ -305,13 +312,15 @@ function compute_three_body_fv_gv_new!(fb::ForceBuffer, features::Vector{T}, cel
                 vjk = nl.ea.positions[kextend] .- nl.ea.positions[jextend]
                 rjk = norm(vjk)
                 rjk > maxrcut && continue
+                modvik = vik / rik
+                modvjk = vjk / rjk
 
                 # This is a valid pair - compute the distances
  
                 # Compute pik
                 for (i, feat) in enumerate(features)
                     ftmp = feat.f(rik, feat.rcut)
-                    fik[i] = ftmp
+                    inv_fik[i] = 1. / ftmp
                     @inbounds for j in 1:length(feat.p)
                         pik_1[j, i] = fast_pow(ftmp, feat.p[j]-1)
                         pik[j, i] = pik_1[j, i] * ftmp
@@ -321,7 +330,7 @@ function compute_three_body_fv_gv_new!(fb::ForceBuffer, features::Vector{T}, cel
                 # Compute pjk
                 for (i, feat) in enumerate(features)
                     ftmp = feat.f(rjk, feat.rcut)
-                    fjk[i] = ftmp
+                    inv_fjk[i] = 1. / ftmp
                     @inbounds for j in 1:length(feat.q)
                         qjk_1[j, i] = fast_pow(ftmp, feat.q[j]-1)
                         qjk[j, i] = qjk_1[j, i] * ftmp
@@ -341,60 +350,74 @@ function compute_three_body_fv_gv_new!(fb::ForceBuffer, features::Vector{T}, cel
                         gik = f.g(rik, rcut)
                         gjk = f.g(rjk, rcut)
                         i = ist  # Index of the element
-
                         for m in 1:f.np
                             # Cache computed value
                             ijkp = pij[m, ife] * pik[m, ife] 
-                            tmp = pij[m, ife] * pik_1[m, ife] 
-
                             for o in 1:f.nq  # Note that q is summed in the inner loop
                                 # Feature term
-                                fvec[i, iat] += ijkp * qjk[o, ife] 
-                                # Gradient - NOTE this can be optimised further...
-                                #g[1, i] += f.p[m] * fast_pow(fij, (f.p[m] - 1)) * fast_pow(fik, f.p[m]) * fast_pow(fjk, f.q[o]) * gij
-                                gbuffer[1, i] += f.p[m] * pij_1[m,ife] * pik[m, ife] * qjk[o, ife] * gij
-                                # g[2, i] += tmp  * f.p[m] * fast_pow(fjk, f.q[o]) * gik
-                                gbuffer[2, i] += tmp  * f.p[m] * qjk[o, ife] * gik
-                                # g[3, i] += ijkp * f.q[o] * fast_pow(fjk, (f.q[o] - 1)) * gjk
-                                gbuffer[3, i] += ijkp * f.q[o] * qjk_1[o, ife]  * gjk
+                                val = ijkp * qjk[o, ife]   
+                                fvec[i, iat] += val
+                                # dv/drij, dv/drik, dv/drjk
+                                gfij = f.p[m] * val * inv_fij[ife] * gij
+                                gfik = f.p[m] * val * inv_fik[ife] * gik
+                                gfjk = f.q[o] * val * inv_fjk[ife] * gjk
+
+                                # Apply chain rule to the the forces
+                                for elm in 1:length(vij)
+                                    gtot[i, iat, elm, iat] -= modvij[elm] * gfij
+                                    gtot[i, iat, elm, jat] += modvij[elm] * gfij
+                                    gtot[i, iat, elm, iat] -= modvik[elm] * gfik
+                                    gtot[i, iat, elm, kat] += modvik[elm] * gfik
+                                    gtot[i, iat, elm, jat] -= modvjk[elm] * gfjk
+                                    gtot[i, iat, elm, kat] += modvjk[elm] * gfjk
+                                end
+
+                                # Stress
+                                @inbounds for elm2 in 1:3, elm1 in 1:3
+                                    stot[i, iat, elm1, elm2] += vij[elm1] * modvij[elm2] * gfij
+                                    stot[i, iat, elm1, elm2] += vik[elm1] * modvik[elm2] * gfik
+                                    stot[i, iat, elm1, elm2] += vjk[elm1] * modvjk[elm2] * gfjk
+                                end
+
                                 i += 1
                             end
                         end
+                        # Incremeta the feature 
                     end
                     ist += nfe[ife]
                 end
-                # Update forces and the stres
-                for i = 1:totalfe
-                    j = i + offset
-                    tij = gbuffer[1, j] * vij / rij
-                    tik = gbuffer[2, j] * vik / rik
-                    tjk = gbuffer[3, j] * vjk / rjk
-                    # Gradient with positions
-                    for idx in 1:length(tij)
-                        @inbounds gvecs[j, iat, idx, iat] -= tij[idx]
-                        @inbounds gvecs[j, iat, idx, jat] += tij[idx]
-                        @inbounds gvecs[j, iat, idx, iat] -= tik[idx]
-                        @inbounds gvecs[j, iat, idx, kat] += tik[idx]
-                        @inbounds gvecs[j, iat, idx, jat] -= tjk[idx]
-                        @inbounds gvecs[j, iat, idx, kat] += tjk[idx]
-                    end
-                    # Stress (gradient on cell deformation)
-                    sij = vij .* tij' ./ 2
-                    sik = vik .* tik' ./ 2
-                    sjk = vjk .* tjk' ./ 2
-                    for jdx in 1:size(sij, 2)
-                        for idx in 1:size(sij, 1)
-                            @inbounds svecs[j, iat, idx, jdx, iat] += sij[idx, jdx]
-                            @inbounds svecs[j, iat, idx, jdx, jat] += sij[idx, jdx]
-                            @inbounds svecs[j, iat, idx, jdx, iat] += sik[idx, jdx]
-                            @inbounds svecs[j, iat, idx, jdx, kat] += sik[idx, jdx]
-                            @inbounds svecs[j, iat, idx, jdx, jat] += sjk[idx, jdx]
-                            @inbounds svecs[j, iat, idx, jdx, kat] += sjk[idx, jdx]
-                        end
-                    end
-                end
+                # # Update forces and the stres
+                # for i = 1:totalfe
+                #     j = i + offset
+                #     tij = gbuffer[1, j] * vij / rij
+                #     tik = gbuffer[2, j] * vik / rik
+                #     tjk = gbuffer[3, j] * vjk / rjk
+                #     # Gradient with positions
+                #     for idx in 1:length(tij)
+                #         @inbounds gvecs[j, iat, idx, iat] -= tij[idx]
+                #         @inbounds gvecs[j, iat, idx, jat] += tij[idx]
+                #         @inbounds gvecs[j, iat, idx, iat] -= tik[idx]
+                #         @inbounds gvecs[j, iat, idx, kat] += tik[idx]
+                #         @inbounds gvecs[j, iat, idx, jat] -= tjk[idx]
+                #         @inbounds gvecs[j, iat, idx, kat] += tjk[idx]
+                #     end
+                #     # Stress (gradient on cell deformation)
+                #     sij = vij .* tij' ./ 2
+                #     sik = vik .* tik' ./ 2
+                #     sjk = vjk .* tjk' ./ 2
+                #     for jdx in 1:size(sij, 2)
+                #         for idx in 1:size(sij, 1)
+                #             @inbounds svecs[j, iat, idx, jdx, iat] += sij[idx, jdx]
+                #             @inbounds svecs[j, iat, idx, jdx, jat] += sij[idx, jdx]
+                #             @inbounds svecs[j, iat, idx, jdx, iat] += sik[idx, jdx]
+                #             @inbounds svecs[j, iat, idx, jdx, kat] += sik[idx, jdx]
+                #             @inbounds svecs[j, iat, idx, jdx, jat] += sjk[idx, jdx]
+                #             @inbounds svecs[j, iat, idx, jdx, kat] += sjk[idx, jdx]
+                #         end
+                #     end
+                # end
             end
         end
     end
-    fvec, gvecs, svecs
+    fvec, gtot, stot
 end
