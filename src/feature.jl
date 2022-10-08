@@ -382,6 +382,93 @@ function feature_vector!(fvecs, features::Vector{T}, cell::Cell;nl=NeighbourList
 end
 
 """
+    feature_vector_new!(features::Vector{T}, cell::Cell) where T
+
+Compute the feature vector for each atom a give set of three body interactions.
+Improved version (only tested with single features)
+"""
+function feature_vector_new!(fvecs, features::Vector{T}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T<:ThreeBodyFeature}
+    nat = natoms(cell)
+    nfe = map(nfeatures, features) 
+    # Note - need to use twice the cut off to ensure distance between j-k is included
+    sym = species(cell)
+    # Set the feature vectors to be zero
+    fvecs[1+offset:sum(nfe) + offset, :] .= 0
+    rcut = maximum(x -> x.rcut, features)
+
+    # All values of P
+    npmax = maximum(length(x.p) for x in features)
+    # All values of q
+    nqmax = maximum(length(x.q) for x in features)
+
+    # Storage space for each p and q power
+    pij = zeros(npmax, length(features))
+    pik = zeros(npmax, length(features))
+    qjk = zeros(nqmax, length(features))
+    for iat = 1:nat
+        for (jat, jextend, rij) in eachneighbour(nl, iat)
+            rij > rcut && continue
+
+            for (i, feat) in enumerate(features)
+                ftmp = feat.f(rij, feat.rcut)
+                @inbounds for j in 1:length(feat.p)
+                    pij[j, i] = fast_pow(ftmp, feat.p[j])
+                end
+            end
+
+            for (kat, kextend, rik) in eachneighbour(nl, iat)
+                rik > rcut && continue
+                pjk_computed = false
+ 
+                # Avoid double counting i j k is the same as i k j
+                if kextend <= jextend 
+                    continue
+                end
+                # Compute the distance between extended j and k
+                rjk = distance_between(nl.ea.positions[jextend], nl.ea.positions[kextend])
+                rjk > rcut && continue
+
+                if !pjk_computed
+                    for (i, feat) in enumerate(features)
+                        ftmp = feat.f(rik, feat.rcut)
+                        @inbounds for j in 1:length(feat.p)
+                            pik[j, i] = fast_pow(ftmp, feat.p[j])
+                        end
+                    end
+                    pjk_computed = true
+                end
+
+                for (i, feat) in enumerate(features)
+                    ftmp = feat.f(rjk, feat.rcut)
+                    # for j in axes(f.p)
+                    #     pjk[j, i] = fast_pow(ftmp, f.p[j])
+                    # end
+                    @inbounds for j in 1:length(feat.q)
+                        qjk[j, i] = fast_pow(ftmp, feat.q[j])
+                    end
+                end
+
+                # accumulate the feature vector
+                ist = offset + 1
+                for (ife, feat) in enumerate(features)
+                    if permequal(feat.sijk_idx, sym[iat], sym[jat], sym[kat])
+                        # Construct feature vector using p, q powers
+                        for m in 1:feat.np
+                            ijkp = pij[m, ife] * pik[m, ife]
+                            for o in 1:feat.nq
+                                fvecs[ist, iat] += ijkp * qjk[o, ife]
+                                ist += 1
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    fvecs
+end
+
+"""
     two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func=fr)
 
 Construct a vector containing the TwoBodyFeatures
