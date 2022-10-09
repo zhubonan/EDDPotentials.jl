@@ -10,6 +10,14 @@ function _h2_cell(l=2.0, factor=1.0)
     0.1 0] .* factor
     Cell(Lattice(l, l, l), [:H, :H], tmp)
 end
+function _h2o_cell(l=4.0, factor=1.0)
+    tmp = Float64[0 0.1 1 
+    0 1 1 
+    0.1 0 1] .* factor
+    Cell(Lattice(l, l, l), [:H, :H, :O], tmp)
+end
+
+
 
 function _generate_cf(cell::Cell)
     cf = EDDP.CellFeature(
@@ -32,3 +40,5 @@ end
 function allclose(x, y;kwargs...)
     all(isapprox.(x, y; kwargs...))
 end
+
+datadir = joinpath(splitdir(@__FILE__)[1], "data")

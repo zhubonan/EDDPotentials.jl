@@ -6,7 +6,6 @@ using Flux
 using StatsBase
 using NLSolversBase
 
-
 @testset "Training Tools" begin
     nf = 1000
     data = vcat([rand(nf, 3) for _ in 1:10], [rand(nf, 2) for _ in 1:10])
@@ -70,7 +69,7 @@ using NLSolversBase
 end
 
 @testset "Ensemble" begin
-    path = "/home/bonan/appdir/jdev/CellTools-project/EDDP.jl/test/data/training/*.res" 
+    path = joinpath(datadir, "training/*.res")
     path = relpath(path, pwd())
     sc = EDDP.StructureContainer([path])
     cf = EDDP.CellFeature(EDDP.FeatureOptions(elements=[:B]))

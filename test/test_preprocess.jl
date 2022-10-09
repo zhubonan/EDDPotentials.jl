@@ -3,7 +3,7 @@ using CellBase
 using Test
 using StatsBase
 
-datadir = joinpath(splitdir(@__FILE__)[1], "data")
+include("utils.jl")
 @testset "Preprocess" begin
     fpath = joinpath(datadir, "training/*.res")
     fpath = relpath(fpath, pwd())
