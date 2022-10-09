@@ -58,12 +58,14 @@ using NLSolversBase
     # Check we have successfully performed the fit
     @test sum(out) ≈ y[2] atol=1e-5
 
-    data = vcat([rand(100, 3) for _ in 1:10], [rand(100, 2) for _ in 1:10])
+    # Highly overfitted linear case....
+    nf = 1000
+    data = vcat([rand(nf, 3) for _ in 1:10], [rand(nf, 2) for _ in 1:10])
     y = size.(data, 2) ./ 2
-    model = EDDP.LinearInterface(rand(1, 100))
+    model = EDDP.LinearInterface(rand(1, nf))
 
-    opt_res, _, _ = EDDP.train!(model, data, y;)
-    @test sum(model(data[2])) ≈ 1.5 atol=0.1
+    opt_res, _, _ = EDDP.train!(model, data, y;earlystop=0)
+    @show sum(model(data[2])) ≈ 1.5 atol=1e-1
 end
 
 @testset "Ensemble" begin
