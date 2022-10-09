@@ -141,7 +141,37 @@ function _need_calc(calc::NNCalc, forces)
     return true
 end
 
+"""
+Calculate with on-the-fly gradient accumulation.
+"""
+function calculate_gotf!(calc::NNCalc; forces=true, rebuild_nl=true)
+    # Nothing to do if the cell has not changed since last time
 
+    _need_calc(calc, forces) || return
+
+    # Update the feature vector for the forward pass
+    update_feature_vector!(calc; rebuild_nl, gradients=false)
+    calc.eng .= forward!(calc.nninterface, calc.v)[1, :]
+    calc.energy_calculated = true
+    if  forces
+        calc.forces_calculated = false
+        fill!(calc.stress, 0.0)
+        fill!(calc.forces, 0.0)
+
+        backward!(calc.nninterface; gu=one(eltype(calc.v)), weight_and_bias=false)
+        # Calculate the gradient of the feature vectors on the outputs (energies)
+        gradinp!(calc.gv, calc.nninterface)
+
+        # Apply chain rule to get the forces while updating the feature vectors 
+        update_feature_vector!(calc; rebuild_nl=false,
+                               gradients=true, gv=calc.gv, gv_offset=EDDP.feature_size(calc.cf)[1])
+        calc.stress ./= volume(get_cell(calc))
+        calc.forces_calculated = true
+        calc.energy_calculated = true
+        # Update as the last calculated cell
+    end
+    copycell!(calc.cell, calc.last_cell)
+end
 
 function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
     # Nothing to do if the cell has not changed since last time
@@ -177,7 +207,7 @@ end
 
 Returns the updated the feature vectors after atomic displacements
 """
-function update_feature_vector!(calc::NNCalc; rebuild_nl=true, gradients=true, global_minsep=0.01, maxvol=100)
+function update_feature_vector!(calc::NNCalc; rebuild_nl=true, gradients=true, global_minsep=0.01, maxvol=100, gv=nothing, gv_offset=feature_size(calc.cf)[1])
 
     cell = get_cell(calc)
     nl = calc.nl
@@ -189,7 +219,11 @@ function update_feature_vector!(calc::NNCalc; rebuild_nl=true, gradients=true, g
     one_body_vectors!(calc.v, cell, calc.cf)
     n1bd, n2bd, _ = feature_size(calc.cf)
     if gradients
-        compute_fv_gv!(calc.force_buffer, calc.cf.two_body, calc.cf.three_body, cell;nl)
+        if isnothing(gv)
+            compute_fv_gv!(calc.force_buffer, calc.cf.two_body, calc.cf.three_body, cell;nl)
+        else
+            compute_fv_gv!(calc.force_buffer, calc.cf.two_body, calc.cf.three_body, cell, gv;nl, gv_offset)
+        end
     else
         feature_vector!(calc.force_buffer.fvec, calc.cf.two_body, calc.cf.three_body, cell; nl)
     end

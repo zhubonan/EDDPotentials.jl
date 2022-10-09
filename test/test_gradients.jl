@@ -178,4 +178,21 @@ end
     od = OnceDifferentiable(x -> _fd_energy(vc, x), epos, _fd_energy(vc, epos);inplace=false)
     grad= NLSolversBase.gradient(od, epos)
     @test allclose(grad, -eforce, atol=5e-3, rtol=1e-4)
+
+
+    # Test using optimised routine
 end
+
+include("utils.jl")
+calc = _get_calc()
+calc
+
+calc.energy_calculated = false
+calc.forces_calculated = false
+EDDP.calculate!(calc)
+calc.force_buffer.forces
+calc.force_buffer.stress
+
+calc.energy_calculated = false
+calc.forces_calculated = false
+EDDP.calculate_old!(calc)
