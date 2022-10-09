@@ -243,7 +243,8 @@ end
 Compute the feature vector for a given set of two and three body interactions, compute gradients as well.
 Optimised version with reduced computational cost....
 """
-function compute_fv_gv_new!(fb::ForceBuffer, features2::Vector{N}, features3::Vector{T}, cell::Cell;nl=NeighbourList(cell, maximum(x.rcut for x in (features2..., features3...));savevec=true)) where {T<:ThreeBodyFeature, N<:TwoBodyFeature}
+function compute_fv_gv_new!(fb::ForceBuffer, features2, features3, cell::Cell;nl=NeighbourList(cell, maximum(x.rcut for x in (features2..., features3...));
+                            savevec=true, offset=0)) 
    
     # Main quantities
     fvec = fb.fvec  # Size (nfe, nat)
@@ -300,8 +301,14 @@ function compute_fv_gv_new!(fb::ForceBuffer, features2::Vector{N}, features3::Ve
             modvij = vij / rij
 
             # Update two body features and forces
-            i = 1
+            i = 1 + offset
             for (ife, f) in enumerate(features2)
+                # Skip if this rij is not for this feature
+                if !permequal(feat.sij_idx, sym[iat], sym[jat]) 
+                    i += f.np
+                    continue
+                end
+
                 fij2 = f.f(rij, f.rcut)
                 # df(rij)/drij
                 gij = f.g(rij, f.rcut)
@@ -311,12 +318,12 @@ function compute_fv_gv_new!(fb::ForceBuffer, features2::Vector{N}, features3::Ve
                     # Force updates df(rij)^p/drij
                     gfij = f.p[m] * val / fij2 * gij
                     # For update 
-                    for elm in 1:length(vij) 
+                    @inbounds for elm in 1:length(vij) 
                         gtot[elm, i, iat, iat] -= modvij[elm] * gfij
                         gtot[elm, i, iat, jat] += modvij[elm] * gfij
                     end
                     # Stress update
-                    for elm2 in 1:3
+                    @inbounds for elm2 in 1:3
                         for elm1 in 1:3
                             stot[elm1, elm2, i, iat] += vij[elm1] * modvij[elm2] * gfij
                         end
@@ -325,6 +332,10 @@ function compute_fv_gv_new!(fb::ForceBuffer, features2::Vector{N}, features3::Ve
                 end
             end
 
+            # Skip three body update if no three-body feature is passed
+            if length(features3) == 0
+                continue
+            end
 
             #### Update three body features and forces
 
@@ -364,53 +375,57 @@ function compute_fv_gv_new!(fb::ForceBuffer, features2::Vector{N}, features3::Ve
                         qjk[j, i] = qjk_1[j, i] * ftmp
                     end
                 end
-
-                ist = totalfe2 + 1
+                
+                # Starting index for three-body feature udpate
+                i = totalfe2 + 1 + offset
                 for (ife, f) in enumerate(features3)
-                    if permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-                        # populate the buffer storing the gradients against rij, rik, rjk
-                        rcut = f.rcut
-                        gij = f.g(rij, rcut)
-                        gik = f.g(rik, rcut)
-                        gjk = f.g(rjk, rcut)
-                        i = ist  # Index of the element
-                        for m in 1:f.np
-                            # Cache computed value
-                            ijkp = pij[m, ife] * pik[m, ife] 
-                            for o in 1:f.nq  # Note that q is summed in the inner loop
-                                # Feature term
-                                val = ijkp * qjk[o, ife]   
-                                fvec[i, iat] += val
-                                # dv/drij, dv/drik, dv/drjk
-                                gfij = f.p[m] * val * inv_fij[ife] * gij
-                                gfik = f.p[m] * val * inv_fik[ife] * gik
-                                gfjk = f.q[o] * val * inv_fjk[ife] * gjk
 
-                                # Apply chain rule to the the forces
-                                @inbounds @fastmath @simd for elm in 1:length(vij)
-                                    gtot[elm, i, iat, iat] -= modvij[elm] * gfij
-                                    gtot[elm, i, iat, jat] += modvij[elm] * gfij
-                                    gtot[elm, i, iat, iat] -= modvik[elm] * gfik
-                                    gtot[elm, i, iat,  kat] += modvik[elm] * gfik
-                                    gtot[elm, i, iat, jat] -= modvjk[elm] * gfjk
-                                    gtot[elm, i, iat, kat] += modvjk[elm] * gfjk
-                                end
-
-                                # Stress
-                                @inbounds @fastmath for elm2 in 1:3
-                                    @simd for elm1 in 1:3
-                                        stot[elm1, elm2, i, iat] += vij[elm1] * modvij[elm2] * gfij
-                                        stot[elm1, elm2, i, iat] += vik[elm1] * modvik[elm2] * gfik
-                                        stot[elm1, elm2, i, iat] += vjk[elm1] * modvjk[elm2] * gfjk
-                                    end
-                                end
-
-                                i += 1
-                            end
-                        end
-                        # Incremeta the feature 
+                    # Not for this triplets of atoms....
+                    if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
+                        i += nfe3[ife]
+                        continue
                     end
-                    ist += nfe3[ife]
+
+                    # populate the buffer storing the gradients against rij, rik, rjk
+                    rcut = f.rcut
+                    # df(r)/dr
+                    gij = f.g(rij, rcut)
+                    gik = f.g(rik, rcut)
+                    gjk = f.g(rjk, rcut)
+                    for m in 1:f.np
+                        # Cache computed value
+                        ijkp = pij[m, ife] * pik[m, ife] 
+                        for o in 1:f.nq  # Note that q is summed in the inner loop
+                            # Feature term
+                            val = ijkp * qjk[o, ife]   
+                            fvec[i, iat] += val
+                            # dv/drij, dv/drik, dv/drjk
+                            gfij = f.p[m] * val * inv_fij[ife] * gij
+                            gfik = f.p[m] * val * inv_fik[ife] * gik
+                            gfjk = f.q[o] * val * inv_fjk[ife] * gjk
+
+                            # Apply chain rule to the the forces
+                            @inbounds @fastmath @simd for elm in 1:length(vij)
+                                gtot[elm, i, iat, iat] -= modvij[elm] * gfij
+                                gtot[elm, i, iat, jat] += modvij[elm] * gfij
+                                gtot[elm, i, iat, iat] -= modvik[elm] * gfik
+                                gtot[elm, i, iat, kat] += modvik[elm] * gfik
+                                gtot[elm, i, iat, jat] -= modvjk[elm] * gfjk
+                                gtot[elm, i, iat, kat] += modvjk[elm] * gfjk
+                            end
+
+                            # Stress
+                            @inbounds @fastmath for elm2 in 1:3
+                                @simd for elm1 in 1:3
+                                    stot[elm1, elm2, i, iat] += vij[elm1] * modvij[elm2] * gfij
+                                    stot[elm1, elm2, i, iat] += vik[elm1] * modvik[elm2] * gfik
+                                    stot[elm1, elm2, i, iat] += vjk[elm1] * modvjk[elm2] * gfjk
+                                end
+                            end
+                            # Increment the feature index
+                            i += 1
+                        end
+                    end
                 end  # 3body-feature update loop 
             end # i,j,k pair
         end
