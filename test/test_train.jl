@@ -8,14 +8,15 @@ using NLSolversBase
 
 
 @testset "Training Tools" begin
-    data = vcat([rand(100, 3) for _ in 1:10], [rand(100, 2) for _ in 1:10])
+    nf = 1000
+    data = vcat([rand(nf, 3) for _ in 1:10], [rand(nf, 2) for _ in 1:10])
 
     f = zeros(length(data))
     y = rand(length(data))
     yt = StatsBase.fit(StatsBase.ZScoreTransform, reshape(y, 1, length(y)), dims=2)
 
     model = EDDP.ManualFluxBackPropInterface(
-        Chain(Dense(rand(1, 100), rand(1), tanh)), yt=yt)
+        Chain(Dense(rand(1, nf), rand(1), tanh)), yt=yt)
     EDDP.compute_objectives(f, model, data, f)
     @test any(f != 0.)
 
@@ -50,7 +51,7 @@ using NLSolversBase
 
     # Test with training config
     model = EDDP.ManualFluxBackPropInterface(
-        Chain(Dense(rand(1, 100), rand(1))), 
+        Chain(Dense(rand(1, nf), rand(1))), 
         )
 
     EDDP.train!(model, data, y;)
