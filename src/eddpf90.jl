@@ -9,7 +9,7 @@ function write_features(fc::FeatureContainer, outfile)
     ntot = length(fc)
     fsize = feature_size(fc.feature)
     pw = join(string.(fc.feature.two_body[1].p), " ") 
-    rmax = suggest_rcut(fc.feature, 0.)
+    rmax = suggest_rcut(fc.feature;offset=1.0)
     open(outfile, "w") do io
         for i in 1:ntot
             feat = fc.fvecs[i]

@@ -189,13 +189,9 @@ function update_feature_vector!(calc::NNCalc; rebuild_nl=true, gradients=true, g
     one_body_vectors!(calc.v, cell, calc.cf)
     n1bd, n2bd, _ = feature_size(calc.cf)
     if gradients
-        compute_two_body_fv_gv!(calc.force_buffer, calc.cf.two_body, cell; nl)
-        compute_three_body_fv_gv!(calc.force_buffer, calc.cf.three_body, cell; nl, offset=n2bd)
-        # Update total stress - simple summartion of the atomic contributions
-        calc.force_buffer.stotv .= sum(calc.force_buffer.svec, dims=5)
+        compute_fv_gv!(calc.force_buffer, calc.cf.two_body, calc.cf.three_body, cell;nl)
     else
-        feature_vector!(calc.force_buffer.fvec, calc.cf.two_body, cell; nl)
-        feature_vector!(calc.force_buffer.fvec, calc.cf.three_body, cell; nl, offset=n2bd)
+        feature_vector!(calc.force_buffer.fvec, calc.cf.two_body, calc.cf.three_body, cell; nl)
     end
     # Construct the combined feature vector that includes onebody interactions
     calc.v[n1bd+1:end, :] .= calc.force_buffer.fvec

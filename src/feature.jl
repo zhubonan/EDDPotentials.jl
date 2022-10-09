@@ -694,14 +694,20 @@ end
 """
 Get a suggested rcut for NN list for a CellFeature
 """
-function suggest_rcut(cf::CellFeature, offset=1.0)
+function suggest_rcut(cf::CellFeature;offset=1.0)
     r3 = maximum(x.rcut for x in cf.two_body)
     r2 = maximum(x.rcut for x in cf.three_body)
     max(r3, r2) + offset
 end
 
 """
-    compute_fv_gv_new!(fvecs, gvecs, features::Vector{ThreeBodyFeature}, cell::Cell;nl=NeighbourList(cell, features[1].rcut))
+Get a suggested rcut for NN list for a CellFeature
+"""
+function suggest_rcut(features...;offset=1.0)
+    maximum(x.rcut for x in features) + offset
+end
+"""
+    compute_fv_gv!(fvecs, gvecs, features::Vector{ThreeBodyFeature}, cell::Cell;nl=NeighbourList(cell, features[1].rcut))
 
 Compute the feature vector for a given set of two and three body interactions, compute gradients as well.
 Optimised version with reduced computational cost....
@@ -756,7 +762,7 @@ function feature_vector!(fvec, features2::Vector, features3::Vector, cell::Cell;
             # Update two body features
             i = 1 + offset
             for (ife, f) in enumerate(features2)
-                if permequal(feat.sij_idx, sym[iat], sym[jat]) 
+                if permequal(f.sij_idx, sym[iat], sym[jat]) 
                     fij = f.f(rij, f.rcut)
                     for m in 1:f.np
                         fvec[i, iat] += fast_pow(fij, f.p[m])
@@ -830,5 +836,5 @@ function feature_vector!(fvec, features2::Vector, features3::Vector, cell::Cell;
             end # i,j,k pair
         end
     end
-    fvec, gtot, stot
+    fvec
 end

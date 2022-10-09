@@ -9,22 +9,6 @@ using JLD2
 using Dates
 using UUIDs
 
-# """
-#     VariableLatticeFilter(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
-
-# Generate a VariableLatticeFilter that handles variable cell relaxation
-# """
-# function VariableLatticeFilter(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
-#     calc = CellCalculator(cell, ensemble, cf;copy_cell, rcut, nmax)
-#     VariableLatticeFilter(calc)
-# end
-
-# function CellCalculator(cell::Cell, ensemble::ModelEnsemble, cf::CellFeature;copy_cell=true, rcut=suggest_rcut(cf), nmax=500)
-#     copy_cell && deepcopy(cell)
-#     cw = CellWorkSpace(cell;cf, nmax, rcut)
-#     CellCalculator(cw, ensemble)
-# end
-
 function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;energy_threshold=20., savepath="relaxed", skip_existing=true)
 
     ensemble = jldopen(en_path) do file

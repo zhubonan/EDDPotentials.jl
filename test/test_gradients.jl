@@ -61,20 +61,17 @@ end
 include("utils.jl")
 
 @testset "Force buffer" begin
+
     cell = _h2_cell()
     cf = _generate_cf(cell)
     fvec = vcat(EDDP.feature_vector(cf.two_body, cell), EDDP.feature_vector(cf.three_body, cell))
     fb = EDDP.ForceBuffer(fvec;ndims=3)
 
-    g2 = EDDP.compute_two_body_fv_gv!(fb, cf.two_body, cell)
-    if !isempty(cf.three_body)
-        EDDP.compute_three_body_fv_gv!(fb, cf.three_body, cell;offset=2)
-    end
-    EDDP._collect_stress!(fb)
+    fvec, gvec, stotv = EDDP.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell)
 
     # Gradients
     gvec = fb.gvec
-    stotv = sum(fb.svec, dims=5)
+    stotv = fb.stotv
 
     function fv(cell, cf, pos)
         pb = get_positions(cell)
@@ -102,14 +99,14 @@ include("utils.jl")
     p0 = cell.positions
     od = NLSolversBase.OnceDifferentiable( x -> fv(cell, cf, x), p0, fv(cell, cf, p0); 
                                           inplace=false)
-    jac = NLSolversBase.jacobian!(od, p0)
-    @test allclose(vec(jac), vec(gvec), atol=1e-7)
+    jac = reshape(NLSolversBase.jacobian!(od, p0), 3, 2, 3, 2)
+    @test allclose(permutedims(gvec, [2,3,1,4]), jac;atol=1e-7)
 
     s0 = zeros(9)
     od = NLSolversBase.OnceDifferentiable( x -> sv(cell, cf, x), s0, sv(cell, cf, s0); 
                                           inplace=false)
     jac = NLSolversBase.jacobian!(od, s0)
-    @test allclose(vec(jac), vec(stotv), atol=1e-3)
+    @test allclose(vec(jac), vec(permutedims(stotv, [3,4,1,2])), atol=1e-3)
 
 end
 
@@ -128,13 +125,13 @@ global    calc = _get_calc()
     od = NLSolversBase.OnceDifferentiable( x -> _fd_features(calc, x), p0, _fd_features(calc, p0); 
                                           inplace=false)
     jac = NLSolversBase.jacobian!(od, p0)
+
+    # Check consistency with numerical differentiation
+    gtot = permutedims(gtot, [2,3,1,4])
     jac = reshape(jac, size(gtot))
 
-    # Two body part
     _, n2, n2 = EDDP.feature_size(calc.cf)
     @test all(isapprox.(jac, gtot,  atol=1e-5))
-    # Three body part
-    @test allclose(jac, gtot,  atol=1e-5)
 
 
     # ### Check for stress
@@ -143,6 +140,7 @@ global    calc = _get_calc()
     sjac = reshape(NLSolversBase.jacobian!(od, s0),
                   sum(EDDP.feature_size(calc.cf)[2:end]), length(get_cell(calc)), 3,3)
     sd = calc.force_buffer.stotv
+    sd = permutedims(sd, [3,4,1,2])
     # Accuracy of this numerical differentiation is not so good...
     @test allclose(sjac, sd, atol=1e-2)
 end
