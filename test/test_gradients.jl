@@ -182,17 +182,3 @@ end
 
     # Test using optimised routine
 end
-
-include("utils.jl")
-calc = _get_calc()
-calc
-
-calc.energy_calculated = false
-calc.forces_calculated = false
-EDDP.calculate!(calc)
-calc.force_buffer.forces
-calc.force_buffer.stress
-
-calc.energy_calculated = false
-calc.forces_calculated = false
-EDDP.calculate_old!(calc)
