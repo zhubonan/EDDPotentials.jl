@@ -1,6 +1,8 @@
 #=
 Code related to taking gradients
 =#
+using StaticArrays
+using Base.Threads
 include("repulsive_core.jl")
 
 """
@@ -78,18 +80,6 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
     # All values of q
     nqmax3 = maximum(length(x.q) for x in features3)
 
-    pij = zeros(npmax3, lfe3)
-    pij_1 = zeros(npmax3, lfe3)
-    inv_fij = zeros(lfe3)
-
-    pik = zeros(npmax3, lfe3)
-    pik_1 = zeros(npmax3, lfe3)
-    inv_fik = zeros(lfe3)
-
-    qjk = zeros(nqmax3, lfe3)
-    qjk_1 = zeros(nqmax3, lfe3)
-    inv_fjk = zeros(lfe3)
-
     # Reset all gradients to zero
     fill!(fvec, 0)
     fill!(gtot, 0)
@@ -101,12 +91,28 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
 
-    for iat = 1:nat
+    Threads.@threads for iat = 1:nat
+    #for iat = 1:nat
+
+        pij = zeros(npmax3, lfe3)
+        pij_1 = zeros(npmax3, lfe3)
+        inv_fij = zeros(lfe3)
+
+        pik = zeros(npmax3, lfe3)
+        pik_1 = zeros(npmax3, lfe3)
+        inv_fik = zeros(lfe3)
+
+        qjk = zeros(nqmax3, lfe3)
+        qjk_1 = zeros(nqmax3, lfe3)
+        inv_fjk = zeros(lfe3)
+        gtmp3 = zeros(maximum(x.nq for x in features3))
+
         for (jat, jextend, rij, vij) in CellBase.eachneighbourvector(nl, iat)
             rij > maxrcut && continue
             # Compute pij
             for (i, feat) in enumerate(features3)
                 ftmp = feat.f(rij, feat.rcut)
+                # 1/f(rij)
                 inv_fij[i] = 1. / ftmp
                 @inbounds for j in 1:length(feat.p)
                     pij_1[j, i] = fast_pow(ftmp, feat.p[j]-1)
@@ -232,27 +238,27 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
                     # populate the buffer storing the gradients against rij, rik, rjk
                     rcut = f.rcut
                     # df(r)/dr
-                    gij = f.g(rij, rcut)
-                    gik = f.g(rik, rcut)
-                    gjk = f.g(rjk, rcut)
+                    gij = f.g(rij, rcut) * inv_fij[ife]
+                    gik = f.g(rik, rcut) * inv_fik[ife]
+                    gjk = f.g(rjk, rcut) * inv_fjk[ife]
+                    for o in 1:f.nq
+                        gtmp3[o] = gjk * f.q[o] 
+                    end
                     @inbounds for m in 1:f.np
                         # Cache computed value
                         ijkp = pij[m, ife] * pik[m, ife] 
+                        tmp1 = f.p[m] * gij
+                        tmp2 = f.p[m] * gik
                         @inbounds for o in 1:f.nq  # Note that q is summed in the inner loop
                             # Feature term
                             val = ijkp * qjk[o, ife]   
                             fvec[i, iat] += val
 
                             # dv/drij, dv/drik, dv/drjk
-                            if val != 0.
-                                gfij = f.p[m] * val * inv_fij[ife] * gij
-                                gfik = f.p[m] * val * inv_fik[ife] * gik
-                                gfjk = f.q[o] * val * inv_fjk[ife] * gjk
-                            else
-                                gfij = zero(val)
-                                gfik = zero(val)
-                                gfjk = zero(val)
-                            end
+                            val == 0 && continue
+                            gfij = tmp1 * val
+                            gfik = tmp2 * val 
+                            gfjk = gtmp3[o] * val
 
                             # Apply chain rule to the the forces
                             @inbounds @fastmath @simd for elm in 1:length(vij)

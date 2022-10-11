@@ -27,7 +27,7 @@ include("utils.jl")
             Dense(rand(5, EDDP.nfeatures(cf))), Dense(rand(1, 5))
             )
             )
-        calc = EDDP.NNCalc(cell, cf, nnitf)
+        calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
         nnitf.chain(calc.v)
         
         cell2 = deepcopy(cell)
@@ -48,10 +48,12 @@ include("utils.jl")
 
         # Test against small displacements finite displacements
         _test_forces_fd(calc)
+        global this_calc
+        this_calc=calc
     end
     @testset "Linear" begin
         nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
-        calc = EDDP.NNCalc(cell, cf, nnitf)
+        calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
         eng = get_energy(calc)
         forces = get_forces(calc)
         stress = get_stress(calc)
