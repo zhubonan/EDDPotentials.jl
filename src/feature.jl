@@ -711,8 +711,10 @@ end
 
 Compute the feature vector for a given set of two and three body interactions, compute gradients as well.
 Optimised version with reduced computational cost....
+
+Returns the feature vector and the core repulsion energy if any.
 """
-function feature_vector!(fvec, features2::Vector, features3::Vector, cell::Cell;nl=NeighbourList(cell, maximum(x.rcut for x in (features2..., features3...));savevec=true), offset=0) 
+function feature_vector!(fvec, features2::Vector, features3::Vector, cell::Cell;nl=NeighbourList(cell, maximum(x.rcut for x in (features2..., features3...));savevec=true), offset=0, core=nothing) 
    
     nfe3 = map(nfeatures, features3) 
     lfe3 = length(features3)
@@ -745,10 +747,15 @@ function feature_vector!(fvec, features2::Vector, features3::Vector, cell::Cell;
     fill!(fvec, 0)
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
-
+    ecore = 0.
     for iat = 1:nat
         for (jat, jextend, rij) in CellBase.eachneighbour(nl, iat)
             rij > maxrcut && continue
+
+            if !isnothing(core)
+                ecore += core.f(rij, core.rcut) * core.a
+            end
+
             # Compute pij
             for (i, feat) in enumerate(features3)
                 ftmp = feat.f(rij, feat.rcut)
@@ -836,5 +843,5 @@ function feature_vector!(fvec, features2::Vector, features3::Vector, cell::Cell;
             end # i,j,k pair
         end
     end
-    fvec
+    fvec, ecore
 end

@@ -65,9 +65,20 @@ include("utils.jl")
     cell = _h2_cell()
     cf = _generate_cf(cell)
     fvec = vcat(EDDP.feature_vector(cf.two_body, cell), EDDP.feature_vector(cf.three_body, cell))
-    fb = EDDP.ForceBuffer(fvec;ndims=3)
+    fb = EDDP.ForceBuffer(fvec;ndims=3,core=nothing)
 
     fvec, gvec, stotv = EDDP.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell)
+    @test allclose(fb.fcore, zeros(size(fb.fcore)))
+    @test allclose(fb.score, zeros(3,3))
+    @test fb.ecore[1] == 0
+
+    # With increased core size
+    fb = EDDP.ForceBuffer(fvec;ndims=3,core=EDDP.CoreReplusion(2.))
+    fvec, gvec, stotv = EDDP.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell)
+    @test !allclose(fb.fcore, zeros(size(fb.fcore)))
+    @test fb.ecore[1] != 0
+    @test fb.score[1] != zeros(3,3)
+
 
     # Gradients
     gvec = fb.gvec
@@ -180,5 +191,4 @@ end
     @test allclose(grad, -eforce, atol=5e-3, rtol=1e-4)
 
 
-    # Test using optimised routine
 end

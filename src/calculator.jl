@@ -92,12 +92,12 @@ end
 
 
 function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; rcut=suggest_rcut(cf),
-    nmax=500, savevec=true) where {T}
+    nmax=500, savevec=true, core=CoreReplusion(1.0)) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
     v2 = zeros(T, sum(feature_size(cf)[2:end]), length(cell))
 
-    fb = ForceBuffer(v2) # Buffer for force calculation 
+    fb = ForceBuffer(v2;core) # Buffer for force calculation 
     NNCalc(cell,
         deepcopy(cell),
         nl,
@@ -117,7 +117,8 @@ end
 
 function get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     calculate!(calc; forces, rebuild_nl)
-    sum(calc.eng)
+    # Include the core energy if any
+    sum(calc.eng) + calc.force_buffer.ecore[1]
 end
 
 function get_forces(calc::NNCalc; rebuild_nl=true)
@@ -225,7 +226,7 @@ function update_feature_vector!(calc::NNCalc; rebuild_nl=true, gradients=true, g
             compute_fv_gv!(calc.force_buffer, calc.cf.two_body, calc.cf.three_body, cell, gv;nl, gv_offset)
         end
     else
-        feature_vector!(calc.force_buffer.fvec, calc.cf.two_body, calc.cf.three_body, cell; nl)
+        _, calc.force_buffer.ecore[1] = feature_vector!(calc.force_buffer.fvec, calc.cf.two_body, calc.cf.three_body, cell; nl)
     end
     # Construct the combined feature vector that includes onebody interactions
     calc.v[n1bd+1:end, :] .= calc.force_buffer.fvec

@@ -1,13 +1,14 @@
 #=
 Code related to taking gradients
 =#
+include("repulsive_core.jl")
 
 """
     ForceBuffer{T}
 
 Buffer for storing forces and stress and support their calculations
 """
-struct ForceBuffer{T}
+struct ForceBuffer{T, N}
     fvec::Array{T, 2}
     "dF/dri"
     gvec::Array{T, 4}
@@ -15,27 +16,30 @@ struct ForceBuffer{T}
     stotv::Array{T, 4}
     "Calculated forces"
     forces::Array{T, 2}
+    fcore::Array{T, 2}
+    ecore::Array{T, 1}
     "Calculated stress"
     stress::Array{T, 2}
+    score::Array{T,2}
     gbuffer::Matrix{T}
+    core::N
 end
 
 
 """
 Initialise a buffer for computing forces
 """
-function ForceBuffer(fvec::Matrix{T};ndims=3) where {T}
+function ForceBuffer(fvec::Matrix{T};ndims=3, core=nothing) where {T}
     nf, nat = size(fvec)
     gvec = zeros(T, ndims, nf, nat, nat)
     stotv = zeros(T, ndims, ndims, nf, nat)
     forces = zeros(T, ndims, nat)
+    fcore = zeros(T, ndims, nat)
     stress = zeros(T, ndims, ndims)
-    ForceBuffer(fvec, gvec, stotv, forces, stress, zeros(T, 3, nf))
+    ecore = zeros(T, 1)
+    score = zeros(T, ndims, ndims)
+    ForceBuffer(fvec, gvec, stotv, forces, fcore, ecore, stress, score, zeros(T, ndims, nf), core)
 end
-
-
-
-
 
 
 
@@ -45,13 +49,18 @@ end
 Compute the feature vector for a given set of two and three body interactions, compute gradients as well.
 Optimised version with reduced computational cost....
 """
-function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;nl=NeighbourList(cell, maximum(x.rcut for x in (features2..., features3...));
-                            savevec=true), offset=0) 
+function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
+                        nl=NeighbourList(cell, maximum(x.rcut for x in (features2..., features3...));savevec=true), 
+                        offset=0,
+                        ) 
    
     # Main quantities
     fvec = fb.fvec  # Size (nfe, nat)
     gtot = fb.gvec  # Size (3, nfe, nat, nat)
     stot = fb.stotv # Size (3, 3, totalfe, nat)
+    fcore = fb.fcore
+    score = fb.score
+    core = fb.core
 
 
     nfe3 = map(nfeatures, features3) 
@@ -85,6 +94,10 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;nl=Nei
     fill!(fvec, 0)
     fill!(gtot, 0)
     fill!(stot, 0)
+    fill!(fcore, 0)
+    fill!(score, 0)
+
+    ecore = 0.
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
 
@@ -101,6 +114,27 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;nl=Nei
                 end
             end
             modvij = vij / rij
+
+            # Add hard core repulsion
+            if !isnothing(core)
+                ecore += core.f(rij, core.rcut) * core.a
+
+                # forces
+                gcore = core.g(rij, core.rcut) * core.a
+                @inbounds for elm in 1:length(modvij)
+                    # Newton's second law - only need to update this atom
+                    # as we also go through the same ij pair with ji 
+                    if iat != jat
+                        fcore[elm, iat] -=  gcore * modvij[elm]
+                        fcore[elm, jat] +=  gcore * modvij[elm]
+                    end
+                end
+                for elm1 in 1:3
+                    for elm2 in 1:3
+                        @inbounds score[elm1, elm2] += vij[elm1] * modvij[elm2] * gcore
+                    end
+                end
+            end
 
             # Update two body features and forces
             i = 1 + offset
@@ -124,10 +158,12 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;nl=Nei
                         gfij = zero(val)
                     end
 
-                    # For update 
+                    # Force update 
                     @inbounds for elm in 1:length(vij) 
-                        gtot[elm, i, iat, iat] -= modvij[elm] * gfij
-                        gtot[elm, i, iat, jat] += modvij[elm] * gfij
+                        if iat != jat 
+                            gtot[elm, i, iat, iat] -= modvij[elm] * gfij
+                            gtot[elm, i, iat, jat] += modvij[elm] * gfij
+                        end
                     end
                     # Stress update
                     @inbounds for elm2 in 1:3
@@ -220,20 +256,20 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;nl=Nei
 
                             # Apply chain rule to the the forces
                             @inbounds @fastmath @simd for elm in 1:length(vij)
-                                gtot[elm, i, iat, iat] -= modvij[elm] * gfij
-                                gtot[elm, i, iat, jat] += modvij[elm] * gfij
-                                gtot[elm, i, iat, iat] -= modvik[elm] * gfik
-                                gtot[elm, i, iat, kat] += modvik[elm] * gfik
-                                gtot[elm, i, iat, jat] -= modvjk[elm] * gfjk
-                                gtot[elm, i, iat, kat] += modvjk[elm] * gfjk
+                                gtot[elm, i, iat, iat] -= modvij[elm] * gfij + modvik[elm] * gfik
+                                gtot[elm, i, iat, jat] += modvij[elm] * gfij - modvjk[elm] * gfjk
+                                gtot[elm, i, iat, kat] += modvik[elm] * gfik + modvjk[elm] * gfjk
                             end
 
                             # Stress
                             @inbounds @fastmath for elm2 in 1:3
                                 @simd for elm1 in 1:3
-                                    stot[elm1, elm2, i, iat] += vij[elm1] * modvij[elm2] * gfij
-                                    stot[elm1, elm2, i, iat] += vik[elm1] * modvik[elm2] * gfik
-                                    stot[elm1, elm2, i, iat] += vjk[elm1] * modvjk[elm2] * gfjk
+                                    stot[elm1, elm2, i, iat] += (
+                                        vij[elm1] * modvij[elm2] * gfij + 
+                                        vik[elm1] * modvik[elm2] * gfik + 
+                                        vjk[elm1] * modvjk[elm2] * gfjk 
+
+                                    )
                                 end
                             end
                             # Increment the feature index
@@ -244,7 +280,8 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;nl=Nei
             end # i,j,k pair
         end
     end
-    fvec, gtot, stot
+    fb.ecore[1] = ecore
+    fvec, gtot, stot 
 end
 
 """
@@ -489,6 +526,9 @@ function _force_update!(fb::ForceBuffer, gv) where {T}
             end
         end
     end
+    if !isnothing(fb.core)
+        fb.forces .+= fb.fcore
+    end
 end
 
 """
@@ -508,6 +548,10 @@ function _stress_update!(fb::ForceBuffer, gv) where {T}
                 end
             end
         end
+    end
+
+    if !isnothing(fb.stress)
+        fb.stress .+= fb.score
     end
 end
 
