@@ -91,19 +91,19 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
 
-    Threads.@threads for iat = 1:nat
-    #for iat = 1:nat
+    #Threads.@threads for iat = 1:nat
+    for iat = 1:nat
 
         pij = zeros(npmax3, lfe3)
-        pij_1 = zeros(npmax3, lfe3)
+        # pij_1 = zeros(npmax3, lfe3)
         inv_fij = zeros(lfe3)
 
         pik = zeros(npmax3, lfe3)
-        pik_1 = zeros(npmax3, lfe3)
+        #pik_1 = zeros(npmax3, lfe3)
         inv_fik = zeros(lfe3)
 
         qjk = zeros(nqmax3, lfe3)
-        qjk_1 = zeros(nqmax3, lfe3)
+        #qjk_1 = zeros(nqmax3, lfe3)
         inv_fjk = zeros(lfe3)
         gtmp3 = zeros(maximum(x.nq for x in features3))
 
@@ -114,10 +114,7 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
                 ftmp = feat.f(rij, feat.rcut)
                 # 1/f(rij)
                 inv_fij[i] = 1. / ftmp
-                @inbounds for j in 1:length(feat.p)
-                    pij_1[j, i] = fast_pow(ftmp, feat.p[j]-1)
-                    pij[j, i] = pij_1[j, i] * ftmp
-                end
+                pij[:, i] = ftmp .^ feat.p
             end
             modvij = vij / rij
 
@@ -209,20 +206,22 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
                 for (i, feat) in enumerate(features3)
                     ftmp = feat.f(rik, feat.rcut)
                     inv_fik[i] = 1. / ftmp
-                    @inbounds for j in 1:length(feat.p)
-                        pik_1[j, i] = fast_pow(ftmp, feat.p[j]-1)
-                        pik[j, i] = pik_1[j, i] * ftmp
-                    end
+                    pik[:, i] .= ftmp .^ feat.p
+                    # @inbounds for j in 1:length(feat.p)
+                    #     pik_1[j, i] = fast_pow(ftmp, feat.p[j]-1)
+                    #     pik[j, i] = pik_1[j, i] * ftmp
+                    # end
                 end
 
                 # Compute pjk
                 for (i, feat) in enumerate(features3)
                     ftmp = feat.f(rjk, feat.rcut)
                     inv_fjk[i] = 1. / ftmp
-                    @inbounds for j in 1:length(feat.q)
-                        qjk_1[j, i] = fast_pow(ftmp, feat.q[j]-1)
-                        qjk[j, i] = qjk_1[j, i] * ftmp
-                    end
+                    qjk[:, i] .= ftmp .^ feat.q
+                    # @inbounds for j in 1:length(feat.q)
+                    #     qjk_1[j, i] = fast_pow(ftmp, feat.q[j]-1)
+                    #     qjk[j, i] = qjk_1[j, i] * ftmp
+                    # end
                 end
                 
                 # Starting index for three-body feature udpate
@@ -241,14 +240,12 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
                     gij = f.g(rij, rcut) * inv_fij[ife]
                     gik = f.g(rik, rcut) * inv_fik[ife]
                     gjk = f.g(rjk, rcut) * inv_fjk[ife]
-                    for o in 1:f.nq
-                        gtmp3[o] = gjk * f.q[o] 
-                    end
+                    gtmp1 = f.p .* gij
+                    gtmp2 = f.p .* gik
+                    gtmp3 = gjk .* f.q
                     @inbounds for m in 1:f.np
                         # Cache computed value
                         ijkp = pij[m, ife] * pik[m, ife] 
-                        tmp1 = f.p[m] * gij
-                        tmp2 = f.p[m] * gik
                         @inbounds for o in 1:f.nq  # Note that q is summed in the inner loop
                             # Feature term
                             val = ijkp * qjk[o, ife]   
@@ -256,8 +253,8 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
 
                             # dv/drij, dv/drik, dv/drjk
                             val == 0 && continue
-                            gfij = tmp1 * val
-                            gfik = tmp2 * val 
+                            gfij = gtmp1[m] * val
+                            gfik = gtmp2[m] * val 
                             gfjk = gtmp3[o] * val
 
                             # Apply chain rule to the the forces

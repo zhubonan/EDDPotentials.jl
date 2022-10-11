@@ -64,7 +64,7 @@ include("utils.jl")
 
     cell = _h2_cell()
     cf = _generate_cf(cell)
-    fvec = vcat(EDDP.feature_vector(cf.two_body, cell), EDDP.feature_vector(cf.three_body, cell))
+    fvec = vcat(EDDP.feature_vector2(cf.two_body, cell), EDDP.feature_vector3(cf.three_body, cell))
     fb = EDDP.ForceBuffer(fvec;ndims=3,core=nothing)
 
     fvec, gvec, stotv = EDDP.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell)
@@ -73,10 +73,11 @@ include("utils.jl")
     @test fb.ecore[1] == 0
 
     # With increased core size
-    fb = EDDP.ForceBuffer(fvec;ndims=3,core=EDDP.CoreReplusion(2.))
-    fvec, gvec, stotv = EDDP.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell)
+    fb = EDDP.ForceBuffer(fvec;ndims=3,core=EDDP.CoreReplusion(3.0))
+    fvec, gvec, stotv = EDDP.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell;)
+                                                          
     @test !allclose(fb.fcore, zeros(size(fb.fcore)))
-    @test fb.ecore[1] != 0
+    @test fb.ecore[1] != 0.
     @test fb.score[1] != zeros(3,3)
 
 
@@ -87,8 +88,8 @@ include("utils.jl")
     function fv(cell, cf, pos)
         pb = get_positions(cell)
         cell.positions[:] .= vec(pos)
-        fvec = vcat(EDDP.feature_vector(cf.two_body, cell), 
-                   EDDP.feature_vector(cf.three_body, cell))
+        fvec = vcat(EDDP.feature_vector2(cf.two_body, cell), 
+                   EDDP.feature_vector3(cf.three_body, cell))
         set_positions!(cell, pb)
         fvec
     end
@@ -99,8 +100,8 @@ include("utils.jl")
         smat = diagm([1., 1., 1.])
         smat[:] .+= s
         set_cellmat!(cell, smat * cb;scale_positions=true)
-        fvec = vcat(EDDP.feature_vector(cf.two_body, cell), 
-                   EDDP.feature_vector(cf.three_body, cell))
+        fvec = vcat(EDDP.feature_vector2(cf.two_body, cell), 
+                   EDDP.feature_vector3(cf.three_body, cell))
         set_cellmat!(cell, cb;scale_positions=true)
         set_positions!(cell, pb)
         fvec

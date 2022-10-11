@@ -43,8 +43,8 @@ end
     fvec1 = zeros(EDDP.nfeatures(cf), length(cell))
     EDDP.feature_vector!(fvec1, cf.two_body, cf.three_body, cell;nl, offset=1)
     fvec2 = zeros(EDDP.nfeatures(cf), length(cell))
-    EDDP.feature_vector!(fvec2, cf.two_body, cell;nl, offset=1)
-    EDDP.feature_vector!(fvec2, cf.three_body, cell;nl, offset=1 + 3)
+    EDDP.feature_vector2!(fvec2, cf.two_body, cell;nl, offset=1)
+    EDDP.feature_vector3!(fvec2, cf.three_body, cell;nl, offset=1 + 3)
     # Check consistency
     @test all(isapprox.(fvec2[2:4, :], fvec1[2:4, :], atol=1e-7))
     @test all(isapprox.(fvec2[4:end, :], fvec1[4:end, :], atol=1e-7))
@@ -58,8 +58,8 @@ end
     fvec1 = zeros(EDDP.nfeatures(cf), length(cell))
     EDDP.feature_vector!(fvec1, cf.two_body, cf.three_body, cell;nl, offset=1)
     fvec2 = zeros(EDDP.nfeatures(cf), length(cell))
-    EDDP.feature_vector!(fvec2, cf.two_body, cell;nl, offset=1)
-    EDDP.feature_vector!(fvec2, cf.three_body, cell;nl, offset=1 + 3)
+    EDDP.feature_vector2!(fvec2, cf.two_body, cell;nl, offset=1)
+    EDDP.feature_vector3!(fvec2, cf.three_body, cell;nl, offset=1 + 3)
     # Check consistency
     @test all(isapprox.(fvec2[2:4, :], fvec1[2:4, :], atol=1e-7))
     @test all(isapprox.(fvec2[4:end, :], fvec1[4:end, :], atol=1e-7))
@@ -77,10 +77,9 @@ end
 
     # Reference is the previous method 
     fvec2 = zeros(EDDP.nfeatures(cf), length(cell))
-    EDDP.feature_vector!(fvec2, cf.two_body, cell;nl, offset=1)
-    EDDP.feature_vector!(fvec2, cf.three_body, cell;nl, offset=1 + n2)
+    EDDP.feature_vector2!(fvec2, cf.two_body, cell;nl, offset=1)
+    EDDP.feature_vector3!(fvec2, cf.three_body, cell;nl, offset=1 + n2)
     # Check consistency
     @test all(isapprox.(fvec2[2:4, :], fvec1[2:4, :], atol=1e-7))
     @test all(isapprox.(fvec2[4:end, :], fvec1[4:end, :], atol=1e-7))
 end
-

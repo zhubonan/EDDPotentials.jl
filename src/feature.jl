@@ -71,7 +71,7 @@ struct TwoBodyFeature{T, M, P} <: AbstractNBodyFeature
     "df(r)/r"
     g::M
     "Exponents"
-    p::Vector{P}
+    p::P
     "Specie indices"
     sij_idx::Tuple{Symbol, Symbol}
     "Cut off distance"
@@ -121,7 +121,7 @@ g(r)= \begin{cases}
 """
 gfr(r::T, rcut) where {T} =  r <= rcut ? -2 / rcut : zero(T)
 
-TwoBodyFeature(f, g, p, sij_idx, rcut::Real) = TwoBodyFeature(f, g, collect(p), sortedtuple(sij_idx), rcut, length(p))
+TwoBodyFeature(f, g, p, sij_idx, rcut::Real) = TwoBodyFeature(f, g, SVector{length(p)}(p), sortedtuple(sij_idx), rcut, length(p))
 TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, p, sortedtuple(sij_idx), rcut)
 
 """
@@ -197,9 +197,9 @@ struct ThreeBodyFeature{T, M, P, Q} <: AbstractNBodyFeature
     "df(r)/r"
     g::M
     "Exponents for p"
-    p::Vector{P}
+    p::P
     "Exponents for q"
-    q::Vector{Q}
+    q::Q
     "Specie indices"
     sijk_idx::Tuple{Symbol, Symbol, Symbol}
     "Cut off distance"
@@ -208,7 +208,7 @@ struct ThreeBodyFeature{T, M, P, Q} <: AbstractNBodyFeature
     nq::Int
 end
 
-ThreeBodyFeature(f, g, p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(f, g, collect(p), collect(q), sortedtuple(sijk_idx), rcut, length(p), length(q))
+ThreeBodyFeature(f, g, p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(f, g, SVector{length(p)}(p), SVector{length(q)}(q), sortedtuple(sijk_idx), rcut, length(p), length(q))
 ThreeBodyFeature(p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(fr, gfr, p, q, sortedtuple(sijk_idx), rcut)
 
 
@@ -313,7 +313,7 @@ end
 
 Compute the feature vector for a give set of two body interactions
 """
-function feature_vector!(fvecs, features::Vector{T}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T<:TwoBodyFeature}
+function feature_vector2!(fvecs, features::Tuple, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0)
     # Feature vectors
     nfe = map(nfeatures, features) 
     nat = natoms(cell)
@@ -335,12 +335,20 @@ function feature_vector!(fvecs, features::Vector{T}, cell::Cell;nl=NeighbourList
     fvecs
 end
 
-function feature_vector(features::Vector, cell::Cell;nmax=500, nl=NeighbourList(cell, maximum(f.rcut for f in features) + 1.0, nmax)) 
+function feature_vector2(features::Tuple, cell::Cell;nmax=500, nl=NeighbourList(cell, maximum(f.rcut for f in features) + 1.0, nmax)) 
     # Feature vectors
     nfe = map(nfeatures, features) 
     ni = nions(cell)
     fvecs = zeros(sum(nfe), ni)
-    feature_vector!(fvecs, features, cell;nl)
+    feature_vector2!(fvecs, features, cell;nl)
+end
+
+function feature_vector3(features::Tuple, cell::Cell;nmax=500, nl=NeighbourList(cell, maximum(f.rcut for f in features) + 1.0, nmax)) 
+    # Feature vectors
+    nfe = map(nfeatures, features) 
+    ni = nions(cell)
+    fvecs = zeros(sum(nfe), ni)
+    feature_vector3!(fvecs, features, cell;nl)
 end
 
 
@@ -349,7 +357,7 @@ end
 
 Compute the feature vector for each atom a give set of three body interactions
 """
-function feature_vector!(fvecs, features::Vector{T}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T<:ThreeBodyFeature}
+function feature_vector3!(fvecs, features::Tuple, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) 
     nat = natoms(cell)
     nfe = map(nfeatures, features) 
     # Note - need to use twice the cut off to ensure distance between j-k is included
@@ -381,88 +389,88 @@ function feature_vector!(fvecs, features::Vector{T}, cell::Cell;nl=NeighbourList
     fvecs
 end
 
-"""
-    feature_vector_new!(features::Vector{T}, cell::Cell) where T
+# """
+#     feature_vector_new!(features::Vector{T}, cell::Cell) where T
 
-Compute the feature vector for each atom a give set of three body interactions.
-Improved version (only tested with single features)
-"""
-function feature_vector_new!(fvecs, features::Vector{T}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T<:ThreeBodyFeature}
-    nat = natoms(cell)
-    nfe = map(nfeatures, features) 
-    # Note - need to use twice the cut off to ensure distance between j-k is included
-    sym = species(cell)
-    # Set the feature vectors to be zero
-    fvecs[1+offset:sum(nfe) + offset, :] .= 0
-    rcut = maximum(x -> x.rcut, features)
+# Compute the feature vector for each atom a give set of three body interactions.
+# Improved version (only tested with single features)
+# """
+# function feature_vector_new!(fvecs, features::Vector{T}, cell::Cell;nl=NeighbourList(cell, features[1].rcut), offset=0) where {T<:ThreeBodyFeature}
+#     nat = natoms(cell)
+#     nfe = map(nfeatures, features) 
+#     # Note - need to use twice the cut off to ensure distance between j-k is included
+#     sym = species(cell)
+#     # Set the feature vectors to be zero
+#     fvecs[1+offset:sum(nfe) + offset, :] .= 0
+#     rcut = maximum(x -> x.rcut, features)
 
-    # All values of P
-    npmax = maximum(length(x.p) for x in features)
-    # All values of q
-    nqmax = maximum(length(x.q) for x in features)
+#     # All values of P
+#     npmax = maximum(length(x.p) for x in features)
+#     # All values of q
+#     nqmax = maximum(length(x.q) for x in features)
 
-    # Storage space for each p and q power
-    pij = zeros(npmax, length(features))
-    pik = zeros(npmax, length(features))
-    qjk = zeros(nqmax, length(features))
-    for iat = 1:nat
-        for (jat, jextend, rij) in eachneighbour(nl, iat)
-            rij > rcut && continue
+#     # Storage space for each p and q power
+#     pij = zeros(npmax, length(features))
+#     pik = zeros(npmax, length(features))
+#     qjk = zeros(nqmax, length(features))
+#     for iat = 1:nat
+#         for (jat, jextend, rij) in eachneighbour(nl, iat)
+#             rij > rcut && continue
 
-            for (i, feat) in enumerate(features)
-                ftmp = feat.f(rij, feat.rcut)
-                @inbounds for j in 1:length(feat.p)
-                    pij[j, i] = fast_pow(ftmp, feat.p[j])
-                end
-            end
+#             for (i, feat) in enumerate(features)
+#                 ftmp = feat.f(rij, feat.rcut)
+#                 @inbounds for j in 1:length(feat.p)
+#                     pij[j, i] = fast_pow(ftmp, feat.p[j])
+#                 end
+#             end
 
-            for (kat, kextend, rik) in eachneighbour(nl, iat)
-                rik > rcut && continue
+#             for (kat, kextend, rik) in eachneighbour(nl, iat)
+#                 rik > rcut && continue
  
-                # Avoid double counting i j k is the same as i k j
-                if kextend <= jextend 
-                    continue
-                end
-                # Compute the distance between extended j and k
-                rjk = distance_between(nl.ea.positions[jextend], nl.ea.positions[kextend])
-                rjk > rcut && continue
+#                 # Avoid double counting i j k is the same as i k j
+#                 if kextend <= jextend 
+#                     continue
+#                 end
+#                 # Compute the distance between extended j and k
+#                 rjk = distance_between(nl.ea.positions[jextend], nl.ea.positions[kextend])
+#                 rjk > rcut && continue
 
-                for (i, feat) in enumerate(features)
-                    ftmp = feat.f(rik, feat.rcut)
-                    @inbounds for j in 1:length(feat.p)
-                        pik[j, i] = fast_pow(ftmp, feat.p[j])
-                    end
-                end
+#                 for (i, feat) in enumerate(features)
+#                     ftmp = feat.f(rik, feat.rcut)
+#                     @inbounds for j in 1:length(feat.p)
+#                         pik[j, i] = fast_pow(ftmp, feat.p[j])
+#                     end
+#                 end
 
-                for (i, feat) in enumerate(features)
-                    ftmp = feat.f(rjk, feat.rcut)
-                    # for j in axes(f.p)
-                    #     pjk[j, i] = fast_pow(ftmp, f.p[j])
-                    # end
-                    @inbounds for j in 1:length(feat.q)
-                        qjk[j, i] = fast_pow(ftmp, feat.q[j])
-                    end
-                end
+#                 for (i, feat) in enumerate(features)
+#                     ftmp = feat.f(rjk, feat.rcut)
+#                     # for j in axes(f.p)
+#                     #     pjk[j, i] = fast_pow(ftmp, f.p[j])
+#                     # end
+#                     @inbounds for j in 1:length(feat.q)
+#                         qjk[j, i] = fast_pow(ftmp, feat.q[j])
+#                     end
+#                 end
 
-                # accumulate the feature vector
-                ist = offset + 1
-                for (ife, feat) in enumerate(features)
-                    if permequal(feat.sijk_idx, sym[iat], sym[jat], sym[kat])
-                        # Construct feature vector using p, q powers
-                        for m in 1:feat.np
-                            ijkp = pij[m, ife] * pik[m, ife]
-                            for o in 1:feat.nq
-                                fvecs[ist, iat] += ijkp * qjk[o, ife]
-                                ist += 1
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    fvecs
-end
+#                 # accumulate the feature vector
+#                 ist = offset + 1
+#                 for (ife, feat) in enumerate(features)
+#                     if permequal(feat.sijk_idx, sym[iat], sym[jat], sym[kat])
+#                         # Construct feature vector using p, q powers
+#                         for m in 1:feat.np
+#                             ijkp = pij[m, ife] * pik[m, ife]
+#                             for o in 1:feat.nq
+#                                 fvecs[ist, iat] += ijkp * qjk[o, ife]
+#                                 ist += 1
+#                             end
+#                         end
+#                     end
+#                 end
+#             end
+#         end
+#     end
+#     fvecs
+# end
 
 """
     two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func=fr)
@@ -531,8 +539,8 @@ Collection of Feature specifications and cell
 """
 mutable struct CellFeature{T, G} 
     elements::Vector{Symbol}
-    two_body::Vector{T}
-    three_body::Vector{G}
+    two_body::T
+    three_body::G
 end
 
 """
@@ -542,8 +550,8 @@ Combine two `CellFeature` objects together. The features are simply concatenated
 """
 function Base.:+(a::CellFeature, b::CellFeature)
     elements = sort(unique(vcat(a.elements, b.elements)))
-    two_body = vcat(a.two_body, b.two_body)
-    three_body = vcat(a.three_body, b.three_body)
+    two_body = (a.two_body..., b.two_body...)
+    three_body = (a.three_body..., b.three_body...)
     CellFeature(elements, two_body, three_body)
 end
 
@@ -572,7 +580,7 @@ function CellFeature(elements; p2=2:8, p3=p2, q3=p3, rcut2=4.0, rcut3=rcut2, f2=
     # Sort the elements to ensure stability
     elements = sort(unique(elements))
     # Two body terms
-    two_body_features = TwoBodyFeature{typeof(f2), typeof(g2), eltype(p2)}[]
+    two_body_features = []
     existing_comb = []
     for e1 in elements
         for e2 in elements
@@ -584,7 +592,7 @@ function CellFeature(elements; p2=2:8, p3=p2, q3=p3, rcut2=4.0, rcut3=rcut2, f2=
     end
 
     empty!(existing_comb)
-    three_body_features = ThreeBodyFeature{typeof(f3), typeof(g3), eltype(p3), eltype(q3)}[]
+    three_body_features = []
     for e1 in elements
         for e2 in elements
             for e3 in elements
@@ -595,7 +603,7 @@ function CellFeature(elements; p2=2:8, p3=p2, q3=p3, rcut2=4.0, rcut3=rcut2, f2=
             end
         end
     end
-    CellFeature(elements, two_body_features, three_body_features)
+    CellFeature(elements, Tuple(two_body_features), Tuple(three_body_features))
 end
 
 """
@@ -652,9 +660,9 @@ function feature_vector(cf::CellFeature, cell::Cell;nmax=500)
     # assuming no "mixture" atoms of course
     v1 = one_body_vectors(cell, cf)
     # Concatenated two body vectors 
-    v2 = feature_vector(cf.two_body, cell;nl=nl)
+    v2 = feature_vector2(cf.two_body, cell;nl=nl)
     # Concatenated three body vectors 
-    v3 = feature_vector(cf.three_body, cell;nl=nl)
+    v3 = feature_vector3(cf.three_body, cell;nl=nl)
     vcat(v1, v2, v3)
 end
 
@@ -714,7 +722,7 @@ Optimised version with reduced computational cost....
 
 Returns the feature vector and the core repulsion energy if any.
 """
-function feature_vector!(fvec, features2::Vector, features3::Vector, cell::Cell;nl=NeighbourList(cell, maximum(x.rcut for x in (features2..., features3...));savevec=true), offset=0, core=nothing) 
+function feature_vector!(fvec, features2::Tuple, features3::Tuple, cell::Cell;nl=NeighbourList(cell, maximum(x.rcut for x in (features2..., features3...));savevec=true), offset=0, core=nothing) 
    
     nfe3 = map(nfeatures, features3) 
     lfe3 = length(features3)
