@@ -495,11 +495,11 @@ export train_eddp
 
 
 """
-    rattle_cell(cell::Cell, amp::Real)
+    rattle_cell(cell::Cell, amp)
 
 Rattle the cell shape based on random fractional changes on the cell parameters.
 """
-function rattle_cell!(cell::Cell, amp::Real)
+function rattle_cell!(cell::Cell, amp)
     local new_cellpar
     i = 0
     while true
@@ -516,4 +516,25 @@ function rattle_cell!(cell::Cell, amp::Real)
     CellBase.set_cellmat!(cell, cellmat(new_lattice))
     positions(cell) .= cellmat(cell) * spos
     cell
+end
+
+
+raw"""
+
+Generate LJ like pair-wise interactions
+
+```math
+F = \alpha(-2f(r, rc)^a + f(r, rc)^{2a})
+
+The equilibrium position is at ``r_c/2``.
+```
+
+Support only single a element for now.
+"""
+function lj_like_calc(cell::Cell;α=1.0, a=6, rc=3.)
+    elem = unique(species(cell))
+    @assert length(elem) == 1 "Only works for single specie Cell for now."
+    cf = EDDP.CellFeature(elem, p2=[a,2a], p3=[], q3=[], rcut2=rc)
+    model = EDDP.LinearInterface([0, -2, 1.] .* α)
+    EDDP.NNCalc(cell, cf, model)
 end

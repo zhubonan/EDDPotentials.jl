@@ -607,6 +607,51 @@ function CellFeature(elements; p2=2:8, p3=p2, q3=p3, rcut2=4.0, rcut3=rcut2, f2=
 end
 
 """
+    feature_names(features...)
+
+Return the name for the features.
+"""
+function feature_names(features...;show_value=true)
+    names = String[]
+    for feat in features
+        if isa(feat, TwoBodyFeature)
+            ftype = "2"
+            pairs = join(string.(feat.sij_idx), "-")
+            for (m, p) in enumerate(feat.p)
+                if show_value
+                    push!(names, "$(ftype)-$(pairs)-$p")
+                else
+                    push!(names, "$(ftype)-$(pairs)-$m")
+                end
+
+            end
+        elseif isa(feat, ThreeBodyFeature)
+            ftype = "3"
+            pairs = join(string.(feat.sijk_idx), "-")
+            for (m, p) in enumerate(feat.p)
+                for (o, q) in enumerate(feat.q)
+                    if show_value
+                        push!(names, "$(ftype)-$(pairs)-$p-$q")
+                    else
+                        push!(names, "$(ftype)-$(pairs)-$m-$o")
+                    end
+                end
+            end
+        end
+    end
+    return names
+end
+
+"""
+    feature_names(cf::CellFeature)
+
+Return the name for the features.
+"""
+function feature_names(cf::CellFeature;kwargs...)
+    feature_names(cf.two_body..., cf.three_body...;kwargs...)
+end
+
+"""
     CellFeature(opts::FeatureOptions;kwargs...)
 
 Obtain a CellFeature from FeatureOptions

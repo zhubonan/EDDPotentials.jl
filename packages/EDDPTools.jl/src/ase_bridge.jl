@@ -11,6 +11,7 @@ module ASEInterface
         import ase.calculators.calculator as calc
         import numpy as np
         from typing import List
+        from ase.stress import full_3x3_to_voigt_6_stress
 
         class EDDPCalcBase(calc.FileIOCalculator):
             '''Base class for EDDP.jl calculator'''
@@ -63,7 +64,7 @@ module ASEInterface
 
                 self.results['energy'] = self.energy
                 self.results['forces'] = self.forces
-                self.results['stress'] = self.stress
+                self.results['stress'] = full_3x3_to_voigt_6_stress(self.stress)
         """
 
         np = py"np"

@@ -396,3 +396,5 @@ function check_global_minsep(nl::NeighbourList, threshold)
     end
     return true
 end
+
+
