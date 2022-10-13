@@ -32,9 +32,6 @@ function set_cellmat!(calc::AC, cellmat;kwargs...)
     set_cellmat!(get_cell(calc), cellmat;kwargs...)
 end
 
-function get_cellmat(calc::AC)
-    get_cellmat(get_cell(calc))
-end
 
 function set_positions!(calc::AC, positions)
     set_positions!(get_cell(calc), positions)

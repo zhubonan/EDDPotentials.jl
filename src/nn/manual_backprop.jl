@@ -6,6 +6,7 @@ it inefficient for calling many *small* neuron networks.
 =#
 
 import Base
+using JLD2
 using LinearAlgebra
 using Flux
 import Zygote
@@ -257,8 +258,7 @@ mutable struct ManualFluxBackPropInterface{T, G, X, Z} <: AbstractNNInterface
 end
 
 function ManualFluxBackPropInterface(chain::Chain;xt=nothing, yt=nothing, apply_xt=true) 
-    cg = ChainGradients(chain, 1)
-    ManualFluxBackPropInterface(chain, typeof(cg)[cg], Int[1], xt, yt, apply_xt)
+    ManualFluxBackPropInterface(chain, ChainGradients{typeof(chain)}[], Int[], xt, yt, apply_xt)
 end
 
 function Base.show(io::IO, m::MIME"text/plain", x::ManualFluxBackPropInterface )
@@ -282,6 +282,11 @@ function _get_or_create_chaingradients(itf, inp)
     end
     itf.last_id[1] = idx
     cg
+end
+
+function clear_transient_gradients!(g::ManualFluxBackPropInterface)
+    empty!(g.gchains)
+    empty!(g.last_id)
 end
 
 
@@ -373,4 +378,23 @@ function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_unifo
     end
     push!(layers, Dense(nodes[i]=>1;init))
     ManualFluxBackPropInterface(Chain(layers...); xt, yt, apply_xt)
+end
+
+# JLD2 custom serialization - we do not need to store ChainGradients which are 
+# transient 
+struct MFPSerialization{T, X, Z}
+    chain::T
+    xt::X
+    yt::Z
+    apply_xt::Bool
+end
+
+JLD2.writeas(::Type{ManualFluxBackPropInterface}) = MFPSerialization
+
+function Base.convert(::Type{MFPSerialization}, a::ManualFluxBackPropInterface) 
+    MFPSerialization(a.chain, a.xt, a.yt, a.apply_xt)
+end
+
+function Base.convert(::Type{ManualFluxBackPropInterface}, a::MFPSerialization)
+    ManualFluxBackPropInterface(a.chain;xt=a.xt, yt=a.yt, apply_xt=a.apply_xt)
 end

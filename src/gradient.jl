@@ -87,13 +87,15 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
     fill!(fcore, 0)
     fill!(score, 0)
 
-    ecore = 0.
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
 
-    #Threads.@threads for iat = 1:nat
-    for iat = 1:nat
+    ecore_total = Threads.Atomic{Float64}(0.)
 
+    Threads.@threads for iat = 1:nat
+    #for iat = 1:nat
+
+        ecore = 0.
         pij = zeros(npmax3, lfe3)
         # pij_1 = zeros(npmax3, lfe3)
         inv_fij = zeros(lfe3)
@@ -283,8 +285,9 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
                 end  # 3body-feature update loop 
             end # i,j,k pair
         end
+        Threads.atomic_add!(ecore_total, ecore)
     end
-    fb.ecore[1] = ecore
+    fb.ecore[1] = ecore_total[]
     fvec, gtot, stot 
 end
 
