@@ -14,7 +14,7 @@ Core repulsion gradient
 """
 function gcore_repulsion(r, c)
     if r < c
-        return -12*(c/r - 1)^11 / (r*r)
+        return -12*(c/r - 1)^11 / (r*r) * c
     end
     return 0
 end

@@ -5,58 +5,61 @@ using EDDP: get_energy, get_cell
 using NLSolversBase
 using Test
 using Flux
-#=
-Something weird about these Tests
-1. Using a smaller cell size seem to fail the test which is not the case with only one species?
-2. Check the code when handling multiple features? 
-=#
 
-"Finite difference energy with displacements"
-function _fd_energy(vc, p)
-    posb = EDDP.get_positions(vc)
-    EDDP.set_positions!(vc, reshape(p, 3, :))
-    out = get_energy(vc)
-    EDDP.set_positions!(vc, posb)
+function alter_pos(f, cell, pos, args...)
+    pb = get_positions(cell)
+    set_positions!(cell, reshape(pos, size(get_positions(cell))...))
+    #cell.positions[:] .= vec(pos)
+    out = f((cell, pos, args...))
+    set_positions!(cell, pb)
+    return out
+end
+
+function alter_strain(f, cell, s, args...)
+    cb = get_cellmat(cell)
+    pb = get_positions(cell)
+    smat = diagm([1., 1., 1.])
+    smat[:] .+= s
+    set_cellmat!(cell, smat * cb;scale_positions=true)
+    out = f((cell, s, args...))
+    set_cellmat!(cell, cb;scale_positions=true)
+    set_positions!(cell, pb)
     out
 end
 
-function _fd_strain(calc, s)
-    cell = EDDP.get_cell(calc)
-    # This is a copy
-    cm = EDDP.get_cellmat(cell)
-    pos = EDDP.get_positions(cell)
-    smat = diagm([1., 1., 1.])
-    smat[:] .+= s
-    set_cellmat!(cell, smat * cm;scale_positions=true)
-    eng = get_energy(calc)
-    set_cellmat!(cell, cm)
-    CellBase.set_positions!(cell, pos)
-    eng
-end
-
-function _fd_features(calc, p)
-    cell = EDDP.get_cell(calc)
-    pbak = copy(cell.positions)
-    cell.positions[:] .= p 
-    EDDP.update_feature_vector!(calc;rebuild_nl=true, gradients=true)
-    cell.positions .= pbak
-    copy(calc.force_buffer.fvec)
-end
 
 function _fd_features_strain(calc, s)
-    cell = EDDP.get_cell(calc)
-    # This is a copy
-    cm = EDDP.get_cellmat(cell)
-    pos = EDDP.get_positions(cell)
-    smat = diagm([1., 1., 1.])
-    smat[:] .+= s
-    set_cellmat!(cell, smat * cm;scale_positions=true)
-    EDDP.update_feature_vector!(calc;rebuild_nl=true, gradients=true)
-    fv = copy(calc.force_buffer.fvec)
-    set_cellmat!(cell, cm)
-    CellBase.set_positions!(cell, pos)
-    fv
+    alter_strain(calc, s) do x
+        EDDP.update_feature_vector!(calc;rebuild_nl=true, gradients=true)
+        copy(calc.force_buffer.fvec)
+    end
 end
+
+function _fd_features(calc, s)
+    alter_pos(calc, s) do _
+        EDDP.update_feature_vector!(calc;rebuild_nl=true, gradients=true)
+        copy(calc.force_buffer.fvec)
+    end
+end
+
+function _fd_energy(calc, p)
+    alter_pos(calc,p ) do _
+        get_energy(calc)
+    end
+end
+
+function _fd_energy_vc(calc, p)
+    alter_pos(calc,p ) do _
+        get_energy(calc)
+    end
+end
+
+function _fd_strain(calc, p)
+    alter_strain(get_cell(calc),p ) do _
+        get_energy(calc)
+    end
+end
+
 
 include("utils.jl")
 
@@ -81,50 +84,73 @@ include("utils.jl")
     @test fb.score[1] != zeros(3,3)
 
 
+
+    function fv(cell, pos, cf) 
+        alter_pos(cell, pos, cf) do (cell, pos, cf)
+            vcat(EDDP.feature_vector2(cf.two_body, cell), 
+                 EDDP.feature_vector3(cf.three_body, cell))
+        end
+    end
+    
+    function sv(cell, s, cf)
+        alter_strain(cell, s, cf) do (cell, s, cf)
+            vcat(EDDP.feature_vector2(cf.two_body, cell), 
+                 EDDP.feature_vector3(cf.three_body, cell))
+        end
+    end
+
     # Gradients
     gvec = fb.gvec
     stotv = fb.stotv
 
-    function fv(cell, cf, pos)
-        pb = get_positions(cell)
-        cell.positions[:] .= vec(pos)
-        fvec = vcat(EDDP.feature_vector2(cf.two_body, cell), 
-                   EDDP.feature_vector3(cf.three_body, cell))
-        set_positions!(cell, pb)
-        fvec
-    end
-
-    function sv(cell, cf, s)
-        cb = get_cellmat(cell)
-        pb = get_positions(cell)
-        smat = diagm([1., 1., 1.])
-        smat[:] .+= s
-        set_cellmat!(cell, smat * cb;scale_positions=true)
-        fvec = vcat(EDDP.feature_vector2(cf.two_body, cell), 
-                   EDDP.feature_vector3(cf.three_body, cell))
-        set_cellmat!(cell, cb;scale_positions=true)
-        set_positions!(cell, pb)
-        fvec
-    end
-
-
     p0 = cell.positions
-    od = NLSolversBase.OnceDifferentiable( x -> fv(cell, cf, x), p0, fv(cell, cf, p0); 
+    od = NLSolversBase.OnceDifferentiable( x -> fv(cell, x, cf), p0, fv(cell, p0, cf); 
                                           inplace=false)
     jac = reshape(NLSolversBase.jacobian!(od, p0), 3, 2, 3, 2)
-    @test allclose(permutedims(gvec, [2,3,1,4]), jac;atol=1e-7)
+    gtmp = permutedims(gvec, [2,3,1,4])
 
     s0 = zeros(9)
-    od = NLSolversBase.OnceDifferentiable( x -> sv(cell, cf, x), s0, sv(cell, cf, s0); 
+    od = NLSolversBase.OnceDifferentiable( x -> sv(cell, x, cf), s0, sv(cell, s0, cf); 
                                           inplace=false)
     jac = NLSolversBase.jacobian!(od, s0)
     @test allclose(vec(jac), vec(permutedims(stotv, [3,4,1,2])), atol=1e-3)
 
+
+    # Cores
+    function core_forces(cell, pos, cf)
+        alter_pos(cell, pos, cf) do (cell, pos, cf)
+            EDDP.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell)
+            fb.ecore[1]
+        end
+    end
+
+    function core_stress(cell, pos, cf)
+        alter_strain(cell, pos, cf) do (cell, pos, cf)
+            EDDP.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell)
+            fb.ecore[1]
+        end
+    end
+
+    EDDP.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell)
+    fcore = copy(fb.fcore)
+    score = copy(fb.score)
+
+    p0 = cell.positions
+    od = NLSolversBase.OnceDifferentiable( x -> core_forces(cell, x, cf), p0, core_forces(cell, p0, cf); 
+                                          inplace=false)
+    grad = reshape(NLSolversBase.gradient!(od, p0), 3, length(cell))
+    @test allclose(-fcore, grad;atol=1e-4)
+
+    s0 = zeros(9)
+    od = NLSolversBase.OnceDifferentiable( x -> core_stress(cell, x, cf), s0, core_stress(cell, s0, cf); 
+                                          inplace=false)
+    grad = reshape(NLSolversBase.gradient!(od, s0), 3, 3)
+    @test allclose(grad, -score, atol=1e-3)
 end
 
 @testset "Gradients" begin
 
-global    calc = _get_calc()
+    calc = _get_calc()
     EDDP.calculate!(calc;forces=true)
 
     gtot = copy(calc.force_buffer.gvec)
@@ -187,9 +213,7 @@ end
     epos = EDDP.get_positions(vc)
     eforce = copy(EDDP.get_forces(vc))
 
-    od = OnceDifferentiable(x -> _fd_energy(vc, x), epos, _fd_energy(vc, epos);inplace=false)
+    od = OnceDifferentiable(x -> _fd_energy_vc(vc, x), epos, _fd_energy_vc(vc, epos);inplace=false)
     grad= NLSolversBase.gradient(od, epos)
     @test allclose(grad, -eforce, atol=5e-3, rtol=1e-4)
-
-
 end

@@ -247,17 +247,18 @@ end
 Interface for DenseGradient implementation 
 =#
 
-struct ManualFluxBackPropInterface{T, G, X, Z} <: AbstractNNInterface
+mutable struct ManualFluxBackPropInterface{T, G, X, Z} <: AbstractNNInterface
     chain::T
     gchains::Vector{ChainGradients{G}}
     last_id::Vector{Int}
     xt::X
     yt::Z
+    apply_xt::Bool
 end
 
-function ManualFluxBackPropInterface(chain::Chain;xt=nothing, yt=nothing) 
+function ManualFluxBackPropInterface(chain::Chain;xt=nothing, yt=nothing, apply_xt=true) 
     cg = ChainGradients(chain, 1)
-    ManualFluxBackPropInterface(chain, typeof(cg)[cg], Int[1], xt, yt)
+    ManualFluxBackPropInterface(chain, typeof(cg)[cg], Int[1], xt, yt, apply_xt)
 end
 
 function Base.show(io::IO, m::MIME"text/plain", x::ManualFluxBackPropInterface )
@@ -284,13 +285,13 @@ function _get_or_create_chaingradients(itf, inp)
 end
 
 
-function forward!(itf::ManualFluxBackPropInterface, inp;make_copy=false)
+function forward!(itf::ManualFluxBackPropInterface, inp::Matrix;make_copy=false)
 
     gchain = _get_or_create_chaingradients(itf, inp)
     # Apply x transformation
-    if !isnothing(itf.xt)
+    if !isnothing(itf.xt) && itf.apply_xt
         nl = itf.xt.len
-        inptmp = make_copy(inp)
+        inptmp = copy(inp)
         transform!(itf.xt, @view(inptmp[end-nl+1:end, :]))
         out = forward!(gchain, itf.chain, inptmp)
     else
@@ -303,10 +304,10 @@ function forward!(itf::ManualFluxBackPropInterface, inp;make_copy=false)
     !make_copy ? out : copy(out)
 end
 
-function forward!(itf::ManualFluxBackPropInterface, inp, inptmp;make_copy=false)
+function forward!(itf::ManualFluxBackPropInterface, inp::Matrix, inptmp::Matrix;make_copy=false)
     gchain = _get_or_create_chaingradients(itf, inp)
     # Apply x transformation
-    if !isnothing(itf.xt)
+    if !isnothing(itf.xt) && itf.apply_xt
         nl = itf.xt.len
         inptmp .= inp
         transform!(itf.xt, @view(inptmp[end-nl+1:end, :]))
@@ -342,7 +343,7 @@ function gradinp!(gvec::AbstractVecOrMat, itf::ManualFluxBackPropInterface)
     # If transform is applied then we have to scale the gradient
     if !isnothing(itf.xt) 
         nl = itf.xt.len
-        gvec[end-nl:end, :] ./= xt.scale
+        gvec[end-nl+1:end, :] ./= itf.xt.scale
     end
     if !isnothing(itf.yt)
         gvec .*= itf.yt.scale[1]
@@ -362,7 +363,7 @@ end
 
 nparams(itf::ManualFluxBackPropInterface) = nparams(itf.chain)
 
-function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_uniform_f64, xt=nothing, yt=nothing, σ=tanh)
+function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_uniform_f64, xt=nothing, yt=nothing, σ=tanh, apply_xt=true)
     input = Dense(nfeatures(cf) => nodes[1], σ;init)
     layers = Any[input]
     i = 1
@@ -371,5 +372,5 @@ function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_unifo
         push!(layers, Dense(nodes[i-1]=>nodes[i], σ; init))
     end
     push!(layers, Dense(nodes[i]=>1;init))
-    ManualFluxBackPropInterface(Chain(layers...); xt, yt)
+    ManualFluxBackPropInterface(Chain(layers...); xt, yt, apply_xt)
 end

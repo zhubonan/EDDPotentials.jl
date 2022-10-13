@@ -38,6 +38,7 @@ end
 
 function gradinp!(gvec, itf::EnsembleNNInterface;tmpg=copy(gvec))
     fill!(tmpg, 0)
+    fill!(gvec, 0)
     for (model, wt) in zip(itf.models, itf.weights)
         gradinp!(tmpg, model)
         gvec .+= tmpg .* wt

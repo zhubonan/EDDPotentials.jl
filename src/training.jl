@@ -11,6 +11,8 @@ using .NNLS
 using NLSolversBase
 using ProgressMeter
 using Parameters
+using Printf
+using StatsBase
 
 const XT_NAME="xt"
 const YT_NAME="yt"
@@ -232,7 +234,7 @@ function train_multi_distributed(itf, x, y; nmodels=10, kwargs...)
     futures = []
     for p in workers()
         push!(futures, remotecall(worker_train_one, 
-                                 p, reinit(itf), x, y, job_channel, results_channel;kwargs...))
+                                 p, itf, x, y, job_channel, results_channel;kwargs...))
     end
 
     # Check for any errors - works should not return until they are explicitly signaled
@@ -277,6 +279,17 @@ end
 
 
 """
+    create_ensemble(all_models, fc_train::FeatureContainer, args...)      
+
+Create ensemble model from training data.
+"""
+function create_ensemble(all_models, fc_train::FeatureContainer, args...)      
+    x, y = get_fit_data(fc_train)
+    create_ensemble(all_models, x, y)
+end
+
+
+"""
     worker_train_one(model, x, y, jobs_channel, results_channel;kwargs...)
 
 Train one model and put the results into a channel
@@ -289,9 +302,56 @@ function worker_train_one(model, x, y, jobs_channel, results_channel;kwargs...)
             @info "Worker completed"
             break
         end
-
-        out = train!(model, x, y;kwargs...)
+        new_model = reinit(model)
+        out = train!(new_model, x, y;kwargs...)
         # Put the output in the channel storing the results
-        put!(results_channel, (model, out))
+        put!(results_channel, (new_model, out))
     end
 end
+
+
+struct TrainingResults{F, T}
+    fc::F
+    model::T
+    H_pred::Vector{Float64}
+    H_target::Vector{Float64}
+end
+
+function TrainingResults(model::AbstractNNInterface, fc::FeatureContainer)
+    x, H_target = get_fit_data(fc)
+    H_pred = predict_energy.(Ref(model), x)
+    TrainingResults(fc, model, H_pred, H_target)
+end
+
+TrainingResults(tr::TrainingResults, fc::FeatureContainer) = TrainingResults(tr.model, fc)
+
+function rmse_per_atom(tr::TrainingResults)
+    ((tr.H_target .- tr.H_pred) ./ natoms(tr.fc)) .^ 2 |> mean |> sqrt
+end
+
+function mae_per_atom(tr::TrainingResults)
+    abs.((tr.H_target .- tr.H_pred) ./ natoms(tr.fc)) |> mean 
+end
+
+absolute_error(tr::TrainingResults) = abs.(tr.H_pred .- tr.H_target)
+
+function Base.show(io::IO, ::MIME"text/plain", tr::TrainingResults)
+    @printf(io, "TrainingResults\n%20s: %d\n",  "Number of structures",  length(tr.fc))
+    @printf(io, "%-10s: %10.5f eV      ", "RMSE",  rmse_per_atom(tr))
+    @printf(io, "%-10s: %10.5f eV\n", "MAE",  mae_per_atom(tr))
+    imax, label_max = maximum_error(tr)
+    @printf(io, "%-10s: %10.2f meV     on structure: %20s\n", "Max error",  imax, label_max)
+    @printf(io, "%-10s: %10.5f", "Spearman", spearman(tr))
+end
+
+Base.show(io::IO, tr::TrainingResults) = Base.show(io, MIME("text/plain"), tr)
+
+function maximum_error(tr::TrainingResults)
+    ae = absolute_error(tr)
+    maximum_ae = maximum(ae)
+    imax = findfirst( x-> x== maximum_ae, ae)
+    label_max = tr.fc.labels[imax]
+    return imax, label_max
+end
+
+spearman(tr::TrainingResults) = corspearman(tr.H_pred, tr.H_target)

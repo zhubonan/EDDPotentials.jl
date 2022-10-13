@@ -123,11 +123,12 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
                 ecore += core.f(rij, core.rcut) * core.a
 
                 # forces
-                gcore = core.g(rij, core.rcut) * core.a
-                @inbounds for elm in 1:length(modvij)
-                    # Newton's second law - only need to update this atom
-                    # as we also go through the same ij pair with ji 
-                    if iat != jat
+                # Note that we add the negative size here since F=-dE/dx
+                gcore = -core.g(rij, core.rcut) * core.a
+                if iat != jat
+                    @inbounds for elm in 1:length(modvij)
+                        # Newton's second law - only need to update this atom
+                        # as we also go through the same ij pair with ji 
                         fcore[elm, iat] -=  gcore * modvij[elm]
                         fcore[elm, jat] +=  gcore * modvij[elm]
                     end

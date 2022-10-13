@@ -42,19 +42,8 @@ include("utils.jl")
     @test isa(fc[[labels[1], labels[2]]], EDDP.FeatureContainer)
     @test isa(collect(fc)[1], Tuple)
 
-    train_data = EDDP.training_data(fc, ratio_test=0.5)
-
-    # Test data scaling
-    xdata = [rand(10, 10) for _ in 1:10]
-    xtot = reduce(hcat, xdata)
-    xt = StatsBase.fit(StatsBase.ZScoreTransform, xtot[2:end, :], dims=2)
-
-    EDDP.transform_x!(xt, xdata)
-    @test std(reduce(hcat, xdata)[end, :]) ≈ 1 atol=1e-7
-    @test mean(reduce(hcat, xdata)[end, :]) ≈ 0 atol=1e-7
-
     # Test standardisation
-    fc1, fc2 = split(fc[1:10], 5, 3;shuffle=false)
+    fc1, fc2 = split(fc[1:10], 5, 3;shuffle=false, standardize=false)
     fc11, fc12 = EDDP.standardize(fc1, fc2)
     @test mean(reduce(hcat, fc11.fvecs)[2, :]) ≈ 0. atol=1e-8
     @test fc11.fvecs != fc1.fvecs

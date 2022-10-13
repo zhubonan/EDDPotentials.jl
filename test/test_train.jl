@@ -76,37 +76,25 @@ end
     fc = EDDP.FeatureContainer(sc, cf)
 
     # This gives fix examples
-    tdata = EDDP.training_data(fc;ratio_test=0.5)
-    tdata.x_train
-
-    # Scale X
-    EDDP.transform_x!(tdata.xt, tdata.x_train)
-    EDDP.transform_x!(tdata.xt, tdata.x_test)
-    @test std(reduce(hcat, tdata.x_train)[end, :]) ≈ 1 atol=1e-7
-    @test mean(reduce(hcat, tdata.x_train)[end, :]) ≈ 0 atol=1e-7
-
+    fc_train, fc_test = split(fc, 5, 5;standardize=true, apply_transform=true)
     models = []
-
     model = EDDP.ManualFluxBackPropInterface(
         Chain(Dense(ginit(5, EDDP.nfeatures(fc.feature))), Dense(ginit(1, 5))),
-        xt=nothing, yt=tdata.yt
+        xt=fc_train.xt, yt=fc_train.yt, apply_xt=false
     )
     model_ = EDDP.reinit(model)
     @test any(EDDP.paramvector(model_) .!= EDDP.paramvector(model))
     for _ in 1:10
         model_ = EDDP.reinit(model)
-        res = EDDP.train!(model_, tdata.x_train, tdata.y_train; y_test=tdata.y_test, x_test=tdata.x_test)
+        res = EDDP.train!(model_, fc_train, fc_test)
         push!(models, model_)
     end
 
-    emod = EDDP.create_ensemble(models, tdata.x_train, tdata.y_train)
-    emod(tdata.x_train[1])
-    out = EDDP.predict_energy.(Ref(emod), tdata.x_train)
-    @test size(out) == (length(tdata.y_train),)
-    
+    emod = EDDP.create_ensemble(models, fc_train)
+    out = EDDP.predict_energy(emod, fc_train[1][1])
+    @test isa(out, Real)
 
     ## Test distributed training
-    res = EDDP.train_multi_distributed(model, tdata.x_train, tdata.y_train; 
-            y_test=tdata.y_test, x_test=tdata.x_test, nmodels=3)
+    res = EDDP.train_multi_distributed(model, fc_train, fc_test;nmodels=3)
     @test isa(res, EDDP.EnsembleNNInterface)
 end

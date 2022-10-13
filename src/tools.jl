@@ -15,7 +15,7 @@ function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;e
         file["ensemble"]
     end
 
-    loaded = load_structures(pattern, cf;energy_threshold)
+    loaded = StructureContainer([pattern], cf;energy_threshold).structures
 
     isdir(savepath) || mkdir(savepath)
 
@@ -45,31 +45,6 @@ function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;e
 end
 
 
-function train(patterns, outpath, 
-              feature_opts::FeatureOptions, 
-              training_options::TrainingOptions=TrainingOptions();
-              energy_threshold=20. 
-              )
-
-    files_ = [glob(pattern) for pattern in patterns]
-    files = reduce(vcat, files_)
-
-    featurespec = CellFeature(feature_opts)
-
-    celldata = load_structures(files, featurespec;energy_threshold)
-
-    @info "Number of structures: $(length(celldata.cells))"
-    @info "Number of features: $(nfeatures(featurespec))"
-
-    # Prepare training data
-    traindata = training_data(celldata);
-
-    # Train the models
-    output = train_multi_distributed(traindata, outpath, training_options;featurespec)
-
-    # Save the ensemble model
-    create_ensemble(output.savefile)
-end
 
 """
     update_metadata!(vc::VariableCellCalc, label;symprec=1e-2)
@@ -489,10 +464,6 @@ function shake_res(files::Vector, nshake::Int, amp::Real, cellamp::Real=0.02)
         end
     end
 end
-
-const train_eddp = train
-export train_eddp
-
 
 """
     rattle_cell(cell::Cell, amp)

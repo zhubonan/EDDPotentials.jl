@@ -65,6 +65,8 @@ include("utils.jl")
         @test any(stress .!== 0.)
 
         _test_forces_fd(calc)
+
+
     end
     
     @testset "VCFilter" begin
@@ -82,6 +84,24 @@ include("utils.jl")
         pos[1] += 1e-9
         set_positions!(filter, pos)
         @test EDDP._need_calc(filter, false)
+    end
+
+    @testset "Neigh" begin
+        # Check NeighbourList rebuild
+        nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
+        calc = EDDP.NNCalc(cell, cf, nnitf)
+        p1 = calc.last_nn_build_pos[1]
+        positions(get_cell(calc))[1] += 3.0
+        EDDP.calculate!(calc;rebuild_nl=false)
+        @test p1 != calc.last_nn_build_pos[1]
+
+        # This should not Trigger rebuild
+        p1 = calc.last_nn_build_pos[1]
+        positions(get_cell(calc))[1] += 0.001
+        EDDP.calculate!(calc;rebuild_nl=false)
+        @test p1 == calc.last_nn_build_pos[1]
+        global calc
+
     end
 end
 

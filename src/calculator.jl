@@ -28,9 +28,12 @@ end
 
 get_positions(ac::AC) = get_positions(get_cell(ac))
 
+function set_cellmat!(calc::AC, cellmat;kwargs...)
+    set_cellmat!(get_cell(calc), cellmat;kwargs...)
+end
 
-function set_cellmat!(calc::AC, cellmat)
-    set_cellmat!(get_cell(calc), cellmat)
+function get_cellmat(calc::AC)
+    get_cellmat(get_cell(calc))
 end
 
 function set_positions!(calc::AC, positions)
@@ -52,6 +55,8 @@ end
 mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface} <: AbstractCalc
     cell::Cell{T}
     last_cell::Cell{T}
+    "Positions when the NeighbourList is built"
+    last_nn_build_pos::Vector{SVector{3, T}}
     "NeighbourList"
     nl::N
     cf::M
@@ -91,7 +96,9 @@ function is_equal(cell_a, cell_b)
 end
 
 
-function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; rcut=suggest_rcut(cf),
+function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; 
+    shell_size=2.,
+    rcut=suggest_rcut(cf;offset=shell_size),
     nmax=500, savevec=true, core=CoreReplusion(1.0)) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
@@ -100,6 +107,7 @@ function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; rcut=su
     fb = ForceBuffer(v2;core) # Buffer for force calculation 
     NNCalc(cell,
         deepcopy(cell),
+        sposarray(cell),
         nl,
         cf,
         v,
@@ -113,7 +121,6 @@ function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; rcut=su
         nn
     )
 end
-
 
 function get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     calculate!(calc; forces, rebuild_nl)
@@ -142,44 +149,63 @@ function _need_calc(calc::NNCalc, forces)
     return true
 end
 
-"""
-Calculate with on-the-fly gradient accumulation.
-"""
-function calculate_gotf!(calc::NNCalc; forces=true, rebuild_nl=true)
-    # Nothing to do if the cell has not changed since last time
+# """
+# Calculate with on-the-fly gradient accumulation.
+# """
+# function calculate_gotf!(calc::NNCalc; forces=true, rebuild_nl=true)
+#     # Nothing to do if the cell has not changed since last time
 
-    _need_calc(calc, forces) || return
+#     _need_calc(calc, forces) || return
 
-    # Update the feature vector for the forward pass
-    update_feature_vector!(calc; rebuild_nl, gradients=false)
-    calc.eng .= forward!(calc.nninterface, calc.v)[1, :]
-    calc.energy_calculated = true
-    if  forces
-        calc.forces_calculated = false
-        fill!(calc.stress, 0.0)
-        fill!(calc.forces, 0.0)
+#     # Update the feature vector for the forward pass
+#     update_feature_vector!(calc; rebuild_nl, gradients=false)
+#     calc.eng .= forward!(calc.nninterface, calc.v)[1, :]
+#     calc.energy_calculated = true
+#     if  forces
+#         calc.forces_calculated = false
+#         fill!(calc.stress, 0.0)
+#         fill!(calc.forces, 0.0)
 
-        backward!(calc.nninterface; gu=one(eltype(calc.v)), weight_and_bias=false)
-        # Calculate the gradient of the feature vectors on the outputs (energies)
-        gradinp!(calc.gv, calc.nninterface)
+#         backward!(calc.nninterface; gu=one(eltype(calc.v)), weight_and_bias=false)
+#         # Calculate the gradient of the feature vectors on the outputs (energies)
+#         gradinp!(calc.gv, calc.nninterface)
 
-        # Apply chain rule to get the forces while updating the feature vectors 
-        update_feature_vector!(calc; rebuild_nl=false,
-                               gradients=true, gv=calc.gv, gv_offset=EDDP.feature_size(calc.cf)[1])
-        calc.stress ./= volume(get_cell(calc))
-        calc.forces_calculated = true
-        calc.energy_calculated = true
-        # Update as the last calculated cell
-    end
-    copycell!(calc.cell, calc.last_cell)
-end
+#         # Apply chain rule to get the forces while updating the feature vectors 
+#         update_feature_vector!(calc; rebuild_nl=false,
+#                                gradients=true, gv=calc.gv, gv_offset=EDDP.feature_size(calc.cf)[1])
+#         calc.stress ./= volume(get_cell(calc))
+#         calc.forces_calculated = true
+#         calc.energy_calculated = true
+#         # Update as the last calculated cell
+#     end
+#     copycell!(calc.cell, calc.last_cell)
+# end
 
 function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
     # Nothing to do if the cell has not changed since last time
 
     _need_calc(calc, forces) || return
+    cell = get_cell(calc)
+    pos = sposarray(cell)
 
-    update_feature_vector!(calc; rebuild_nl, gradients=forces)
+    # Trigger rebuild of the NeighbourList
+    if rebuild_nl
+        rebuild = true
+    else
+        tol = (calc.nl.rcut - suggest_rcut(calc.cf;offset=0.)) ^ 2 / 2
+        rebuild = false
+        for i in 1:natoms(cell)
+            if distance_squared_between(pos[i], calc.last_nn_build_pos[i])  > tol
+                rebuild = true
+                break
+            end
+        end
+    end
+    if rebuild
+        calc.last_nn_build_pos .= pos
+    end
+
+    update_feature_vector!(calc; rebuild_nl=rebuild, gradients=forces)
 
     # Energy evaluation
     calc.eng .= forward!(calc.nninterface, calc.v)[1, :]
