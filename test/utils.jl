@@ -21,7 +21,7 @@ end
 
 function _generate_cf(cell::Cell)
     cf = EDDP.CellFeature(
-        EDDP.FeatureOptions(elements=unique(species(cell)), p2=[6, 12], q3=[2], p3=[2])
+        EDDP.FeatureOptions(elements=unique(species(cell)), p2=[6, 12], q3=[2,3], p3=[2,3])
     )
     cf
 end

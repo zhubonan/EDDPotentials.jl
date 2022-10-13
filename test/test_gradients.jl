@@ -106,7 +106,7 @@ include("utils.jl")
     p0 = cell.positions
     od = NLSolversBase.OnceDifferentiable( x -> fv(cell, x, cf), p0, fv(cell, p0, cf); 
                                           inplace=false)
-    jac = reshape(NLSolversBase.jacobian!(od, p0), 3, 2, 3, 2)
+    jac = reshape(NLSolversBase.jacobian!(od, p0), 6, 2, 3, 2)
     gtmp = permutedims(gvec, [2,3,1,4])
 
     s0 = zeros(9)
