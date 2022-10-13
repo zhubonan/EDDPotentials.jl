@@ -305,6 +305,9 @@ function worker_train_one(model, x, y, jobs_channel, results_channel;kwargs...)
         new_model = reinit(model)
         out = train!(new_model, x, y;kwargs...)
         # Put the output in the channel storing the results
+        if isa(model, ManualFluxBackPropInterface)
+            clear_transient_gradients!(model)
+        end
         put!(results_channel, (new_model, out))
     end
 end

@@ -251,14 +251,15 @@ Interface for DenseGradient implementation
 mutable struct ManualFluxBackPropInterface{T, G, X, Z} <: AbstractNNInterface
     chain::T
     gchains::Vector{ChainGradients{G}}
-    last_id::Vector{Int}
+    last_id::Int
     xt::X
     yt::Z
     apply_xt::Bool
 end
 
 function ManualFluxBackPropInterface(chain::Chain;xt=nothing, yt=nothing, apply_xt=true) 
-    ManualFluxBackPropInterface(chain, ChainGradients{typeof(chain)}[], Int[], xt, yt, apply_xt)
+    g = ChainGradients(chain, 1)
+    ManualFluxBackPropInterface(chain, typeof(g)[], 1, xt, yt, apply_xt)
 end
 
 function Base.show(io::IO, m::MIME"text/plain", x::ManualFluxBackPropInterface )
@@ -280,13 +281,12 @@ function _get_or_create_chaingradients(itf, inp)
     else
         cg = itf.gchains[idx]
     end
-    itf.last_id[1] = idx
+    itf.last_id = idx
     cg
 end
 
 function clear_transient_gradients!(g::ManualFluxBackPropInterface)
     empty!(g.gchains)
-    empty!(g.last_id)
 end
 
 
@@ -332,7 +332,7 @@ function (itf::ManualFluxBackPropInterface)(inp;make_copy=false)
 end
 
 function gradparam!(gvec::AbstractVector, itf::ManualFluxBackPropInterface)
-    grad = collect_gradients!(gvec, itf.gchains[itf.last_id[1]])
+    grad = collect_gradients!(gvec, itf.gchains[itf.last_id])
     if !isnothing(itf.yt)
         grad .*= itf.yt.scale[1]
     end
@@ -344,7 +344,7 @@ Return the gradient of the input matrix ``X`` against the sum of the output ``su
 """
 function gradinp!(gvec::AbstractVecOrMat, itf::ManualFluxBackPropInterface)
     # Collect 
-    gvec .= input_gradient(itf.gchains[itf.last_id[1]].layers[1])
+    gvec .= input_gradient(itf.gchains[itf.last_id].layers[1])
     # If transform is applied then we have to scale the gradient
     if !isnothing(itf.xt) 
         nl = itf.xt.len
@@ -356,7 +356,7 @@ function gradinp!(gvec::AbstractVecOrMat, itf::ManualFluxBackPropInterface)
     gvec
 end
 
-backward!(itf::ManualFluxBackPropInterface;kwargs...) = backward!(itf.gchains[itf.last_id[1]], itf.chain;kwargs...)
+backward!(itf::ManualFluxBackPropInterface;kwargs...) = backward!(itf.gchains[itf.last_id], itf.chain;kwargs...)
 
 
 paramvector(itf::ManualFluxBackPropInterface) = paramvector(itf.chain)

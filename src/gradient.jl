@@ -90,11 +90,12 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
 
-    ecore_total = Threads.Atomic{Float64}(0.)
+    ecore_global = zeros(nthreads())
+    score_global = zeros(3,3, nthreads())
 
     Threads.@threads for iat = 1:nat
     #for iat = 1:nat
-
+        tid = threadid()
         ecore = 0.
         pij = zeros(npmax3, lfe3)
         # pij_1 = zeros(npmax3, lfe3)
@@ -131,13 +132,13 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
                     @inbounds for elm in 1:length(modvij)
                         # Newton's second law - only need to update this atom
                         # as we also go through the same ij pair with ji 
-                        fcore[elm, iat] -=  gcore * modvij[elm]
-                        fcore[elm, jat] +=  gcore * modvij[elm]
+                        fcore[elm, iat] -= 2 * gcore * modvij[elm]
+                        #fcore[elm, jat] +=  gcore * modvij[elm]
                     end
                 end
                 for elm1 in 1:3
                     for elm2 in 1:3
-                        @inbounds score[elm1, elm2] += vij[elm1] * modvij[elm2] * gcore
+                        @inbounds score_global[elm1, elm2, tid] += vij[elm1] * modvij[elm2] * gcore
                     end
                 end
             end
@@ -285,9 +286,12 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
                 end  # 3body-feature update loop 
             end # i,j,k pair
         end
-        Threads.atomic_add!(ecore_total, ecore)
+        ecore_global[tid] += ecore
     end
-    fb.ecore[1] = ecore_total[]
+    fb.ecore[1] = sum(ecore_global)
+    for i in 1:nthreads()
+        score .+= score_global[:, :, i]
+    end
     fvec, gtot, stot 
 end
 
@@ -524,7 +528,7 @@ function _force_update!(fb::ForceBuffer, gv) where {T}
     # Zero the buffer
     gf_at = fb.gvec
     fill!(fb.forces, 0)
-    for iat in axes(gf_at, 4)  # Atom index
+    Threads.@threads for iat in axes(gf_at, 4)  # Atom index
         for j in axes(gf_at, 3)  # Atom index for the feature vector
             for i in axes(gf_at, 2)  # Feature index
                 for _i in axes(fb.forces, 1)  # xyz
@@ -547,16 +551,19 @@ function _stress_update!(fb::ForceBuffer, gv) where {T}
     # Zero the buffer
     gf_at = fb.stotv
     fill!(fb.stress, 0)
+    #stress_copy = zeros(3, 3, nthreads())
+    #Threads.@threads for j in axes(gf_at, 4)
     for j in axes(gf_at, 4)
+        sid = threadid()
         for i in axes(gf_at, 3)
             for _i = 1:3
                 for _j = 1:3
-                    @inbounds fb.stress[_i, _j] += gf_at[_i, _j, i, j] .* gv[i, j] * -1 # F(xi) = -∇E(xi)
+                    @inbounds fb.stress[_i, _j, sid] += gf_at[_i, _j, i, j] .* gv[i, j] * -1 # F(xi) = -∇E(xi)
                 end
             end
         end
     end
-
+    #fb.stress .= sum(stress_copy, dims=3)[:, :, 1]
     if !isnothing(fb.stress)
         fb.stress .+= fb.score
     end

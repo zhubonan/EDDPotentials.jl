@@ -37,7 +37,7 @@ using Test
         EDDP.gradparam!(gvec, itf)
         @test any(g1 .!= gvec)
 
-        gout = similar(itf.gchains[2].layers[1].gx)
+        gout = similar(itf.gchains[1].layers[1].gx)
         EDDP.gradinp!(gout, itf)
 
         @test EDDP.nparams(itf) == 220
