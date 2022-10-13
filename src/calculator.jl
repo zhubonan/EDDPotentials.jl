@@ -182,10 +182,20 @@ function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
     # Nothing to do if the cell has not changed since last time
 
     _need_calc(calc, forces) || return
+
+    _rebuild_on_demand(calc;rebuild_nl)
+    # Disable rebuilding NL - we have done this already
+    _calculate!(calc, false, forces)
+    # Update as the last calculated cell
+    copycell!(calc.cell, calc.last_cell)
+end
+
+"""
+Trigger rebuild of the NeighbourList
+"""
+function _rebuild_on_demand(calc;rebuild_nl)
     cell = get_cell(calc)
     pos = sposarray(cell)
-
-    # Trigger rebuild of the NeighbourList
     if rebuild_nl
         rebuild = true
     else
@@ -200,10 +210,18 @@ function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
     end
     if rebuild
         calc.last_nn_build_pos .= pos
+        rebuild!(calc.nl, calc.cell)
+    else
+        CellBase.update!(calc.nl, calc.cell)
     end
+end
 
+
+
+
+function _calculate!(calc, rebuild, forces=true)
+    # Compute feature vector and the gradients
     update_feature_vector!(calc; rebuild_nl=rebuild, gradients=forces)
-
     # Energy evaluation
     calc.eng .= forward!(calc.nninterface, calc.v)[1, :]
     calc.energy_calculated = true
@@ -222,8 +240,39 @@ function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
         calc.stress ./= volume(get_cell(calc))
         calc.forces_calculated = true
     end
-    # Update as the last calculated cell
-    copycell!(calc.cell, calc.last_cell)
+end
+
+"""
+Do a two-pass approach - first pass get the feature vectors and the second 
+pass will obtain the gradients
+"""
+function _calculate_two_pass!(calc)
+    # Compute feature vector and the gradients
+    # with two passes
+    if rebuild
+        rebuild!(calc.nl, calc.cell)
+    else
+        CellBase.update!(calc.nl, calc.cell)
+    end
+
+    cell = get_cell(calc)
+    one_body_vectors!(calc.v, cell, calc.cf)
+    n1bd, n2bd, _ = feature_size(calc.cf)
+    cf = calc.cf
+    # First pass
+    compute_fv!(calc.v, cf.two_body, cf.three_body, cell;nl, offset=n1db)
+    calc.eng .= forward!(calc.nninterface, calc.v)[1, :]
+    calc.energy_calculated = true
+    # Compute gradients
+    backward!(calc.nninterface; gu=one(eltype(calc.v)), weight_and_bias=false)
+    # Save the gradients
+    gradinp!(calc.gv, calc.nninterface)
+    # Second pass - offset to skip the gradient of the one-body terms
+    compute_fv_gv!(fb, cf.two_body, cf.three_body, cell, calc.gv;nl, offset=n1bd)
+
+    # Scale stress by the volume
+    calc.stress ./= volume(get_cell(calc))
+    calc.forces_calculated = true
 end
 
 """

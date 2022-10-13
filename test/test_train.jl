@@ -65,7 +65,6 @@ using NLSolversBase
     model = EDDP.LinearInterface(rand(1, nf))
 
     opt_res, _, _ = EDDP.train!(model, data, y;earlystop=0)
-    @show sum(model(data[2])) ≈ 1.5 atol=1e-1
 end
 
 @testset "Ensemble" begin
