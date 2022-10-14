@@ -705,12 +705,15 @@ end
 
 Propagate chain rule to obtain the forces
 """
-function _force_update!(fb::ForceBuffer, gv;offset=0) where {T}
+function _force_update!(fb::ForceBuffer, nl, gv;offset=0) where {T}
     # Zero the buffer
     gf_at = fb.gvec
     fill!(fb.forces, 0)
     Threads.@threads for iat in axes(gf_at, 4)  # Atom index
-        for j in axes(gf_at, 3)  # Atom index for the feature vector
+        js = [tmp[1] for tmp in CellBase.eachneighbour(nl, iat)]
+        #for j in unique(js)
+        #for j in axes(gf_at, 3)  # Atom index for the feature vector
+        for (j, _, _) in CellBase.eachneighbour(nl, iat, unique=true)
             for i in 1+offset:size(gf_at, 2)
                 for _i in axes(fb.forces, 1)  # xyz
                     @inbounds fb.forces[_i, iat] += gf_at[_i, i, j, iat] * gv[i, j] * -1  # F(xi) = -∇E(xi)
@@ -718,9 +721,11 @@ function _force_update!(fb::ForceBuffer, gv;offset=0) where {T}
             end
         end
     end
+
     if !isnothing(fb.core)
         fb.forces .+= fb.fcore
     end
+    _substract_force_drift(fb.forces)
 end
 
 """
@@ -747,9 +752,8 @@ function _stress_update!(fb::ForceBuffer, gv;offset=0) where {T}
     end
 end
 
-
-function apply_chainrule!(fb::ForceBuffer, gv;offset=0)
-    _force_update!(fb, gv;offset)
-    _stress_update!(fb, gv;offset)
-    fb
+function _substract_force_drift(forces)
+    for i in axes(forces, 1)
+        forces[i, :] .-= sum(@view(forces[i, :]))
+    end
 end

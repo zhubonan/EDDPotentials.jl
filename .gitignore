@@ -10,3 +10,8 @@ Manifest.toml
 *.gz
 *.err
 *.cif
+*.ddp
+*.agr
+*.delta
+examples/*
+*.jld2

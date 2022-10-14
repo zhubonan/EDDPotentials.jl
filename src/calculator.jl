@@ -160,7 +160,7 @@ function _need_calc(calc::NNCalc, forces)
     return true
 end
 
-function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
+@timeit to function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
     # Nothing to do if the cell has not changed since last time
 
     _need_calc(calc, forces) || return
@@ -222,7 +222,7 @@ function _calculate!(calc, rebuild, forces=true)
         # Apply chain rule to get the forces
         n1bd = feature_size(calc.cf)[1]
         # Force is only applicable on n-body features where N>1
-        @timeit to "apply_chainrule!" apply_chainrule!(calc.force_buffer, calc.gv, offset=1)
+        @timeit to "apply_chainrule!" apply_chainrule!(calc, calc.gv, offset=1)
         # Scale stress by the volume
         calc.stress ./= volume(get_cell(calc))
         calc.param.forces_calculated = true
@@ -298,6 +298,17 @@ Return pressure in unit of GPa.
 function get_pressure_gpa(vc::AbstractCalc)
     eVAngToGPa(tr(EDDP.get_stress(vc)) / 3.0)
 end
+
+"""
+Apply Chain rule to compute forces
+"""
+function apply_chainrule!(calc, gv;offset=0)
+    _force_update!(calc.force_buffer, calc.nl, gv;offset)
+    _stress_update!(calc.force_buffer, gv;offset)
+    _substract_force_drift(calc.force_buffer.forces)
+    calc
+end
+
 ### Filter for allowing variable cell optimisation
 
 
