@@ -146,8 +146,10 @@ end
     )
 
     nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
-    calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
-    calc.param.mode = "one-pass"
+    calc = EDDP.NNCalc(cell, cf, nnitf;)
+
+    @test calc.param.mode == "one-pass"
+    @test length(calc.force_buffer.gvec) > 1
     EDDP.calculate!(calc)
     eng = copy(get_energy(calc))
     v1 = copy(calc.v)
@@ -157,8 +159,9 @@ end
 
     calc.param.forces_calculated = false
     calc.param.energy_calculated = false
-    calc.param.mode = "two-pass"
+    EDDP._reinit_fb!(calc, "two-pass")
     EDDP.calculate!(calc)
+    @test length(calc.force_buffer.gvec) == 0
     @test v1 == calc.v
     @test e1 == calc.eng
 
@@ -170,9 +173,20 @@ end
     @test allclose(forces2, forces, atol=1e-7)
     @test allclose(stress2, stress, atol=1e-7)
 
-    @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10 )) 
-    @test size(stress) == (3,3)
-    @test any(stress .!== 0.)
+
+    # Start from scratch
+    calc2 = EDDP.NNCalc(cell, cf, nnitf;mode="two-pass")
+    EDDP.calculate!(calc2)
+    @test v1 == calc2.v
+    @test e1 == calc2.eng
+
+    eng3 = copy(get_energy(calc2))
+    forces3 = copy(get_forces(calc2))
+    stress3 = copy(get_stress(calc2))
+
+    @test eng3 == eng
+    @test allclose(forces3, forces, atol=1e-7)
+    @test allclose(stress3, stress, atol=1e-7)
+    @test length(calc.force_buffer.gvec) == 0
+
 end
-
-

@@ -31,10 +31,17 @@ end
 """
 Initialise a buffer for computing forces
 """
-function ForceBuffer(fvec::Matrix{T};ndims=3, core=nothing) where {T}
+function ForceBuffer(fvec::Matrix{T};ndims=3, core=nothing, mode="one-pass") where {T}
     nf, nat = size(fvec)
-    gvec = zeros(T, ndims, nf, nat, nat)
-    stotv = zeros(T, ndims, ndims, nf, nat)
+    if mode == "one-pass"
+        gvec = zeros(T, ndims, nf, nat, nat)
+        stotv = zeros(T, ndims, ndims, nf, nat)
+    elseif mode == "two-pass"
+        gvec = zeros(T, 0, 0, 0, 0)
+        stotv = zeros(T, 0, 0, 0, 0)
+    else
+        throw(ErrorException("Unknown mode: $mode"))
+    end
     forces = zeros(T, ndims, nat)
     fcore = zeros(T, ndims, nat)
     stress = zeros(T, ndims, ndims)

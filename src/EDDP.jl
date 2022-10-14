@@ -10,6 +10,7 @@ using TimerOutputs
 
 const to = TimerOutput() 
 
+
 # External
 include("nnls.jl")
 include("feature.jl")
@@ -20,7 +21,6 @@ include("lmsolve.jl")
 include("preprocessing.jl")
 include("eddpf90.jl")
 include("training.jl")
-#include("evaluate.jl")
 include("calculator.jl")
 include("tools.jl")
 include("iterative_build.jl")
@@ -31,5 +31,9 @@ export distance_matrix, laplacian_matrix, nmodules, find_modules
 export get_cell, get_forces, get_energy, get_stress, VariableLatticeFilter, CellFeature, CellWorkSpace, CellCalculator
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export TrainingOptions, FeatureOptions
+
+function __init__()
+    reset_timer!(to)
+end
 
 end # module

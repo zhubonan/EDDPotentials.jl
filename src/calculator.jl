@@ -99,11 +99,12 @@ end
 function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface; 
     shell_size=2.,
     rcut=suggest_rcut(cf;offset=shell_size),
+    mode="one-pass",
     nmax=500, savevec=true, core=CoreReplusion(1.0)) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
 
-    fb = ForceBuffer(v;core) # Buffer for force calculation 
+    fb = ForceBuffer(v;core, mode) # Buffer for force calculation 
     NNCalc(cell,
         deepcopy(cell),
         sposarray(cell),
@@ -115,9 +116,19 @@ function NNCalc(cell::Cell{T}, cf::CellFeature, nn::AbstractNNInterface;
         fb.forces,  # Forces
         fb.stress,  # Stress
         zeros(T, nions(cell)), # Energy
-        NNCalcParam(),
+        NNCalcParam(;mode=mode),
         nn
     )
+end
+
+function _reinit_fb!(calc, mode)
+    if mode != calc.param.mode
+        fb = ForceBuffer(calc.v;calc.force_buffer.core, mode) # Buffer for force calculation 
+        calc.force_buffer = fb
+        calc.forces = fb.forces
+        calc.stress = fb.stress
+        calc.param.mode = mode
+    end
 end
 
 function get_energy(calc::NNCalc; forces=true, rebuild_nl=true)
