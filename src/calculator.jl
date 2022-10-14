@@ -254,6 +254,8 @@ function _calculate_two_pass!(calc)
     # Feature vectors should not be updated here
     @timeit to "compute_fv_gv!" compute_fv_gv!(calc.force_buffer, cf.two_body, cf.three_body, cell, calc.gv;calc.nl, offset=n1bd)
 
+    _substract_force_drift(calc.forces)
+
     # Scale stress by the volume
     calc.stress ./= volume(get_cell(calc))
     calc.param.forces_calculated = true
