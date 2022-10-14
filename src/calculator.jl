@@ -128,6 +128,8 @@ function _reinit_fb!(calc, mode)
         calc.forces = fb.forces
         calc.stress = fb.stress
         calc.param.mode = mode
+        calc.param.forces_calculated = false
+        calc.param.energy_calculated = false
     end
 end
 
@@ -172,6 +174,7 @@ function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
         @timeit to "_calculate_two_pass" _calculate_two_pass!(calc)
     end
     copycell!(calc.cell, calc.last_cell)
+    calc
 end
 
 """

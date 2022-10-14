@@ -460,7 +460,7 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
     stot = fb.stotv # Size (3, 3, totalfe, nat)
     core = fb.core
 
-
+    @assert length(gtot) > 0 "The ForceBuffer passed is not suitable for single-pass calculation!"
     lfe3 = length(features3)
 
     nfe2 = map(nfeatures, features2) 

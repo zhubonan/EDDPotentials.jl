@@ -36,4 +36,8 @@ function __init__()
     reset_timer!(to)
 end
 
+function clear_timer!()
+    reset_timer!(to)
+end
+
 end # module
