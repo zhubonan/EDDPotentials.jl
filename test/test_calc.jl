@@ -137,3 +137,42 @@ end
     @test length(traj) > 1
     @test :enthalpy in keys(traj[1].metadata)
 end
+
+@testset "Two-pass" begin
+    cell = _h2_cell()
+
+    cf = EDDP.CellFeature(
+        EDDP.FeatureOptions(elements=unique(species(cell)), p2=[2,4], q3=[3,4], p3=[3,4])
+    )
+
+    nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
+    calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
+    calc.param.mode = "one-pass"
+    EDDP.calculate!(calc)
+    eng = copy(get_energy(calc))
+    v1 = copy(calc.v)
+    e1 = copy(calc.eng)
+    forces = copy(get_forces(calc))
+    stress = copy(get_stress(calc))
+
+    calc.param.forces_calculated = false
+    calc.param.energy_calculated = false
+    calc.param.mode = "two-pass"
+    EDDP.calculate!(calc)
+    @test v1 == calc.v
+    @test e1 == calc.eng
+
+    eng2 = copy(get_energy(calc))
+    forces2 = copy(get_forces(calc))
+    stress2 = copy(get_stress(calc))
+
+    @test eng2 == eng
+    @test allclose(forces2, forces, atol=1e-7)
+    @test allclose(stress2, stress, atol=1e-7)
+
+    @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10 )) 
+    @test size(stress) == (3,3)
+    @test any(stress .!== 0.)
+end
+
+

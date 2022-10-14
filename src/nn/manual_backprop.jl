@@ -10,6 +10,7 @@ using JLD2
 using LinearAlgebra
 using Flux
 import Zygote
+import JLD2
 
 
 """
@@ -346,7 +347,7 @@ function gradinp!(gvec::AbstractVecOrMat, itf::ManualFluxBackPropInterface)
     # Collect 
     gvec .= input_gradient(itf.gchains[itf.last_id].layers[1])
     # If transform is applied then we have to scale the gradient
-    if !isnothing(itf.xt) 
+    if !isnothing(itf.xt) && itf.apply_xt
         nl = itf.xt.len
         gvec[end-nl+1:end, :] ./= itf.xt.scale
     end
@@ -381,20 +382,32 @@ function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_unifo
 end
 
 # JLD2 custom serialization - we do not need to store ChainGradients which are 
-# transient 
-struct MFPSerialization{T, X, Z}
-    chain::T
-    xt::X
-    yt::Z
-    apply_xt::Bool
+# We cannot use the offical custom serialization interface because we do not want 
+# to information about the ChainGradients instans which is in type parameter
+
+function save_as_jld2(f, obj::ManualFluxBackPropInterface)
+    f["chain"] = obj.chain
+    f["xt"] = obj.xt
+    f["yt"] = obj.yt
+    f["apply_xt"] = obj.apply_xt
 end
 
-JLD2.writeas(::Type{ManualFluxBackPropInterface}) = MFPSerialization
-
-function Base.convert(::Type{MFPSerialization}, a::ManualFluxBackPropInterface) 
-    MFPSerialization(a.chain, a.xt, a.yt, a.apply_xt)
+function load_from_jld2(f, ::Type{ManualFluxBackPropInterface})
+    chain = f["chain"]
+    xt = f["xt"]
+    yt = f["yt"]
+    apply_xt=f["apply_xt"]
+    ManualFluxBackPropInterface(chain;xt, yt, apply_xt)
 end
 
-function Base.convert(::Type{ManualFluxBackPropInterface}, a::MFPSerialization)
-    ManualFluxBackPropInterface(a.chain;xt=a.xt, yt=a.yt, apply_xt=a.apply_xt)
+function save_as_jld2(x::String, obj::ManualFluxBackPropInterface)
+    jldopen(x, "w") do f
+        save_as_jld2(f, obj)
+    end
+end
+
+function load_from_jld2(x::String, ::Type{ManualFluxBackPropInterface})
+    jldopen(x) do f
+        load_from_jld2(f, obj)
+    end
 end

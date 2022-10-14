@@ -93,3 +93,42 @@ function Base.show(io::IO, m::MIME"text/plain", v::EnsembleNNInterface)
     println(io, "\n...\nTotal: $(length(v.models)) models.")
     println(io, "Weights: $(v.weights)")
 end
+
+function save_as_jld2(f::Union{<:JLD2.Group, <:JLD2.JLDFile}, obj::EnsembleNNInterface)
+    topgroup = JLD2.Group(f, "ensemble")
+    group = JLD2.Group(topgroup, "models")
+    for (i, model) in enumerate(obj.models)
+        subgroup = JLD2.Group(group, "model-$i")
+        save_as_jld2(subgroup, model)
+    end
+    topgroup["weights"] = obj.weights
+end
+
+function save_as_jld2(str::AbstractString, obj::EnsembleNNInterface)
+    jldopen(str, "w") do f
+        save_as_jld2(f, obj)
+    end
+end
+
+function load_from_jld2(f::Union{<:JLD2.Group, <:JLD2.JLDFile}, ::Type{<:EnsembleNNInterface})
+    topgroup = f["ensemble"]
+    group = topgroup["models"] 
+    models = []
+    ids = Int[]
+    for key in keys(group)
+        i = parse(Int, split(key, "-")[2])
+        push!(ids, i)
+        model = load_from_jld2(group[key], ManualFluxBackPropInterface)
+        push!(models, model)
+    end
+    weights = topgroup["weights"]
+    # Ensure we load it in the wright order
+    models = models[sortperm(ids)]
+    EnsembleNNInterface(Tuple(models), weights)
+end
+
+function load_from_jld2(str::AbstractString, t::Type{<:EnsembleNNInterface})
+    jldopen(str) do f
+        load_from_jld2(f, t)
+    end
+end

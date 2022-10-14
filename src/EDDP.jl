@@ -6,6 +6,9 @@ using CellBase: read_castep
 import CellBase
 using StatsBase: mean
 export mean
+using TimerOutputs
+
+const to = TimerOutput() 
 
 # External
 include("nnls.jl")

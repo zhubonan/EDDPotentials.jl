@@ -149,7 +149,7 @@ function _update_two_body!(fvec, forces, stress, sym, iat, jat, rij, vij, modvij
             # Force update 
             @inbounds for elm in 1:length(vij) 
                 if iat != jat 
-                    tmp = modvij * gfij * g
+                    tmp = modvij[elm] * gfij * g
                     forces[elm, iat] += tmp
                     forces[elm, jat] -= tmp
                 end
@@ -187,8 +187,8 @@ end
 function _update_three_body!(fvec, gtot, stot, iat, jat, kat, sym, pij, pik, qjk, 
                              rij, rik, rjk,
                              inv_fij, inv_fik, inv_fjk,
-                             vij, vik, vjk, modvij, modvik, modvjk, features3, i0)
-    i = i0
+                             vij, vik, vjk, modvij, modvik, modvjk, features3, offset)
+    i = 1 + offset
     for (ife, f) in enumerate(features3)
 
         # Not for this triplets of atoms....
@@ -251,8 +251,8 @@ end
 function _update_three_body!(fvec, forces, stress, iat, jat, kat, sym, pij, pik, qjk, 
                              rij, rik, rjk,
                              inv_fij, inv_fik, inv_fjk,
-                             vij, vik, vjk, modvij, modvik, modvjk, features3, i0, gv)
-    i = i0
+                             vij, vik, vjk, modvij, modvik, modvjk, features3, offset, gv)
+    i = 1 + offset
     for (ife, f) in enumerate(features3)
 
         # Not for this triplets of atoms....
@@ -317,8 +317,8 @@ function _update_three_body!(fvec, forces, stress, iat, jat, kat, sym, pij, pik,
 end
 
 
-function _update_three_body!(fvec, iat, jat, kat, sym, pij, pik, qjk, features3, i0)
-    i = i0
+function _update_three_body!(fvec, iat, jat, kat, sym, pij, pik, qjk, features3, offset)
+    i = 1+offset
     for (ife, f) in enumerate(features3)
 
         # Not for this triplets of atoms....
@@ -349,6 +349,7 @@ Compute feature vectors only.
 function compute_fv!(fvec, features2, features3, cell::Cell;
                         nl=NeighbourList(cell, maximum(x.rcut for x in (features2..., features3...));savevec=false), 
                         offset=0,
+                        core=nothing
                         ) 
    
     # Main quantities
@@ -368,8 +369,11 @@ function compute_fv!(fvec, features2, features3, cell::Cell;
 
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
+    ecore_buffer = [0. for _ in 1:nthreads()]
 
     Threads.@threads for iat = 1:nat
+        tid = threadid()
+        ecore = 0.
         pij = zeros(npmax3, lfe3)
         inv_fij = zeros(lfe3)
 
@@ -382,8 +386,11 @@ function compute_fv!(fvec, features2, features3, cell::Cell;
         for (jat, jextend, rij) in CellBase.eachneighbour(nl, iat)
             rij > maxrcut && continue
             # Compute pij
-            lenght(features3) !== 0 && _update_pij!(pij, inv_fij, rij, features3)
+            length(features3) !== 0 && _update_pij!(pij, inv_fij, rij, features3)
 
+            if !isnothing(core)
+                ecore += core.f(rij, core.rcut) * core.a
+            end
 
             # Update two body features and forces
             _update_two_body!(fvec, sym, iat, jat, rij, features2, offset)
@@ -417,13 +424,14 @@ function compute_fv!(fvec, features2, features3, cell::Cell;
                 _update_qjk!(qjk, inv_fjk, rjk, features3)
                 
                 # Starting index for three-body feature udpate
-                i = totalfe2 + 1 + offset
+                i = totalfe2 + offset
                 _update_three_body!(fvec, iat, jat, kat, sym, 
                                 pij, pik, qjk, features3, i)
             end # i,j,k pair
         end
+        ecore_buffer[tid] += ecore
     end
-    fvec
+    sum(ecore_buffer)
 end
 
 
@@ -461,7 +469,6 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
     nqmax3 = maximum(length(x.q) for x in features3)
 
     # Reset all gradients to zero
-    fill!(fvec, 0)
     fill!(gtot, 0)
     fill!(stot, 0)
     fill!(fb.fcore, 0)
@@ -538,7 +545,7 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
                 _update_qjk!(qjk, inv_fjk, rjk, features3)
                 
                 # Starting index for three-body feature udpate
-                i = totalfe2 + 1 + offset
+                i = totalfe2 + offset
 
                 _update_three_body!(fvec, gtot, stot, iat, jat, kat, sym, 
                                 pij, pik, qjk, rij, rik, rjk, 
@@ -553,16 +560,15 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
         fb.score .+= score_buffer[i]
         fb.fcore .+= fcore_buffer[i]
     end
-    fvec, gtot, stot 
+    fb
 end
 
 function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell, gv;
                         nl=NeighbourList(cell, maximum(x.rcut for x in (features2..., features3...));savevec=true), 
-                        offset=0
+                        offset=0,
                         ) 
    
     # Main quantities
-    fvec = fb.fvec  # Size (nfe, nat)
     core = fb.core
 
 
@@ -581,9 +587,8 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell, gv;
     nqmax3 = maximum(length(x.q) for x in features3)
 
     # Reset all gradients to zero
-    fill!(fvec, 0)
-    fill!(fcore, 0)
-    fill!(score, 0)
+    fill!(fb.fcore, 0)
+    fill!(fb.score, 0)
     fill!(fb.forces, 0)
     fill!(fb.stress, 0)
 
@@ -667,7 +672,7 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell, gv;
                 _update_qjk!(qjk, inv_fjk, rjk, features3)
                 
                 # Starting index for three-body feature udpate
-                i = totalfe2 + 1 + offset
+                i = totalfe2 + offset
 
                 _update_three_body!(nothing, forces, stress, iat, jat, kat, sym, 
                                 pij, pik, qjk, rij, rik, rjk, 
@@ -684,7 +689,7 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell, gv;
         fb.fcore .+= fcore_buffer[i]
         fb.score .+= score_buffer[i]
     end
-    fvec, gtot, stot 
+    fb
 end
 
 
@@ -693,13 +698,13 @@ end
 
 Propagate chain rule to obtain the forces
 """
-function _force_update!(fb::ForceBuffer, gv) where {T}
+function _force_update!(fb::ForceBuffer, gv;offset=0) where {T}
     # Zero the buffer
     gf_at = fb.gvec
     fill!(fb.forces, 0)
     Threads.@threads for iat in axes(gf_at, 4)  # Atom index
         for j in axes(gf_at, 3)  # Atom index for the feature vector
-            for i in axes(gf_at, 2)  # Feature index
+            for i in 1+offset:size(gf_at, 2)
                 for _i in axes(fb.forces, 1)  # xyz
                     @inbounds fb.forces[_i, iat] += gf_at[_i, i, j, iat] * gv[i, j] * -1  # F(xi) = -∇E(xi)
                 end
@@ -716,18 +721,15 @@ end
 
 Propagate chain rule to obtain the stress
 """
-function _stress_update!(fb::ForceBuffer, gv) where {T}
+function _stress_update!(fb::ForceBuffer, gv;offset=0) where {T}
     # Zero the buffer
     gf_at = fb.stotv
     fill!(fb.stress, 0)
-    #stress_copy = zeros(3, 3, nthreads())
-    #Threads.@threads for j in axes(gf_at, 4)
     for j in axes(gf_at, 4)
-        sid = threadid()
-        for i in axes(gf_at, 3)
+        for i in 1+offset:size(gf_at, 3)
             for _i = 1:3
                 for _j = 1:3
-                    @inbounds fb.stress[_i, _j, sid] += gf_at[_i, _j, i, j] .* gv[i, j] * -1 # F(xi) = -∇E(xi)
+                    @inbounds fb.stress[_i, _j] += gf_at[_i, _j, i, j] * gv[i, j] * -1 # F(xi) = -∇E(xi)
                 end
             end
         end
@@ -739,8 +741,8 @@ function _stress_update!(fb::ForceBuffer, gv) where {T}
 end
 
 
-function apply_chainrule!(fb::ForceBuffer, gv)
-    _force_update!(fb, gv)
-    _stress_update!(fb, gv)
+function apply_chainrule!(fb::ForceBuffer, gv;offset=0)
+    _force_update!(fb, gv;offset)
+    _stress_update!(fb, gv;offset)
     fb
 end
