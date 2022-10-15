@@ -730,7 +730,7 @@ end
 
 Propagate chain rule to obtain the stress
 """
-function _stress_update!(fb::ForceBuffer, gv;offset=0) where {T}
+function _stress_update!(fb::ForceBuffer, gv;offset=0)
     # Zero the buffer
     gf_at = fb.stotv
     fill!(fb.stress, 0)
