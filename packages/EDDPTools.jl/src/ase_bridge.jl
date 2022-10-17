@@ -1,10 +1,11 @@
 module ASEInterface
+
     using PyCall
     using EDDP
     using Flux
     using CellBase
 
-    export get_ase_atoms_and_calculator
+    export get_ase_atoms_and_calculator, atoms_from_cell
 
     function __init__()
         py"""
