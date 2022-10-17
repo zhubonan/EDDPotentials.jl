@@ -4,9 +4,9 @@ Common functions for helping tests
 using EDDP
 using CellBase
 
-function _h2_cell(l=2.0, factor=1.0)
+function _h2_cell(l=4.0, factor=1.0)
     tmp = Float64[0 0.1  
-    0 1  
+    0 2.0  
     0.1 0] .* factor
     Cell(Lattice(l, l, l), [:H, :H], tmp)
 end

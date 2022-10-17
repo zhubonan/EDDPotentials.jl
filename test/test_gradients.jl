@@ -15,6 +15,14 @@ function alter_pos(f, cell, pos, args...)
     return out
 end
 
+function alter_pos_vc(f, vc, pos, args...)
+    pb = get_positions(vc)
+    set_positions!(vc, reshape(pos, size(pb)...))
+    out = f((vc, pos, args...))
+    set_positions!(vc, pb)
+    return out
+end
+
 function alter_strain(f, cell, s, args...)
     cb = get_cellmat(cell)
     pb = get_positions(cell)
@@ -44,13 +52,16 @@ end
 
 function _fd_energy(calc, p)
     alter_pos(calc,p ) do _
+        calc.param.energy_calculated = false
         get_energy(calc)
     end
 end
 
 function _fd_energy_vc(calc, p)
-    alter_pos(calc,p ) do _
+    alter_pos_vc(calc,p ) do _
+        calc.calc.param.energy_calculated = false
         get_energy(calc)
+        
     end
 end
 
@@ -183,7 +194,7 @@ end
     sd = calc.force_buffer.stotv
     sd = permutedims(sd, [3,4,1,2])
     # Accuracy of this numerical differentiation is not so good...
-    @test allclose(sjac, sd, atol=1e-2)
+    @test allclose(sjac, sd, atol=1e-4)
 end
 
 
@@ -218,5 +229,5 @@ end
 
     od = OnceDifferentiable(x -> _fd_energy_vc(vc, x), epos, _fd_energy_vc(vc, epos);inplace=false)
     grad= NLSolversBase.gradient(od, epos)
-    @test allclose(grad, -eforce, atol=5e-3, rtol=1e-4)
+    @test allclose(grad, -eforce, atol=1e-4, rtol=1e-4)
 end

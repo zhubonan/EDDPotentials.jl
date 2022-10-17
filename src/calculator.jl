@@ -44,7 +44,7 @@ end
 
 function Base.show(io::IO, m::MIME"text/plain", cw::AbstractCalc)
     println(io, "$(typeof(cw)) for: ")
-    Base.show(io, m, cw.cell)
+    Base.show(io, m, get_cell(cw))
 end
 
 ### Concrete implementation
@@ -405,7 +405,7 @@ function set_positions!(vc::VariableCellCalc, new)
     set_cellmat!(cell, new_dgrad * cellmat(vc.orig_lattice))
 
     # Set the positions
-    cell.positions .= new_dgrad * pos
+    set_positions!(cell, new_dgrad * pos)
 end
 
 
