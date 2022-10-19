@@ -33,5 +33,5 @@ UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [compat]
-CellBase = "0.2.1"
+CellBase = "0.3.0"
 julia = "1.7"

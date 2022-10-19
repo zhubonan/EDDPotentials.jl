@@ -133,7 +133,7 @@ function _reinit_fb!(calc, mode)
     end
 end
 
-function get_energy(calc::NNCalc; forces=true, rebuild_nl=true)
+function get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     calculate!(calc; forces, rebuild_nl)
     # Include the core energy if any
     sum(calc.eng) + calc.force_buffer.ecore[1]
@@ -335,7 +335,11 @@ _need_calc(calc::VariableCellCalc, forces) = _need_calc(calc.calc, forces)
 get_cell(c::VariableCellCalc) = get_cell(c.calc)
 get_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) = get_energy(c.calc; rebuild_nl, kwargs...)
 
-VariableCellCalc(calc) = VariableCellCalc(calc, Lattice(copy(cellmat(get_cell(calc)))), Float64(nions(get_cell(calc))))
+VariableCellCalc(calc) = VariableCellCalc(
+        calc, 
+        Lattice(copy(cellmat(get_cell(calc)))), 
+        Float64(nions(get_cell(calc)))
+)
 
 raw"""
 Obtain the deformation gradient matrix such that 
@@ -403,12 +407,6 @@ function set_positions!(vc::VariableCellCalc, new)
 
     # Set the cell according to the deformation
     set_cellmat!(cell, new_dgrad * cellmat(vc.orig_lattice))
-
-    # Set the positions
-    if pos[6] != 0.0
-        @show new_dgrad
-        @show pos
-    end
     set_positions!(cell, new_dgrad * pos)
 end
 
