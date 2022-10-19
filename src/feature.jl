@@ -695,20 +695,15 @@ function nbodyfeatures(c::CellFeature, nbody)
     return 0
 end
 
-function feature_vector(cf::CellFeature, cell::Cell;nmax=500)
-
+function feature_vector(cf::CellFeature, cell::Cell;nmax=500, skin=1.0)
     # Infer rmax
-    rcut = suggest_rcut(cf)
+    rcut = suggest_rcut(cf;offset=skin)
     nl = NeighbourList(cell, rcut, nmax)
-
-    # One body vector is essentially an one-hot encoding of the specie labels 
-    # assuming no "mixture" atoms of course
-    v1 = one_body_vectors(cell, cf)
-    # Concatenated two body vectors 
-    v2 = feature_vector2(cf.two_body, cell;nl=nl)
-    # Concatenated three body vectors 
-    v3 = feature_vector3(cf.three_body, cell;nl=nl)
-    vcat(v1, v2, v3)
+    vecs = zeros(sum(feature_size(cf)), length(cell))
+    n1 = feature_size(cf)[1]
+    compute_fv!(vecs, cf.two_body, cf.three_body, cell;nl, offset=n1)
+    one_body_vectors!(vecs, cell, cf)
+    vecs
 end
 
 """

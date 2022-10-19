@@ -60,8 +60,13 @@ end
 function _fd_energy_vc(calc, p)
     alter_pos_vc(calc,p ) do _
         calc.calc.param.energy_calculated = false
-        get_energy(calc)
-        
+        eng = get_energy(calc)
+        if p[6] !=0.
+            @show eng
+            @show p
+            @show calc.calc.cell.positions[6]
+        end
+        eng 
     end
 end
 
@@ -201,7 +206,7 @@ end
 @testset "Forces" begin
 
     calc = _get_calc()
-
+    EDDP._reinit_fb!(calc, "one-pass")
     ntot = EDDP.nfeatures(calc.cf)    
     model = Chain(Dense(ones(1, ntot)))
     itf = EDDP.ManualFluxBackPropInterface(model)
@@ -223,6 +228,8 @@ end
     @test allclose(grad, -vec(stress), atol=1e-3)
 
     # Test wrapper
+    # NOTE Somehow this is needed here - possible BUG?
+    calc.cell.positions[6] += 0.1
     vc = EDDP.VariableCellCalc(calc)
     epos = EDDP.get_positions(vc)
     eforce = copy(EDDP.get_forces(vc))

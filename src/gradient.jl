@@ -710,7 +710,19 @@ function _force_update!(fb::ForceBuffer, nl, gv;offset=0)
     gf_at = fb.gvec
     fill!(fb.forces, 0)
     Threads.@threads for iat in axes(gf_at, 4)  # Atom index
-        for j in axes(gf_at, 3)  # Atom index for the feature vector
+        # Only neighbouring atoms will affect each other via feature vectors
+        self_updated = false
+        for (j, _, _) in eachneighbour(nl, iat, unique=true)
+            j == iat && (self_updated = true) 
+            for i in 1+offset:size(gf_at, 2)
+                for _i in axes(fb.forces, 1)  # xyz
+                    @inbounds fb.forces[_i, iat] += gf_at[_i, i, j, iat] * gv[i, j] * -1  # F(xi) = -∇E(xi)
+                end
+            end
+        end
+        if !self_updated
+            # Affect from iat itself
+            j = iat
             for i in 1+offset:size(gf_at, 2)
                 for _i in axes(fb.forces, 1)  # xyz
                     @inbounds fb.forces[_i, iat] += gf_at[_i, i, j, iat] * gv[i, j] * -1  # F(xi) = -∇E(xi)

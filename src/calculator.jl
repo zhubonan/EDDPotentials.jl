@@ -405,6 +405,10 @@ function set_positions!(vc::VariableCellCalc, new)
     set_cellmat!(cell, new_dgrad * cellmat(vc.orig_lattice))
 
     # Set the positions
+    if pos[6] != 0.0
+        @show new_dgrad
+        @show pos
+    end
     set_positions!(cell, new_dgrad * pos)
 end
 

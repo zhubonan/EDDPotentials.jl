@@ -6,6 +6,8 @@ using CellBase
 import CellBase: natoms
 import Base
 
+using Base.Threads
+
 
 """
     StructureContainer{T}
@@ -183,13 +185,14 @@ Get a feature container.
 function FeatureContainer(sc::StructureContainer, feature::CellFeature; nmax=500, kwargs...)
 
     fvecs = Vector{Matrix{Float64}}(undef, length(sc))
-    for i=1:length(sc)
+    Threads.@threads for i=1:length(sc)
         fvecs[i] = EDDP.feature_vector(feature, sc.structures[i];nmax, kwargs...)
     end
     metadata = [cell.metadata for cell in sc.structures]
     H = copy(sc.H)
-    labels = collect(String, m[:label] for m in metadata)
-    for (i, m) in enumerate(metadata)
+    labels = collect(String, sc.paths)
+    Threads.@threads for i in eachindex(metadata)
+        m = metadata[i]
         form, nf = CellBase.formula_and_factor(sc.structures[i])
         m[:formula] = form
         m[:nformula] = nf
