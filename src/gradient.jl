@@ -200,7 +200,7 @@ function _update_three_body!(fvec, gtot, stot, iat, jat, kat, sym, pij, pik, qjk
 
         # Not for this triplets of atoms....
         if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-            i += nfe3[ife]
+            i += f.np * f.mq
             continue
         end
 
@@ -264,7 +264,7 @@ function _update_three_body!(fvec, forces, stress, iat, jat, kat, sym, pij, pik,
 
         # Not for this triplets of atoms....
         if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-            i += nfe3[ife]
+            i += f.nq * f.np 
             continue
         end
 
@@ -330,7 +330,7 @@ function _update_three_body!(fvec, iat, jat, kat, sym, pij, pik, qjk, features3,
 
         # Not for this triplets of atoms....
         if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-            i += nfe3[ife]
+            i += f.np * f.nq
             continue
         end
 

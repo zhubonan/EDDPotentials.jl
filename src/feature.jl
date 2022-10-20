@@ -36,26 +36,21 @@ sortedtuple(iter) = Tuple(sort(collect(iter)))
 """
     permequal(A, i, j)
 
-Check equivalence considering all permutations
+Check equivalence considering all permutations with the first element matched. 
 """
 function permequal(A, i, j)
     (A[1] == i) && (A[2] ==j) && return true
-    (A[2] == i) && (A[1] ==j) && return true
     false
 end
 
 """
     permequal(A, i, j, k)
 
-Check equivalence considering all permutations
+Check equivalence considering all permutations with the first element matched.
 """
 function permequal(A, i, j, k)
     (A[1] == i) && (A[2] ==j) && (A[3] == k) && return true
     (A[1] == i) && (A[3] ==j) && (A[2] == k) && return true
-    (A[2] == i) && (A[1] ==j) && (A[3] == k) && return true
-    (A[2] == i) && (A[3] ==j) && (A[1] == k) && return true
-    (A[3] == i) && (A[2] ==j) && (A[1] == k) && return true
-    (A[3] == i) && (A[1] ==j) && (A[2] == k) && return true
     false
 end
 
@@ -121,8 +116,8 @@ g(r)= \begin{cases}
 """
 gfr(r::T, rcut) where {T} =  r <= rcut ? -2 / rcut : zero(T)
 
-TwoBodyFeature(f, g, p, sij_idx, rcut::Real) = TwoBodyFeature(f, g, SVector{length(p)}(p), sortedtuple(sij_idx), rcut, length(p))
-TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, p, sortedtuple(sij_idx), rcut)
+TwoBodyFeature(f, g, p, sij_idx, rcut::Real) = TwoBodyFeature(f, g, SVector{length(p)}(p), tuple(sij_idx...), rcut, length(p))
+TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, p, sij_idx, rcut)
 
 """
 Accumulate an existing matrix of the feature vectors
@@ -208,8 +203,8 @@ struct ThreeBodyFeature{T, M, P, Q} <: AbstractNBodyFeature
     nq::Int
 end
 
-ThreeBodyFeature(f, g, p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(f, g, SVector{length(p)}(p), SVector{length(q)}(q), sortedtuple(sijk_idx), rcut, length(p), length(q))
-ThreeBodyFeature(p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(fr, gfr, p, q, sortedtuple(sijk_idx), rcut)
+ThreeBodyFeature(f, g, p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(f, g, SVector{length(p)}(p), SVector{length(q)}(q), tuple(sijk_idx...), rcut, length(p), length(q))
+ThreeBodyFeature(p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(fr, gfr, p, q, sijk_idx, rcut)
 
 
 function Base.show(io::IO, ::MIME"text/plain", x::ThreeBodyFeature)
