@@ -185,17 +185,22 @@ Get a feature container.
 function FeatureContainer(sc::StructureContainer, feature::CellFeature; nmax=500, kwargs...)
 
     fvecs = Vector{Matrix{Float64}}(undef, length(sc))
-    Threads.@threads for i=1:length(sc)
-        fvecs[i] = EDDP.feature_vector(feature, sc.structures[i];nmax, kwargs...)
-    end
-    metadata = [cell.metadata for cell in sc.structures]
     H = copy(sc.H)
     labels = collect(String, sc.paths)
-    Threads.@threads for i in eachindex(metadata)
+    metadata = [cell.metadata for cell in sc.structures]
+    p = Progress(length(sc))
+    jj = Atomic{Int}(0)
+    l = SpinLock()
+    Threads.@threads for i=1:length(sc)
+        fvecs[i] = EDDP.feature_vector(feature, sc.structures[i];nmax, kwargs...)
         m = metadata[i]
         form, nf = CellBase.formula_and_factor(sc.structures[i])
         m[:formula] = form
         m[:nformula] = nf
+        Threads.atomic_add!(jj, 1)
+        lock(l)
+        ProgressMeter.update!(p, jj[])
+        unlock(l)
     end
     FeatureContainer(fvecs, feature, H, labels, metadata, false, nothing, nothing)
 end

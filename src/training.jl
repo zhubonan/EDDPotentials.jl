@@ -277,6 +277,60 @@ function train_multi_distributed(itf, x, y; nmodels=10, kwargs...)
     create_ensemble(all_models, x, y)      
 end
 
+function train_multi_threaded(itf, x, y; nmodels=10, kwargs...)
+                  
+    results_channel = Channel(nmodels)
+    job_channel = Channel(nmodels)
+
+    # Put the jobs
+    for i=1:nmodels
+        put!(job_channel, i)
+    end
+    tasks = []
+    for _ in 1:nthreads()
+        push!(tasks, Threads.@spawn worker_train_one(itf, x, y, job_channel, results_channel;kwargs...))
+    end
+
+    # Check for any errors - works should not return until they are explicitly signaled
+    sleep(0.1)
+    for task in tasks
+        if istaskfailed(task)
+            output = fetch(task)
+            @error "Error detected for the task $output"
+            throw(output)
+        end
+    end
+
+    # Receive the data and update the progress
+    i = 1
+    p = Progress(nmodels)
+    all_models = []
+    try
+        while i <= nmodels
+            itf, out = take!(results_channel)
+            showvalues = [(:rmse, minimum(out[3][:, 2]))]
+            ProgressMeter.next!(p;showvalues)
+            push!(all_models, itf)
+            i +=1
+        end
+    catch err
+        if isa(err, InterruptException)
+            Base.throwto(foreach_task, err)
+        else
+            throw(err)
+        end
+    finally
+        # Send signals to stop the workers
+        foreach(x -> put!(job_channel, -1), 1:length(nthreads()))
+        sleep(1.0)
+        # Close all channels
+        close(job_channel)
+        close(results_channel)
+    end
+    create_ensemble(all_models, x, y)      
+end
+
+
 
 """
     create_ensemble(all_models, fc_train::FeatureContainer, args...)      
