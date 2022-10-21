@@ -31,7 +31,7 @@ Args:
     - `energy_threshold`: structures with per-atom energy higher than this are excluded. 
       Relative to the median energy.
 """
-function StructureContainer(paths::Vector;energy_threshold=10.)
+function StructureContainer(paths::Vector;energy_threshold=10., mask_func=minimum)
     resolved_paths = String[]
     for path in paths
         if contains(path, "*") || contains(path, "?")
@@ -41,24 +41,18 @@ function StructureContainer(paths::Vector;energy_threshold=10.)
         end
     end
     tmp = []
-    actual_paths = String[]
+    actual_labels = String[]
     for path in resolved_paths
-        if contains(path, "packed")
-            vres = CellBase.read_res_many(path)
-            append!(tmp, vres)
-            append!(actual_paths, map(x -> x.metadata[:label], vres)) 
-        else
-            push!(tmp, CellBase.read_res(path))
-            push!(actual_paths, path)
-        end
+        vres = CellBase.read_res_many(path)
+        append!(tmp, vres)
+        append!(actual_labels, map(x -> x.metadata[:label], vres)) 
     end
     structures = typeof(tmp[1])[x for x in tmp]
 
     H = [cell.metadata[:enthalpy] for cell in structures]
     Ha = H ./ natoms.(structures)
-
-    mask = Ha .< (median(Ha) + energy_threshold)
-    StructureContainer(actual_paths[mask], H[mask], structures[mask])
+    mask = Ha .< (mask_func(Ha) + energy_threshold)
+    StructureContainer(actual_labels[mask], H[mask], structures[mask])
 end
 
 
