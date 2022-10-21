@@ -1,6 +1,7 @@
 #=
 Interface for the EDDP Fortran package
 =# 
+using CellBase
 
 """
 Write the feature vectors
@@ -28,8 +29,10 @@ function write_features(fc::FeatureContainer, outfile)
             metadata = fc.metadata[i]
             label = fc.labels[i]
             H = fc.H[i]
+            comps = CellBase.Composition(string(metadata[:formula]))
+            comp = join(string.(comps.species), "-")
             write_features(io, nfeats, fsize_eddp, feat, label, rmax, pw; 
-                           comp=metadata[:formula], 
+                           comp=comp, 
                            pressure=metadata[:pressure], 
                            volume=metadata[:volume], 
                            enthalpy=H)
@@ -39,7 +42,7 @@ end
 
 function write_features(io::IO, nfeats, fsize_eddp, fvec, label, rmax, pw;comp, pressure, volume, enthalpy)
     nc = size(fvec, 2)
-    fl = "$(fsize_eddp[2]) $(fsize_eddp[3]) 0 0"
+    fl = "$(fsize_eddp[1]) $(fsize_eddp[2]) 0 0"
     metaline = "  structure: $(label)  composition: $(comp)  pressure: $(pressure)  volume: $(volume)  enthalpy: $(enthalpy)  rmax: $(rmax)  centers: $(nc)  length: $(fl)  powers: $(pw)\n"
     write(io, metaline)
     for fv in eachcol(fvec)
