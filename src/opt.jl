@@ -3,6 +3,8 @@ Optimisation algorithms
 =#
 using LinearAlgebra
 
+include("tpsd.jl")
+
 """
 
     opt_tpsd(vc::AbstractCalc; f_tol=1e-3, s_tol=1e-3, e_tol=1e-5, 

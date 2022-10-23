@@ -1,3 +1,4 @@
+using LinearAlgebra
 using EDDP
 using EDDP: get_cell, get_forces, get_stress, get_energy
 using Test

@@ -417,13 +417,13 @@ eVAngToGPa(x) = 160.21766208 * x
 """
     optimise!(calc::AbstractCalc)
 
-Optimise the cell with LBFGS from Optim. Collect the trajectory if requested.
+Optimise the cell using the Optim interface. Collect the trajectory if requested.
 Note that the trajectory is collected for all force evaluations and may not 
 corresponds to the actual iterations of the underlying LBFGS iterations.
 """
-function optimise!(calc::AbstractCalc; show_trace=false, record_trajectory=false, stepmax=2.0, 
+function optimise!(calc::AbstractCalc; show_trace=false, 
                    g_abstol=1e-6, f_reltol=0.0, successive_f_tol=2, traj=nothing,
-                   method=LBFGS(; linesearch=HagerZhang(; alphamax=stepmax)))
+                   method=TwoPointSteepestDescent())
     p0 = get_positions(calc)[:]
 
     "Energy"
@@ -443,10 +443,8 @@ function optimise!(calc::AbstractCalc; show_trace=false, record_trajectory=false
         end
         forces = get_forces(calc)
         # ∇E = -F
-        forces .*= -1
         # Collect the trajectory if requested
- 
-        forces
+        forces .* -1
     end
     res = optimize(x -> fo(x, calc), x -> go(x, calc), p0, method, Optim.Options(; show_trace=show_trace, g_abstol, f_reltol, successive_f_tol); inplace=false)
     res
