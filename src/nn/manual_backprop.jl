@@ -391,11 +391,12 @@ end
 
 Save the interface into an opened JLD2 file/JLD2 group.
 """
-function save_as_jld2(f, obj::ManualFluxBackPropInterface)
+function save_as_jld2(f::Union{JLD2.JLDFile, JLD2.Group}, obj::ManualFluxBackPropInterface)
     f["chain"] = obj.chain
     f["xt"] = obj.xt
     f["yt"] = obj.yt
     f["apply_xt"] = obj.apply_xt
+    f
 end
 
 
@@ -404,7 +405,7 @@ end
 
 Load from JLD2 file/JLD2 group.
 """
-function load_from_jld2(f, ::Type{ManualFluxBackPropInterface})
+function load_from_jld2(f::Union{JLD2.JLDFile, JLD2.Group}, ::Type{ManualFluxBackPropInterface})
     chain = f["chain"]
     xt = f["xt"]
     yt = f["yt"]

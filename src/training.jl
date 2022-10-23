@@ -305,11 +305,15 @@ function train_multi_threaded(itf, x, y; nmodels=10, kwargs...)
     i = 1
     p = Progress(nmodels)
     all_models = []
+    ts = Dates.format(now(), "yyyy-mm-dd-HH-MM-SS")
+    fname = "models-$(ts)"
     try
         while i <= nmodels
             itf, out = take!(results_channel)
             showvalues = [(:rmse, minimum(out[3][:, 2]))]
             ProgressMeter.next!(p;showvalues)
+            # Save to files
+            save_as_jld2(@sprintf("%d-%03d.jld2", fname, i), itf)
             push!(all_models, itf)
             i +=1
         end

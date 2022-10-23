@@ -36,16 +36,18 @@ function setparamvector!(itf::FluxInterface, param)
 end
 
 function gradinp!(gvec, itf::FluxInterface, inp=itf.inp)
-    if inp != itf.inp
+    if inp != itf.inp || itf.pullback_inp === nothing
         forward!(itf, inp)
+        backward!(itf)
     end
     grad,  = itf.pullback_inp(1)
     gvec .= grad
 end
 
 function gradparam!(gvec, itf::FluxInterface, inp=itf.inp)
-    if inp != itf.inp
+    if inp != itf.inp || itf.pullback_inp === nothing
         forward!(itf, inp)
+        backward!(itf)
     end
     grad = itf.pullback_p(1)
     i = 1

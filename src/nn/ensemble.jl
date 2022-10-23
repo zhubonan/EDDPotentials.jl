@@ -94,7 +94,7 @@ function Base.show(io::IO, m::MIME"text/plain", v::EnsembleNNInterface)
     println(io, "Weights: $(v.weights)")
 end
 
-function save_as_jld2(f::Union{<:JLD2.Group, <:JLD2.JLDFile}, obj::EnsembleNNInterface)
+function save_as_jld2(f::Union{JLD2.Group, JLD2.JLDFile}, obj::EnsembleNNInterface)
     topgroup = JLD2.Group(f, "ensemble")
     group = JLD2.Group(topgroup, "models")
     for (i, model) in enumerate(obj.models)
@@ -102,6 +102,7 @@ function save_as_jld2(f::Union{<:JLD2.Group, <:JLD2.JLDFile}, obj::EnsembleNNInt
         save_as_jld2(subgroup, model)
     end
     topgroup["weights"] = obj.weights
+    f
 end
 
 """
@@ -110,7 +111,7 @@ end
 
 Load from JLD2 file or JLD2 group. 
 """
-function load_from_jld2(f::Union{<:JLD2.Group, <:JLD2.JLDFile}, ::Type{<:EnsembleNNInterface})
+function load_from_jld2(f::Union{JLD2.Group, JLD2.JLDFile}, ::Type{<:EnsembleNNInterface})
     topgroup = f["ensemble"]
     group = topgroup["models"] 
     models = []
