@@ -3,21 +3,20 @@ Interface using standard Flux + Zygote
 =#
 using Flux
 
-
-
 mutable struct FluxInterface{T, N} <: AbstractNNInterface
     model::T
     params::N
     inp
+    pullback_p
+    pullback_inp
 end
 
 
-FluxInterface(model) = FluxInterface(model, Flux.params(model), nothing)
+FluxInterface(model) = FluxInterface(model, Flux.params(model), nothing, nothing, nothing)
 
 function forward!(itf::FluxInterface, inp)
-    out = itf.model(inp)
     itf.inp = inp
-    out
+    itf.model(inp)
 end
 
 paramvector(itf::FluxInterface) = vcat([vec(x) for x in itf.params]...)
@@ -37,12 +36,18 @@ function setparamvector!(itf::FluxInterface, param)
 end
 
 function gradinp!(gvec, itf::FluxInterface, inp=itf.inp)
-    grad, = Flux.gradient(x -> sum(itf.model(x)), inp)
+    if inp != itf.inp
+        forward!(itf, inp)
+    end
+    grad,  = itf.pullback_inp(1)
     gvec .= grad
 end
 
 function gradparam!(gvec, itf::FluxInterface, inp=itf.inp)
-    grad = Flux.gradient(() -> sum(itf.model(inp)), itf.params)
+    if inp != itf.inp
+        forward!(itf, inp)
+    end
+    grad = itf.pullback_p(1)
     i = 1
     for elem in grad.params
         g = grad.grads[elem]
@@ -53,8 +58,12 @@ function gradparam!(gvec, itf::FluxInterface, inp=itf.inp)
 end
 
 function (itf::FluxInterface)(inp)
-    itf.model(inp)
+    forward!(itf, inp)
 end
 
 "No nothing - as the gradients calculated with gradparam! and gradinp!"
-function backward!(itf::FluxInterface, args...;kwargs...) end
+function backward!(itf::FluxInterface, args...;kwargs...) 
+    out, itf.pullback_inp = Flux.pullback(x -> sum(itf.model(x)), itf.inp)
+    out, itf.pullback_p = Flux.pullback(() -> sum(itf.model(itf.inp)), itf.params)
+    out
+end

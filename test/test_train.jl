@@ -6,8 +6,8 @@ using Flux
 using StatsBase
 using NLSolversBase
 
-
-@testset "Training"
+include("utils.jl")
+@testset "Training" begin
     @testset "Tools" begin
         nf = 1000
         data = vcat([rand(nf, 3) for _ in 1:10], [rand(nf, 2) for _ in 1:10])
