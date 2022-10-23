@@ -104,12 +104,12 @@ function save_as_jld2(f::Union{<:JLD2.Group, <:JLD2.JLDFile}, obj::EnsembleNNInt
     topgroup["weights"] = obj.weights
 end
 
-function save_as_jld2(str::AbstractString, obj::EnsembleNNInterface)
-    jldopen(str, "w") do f
-        save_as_jld2(f, obj)
-    end
-end
+"""
 
+    load_from_jld2(f::Union{<:JLD2.Group, <:JLD2.JLDFile}, ::Type{<:EnsembleNNInterface})
+
+Load from JLD2 file or JLD2 group. 
+"""
 function load_from_jld2(f::Union{<:JLD2.Group, <:JLD2.JLDFile}, ::Type{<:EnsembleNNInterface})
     topgroup = f["ensemble"]
     group = topgroup["models"] 
@@ -128,10 +128,4 @@ function load_from_jld2(f::Union{<:JLD2.Group, <:JLD2.JLDFile}, ::Type{<:Ensembl
     # Ensure we load it in the wright order
     models = models[sortperm(ids)]
     EnsembleNNInterface(Tuple(models), weights)
-end
-
-function load_from_jld2(str::AbstractString, t::Type{<:EnsembleNNInterface})
-    jldopen(str) do f
-        load_from_jld2(f, t)
-    end
 end

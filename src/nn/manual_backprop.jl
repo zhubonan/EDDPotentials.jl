@@ -382,9 +382,15 @@ function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_unifo
 end
 
 # JLD2 custom serialization - we do not need to store ChainGradients which are 
-# We cannot use the offical custom serialization interface because we do not want 
+# We cannot use the official custom serialization interface because we do not want 
 # to information about the ChainGradients instans which is in type parameter
 
+
+"""
+    save_as_jld2(f, obj::ManualFluxBackPropInterface)
+
+Save the interface into an opened JLD2 file/JLD2 group.
+"""
 function save_as_jld2(f, obj::ManualFluxBackPropInterface)
     f["chain"] = obj.chain
     f["xt"] = obj.xt
@@ -392,22 +398,16 @@ function save_as_jld2(f, obj::ManualFluxBackPropInterface)
     f["apply_xt"] = obj.apply_xt
 end
 
+
+"""
+    load_from_jld2(f, obj::ManualFluxBackPropInterface)
+
+Load from JLD2 file/JLD2 group.
+"""
 function load_from_jld2(f, ::Type{ManualFluxBackPropInterface})
     chain = f["chain"]
     xt = f["xt"]
     yt = f["yt"]
     apply_xt=f["apply_xt"]
     ManualFluxBackPropInterface(chain;xt, yt, apply_xt)
-end
-
-function save_as_jld2(x::String, obj::ManualFluxBackPropInterface)
-    jldopen(x, "w") do f
-        save_as_jld2(f, obj)
-    end
-end
-
-function load_from_jld2(x::String, ::Type{ManualFluxBackPropInterface})
-    jldopen(x) do f
-        load_from_jld2(f, obj)
-    end
 end

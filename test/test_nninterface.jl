@@ -3,7 +3,7 @@ using EDDP: LinearInterface, ManualFluxBackPropInterface, paramvector, setparamv
 using Flux
 using Test
 
-
+include("utils.jl")
 @testset "NN Interface" begin
 
     @testset "Linear" begin
@@ -24,6 +24,25 @@ using Test
         gradparam!(grad, l, x)
         @test grad == sum(x, dims=2)[:]
     end
+
+    @testset "Flux" begin
+            l = EDDP.FluxInterface(Dense(10=>1))
+            x = rand(10, 2)
+
+            @test size(EDDP.forward!(l, x)) == (1, 2)
+            
+            grad = similar(x)
+            gradinp!(grad, l, x)
+            @test begin
+                grad[:, 1] == l.model.weight[:]
+            end
+
+            EDDP.backward!(l)
+            grad = zeros(EDDP.nparams(l))
+            gradparam!(grad, l, x)
+            @test allclose(grad[1:size(x, 1)], sum(x, dims=2)[:], atol=1e-6)
+    end
+
 
     @testset "MBP" begin
         chain = Chain(Dense(rand(10, 10)), Dense(rand(10, 10)))
@@ -101,3 +120,4 @@ using Test
         @test gp[1:nparams(itf.models[1])] == EDDP.paramvector(itf.models[1])
     end
 end
+
