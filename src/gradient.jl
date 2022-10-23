@@ -5,6 +5,13 @@ using StaticArrays
 using Base.Threads
 include("repulsive_core.jl")
 
+function similar_zero(x)
+    y = similar(x)
+    fill!(y, 0)
+    y
+end
+
+
 """
     ForceBuffer{T}
 
@@ -200,7 +207,7 @@ function _update_three_body!(fvec, gtot, stot, iat, jat, kat, sym, pij, pik, qjk
 
         # Not for this triplets of atoms....
         if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-            i += f.np * f.mq
+            i += f.np * f.nq
             continue
         end
 
@@ -379,7 +386,6 @@ function compute_fv!(fvec, features2, features3, cell::Cell;
     ecore_buffer = [0. for _ in 1:nthreads()]
 
     Threads.@threads for iat = 1:nat
-        tid = threadid()
         ecore = 0.
         pij = zeros(npmax3, lfe3)
         inv_fij = zeros(lfe3)
@@ -436,7 +442,7 @@ function compute_fv!(fvec, features2, features3, cell::Cell;
                                 pij, pik, qjk, features3, i)
             end # i,j,k pair
         end
-        ecore_buffer[tid] += ecore
+        ecore_buffer[threadid()] += ecore
     end
     sum(ecore_buffer)
 end
@@ -492,7 +498,6 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
 
     Threads.@threads for iat = 1:nat
     #for iat = 1:nat
-        tid = threadid()
         ecore = 0.
         pij = zeros(npmax3, lfe3)
         # pij_1 = zeros(npmax3, lfe3)
@@ -505,8 +510,9 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
         qjk = zeros(nqmax3, lfe3)
         #qjk_1 = zeros(nqmax3, lfe3)
         inv_fjk = zeros(lfe3)
-        score = score_buffer[tid]
-        fcore = fcore_buffer[tid]
+        score = similar_zero(fb.score) 
+        fcore = similar_zero(fb.fcore) 
+
 
         for (jat, jextend, rij, vij) in CellBase.eachneighbourvector(nl, iat)
             rij > maxrcut && continue
@@ -560,7 +566,9 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell;
                                 vij, vik, vjk, modvij, modvik, modvjk, features3, i)
             end # i,j,k pair
         end
-        ecore_buffer[tid] += ecore
+        ecore_buffer[threadid()] += ecore
+        score_buffer[threadid()] .+= score
+        fcore_buffer[threadid()] .+= fcore
     end
     fb.ecore[1] = sum(ecore_buffer)
     for i in 1:nthreads()
@@ -603,24 +611,22 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell, gv;
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
 
     # Thread private forces/stress
-    forces_buff = [similar(fb.forces) for _ in 1:nthreads()]
-    stress_buff = [similar(fb.stress) for _ in 1:nthreads()]
-    fill!.(forces_buff, 0)
-    fill!.(stress_buff, 0)
+    forces_buff = [similar_zero(fb.forces) for _ in 1:nthreads()]
+    stress_buff = [similar_zero(fb.stress) for _ in 1:nthreads()]
 
     ecore_buffer = zeros(nthreads())
-    score_buffer = [similar(fb.stress) for _ in 1:nthreads()]
-    fcore_buffer = [similar(fb.fcore) for _ in 1:nthreads()]
-    fill!.(score_buffer, 0)
-    fill!.(fcore_buffer, 0)
+    score_buffer = [similar_zero(fb.stress) for _ in 1:nthreads()]
+    fcore_buffer = [similar_zero(fb.fcore) for _ in 1:nthreads()]
 
 
     Threads.@threads for iat = 1:nat
-        tid = threadid()
-        forces = forces_buff[tid]
-        stress = stress_buff[tid]
-        score = score_buffer[tid]
-        fcore = fcore_buffer[tid]
+
+        # Allocate work space - this is necessary to allow dynamic scheduling?
+
+        forces = similar_zero(fb.forces)
+        stress = similar_zero(fb.stress)
+        score = similar_zero(fb.stress)
+        fcore = similar_zero(fb.fcore)
 
         ecore = 0.
         pij = zeros(npmax3, lfe3)
@@ -687,8 +693,14 @@ function compute_fv_gv!(fb::ForceBuffer, features2, features3, cell::Cell, gv;
                                 vij, vik, vjk, modvij, modvik, modvjk, features3, i, gv)
             end # i,j,k pair
         end
-        ecore_buffer[tid] += ecore
+        # Update buffers
+        ecore_buffer[threadid()] += ecore
+        forces_buff[threadid()] .+= forces
+        stress_buff[threadid()] .+= stress
+        fcore_buffer[threadid()] .+= fcore
+        score_buffer[threadid()] .+= score
     end
+
     fb.ecore[1] = sum(ecore_buffer)
     for i in 1:nthreads()
         fb.forces .+= forces_buff[i]

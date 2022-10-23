@@ -23,6 +23,7 @@ include("eddpf90.jl")
 include("training.jl")
 include("calculator.jl")
 include("tools.jl")
+include("opt.jl")
 include("iterative_build.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice

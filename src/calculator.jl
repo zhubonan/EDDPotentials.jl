@@ -422,10 +422,9 @@ Note that the trajectory is collected for all force evaluations and may not
 corresponds to the actual iterations of the underlying LBFGS iterations.
 """
 function optimise!(calc::AbstractCalc; show_trace=false, record_trajectory=false, stepmax=2.0, 
-                   g_abstol=1e-6, f_reltol=0.0, successive_f_tol=2, 
+                   g_abstol=1e-6, f_reltol=0.0, successive_f_tol=2, traj=nothing,
                    method=LBFGS(; linesearch=HagerZhang(; alphamax=stepmax)))
     p0 = get_positions(calc)[:]
-    traj = []
 
     "Energy"
     function fo(x, calc)
@@ -436,20 +435,21 @@ function optimise!(calc::AbstractCalc; show_trace=false, record_trajectory=false
     "Gradient"
     function go(x, calc)
         set_positions!(calc, reshape(x, 3, :))
-        forces = get_forces(calc)
-        # ∇E = -F
-        forces .*= -1
-        # Collect the trajectory if requested
-        if record_trajectory
+       if !isnothing(traj)
             cell = deepcopy(get_cell(calc))
             cell.metadata[:enthalpy] = get_energy(calc)
             cell.arrays[:forces] = get_forces(calc)
             push!(traj, cell)
         end
+        forces = get_forces(calc)
+        # ∇E = -F
+        forces .*= -1
+        # Collect the trajectory if requested
+ 
         forces
     end
     res = optimize(x -> fo(x, calc), x -> go(x, calc), p0, method, Optim.Options(; show_trace=show_trace, g_abstol, f_reltol, successive_f_tol); inplace=false)
-    res, traj
+    res
 end
 
 

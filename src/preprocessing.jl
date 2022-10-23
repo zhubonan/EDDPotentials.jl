@@ -3,7 +3,7 @@ using StatsBase
 using Random
 using Glob
 using CellBase
-import CellBase: natoms
+import CellBase: natoms, reduce, Composition
 import Base
 
 using Base.Threads
@@ -31,7 +31,7 @@ Args:
     - `energy_threshold`: structures with per-atom energy higher than this are excluded. 
       Relative to the median energy.
 """
-function StructureContainer(paths::Vector;energy_threshold=10., mask_func=minimum)
+function StructureContainer(paths::Vector;threshold=10., select_func=minimum)
     resolved_paths = String[]
     for path in paths
         if contains(path, "*") || contains(path, "?")
@@ -51,9 +51,27 @@ function StructureContainer(paths::Vector;energy_threshold=10., mask_func=minimu
 
     H = [cell.metadata[:enthalpy] for cell in structures]
     Ha = H ./ natoms.(structures)
-    mask = Ha .< (mask_func(Ha) + energy_threshold)
+    mask = _select_per_atom_threshold(structures, Ha;select_func, threshold)
     StructureContainer(actual_labels[mask], H[mask], structures[mask])
 end
+
+"""
+Return index selected based on per-formula atomic energy
+"""
+function _select_per_atom_threshold(structures, Ha;select_func=minimum, threshold=10.)
+    reduced_comps = reduce.(Composition.(structures))
+    unique_comp = unique(reduced_comps)
+    selected_idx = Int[]
+    for comp in unique_comp 
+        idx = findall(x -> x == comp, reduced_comps)
+        refval = select_func(Ha[idx])
+        selected = filter(x -> Ha[x] < refval + threshold, idx)
+        append!(selected_idx, selected)
+    end
+    selected_idx
+end
+
+_select_per_atom_threshold(sc;select_func=minimum, threshold=10.) = sc[_select_per_atom_threshold(sc.structures, sc.H ./ natoms(sc);select_func, threshold)]
 
 
 """
@@ -142,6 +160,7 @@ function save_fc(fc, fname)
         fhandle["H"] = fc.H
         fhandle["labels"] = fc.labels
         fhandle["metadata"] = fc.metadata
+        fhandle["is_x_transformed"] = fc.is_x_transformed
         fhandle["yt"] = fc.yt
         fhandle["xy"] = fc.xt
     end
@@ -162,9 +181,14 @@ function load_fc(fname)
         H = fhandle["H"]
         labels = fhandle["labels"]
         metadata = fhandle["metadata"]
+        if "is_x_transformed" in keys(fhandle)
+            is_x_transformed = fhandle["is_x_transformed"]
+        else
+            is_x_transformed = false
+        end
         yt = fhandle["yt"]
         xt = fhandle["xy"]
-        FeatureContainer(fvecs, feature, H, labels, metadata, yt, xt)
+        FeatureContainer(fvecs, feature, H, labels, metadata, is_x_transformed, yt, xt)
     end
 end
 
@@ -392,10 +416,10 @@ function transform_x!(xt, x_train)
     x_train
 end
 
-function transform_x!(fc::FeatureContainer)
+function transform_x!(fc::FeatureContainer;xt=fc.xt)
     fvecs = copy.(fc.fvecs)
     @assert !fc.is_x_transformed
-    transform_x!(fc.xt, fvecs)
+    transform_x!(xt, fvecs)
     fc.fvecs .= fvecs
     fc.is_x_transformed = true
 end
@@ -412,10 +436,10 @@ function reconstruct_x!(xt, x_train)
     x_train
 end
 
-function reconstruct_x!(fc::FeatureContainer)
+function reconstruct_x!(fc::FeatureContainer;xt=fc.xt)
     fvecs = copy.(fc.fvecs)
     @assert fc.is_x_transformed
-    reconstruct_x!(fc.xt, fvecs)
+    reconstruct_x!(xt, fvecs)
     fc.fvecs .= fvecs
     fc.is_x_transformed = false
 end

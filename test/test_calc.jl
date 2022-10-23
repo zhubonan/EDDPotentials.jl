@@ -127,8 +127,8 @@ end
     # Test recording trajectory
     cell = _h2_cell(10, 1.5)
     calc = EDDP.NNCalc(cell, cf, nnitf)
-    global res, traj
-    res, traj = EDDP.optimise!(calc, record_trajectory=true)
+    traj = []
+    res = EDDP.optimise!(calc, traj=traj)
     @test res.g_converged
 
     dd = distance_between(cell[1], cell[2])
@@ -189,4 +189,15 @@ end
     @test allclose(stress3, stress, atol=1e-7)
     @test length(calc.force_buffer.gvec) == 0
 
+end
+
+@testset "Opt" begin
+   cell = _h2_cell() 
+   calc = EDDP.lj_like_calc(cell)
+   traj = []
+   @test EDDP.opt_tpsd(calc, trajectory=traj)
+   @test length(traj) > 1
+   @test maximum(norm.(eachcol(EDDP.get_forces(calc)))) < 1e-5
+   @test EDDP.opt_tpsd(EDDP.VariableCellCalc(calc))
+   @test maximum(EDDP.get_stress(calc)) < 1e-5
 end

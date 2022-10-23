@@ -2,43 +2,38 @@
 Various tool functions for workflow managements
 =#
 
-using CellBase: rattle!
+using CellBase: rattle!, reduce, Composition
 import CellBase: write_res
 using Base.Threads
 using JLD2
 using Dates
 using UUIDs
 
-function relax_structures(pattern::AbstractString, en_path::AbstractString, cf;energy_threshold=20., savepath="relaxed", skip_existing=true)
+function relax_structures(files, en_path::AbstractString, cf;savepath="relaxed", skip_existing=true, nmax=1000, core_radius=1.0)
 
-    ensemble = jldopen(en_path) do file
-        file["ensemble"]
-    end
+    ensemble = load_from_jld2(en_path, EnsembleNNInterface)
 
-    loaded = StructureContainer([pattern], cf;energy_threshold).structures
+    structures = CellBase.read_cell.(files)
 
     isdir(savepath) || mkdir(savepath)
 
-    p = Progress(length(loaded.cells))
-    n = length(loaded.cells)
+    p = Progress(length(structures))
+    n = length(structures)
 
     function do_work(i)
-        fname = splitpath(loaded.fpath[i])[end]
+        fname = splitpath(files[i])[end]
         # Skip and existing file
         skip_existing && isfile(joinpath(savepath, fname)) && return
 
-        vc = VariableLatticeFilter(loaded.cells[i], ensemble, cf)
+        calc = NNCalc(structures[i], cf, deepcopy(ensemble);nmax=nmax, core=CoreReplusion(core_radius))
+        vc = VariableCellCalc(calc)
 
-        try
-            optimise_cell!(vc)
-        catch
-            return
-        end
+        optimise!(vc)
         write_res(joinpath(savepath, fname), vc;label=fname, symprec=0.1)
    end
 
     @info "Total number of structures: $n"
-    Threads.@threads for i in 1:n
+    for i in 1:n
         do_work(i)
         next!(p)
     end
@@ -56,7 +51,7 @@ function update_metadata!(vc::VariableCellCalc, label;symprec=1e-2)
     # Set metadata
     this_cell.metadata[:enthalpy] = get_energy(vc)
     this_cell.metadata[:volume] = volume(this_cell)
-    this_cell.metadata[:pressure] = get_pressure_gpa(vc.calculator)
+    this_cell.metadata[:pressure] = get_pressure_gpa(vc.calc)
     this_cell.metadata[:label] = label
     symm = CellBase.get_international(this_cell, symprec)
     this_cell.metadata[:symm] = "($(symm))"
