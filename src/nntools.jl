@@ -98,16 +98,70 @@ function compute_objectives(f, itf, data::AbstractVector, y)
     f
 end
 
-function compute_objectives_diff(f, jmat, itf, data::AbstractVector, y;jtmp = jmat[1, :])
-    for (i, inp) in enumerate(data)
-        out = forward!(itf, inp)
-        backward!(itf)
-        gradparam!(jtmp, itf)
-        jmat[i, :] .= jtmp
-        isnothing(f) || (f[i] = sum(out) - y[i])
+function compute_objectives_diff(f, jmat, itf, data::AbstractVector, y;jtmp = jmat[1, :], ngps=10)
+    nt = nthreads()
+    if nt > 1 && div(length(data), nt) > 10
+        _compute_objectives_diff_threaded(f, jmat, itf, data, y;jtmp, ngps)
+    else
+        for (i, inp) in enumerate(data)
+            out = forward!(itf, inp)
+            backward!(itf)
+            gradparam!(jtmp, itf)
+            jmat[i, :] .= jtmp
+            isnothing(f) || (f[i] = sum(out) - y[i])
+        end
     end
     jmat
 end
+
+"""
+    _chunk_ranges(ndata; ngps=1)
+
+Divide a range into multiple chunks such that each thread receives up to `ngps` chunks in total.
+"""
+function _chunk_ranges(ndata; ngps=1)
+    nt = nthreads()
+    ndivide = nt * ngps
+    ningroup = div(ndata,  ndivide)
+    if ningroup == 0
+        out = [i:i for i in 1:ndata]
+        @assert sum(length, out) == ndata
+        return out
+    end
+    out = UnitRange{Int64}[]
+    i = 1
+    for _ in 1:ndivide
+        push!(out, i:i+ningroup-1)
+        i += ningroup
+    end
+    m = mod(ndata, ndivide)
+    if m != 0
+        push!(out, ndata - m +1:ndata)
+    end
+    @assert sum(length, out) == ndata
+    out
+end
+    
+
+function _compute_objectives_diff_threaded(f, jmat, itf, data::AbstractVector, y;jtmp = jmat[1, :], ngps=10)
+    chunks = _chunk_ranges(length(data);ngps)
+    Threads.@threads for idx in chunks
+        # Thread local copy
+        itf_ = deepcopy(itf)
+        jtmp_ = copy(jtmp)
+        for i in idx 
+            inp = data[i]
+            out = forward!(itf_, inp)
+            backward!(itf_)
+            gradparam!(jtmp_, itf_)
+            jmat[i, :] .= jtmp_
+            isnothing(f) || (f[i] = sum(out) - y[i])
+        end
+    end
+    jmat
+end
+
+
 
 """
     collect_gradients!(gvec::AbstractVector, gbuff::ChainGradients)
