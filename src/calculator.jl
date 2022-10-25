@@ -328,18 +328,24 @@ Base on ase.constraints.UnitCellFilter
 struct VariableCellCalc{T,C} <: AbstractCalc
     calc::C
     orig_lattice::Lattice{T}
-    lattice_factor::Float64
+    lattice_factor::T
+    external_pressure::Matrix{T}
 end
 
 _need_calc(calc::VariableCellCalc, forces) = _need_calc(calc.calc, forces)
 get_cell(c::VariableCellCalc) = get_cell(c.calc)
 get_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) = get_energy(c.calc; rebuild_nl, kwargs...)
 
-VariableCellCalc(calc) = VariableCellCalc(
+function VariableCellCalc(calc::NNCalc{T}; external_pressure=zeros(T, 3,3)) where T
+    latt = copy(cellmat(get_cell(calc)))
+    lattice_factor = convert(T, nions(get_cell(calc)))
+    VariableCellCalc(
         calc, 
-        Lattice(copy(cellmat(get_cell(calc)))), 
-        Float64(nions(get_cell(calc)))
-)
+        Lattice(latt),
+        lattice_factor,
+        external_pressure,
+    )
+end
 
 raw"""
 Obtain the deformation gradient matrix such that 
@@ -377,7 +383,8 @@ function _get_forces_and_stress(vc::VariableCellCalc; rebuild_nl, kwargs...)
     calculate!(vc.calc; forces=true, rebuild_nl, kwargs...)
     dgrad = deformgradient(vc)
     vol = volume(get_cell(vc))
-    stress = get_stress(vc.calc)
+    # Compute the stress
+    stress = get_stress(vc.calc) .- vc.external_pressure
     forces = get_forces(vc.calc)
 
     virial = (dgrad \ (vol .* stress))
@@ -385,7 +392,7 @@ function _get_forces_and_stress(vc::VariableCellCalc; rebuild_nl, kwargs...)
     atomic_forces = dgrad * forces
 
     out_forces = hcat(atomic_forces, virial ./ vc.lattice_factor)
-    out_stress = -virial / vol
+    out_stress = -virial / vol 
     out_forces, out_stress
 end
 
@@ -393,7 +400,18 @@ end
 Forces including the stress contributions that is consistent with the augmented positions
 """
 get_forces(vc::VariableCellCalc; rebuild_nl=true, kwargs...) = _get_forces_and_stress(vc; rebuild_nl, kwargs...)[1]
-get_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) = _get_forces_and_stress(vc; rebuild_nl, kwargs...)[2]
+_get_effective_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) = _get_forces_and_stress(vc; rebuild_nl, kwargs...)[2]
+
+"""
+    get_stress(vc::VariableCellCalc;kwargs...)
+Return the effective stress of the VaraibleCellCalc (including the external pressure)
+"""
+get_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...)= get_stress(vc.calc; rebuild_nl, kwargs...) .- vc.external_pressure
+
+function get_enthalpy(vc::VariableCellCalc; kwargs...)
+    stress = vc.external_pressure
+    get_energy(vc; kwargs...) - volume(get_cell(vc)) *  (stress[1,1] + stress[2,2] + stress[3,3]) / 3
+end
 
 
 """
@@ -467,4 +485,23 @@ function check_global_minsep(nl::NeighbourList, threshold)
     return true
 end
 
+"""
+    get_pressure(calc::NNCalc)
 
+Return the total pressure.
+"""
+function get_pressure(calc::NNCalc)
+    stress = get_stress(calc)
+    return (stress[1,1] + stress[2,2] + stress[3,3]) / 3
+end
+
+
+"""
+    get_pressure(calc::VariableCellCalc)
+
+Return the total pressure with the external pressure subtracted.
+"""
+function get_pressure(calc::VariableCellCalc)
+    stress = get_stress(calc) .- calc.external_pressure
+    return (stress[1,1] + stress[2,2] + stress[3,3]) / 3
+end

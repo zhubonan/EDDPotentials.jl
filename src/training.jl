@@ -313,7 +313,7 @@ function train_multi_threaded(itf, x, y; nmodels=10, kwargs...)
             showvalues = [(:rmse, minimum(out[3][:, 2]))]
             ProgressMeter.next!(p;showvalues)
             # Save to files
-            save_as_jld2(@sprintf("%d-%03d.jld2", fname, i), itf)
+            save_as_jld2(@sprintf("%s-%03d.jld2", fname, i), itf)
             push!(all_models, itf)
             i +=1
         end

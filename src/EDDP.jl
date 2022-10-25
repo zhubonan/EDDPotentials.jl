@@ -30,6 +30,7 @@ export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos,
 export distance_between, distance_squared_between, displace!, clip, Cell, supercell
 export distance_matrix, laplacian_matrix, nmodules, find_modules
 export get_cell, get_forces, get_energy, get_stress, VariableLatticeFilter, CellFeature, CellWorkSpace, CellCalculator
+export get_enthalpy, get_pressure
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export TrainingOptions, FeatureOptions
 

@@ -22,6 +22,16 @@ include("utils.jl")
         @test -tmp ≈ ftmp[1] rtol=rtol
     end
 
+    function _test_forces_fd_vc(calc; amp=1e-7, rtol=1e-5, idx=1)
+        ftmp = copy(EDDP.get_forces(calc))
+        etmp = EDDP.get_enthalpy(calc)
+        positions(get_cell(calc))[idx] += amp
+        @test EDDP._need_calc(calc, true)
+        tmp = (EDDP.get_enthalpy(calc) - etmp) / amp
+        @test -tmp ≈ ftmp[idx] rtol=rtol
+    end
+
+
 
     @testset "MBP" begin
         nnitf = EDDP.ManualFluxBackPropInterface(Chain(
@@ -75,6 +85,7 @@ include("utils.jl")
         calc = EDDP.NNCalc(cell, cf, nnitf)
         filter =  EDDP.VariableCellCalc(calc)
         _test_forces_fd(filter)
+        _test_forces_fd_vc(filter)
         stress = get_stress(filter)
         @test size(stress) == (3,3)
         @test any(stress .!== 0.)
@@ -85,6 +96,14 @@ include("utils.jl")
         pos[1] += 1e-9
         set_positions!(filter, pos)
         @test EDDP._need_calc(filter, false)
+
+        # External pressure
+        filter =  EDDP.VariableCellCalc(calc; external_pressure=diagm([3., 3., 3.]))
+        _test_forces_fd_vc(filter, idx=1)
+        _test_forces_fd_vc(filter, idx=nions(get_cell(calc))+3)
+        @test get_energy(filter) != EDDP.get_enthalpy(filter)
+        @test get_pressure(filter) != 0
+        @test get_pressure(calc) != 0
     end
 
     @testset "Neigh" begin
@@ -201,4 +220,17 @@ end
    @test maximum(norm.(eachcol(EDDP.get_forces(calc)))) < 1e-5
    @test EDDP.opt_tpsd(EDDP.VariableCellCalc(calc))
    @test maximum(EDDP.get_stress(calc)) < 1e-5
+   
+
+   cell = _h2_cell() 
+   calc = EDDP.lj_like_calc(cell)
+   # With external pressure
+   p = 1e-4
+   vc = EDDP.VariableCellCalc(calc, external_pressure=diagm([p, p, p]))
+   global vc
+   @test EDDP.opt_tpsd(vc;)
+   @test maximum(EDDP.get_stress(calc)) > 1e-4
+   @test maximum(EDDP.get_stress(vc)) < 1e-5
+
+
 end

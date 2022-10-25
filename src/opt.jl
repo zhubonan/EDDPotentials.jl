@@ -16,7 +16,7 @@ Reference:
     - Barzilai, J. and Borwein, J.M., 1988. Two-point step size gradient methods. IMA journal of numerical analysis, 8(1), pp.141-148
 
 """
-function opt_tpsd(vc::AbstractCalc; f_tol=1e-3, s_tol=1e-3, e_tol=1e-5, 
+function opt_tpsd(vc::AbstractCalc; f_tol=1e-4, s_tol=1e-6, e_tol=1e-5, 
                   itermax=1000, trace=false, α_tol=1e-10, callback=nothing, 
                   trajectory=nothing)
     f = get_forces(vc)
@@ -45,7 +45,7 @@ function opt_tpsd(vc::AbstractCalc; f_tol=1e-3, s_tol=1e-3, e_tol=1e-5,
 
         if isa(vc, VariableCellCalc)
             fa = get_forces(vc.calc)
-            sa = get_stress(vc.calc)
+            sa = get_stress(vc)
         else
             fa = f
             sa = get_stress(vc)
