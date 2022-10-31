@@ -7,8 +7,11 @@ import CellBase
 using StatsBase: mean
 export mean
 using TimerOutputs
+export reset_timer!, enable_timer!, disable_timer!
 
 const to = TimerOutput() 
+# Default to have the timer disabled
+disable_timer!(to)
 
 
 # External

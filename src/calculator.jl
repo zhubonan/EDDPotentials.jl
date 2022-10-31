@@ -139,6 +139,10 @@ function get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     sum(calc.eng) + calc.force_buffer.ecore[1]
 end
 
+function get_enthalpy(calc::NNCalc;forces=false, rebuild_nl=true)
+    get_energy(calc;forces, rebuild_nl)
+end
+
 function get_forces(calc::NNCalc; rebuild_nl=true)
     calculate!(calc; forces=true, rebuild_nl)
     calc.forces
@@ -406,11 +410,12 @@ _get_effective_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) = _get_f
     get_stress(vc::VariableCellCalc;kwargs...)
 Return the effective stress of the VaraibleCellCalc (including the external pressure)
 """
-get_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...)= get_stress(vc.calc; rebuild_nl, kwargs...) .- vc.external_pressure
+get_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...)= get_stress(vc.calc; rebuild_nl, kwargs...)
 
 function get_enthalpy(vc::VariableCellCalc; kwargs...)
     stress = vc.external_pressure
-    get_energy(vc; kwargs...) - volume(get_cell(vc)) *  (stress[1,1] + stress[2,2] + stress[3,3]) / 3
+    # H = E + PV
+    get_energy(vc; kwargs...) + volume(get_cell(vc)) *  (stress[1,1] + stress[2,2] + stress[3,3]) / 3
 end
 
 
@@ -486,22 +491,11 @@ function check_global_minsep(nl::NeighbourList, threshold)
 end
 
 """
-    get_pressure(calc::NNCalc)
-
-Return the total pressure.
-"""
-function get_pressure(calc::NNCalc)
-    stress = get_stress(calc)
-    return (stress[1,1] + stress[2,2] + stress[3,3]) / 3
-end
-
-
-"""
     get_pressure(calc::VariableCellCalc)
 
 Return the total pressure with the external pressure subtracted.
 """
-function get_pressure(calc::VariableCellCalc)
-    stress = get_stress(calc) .- calc.external_pressure
+function get_pressure(calc::AbstractCalc)
+    stress = get_stress(calc)
     return (stress[1,1] + stress[2,2] + stress[3,3]) / 3
 end

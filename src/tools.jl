@@ -9,7 +9,7 @@ using JLD2
 using Dates
 using UUIDs
 
-function relax_structures(files, en_path::AbstractString, cf;savepath="relaxed", skip_existing=true, nmax=1000, core_radius=1.0)
+function relax_structures(files, en_path::AbstractString, cf; savepath="relaxed", skip_existing=true, nmax=1000, core_radius=1.0)
 
     ensemble = load_from_jld2(en_path, EnsembleNNInterface)
 
@@ -25,12 +25,12 @@ function relax_structures(files, en_path::AbstractString, cf;savepath="relaxed",
         # Skip and existing file
         skip_existing && isfile(joinpath(savepath, fname)) && return
 
-        calc = NNCalc(structures[i], cf, deepcopy(ensemble);nmax=nmax, core=CoreReplusion(core_radius))
+        calc = NNCalc(structures[i], cf, deepcopy(ensemble); nmax=nmax, core=CoreReplusion(core_radius))
         vc = VariableCellCalc(calc)
 
         optimise!(vc)
-        write_res(joinpath(savepath, fname), vc;label=fname, symprec=0.1)
-   end
+        write_res(joinpath(savepath, fname), vc; label=fname, symprec=0.1)
+    end
 
     @info "Total number of structures: $n"
     for i in 1:n
@@ -42,16 +42,16 @@ end
 
 
 """
-    update_metadata!(vc::VariableCellCalc, label;symprec=1e-2)
+    update_metadata!(vc::AbstractCalc, label;symprec=1e-2)
 
 Update the metadata attached to a `Cell`` object
 """
-function update_metadata!(vc::VariableCellCalc, label;symprec=1e-2)
+function update_metadata!(vc::AbstractCalc, label; symprec=1e-2)
     this_cell = get_cell(vc)
     # Set metadata
-    this_cell.metadata[:enthalpy] = get_energy(vc)
+    this_cell.metadata[:enthalpy] = get_enthalpy(vc)
     this_cell.metadata[:volume] = volume(this_cell)
-    this_cell.metadata[:pressure] = get_pressure_gpa(vc.calc)
+    this_cell.metadata[:pressure] = get_pressure_gpa(vc)
     this_cell.metadata[:label] = label
     symm = CellBase.get_international(this_cell, symprec)
     this_cell.metadata[:symm] = "($(symm))"
@@ -64,57 +64,81 @@ end
 
 Write structure in VariableCellCalc as SHELX file.
 """
-function write_res(path, vc::VariableCellCalc;symprec=1e-2, label="EDDP")
-    update_metadata!(vc, label;symprec)
+function write_res(path, vc::VariableCellCalc; symprec=1e-2, label="EDDP")
+    update_metadata!(vc, label; symprec)
     write_res(path, get_cell(vc))
 end
-
 """
-    build_and_relax(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10)
+    build_and_relax(seedfile::AbstractString, ensemble, cf;timeout=10, nmax=500, pressure_gpa=0., 
 
-Build the structure and relax it
-
+Build structure using `buildcell` and return the relaxed structure.
 """
-function build_and_relax(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, write=true, nmax=500)
-    lines = open(seedfile, "r") do seed 
+function build_and_relax(seedfile::AbstractString, ensemble, cf; timeout=10, nmax=500, pressure_gpa=0.0,
+    show_trace=false)
+    lines = open(seedfile, "r") do seed
         cellout = read(pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull), String)
         split(cellout, "\n")
     end
 
     # Generate a unique label
-    label = get_label(stem(seedfile))
+    p = pressure_gpa / 160.21766208
+    ext = diagm([p, p, p])
+    cell = CellBase.read_cell(lines)
 
-    cell = read_cell(lines)
     # Broken
-    vc = VariableCellCalc(cell, ensemble, cf;nmax)
-    optimise_cell!(vc)
-    update_metadata!(vc, label)
-    outpath = joinpath(outdir, "$(label).res")
-
-    # Write out SHELX file
-    relaxed = get_cell(vc)
-    if write
-        write_res(outpath, relaxed)
-    end
-    relaxed
+    calc = EDDP.NNCalc(cell, cf, ensemble; nmax)
+    vc = EDDP.VariableCellCalc(calc, external_pressure=ext)
+    res = EDDP.optimise!(vc; show_trace)
+    vc, res
 end
+
+"""
+    run_rss(seedfile, ensemble, cf;max=1, outdir="./", kwargs...)
+
+Perform random structure searching using the seed file.
+"""
+function run_rss(seedfile, ensemble, cf; max=1, outdir="./", packed=false, kwargs...)
+    i = 1
+    if packed
+        label = EDDP.get_label(EDDP.stem(seedfile))
+        # Name of the packed out file
+        outfile = joinpath(outdir, "$(label).packed.res")
+        mode = "a"
+    else
+        mode = "w"
+    end
+
+    while i <= max
+        vc, res = build_and_relax(seedfile, ensemble, cf; kwargs...)
+        label = EDDP.get_label(EDDP.stem(seedfile))
+        EDDP.update_metadata!(vc, label)
+        if !packed
+            outfile = joinpath(outdir, "$(label).res")
+        end
+        # Write output file
+        write_res(outfile, get_cell(vc), mode)
+        i += 1
+    end
+end
+
+
 
 """
     build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, warn=true)
 
 Build and relax a single structure, ensure that the process *does* generate a new structure.
 """
-function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, ensemble, cf;nmax=500, timeout=10, warn=true, max_attempts=999, write=true)
+function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, ensemble, cf; nmax=500, timeout=10, warn=true, max_attempts=999, write=true)
     not_ok = true
     n = 1
     relaxed = nothing
     while not_ok && n <= max_attempts
         try
-            relaxed = build_and_relax(seedfile, outdir, ensemble, cf;timeout, write, nmax)
-        catch err 
+            relaxed = build_and_relax(seedfile, outdir, ensemble, cf; timeout, write, nmax)
+        catch err
             if !isa(err, InterruptException)
                 if warn
-                    if typeof(err) <: ProcessFailedException 
+                    if typeof(err) <: ProcessFailedException
                         @warn " `buildcell` failed to make the structure"
                     else
                         @warn "relaxation errored with $err"
@@ -127,9 +151,9 @@ function build_and_relax_one(seedfile::AbstractString, outdir::AbstractString, e
             n += 1
             continue
         end
-        not_ok=false
+        not_ok = false
     end
-    relaxed 
+    relaxed
 end
 
 """
@@ -137,7 +161,7 @@ end
 
 Worker function that put the results into the channel
 """
-function worker_build_and_relax_one(job_channel, result_channel, seed_file, outdir, ensemble, cf; 
+function worker_build_and_relax_one(job_channel, result_channel, seed_file, outdir, ensemble, cf;
     nmax=500, timeout=10, warn=true, max_attempts=999, write=true)
     @info "Starting worker function"
     while true
@@ -145,7 +169,7 @@ function worker_build_and_relax_one(job_channel, result_channel, seed_file, outd
         if job_id < 0
             break
         end
-        relaxed = build_and_relax_one(seed_file, outdir, ensemble, cf;nmax, timeout, warn, max_attempts, write)
+        relaxed = build_and_relax_one(seed_file, outdir, ensemble, cf; nmax, timeout, warn, max_attempts, write)
         put!(result_channel, relaxed)
     end
 end
@@ -155,12 +179,12 @@ end
 
 Build and relax `num` structures in parallel (threads) using passed `ModuleEnsemble` and `CellFeature`
 """
-function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble, cf;timeout=10, nmax=500, deduplicate=false)
+function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble, cf; timeout=10, nmax=500, deduplicate=false)
     results_channel = RemoteChannel(() -> Channel(num))
     job_channel = RemoteChannel(() -> Channel(num))
 
     # Put the jobs
-    for i=1:num
+    for i = 1:num
         put!(job_channel, i)
     end
 
@@ -169,7 +193,7 @@ function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractStr
     # Launch the workers
     futures = []
     for worker in workers()
-        push!(futures, remotecall(worker_build_and_relax_one, worker, job_channel, results_channel,  seedfile, outdir, ensemble, cf; timeout, warn=true, write=false, nmax))
+        push!(futures, remotecall(worker_build_and_relax_one, worker, job_channel, results_channel, seedfile, outdir, ensemble, cf; timeout, warn=true, write=false, nmax))
     end
     sleep(0.1)
     # None of the futures should be ready
@@ -183,11 +207,11 @@ function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractStr
 
     @info "Start the receiving loop"
     # Receive the data and update the progress
-    i = 1 
+    i = 1
     progress = Progress(num)
     # Fingerprint vectors used for deduplication
     all_fvecs = []
-    try 
+    try
         while i <= num
             res = take!(results_channel)
             label = res.metadata[:label]
@@ -219,7 +243,7 @@ function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractStr
         else
             throw(err)
         end
-    finally 
+    finally
         foreach(x -> put!(job_channel, -1), 1:length(workers()))
         sleep(1.0)
         close(job_channel)
@@ -231,7 +255,7 @@ end
 """
 Check if a feature vector already present in an array of vectors
 """
-function is_unique_fvec(all_fvecs, fvec;tol=1e-2, lim=5)
+function is_unique_fvec(all_fvecs, fvec; tol=1e-2, lim=5)
     match = false
     for ref in all_fvecs
         dist = CellBase.fingerprint_distance(ref, fvec; lim)
@@ -239,7 +263,7 @@ function is_unique_fvec(all_fvecs, fvec;tol=1e-2, lim=5)
             match = true
             break
         end
-    end 
+    end
     !match
 end
 
@@ -248,14 +272,14 @@ end
 
 Build the structure and relax it
 """
-function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble_file::AbstractString;timeout=10, kwargs...)
+function build_and_relax(num::Int, seedfile::AbstractString, outdir::AbstractString, ensemble_file::AbstractString; timeout=10, kwargs...)
     ensemble = load_ensemble_model(ensemble_file)
     featurespec = load_featurespec(ensemble_file)
-    build_and_relax(num, seedfile, outdir, ensemble, featurespec;timeout, kwargs...)
+    build_and_relax(num, seedfile, outdir, ensemble, featurespec; timeout, kwargs...)
 end
 
 
-ensure_dir(path) =  isdir(path) || mkdir(path)
+ensure_dir(path) = isdir(path) || mkdir(path)
 
 function get_label(seedname)
     dt = Dates.format(now(), "yy-mm-dd-HH-MM-SS")
@@ -268,17 +292,17 @@ stem(x) = splitext(splitpath(x)[end])[1]
 """
 Call `buildcell` to generate many random structure under `outdir`
 """
-function build_cells(seedfile, outdir, num;save_as_res=true, build_timeout=5, ntasks=nthreads())
-    asyncmap((x) -> build_one_cell(seedfile, outdir;save_as_res, build_timeout), 1:num;
-             ntasks=ntasks)
+function build_cells(seedfile, outdir, num; save_as_res=true, build_timeout=5, ntasks=nthreads())
+    asyncmap((x) -> build_one_cell(seedfile, outdir; save_as_res, build_timeout), 1:num;
+        ntasks=ntasks)
 end
 
 """
 Call `buildcell` to generate many random structure under `outdir`
 """
-function build_one_cell(seedfile, outdir;save_as_res=true, build_timeout=5, suppress_stderr=false, max_attemps=999)
+function build_one_cell(seedfile, outdir; save_as_res=true, build_timeout=5, suppress_stderr=false, max_attemps=999)
     not_ok = true
-    suppress_stderr ? stderr_dst = devnull : stderr_dst=nothing
+    suppress_stderr ? stderr_dst = devnull : stderr_dst = nothing
     n = 1
     while not_ok && n <= max_attemps
         outname = save_as_res ? get_label(stem(seedfile)) * ".res" : get_label(stem(seedfile)) * ".cell"
@@ -307,7 +331,7 @@ function build_one_cell(seedfile, outdir;save_as_res=true, build_timeout=5, supp
 end
 
 
-function run_pp3_many(workdir, indir, outdir, seedfile;n_parallel=1, keep=false)
+function run_pp3_many(workdir, indir, outdir, seedfile; n_parallel=1, keep=false)
     files = glob(joinpath(indir, "*.res"))
     ensure_dir(workdir)
     for file in files
@@ -324,7 +348,7 @@ function run_pp3_many(workdir, indir, outdir, seedfile;n_parallel=1, keep=false)
         end
         if !keep
             for suffix in [".cell", ".conv", "-out.cell", ".pp", ".res"]
-                rm(swapext(working_path, suffix)) 
+                rm(swapext(working_path, suffix))
             end
         end
     end
@@ -343,8 +367,8 @@ function run_pp3(file::AbstractString, seedfile::AbstractString, outpath::Abstra
     cp(swapext(seedfile, ".pp"), swapext(file, ".pp"), force=true)
     # Run pp3 relax
     # Read enthalpy
-    enthalpy=0.
-    pressure=0.
+    enthalpy = 0.0
+    pressure = 0.0
     for line in eachline(pipeline(`pp3 -n $(splitext(file)[1])`))
         if contains(line, "Enthalpy")
             enthalpy = parse(Float64, split(line)[end])
@@ -352,7 +376,7 @@ function run_pp3(file::AbstractString, seedfile::AbstractString, outpath::Abstra
         if contains(line, "Pressure")
             pressure = parse(Float64, split(line)[end])
         end
-    end 
+    end
     # Write res
     cell.metadata[:enthalpy] = enthalpy
     cell.metadata[:pressure] = pressure
@@ -373,9 +397,9 @@ the results to the output folder.
 It is assumed that the files are named like `SEED-XX-XX-XX.res` and the parameters
 for calculations are stored under `<workdir>/SEED.cell` and `<workdir>/SEED.param`. 
 """
-function run_crud(workdir, indir, outdir;n_parallel=1, mpinp=4)
-    hopper_folder =joinpath(workdir, "hopper") 
-    gd_folder =joinpath(workdir, "good_castep") 
+function run_crud(workdir, indir, outdir; n_parallel=1, mpinp=4)
+    hopper_folder = joinpath(workdir, "hopper")
+    gd_folder = joinpath(workdir, "good_castep")
     ensure_dir(hopper_folder)
     ensure_dir(outdir)
 
@@ -400,7 +424,7 @@ function run_crud(workdir, indir, outdir;n_parallel=1, mpinp=4)
     tasks = []
     try
         @sync begin
-            for i=1:n_parallel
+            for i = 1:n_parallel
                 push!(tasks, @async run(setenv(`crud.pl -singlepoint -mpinp $mpinp`, dir=workdir)))
                 sleep(0.01)
             end
@@ -419,7 +443,7 @@ function run_crud(workdir, indir, outdir;n_parallel=1, mpinp=4)
         fsrc = joinpath(gd_folder, fname)
         fdst = joinpath(outdir, fname)
         if isfile(fsrc)
-            cp(fsrc, fdst, force=true)  
+            cp(fsrc, fdst, force=true)
             rm(fsrc)
             nfiles += 1
         end
@@ -469,12 +493,12 @@ function rattle_cell!(cell::Cell, amp)
     local new_cellpar
     i = 0
     while true
-        new_cellpar = [x * (1 + rand()*amp) for x in cellpar(cell)]
+        new_cellpar = [x * (1 + rand() * amp) for x in cellpar(cell)]
         CellBase.isvalidcellpar(new_cellpar...) && break
         # Cannot found a valid cell parameters?
         if i > 10
             return cell
-        end 
+        end
         i += 1
     end
     new_lattice = Lattice(new_cellpar)
@@ -497,10 +521,10 @@ The equilibrium position is at ``r_c/2``.
 
 Support only single a element for now.
 """
-function lj_like_calc(cell::Cell;α=1.0, a=6, rc=3.)
+function lj_like_calc(cell::Cell; α=1.0, a=6, rc=3.0)
     elem = unique(species(cell))
     @assert length(elem) == 1 "Only works for single specie Cell for now."
-    cf = EDDP.CellFeature(elem, p2=[a,2a], p3=[], q3=[], rcut2=rc)
-    model = EDDP.LinearInterface([0, -2, 1.] .* α)
+    cf = EDDP.CellFeature(elem, p2=[a, 2a], p3=[], q3=[], rcut2=rc)
+    model = EDDP.LinearInterface([0, -2, 1.0] .* α)
     EDDP.NNCalc(cell, cf, model)
 end

@@ -213,24 +213,24 @@ end
 
 @testset "Opt" begin
    cell = _h2_cell() 
-   calc = EDDP.lj_like_calc(cell)
+   calc = EDDP.lj_like_calc(cell;rc=6.0)
    traj = []
    @test EDDP.opt_tpsd(calc, trajectory=traj)
    @test length(traj) > 1
-   @test maximum(norm.(eachcol(EDDP.get_forces(calc)))) < 1e-5
+   @test maximum(norm.(eachcol(EDDP.get_forces(calc)))) < 1e-4
    @test EDDP.opt_tpsd(EDDP.VariableCellCalc(calc))
-   @test maximum(EDDP.get_stress(calc)) < 1e-5
+   @test maximum(EDDP.get_stress(calc)) < 1e-4
    
 
    cell = _h2_cell() 
-   calc = EDDP.lj_like_calc(cell)
+   calc = EDDP.lj_like_calc(cell;rc=6.0)
    # With external pressure
-   p = 1e-4
+   p = 1e-2
    vc = EDDP.VariableCellCalc(calc, external_pressure=diagm([p, p, p]))
    global vc
-   @test EDDP.opt_tpsd(vc;)
-   @test maximum(EDDP.get_stress(calc)) > 1e-4
-   @test maximum(EDDP.get_stress(vc)) < 1e-5
-
+   EDDP.opt_tpsd(vc;)
+   @test maximum(abs.(EDDP.get_forces(vc.calc))) < 1e-3
+   @test maximum(EDDP.get_stress(vc.calc)) > 1e-3
+   @test maximum(EDDP.get_stress(vc) .- vc.external_pressure) < 1e-4
 
 end
