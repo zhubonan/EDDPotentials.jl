@@ -53,7 +53,7 @@ function gradparam!(gvec, itf::FluxInterface, inp=itf.inp)
     i = 1
     for elem in grad.params
         g = grad.grads[elem]
-        gvec[i:i+size(g, 2)-1] .= g[:]
+        gvec[i:i+length(g)-1] .= g[:]
         i += length(g)
     end
     gvec

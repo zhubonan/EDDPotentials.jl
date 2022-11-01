@@ -424,6 +424,13 @@ function transform_x!(fc::FeatureContainer;xt=fc.xt)
     fc.is_x_transformed = true
 end
 
+function transform_y(fc::FeatureContainer;yt=fc.yt)
+    Hps = fc.H ./ natoms(fc)
+    Hps .-= yt.mean[1]
+    Hps ./= yt.scale[1]
+    Hps .* natoms(fc)
+end
+
 """
 Recover training X inputs
 """
