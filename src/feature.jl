@@ -34,6 +34,14 @@ end
 sortedtuple(iter) = Tuple(sort(collect(iter)))
 
 """
+Generate p/q as a geometry series
+"""
+function genp(pmin, pmax, np)
+    β = (pmax / pmin) ^ ( 1/ (np-1))
+    collect(round(pmin * β ^ (i-1), digits=3) for i in 1:np)
+end
+
+"""
     permequal(A, i, j)
 
 Check equivalence considering all permutations with the first element matched. 

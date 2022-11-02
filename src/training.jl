@@ -13,6 +13,7 @@ using ProgressMeter
 using Parameters
 using Printf
 using StatsBase
+using CatViews
 
 const XT_NAME="xt"
 const YT_NAME="yt"
@@ -416,3 +417,79 @@ function maximum_error(tr::TrainingResults)
 end
 
 spearman(tr::TrainingResults) = corspearman(tr.H_pred, tr.H_target)
+
+"""
+    generate_f_g_optim(model, train, test)
+
+Generate f, g!, view of the parameters and the callback function for NN training using Optim.
+"""
+function generate_f_g_optim(model, fc_train, fc_test;pow=2,earlystop=30)
+
+    X = fc_train.fvecs
+    Y = transform_y(fc_train)
+    mdl = model
+
+    ps = Flux.params(mdl)
+    # View into the parameters of the model
+    pview = CatView(ps.params...)
+
+    # Per-atom data
+    Ha = fc_train.H ./ natoms(fc_train)
+    Ha_test = fc_test.H ./ natoms(fc_test)
+
+    iter :: Int = 1
+    min_test :: Float64 = floatmax(Float64)
+    min_iter :: Int = 1
+
+    function f(x)
+        pview .= x 
+        return loss_all(mdl, X, Y;pow)
+    end
+
+    function g!(g, x)
+        pview .= x 
+        grad = Zygote.gradient(ps) do 
+            loss_all(mdl, X, Y;pow)
+        end
+        g .= CatView([grad.grads[x] for x in ps.params]...)
+        return g
+    end
+
+    """
+    Callback for progress display and early stopping
+    """
+    function callback(args...;kwargs...)
+        rmse = ((mean.(mdl.(fc_train.fvecs)) .* fc_train.yt.scale[1]) .+ fc_train.yt.mean[1] .- Ha) .^ 2 |> mean |> sqrt
+        rmse_test = ((mean.(mdl.(fc_test.fvecs)) .* fc_test.yt.scale[1]) .+ fc_test.yt.mean[1] .- Ha_test) .^ 2 |> mean |> sqrt
+        @info "Iter $(iter) - RMSE $(round(rmse, digits=5)) eV / $(round(rmse_test, digits=5)) eV"
+
+        if rmse_test < min_test
+            min_iter = iter
+        end
+
+        if iter - min_iter > earlystop
+            @info "Early stop condition triggered - last best test was $(earlystop) iterations ago"
+            return true
+        end
+
+        iter += 1
+        false
+    end
+
+    return f, g!, pview, callback
+end
+
+raw"""
+Compute the loss as absolute difference in total energy
+
+```math
+L = \sum_i |y_i - y_i^p|^l
+```
+"""
+function loss_all(model, fvecs, H;pow=2)
+    if pow == 2
+        (sum.(model.(fvecs)) .- H) .^ pow  |> sum
+    else
+        abs.(sum.(model.(fvecs)) .- H)  .^ pow  |> sum
+    end
+end

@@ -232,5 +232,3 @@ end
    @test maximum(abs.(EDDP.get_forces(vc.calc))) < 1e-3
    @test maximum(EDDP.get_stress(vc.calc)) > 1e-3
    @test maximum(EDDP.get_stress(vc) .- vc.external_pressure) < 1e-4
-
-end
