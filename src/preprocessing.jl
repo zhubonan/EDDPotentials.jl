@@ -77,10 +77,11 @@ _select_per_atom_threshold(sc;select_func=minimum, threshold=10.) = sc[_select_p
 """
 Split a vector by integer numbres
 """
-function _split_vector(c, nsplit::Vararg{Int};shuffle=true)
+function _split_vector(c, nsplit::Vararg{Int};shuffle=true, seed=42)
     out = []
+    rng = MersenneTwister(seed)
     if shuffle
-        perm = randperm(length(c))
+        perm = randperm(rng, length(c))
     else
         perm = collect(1:length(c))
     end
@@ -95,10 +96,10 @@ end
 """
 Split a vector by fractions
 """
-function _split_vector(c, nsplit::Vararg{Real};shuffle=true)
+function _split_vector(c, nsplit::Vararg{Real};shuffle=true, seed=42)
     ntot = length(c)
     intsplit = nsplit .* ntot .|> floor .|> Int
-    _split_vector(c, intsplit...;shuffle)
+    _split_vector(c, intsplit...;shuffle, seed)
 end
 
 """
@@ -302,8 +303,8 @@ Split the container into multiple parts, each with N number of structures.
 By default, the output container will have their feature vectors standardized.
 """
 function Base.split(c::Union{StructureContainer, FeatureContainer}, nsplit::Vararg;
-    shuffle=true, standardize=true, apply_transform=true)
-    out = _split_vector(c, nsplit...;shuffle)
+    shuffle=true, standardize=true, apply_transform=true, seed=42)
+    out = _split_vector(c, nsplit...;shuffle, seed)
     isa(c, FeatureContainer) && standardize && standardize!(out...;apply_transform)
     out
 end

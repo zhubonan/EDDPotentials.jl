@@ -135,7 +135,7 @@ predict_energy(itf::AbstractNNInterface, vec) = sum(itf(vec))
 """
 Perform training for the given TrainingConfig
 """
-function train!(itf::AbstractNNInterface, x, y;
+function train_lm!(itf::AbstractNNInterface, x, y;
                    p0=EDDP.paramvector(itf),
                    maxIter=1000,
                    show_progress=false,
@@ -178,10 +178,19 @@ function train!(itf::AbstractNNInterface, x, y;
 end
 
 function train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_test::FeatureContainer
-                ;kwargs...)
-    x_train, y_train = get_fit_data(fc_train)
-    x_test, y_test = get_fit_data(fc_test)
-    train!(itf, x_train, y_train;x_test, y_test, kwargs...)
+                ;train_method="lm", kwargs...)
+    if train_method == "lm"
+        x_train, y_train = get_fit_data(fc_train)
+        x_test, y_test = get_fit_data(fc_test)
+        train_lm!(itf, x_train, y_train;x_test, y_test, kwargs...)
+    elseif train_method == "optim"
+        model = get_flux_model(itf)
+        f, g!, pview, callback = EDDP.generate_f_g_optim(model, fc_train, fc_test)
+        od = OnceDifferentiable(f, g!, collect(pview))
+        x0 = collect(pview)
+        opt_res = Optim.optimize(od, x0;callback=callback)
+        opt_res, collect(pview)
+    end
 end
 
 """
@@ -423,7 +432,7 @@ spearman(tr::TrainingResults) = corspearman(tr.H_pred, tr.H_target)
 
 Generate f, g!, view of the parameters and the callback function for NN training using Optim.
 """
-function generate_f_g_optim(model, fc_train, fc_test;pow=2,earlystop=30)
+function generate_f_g_optim_alt(model, fc_train, fc_test;pow=2,earlystop=30)
 
     X = fc_train.fvecs
     Y = transform_y(fc_train)
@@ -493,3 +502,104 @@ function loss_all(model, fvecs, H;pow=2)
         abs.(sum.(model.(fvecs)) .- H)  .^ pow  |> sum
     end
 end
+
+"""
+    generate_f_g_optim_batch(model, train, test)
+
+Generate f, g!, view of the parameters and the callback function for NN training using Optim.
+
+This is for 'batch' training where all of the data are included.
+"""
+function generate_f_g_optim(model, fc_train, fc_test;pow=2,earlystop=30)
+
+    X = fc_train.fvecs
+    nfeat = size(X[1], 1)
+    Y = transform_y(fc_train)
+    xsizes = size.(X, 2)
+
+    # Generate dataset by sizes, each dataset has X as a rank 3 tensor
+    datasets = Tuple{Array{eltype(X[1]), 3}, Vector{eltype(Y)}}[]
+    for usize in unique(xsizes)
+        mask = findall(x -> x==usize, xsizes)
+        this_size = X[mask]
+        # A rank 3 tensor
+        this_tensor = Array{eltype(X[1]), 3}(undef, nfeat, usize, length(mask))
+        # Copy data to the tensor
+        for (idx, i) in enumerate(mask)
+            this_tensor[:, :, idx] .= X[i]
+        end
+        this_H = Y[mask]
+        push!(datasets, (this_tensor, this_H))
+    end
+    
+    mdl = model
+
+    ps = Flux.params(mdl)
+    # View into the parameters of the model
+    pview = CatView(ps.params...)
+
+    # Per-atom data
+    Ha = fc_train.H ./ natoms(fc_train)
+    Ha_test = fc_test.H ./ natoms(fc_test)
+
+    iter :: Int = 1
+    min_test :: Float64 = floatmax(Float64)
+    min_iter :: Int = 1
+
+    function f(x)
+        pview .= x 
+        #return loss_all(mdl, X, Y;pow)
+        return loss_stacked(mdl, datasets;pow)
+    end
+
+    function g!(g, x)
+        pview .= x 
+        grad = Zygote.gradient(ps) do 
+            loss_stacked(mdl, datasets;pow)
+        end
+        g .= CatView([grad.grads[x] for x in ps.params]...)
+        return g
+    end
+
+    """
+    Callback for progress display and early stopping
+    """
+    function callback(args...;kwargs...)
+        rmse = ((mean.(mdl.(fc_train.fvecs)) .* fc_train.yt.scale[1]) .+ fc_train.yt.mean[1] .- Ha) .^ 2 |> mean |> sqrt
+        rmse_test = ((mean.(mdl.(fc_test.fvecs)) .* fc_test.yt.scale[1]) .+ fc_test.yt.mean[1] .- Ha_test) .^ 2 |> mean |> sqrt
+        @info "Iter $(iter) - RMSE $(round(rmse, digits=5)) eV / $(round(rmse_test, digits=5)) eV"
+
+        if rmse_test < min_test
+            min_iter = iter
+        end
+
+        if iter - min_iter > earlystop
+            @info "Early stop condition triggered - last best test was $(earlystop) iterations ago"
+            return true
+        end
+
+        iter += 1
+        false
+    end
+
+    return f, g!, pview, callback
+end
+
+raw"""
+Compute the loss as absolute difference in total energy to certain power
+
+```math
+L = \sum_i |y_i - y_i^p|^l
+```
+
+This function requires a dataset that consisted of rank3 tensors so the total energy can be obtained
+straightforwardly using a single call of `sum`.
+Each element of the dataset is consisted of structures with the same number of atoms.
+"""
+function loss_stacked(model, datasets;pow=2)
+    sum(datasets) do (x, y)
+        pred = sum(model(x), dims=2)[:]
+        abs.(pred .- y) .^ pow |> sum
+    end
+end
+

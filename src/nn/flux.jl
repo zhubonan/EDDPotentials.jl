@@ -11,6 +11,7 @@ mutable struct FluxInterface{T, N} <: AbstractNNInterface
     pullback_inp
 end
 
+get_flux_model(itf::FluxInterface) = itf.model
 
 FluxInterface(model) = FluxInterface(model, Flux.params(model), nothing, nothing, nothing)
 

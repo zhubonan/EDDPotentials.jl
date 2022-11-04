@@ -258,6 +258,9 @@ mutable struct ManualFluxBackPropInterface{T, G, X, Z} <: AbstractNNInterface
     apply_xt::Bool
 end
 
+
+get_flux_model(itf::ManualFluxBackPropInterface) = itf.chain
+
 function ManualFluxBackPropInterface(chain::Chain;xt=nothing, yt=nothing, apply_xt=true) 
     g = ChainGradients(chain, 1)
     ManualFluxBackPropInterface(chain, typeof(g)[], 1, xt, yt, apply_xt)
