@@ -207,8 +207,23 @@ function _rebuild_on_demand(calc;rebuild_nl)
     end
 end
 
+"""
+Return standard deviation of the predicted atomic energy
+Note: must be run after a energy call!
+"""
+function get_per_atom_energy_std(calc::NNCalc{T,N,M,X}) where {T,N,M,X<:EnsembleNNInterface}
+    per_atom = reduce(vcat, forward!.(calc.nninterface.models, Ref(calc.v)))
+    dropdims(std(per_atom, dims=1), dims=1)
+end
 
-
+"""
+Return standard deviation of the predicted total energy
+Note: must be run after a energy call!
+"""
+function get_energy_std(calc::NNCalc{T,N,M,X}) where {T,N,M,X<:EnsembleNNInterface}
+    per_atom = reduce(vcat, forward!.(calc.nninterface.models, Ref(calc.v)))
+    std(sum(per_atom, dims=2))
+end
 
 function _calculate!(calc, rebuild, forces=true)
     # Compute feature vector and the gradients

@@ -13,22 +13,22 @@ include("utils.jl")
         EDDP.FeatureOptions(elements=unique(species(cell)), p2=[2], q3=[2, 3], p3=[2, 3])
     )
 
-    function _test_forces_fd(calc, amp=1e-7, rtol=1e-5)
+    function _test_forces_fd(calc, amp=1e-7, atol=1e-5)
         ftmp = copy(EDDP.get_forces(calc))
         etmp = EDDP.get_energy(calc)
         positions(get_cell(calc))[1] += amp
         @test EDDP._need_calc(calc, true)
         tmp = (get_energy(calc) - etmp) / amp
-        @test -tmp ≈ ftmp[1] rtol=rtol
+        @test -tmp ≈ ftmp[1] atol=atol
     end
 
-    function _test_forces_fd_vc(calc; amp=1e-7, rtol=1e-5, idx=1)
+    function _test_forces_fd_vc(calc; amp=1e-7, atol=1e-5, idx=1)
         ftmp = copy(EDDP.get_forces(calc))
         etmp = EDDP.get_enthalpy(calc)
         positions(get_cell(calc))[idx] += amp
         @test EDDP._need_calc(calc, true)
         tmp = (EDDP.get_enthalpy(calc) - etmp) / amp
-        @test -tmp ≈ ftmp[idx] rtol=rtol
+        @test -tmp ≈ ftmp[idx] atol=atol 
     end
 
 
@@ -59,9 +59,24 @@ include("utils.jl")
 
         # Test against small displacements finite displacements
         _test_forces_fd(calc)
-        global this_calc
         this_calc=calc
     end
+
+    @testset "Ensemble" begin
+         nnitfs = [EDDP.ManualFluxBackPropInterface(Chain(
+            Dense(rand(5, EDDP.nfeatures(cf))), Dense(rand(1, 5))
+            )
+            ) for _ in 1:5]
+        nnitf = EDDP.EnsembleNNInterface(Tuple(nnitfs), repeat([0.2], 5))
+        calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
+        eng = get_energy(calc)
+        std_per_atom = EDDP.get_per_atom_energy_std(calc)
+        std_tot = EDDP.get_energy_std(calc)
+        @test eng != 0.
+        @test size(std_per_atom) == (length(cell),)
+        @test std_tot != 0.
+    end
+
     @testset "Linear" begin
         nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
         calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
@@ -232,3 +247,4 @@ end
    @test maximum(abs.(EDDP.get_forces(vc.calc))) < 1e-3
    @test maximum(EDDP.get_stress(vc.calc)) > 1e-3
    @test maximum(EDDP.get_stress(vc) .- vc.external_pressure) < 1e-4
+end

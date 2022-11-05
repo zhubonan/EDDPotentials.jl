@@ -412,8 +412,18 @@ function Base.show(io::IO, ::MIME"text/plain", tr::TrainingResults)
     @printf(io, "%-10s: %10.5f eV\n", "MAE",  mae_per_atom(tr))
     imax, label_max = maximum_error(tr)
     @printf(io, "%-10s: %10.2f meV     on structure: %20s\n", "Max error",  imax, label_max)
-    @printf(io, "%-10s: %10.5f", "Spearman", spearman(tr))
+    @printf(io, "%-10s: %10.5f", "Average Spearman", spearman(tr))
 end
+
+function print_spearman(io, tr)
+    @printf(io, "Spearman Scores:\n")
+    for (f, s) in zip(spearman_each_comp(tr)...)
+        @printf(io, "  %-10s: %10.5f\n", f, s)
+    end
+end
+
+print_spearman(tr::TrainingResults) = print_spearman(stdout, tr)
+ 
 
 Base.show(io::IO, tr::TrainingResults) = Base.show(io, MIME("text/plain"), tr)
 
@@ -425,7 +435,33 @@ function maximum_error(tr::TrainingResults)
     return imax, label_max
 end
 
-spearman(tr::TrainingResults) = corspearman(tr.H_pred, tr.H_target)
+"""
+    spearman_each_comp(tr::TrainingResults) 
+
+Return unique reduced formula and their spearman scores. 
+"""
+function spearman_each_comp(tr::TrainingResults) 
+    forms = [m[:formula] for m in tr.fc.metadata]
+    uforms = unique(forms)
+    stmp = zeros(length(uforms))
+    for (i, fu) in enumerate(uforms)
+        idx = findall(x -> x == fu, forms)
+        stmp[i] = corspearman(tr.H_pred[idx], tr.H_target[idx])
+    end
+    sidx = sortperm(stmp;rev=true)
+    uforms[sidx], stmp[sidx] 
+end
+
+"""
+    spearman(tr::TrainingResults)
+
+Compute the average spearman score for each composition. 
+"""
+function spearman(tr::TrainingResults)
+    _, values = spearman_each_comp(tr)
+    return mean(values)
+end
+
 
 """
     generate_f_g_optim(model, train, test)

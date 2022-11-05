@@ -56,6 +56,22 @@ function StructureContainer(paths::Vector;threshold=10., select_func=minimum)
 end
 
 """
+    _idx_group_by_composition(structures)
+
+Return the index of structures of each unique composition.
+"""
+function _idx_group_by_composition(structures)
+    reduced_comps = reduce.(Composition.(structures))
+    unique_comp = unique(reduced_comps)
+    out = Dict{Composition, Vector{Int}}()
+    for comp in unique_comp
+        idx = findall(x -> x == comp, reduced_comps)
+        out[comp] = idx
+    end
+    out
+end
+
+"""
 Return index selected based on per-formula atomic energy
 """
 function _select_per_atom_threshold(structures, Ha;select_func=minimum, threshold=10.)

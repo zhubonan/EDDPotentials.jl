@@ -55,7 +55,7 @@ include("utils.jl")
             Chain(Dense(rand(1, nf), rand(1))), 
             )
 
-        EDDP.train!(model, data, y;)
+        EDDP.train_lm!(model, data, y;)
         out = model(data[2])
         # Check we have successfully performed the fit
         @test sum(out) ≈ y[2] atol=1e-5
@@ -66,7 +66,7 @@ include("utils.jl")
         y = size.(data, 2) ./ 2
         model = EDDP.LinearInterface(rand(1, nf))
 
-        opt_res, _, _ = EDDP.train!(model, data, y;earlystop=0)
+        opt_res, _, _ = EDDP.train_lm!(model, data, y;earlystop=0)
     end
 
     @testset "Ensemble" begin
