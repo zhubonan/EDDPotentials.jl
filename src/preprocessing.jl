@@ -217,13 +217,15 @@ Base.length(v::FeatureContainer) = length(v.fvecs)
 
 Get a feature container.
 """
-function FeatureContainer(sc::StructureContainer, feature::CellFeature; nmax=500, kwargs...)
+function FeatureContainer(sc::StructureContainer, feature::CellFeature; nmax=500, show_progress=true, kwargs...)
 
     fvecs = Vector{Matrix{Float64}}(undef, length(sc))
     H = copy(sc.H)
     labels = collect(String, sc.paths)
     metadata = [cell.metadata for cell in sc.structures]
-    p = Progress(length(sc))
+    if show_progress
+        p = Progress(length(sc))
+    end
     jj = Atomic{Int}(0)
     l = SpinLock()
     Threads.@threads for i=1:length(sc)
@@ -233,9 +235,11 @@ function FeatureContainer(sc::StructureContainer, feature::CellFeature; nmax=500
         m[:formula] = form
         m[:nformula] = nf
         Threads.atomic_add!(jj, 1)
-        lock(l)
-        ProgressMeter.update!(p, jj[])
-        unlock(l)
+        if show_progress
+            lock(l)
+            ProgressMeter.update!(p, jj[])
+            unlock(l)
+        end
     end
     FeatureContainer(fvecs, feature, H, labels, metadata, false, nothing, nothing)
 end

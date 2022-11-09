@@ -85,7 +85,7 @@ function setparamvector!(itf::EnsembleNNInterface, val)
     end
 end
 
-nparams(itf::EnsembleNNInterface) = sum(nparams, itf.models)
+nparams(itf::EnsembleNNInterface) = sum(nparams, itf.models) + length(itf.weights)
 
 function Base.show(io::IO, m::MIME"text/plain", v::EnsembleNNInterface)
     println(io, "EnsembleNNInterface:\nModels:")

@@ -14,6 +14,7 @@ using Parameters
 using Printf
 using StatsBase
 using CatViews
+import Base
 
 const XT_NAME="xt"
 const YT_NAME="yt"
@@ -55,35 +56,6 @@ function generate_chain(nfeature, nnodes)
     Chain(models...)
 end
 
-"""
-Fit an ensemble model from an archive of trained models.
-
-The ensemble model is saved into the same archive
-"""
-function create_ensemble(fname)
-    models, xt, yt, traindata  = jldopen(fname) do file
-        [file[x] for x in keys(file) if contains(x, "model")], file["xt"], file["yt"], file["training_data"]
-    end
-
-    ensemble = EDDP.ModelEnsemble(models, traindata.x_train_norm, traindata.y_train_norm, xt, yt);
-
-    jldopen(fname, "a") do file
-        file["ensemble"] = ensemble
-    end
-    ensemble
-end
-
-
-"""
-Load an ensemble model from an archive file
-"""
-function load_ensemble_model(fname)
-    ensemble = jldopen(fname, ) do file
-        file["ensemble"]
-    end
-    ensemble
-end
-
 
 "Load CellFeature serialized in the archive"
 function load_featurespec(fname;opts=TrainingOptions())
@@ -104,14 +76,12 @@ Args:
     - `y`: a `Vector` containing the total energy of each structure.
 
 """
-function nnls_weights(models, x, y;threshold=1e-9)
+function nnls_weights(models, x, y)
     all_engs = zeros(length(x), length(models))
     for (i, model) in enumerate(models)
         all_engs[:, i] = predict_energy.(Ref(model), x)
     end
     wt = nnls(all_engs, y)
-    wt[wt .< threshold] .= 0
-    wt ./= sum(wt) 
     wt
 end
 
@@ -120,15 +90,24 @@ end
 
 Create an EnsembleNNInterface from a vector of interfaces and x, y data for fitting.
 """
-function create_ensemble(models::AbstractVector, x::AbstractVector, y::AbstractVector;
-                         threshold=1e-9)
-    weights = nnls_weights(models, x, y;threshold)
-    # Trim weights
-    mask = weights .!=0
-    EnsembleNNInterface(Tuple(models[mask]), weights[mask])
+function create_ensemble(models, x::AbstractVector, y::AbstractVector;
+                         threshold=1e-3)
+    weights = nnls_weights(models, x, y)
+    tmp_models = collect(models)
+    mask = weights .< threshold
+    # Eliminate models with weights lower than the threshold
+    while sum(mask) > 0
+        # Models with weights higher than the threshold
+        tmp_models = tmp_models[map(!, mask)] 
+        # Refit the weights
+        weights = nnls_weights(tmp_models, x, y)
+        # Models with small weights
+        mask = weights .< threshold
+    end
+    EnsembleNNInterface(Tuple(tmp_models), weights)
 end
 
-EnsembleNNInterface(models, fc::FeatureContainer;threshold=1e-9) = create_ensemble(models, get_fit_data(fc)...;threshold)
+EnsembleNNInterface(models, fc::FeatureContainer;threshold=1e-3) = create_ensemble(models, get_fit_data(fc)...;threshold)
 
 predict_energy(itf::AbstractNNInterface, vec) = sum(itf(vec))
 
@@ -287,7 +266,7 @@ function train_multi_distributed(itf, x, y; nmodels=10, kwargs...)
     create_ensemble(all_models, x, y)      
 end
 
-function train_multi_threaded(itf, x, y; nmodels=10, kwargs...)
+function train_multi_threaded(itf, x, y; nmodels=10, suffix=nothing, kwargs...)
                   
     results_channel = Channel(nmodels)
     job_channel = Channel(nmodels)
@@ -317,6 +296,12 @@ function train_multi_threaded(itf, x, y; nmodels=10, kwargs...)
     all_models = []
     ts = Dates.format(now(), "yyyy-mm-dd-HH-MM-SS")
     fname = "models-$(ts)"
+
+    # Add suffix for saved models
+    if !isnothing(suffix)
+        fname = fname * "-$(suffix)"
+    end
+
     try
         while i <= nmodels
             itf, out = take!(results_channel)
@@ -351,9 +336,9 @@ end
 
 Create ensemble model from training data.
 """
-function create_ensemble(all_models, fc_train::FeatureContainer, args...)      
+function create_ensemble(all_models, fc_train::FeatureContainer, args...;kwargs...)      
     x, y = get_fit_data(fc_train)
-    create_ensemble(all_models, x, y)
+    create_ensemble(all_models, x, y;kwargs...)
 end
 
 
@@ -388,6 +373,16 @@ struct TrainingResults{F, T}
     H_target::Vector{Float64}
 end
 
+
+"""
+    Base.getindex(v::TrainingResults, idx::Union{UnitRange, Vector{T}}) where {T<: Int}   
+
+Allow slicing to work on TrainingResults.
+"""
+function Base.getindex(v::TrainingResults, idx::Union{UnitRange, Vector{T}}) where {T<: Int}   
+    TrainingResults(v.fc[idx], v.model, v.H_pred[idx], v.H_target[idx])
+end
+
 function TrainingResults(model::AbstractNNInterface, fc::FeatureContainer)
     x, H_target = get_fit_data(fc)
     H_pred = predict_energy.(Ref(model), x)
@@ -408,6 +403,8 @@ absolute_error(tr::TrainingResults) = abs.(tr.H_pred .- tr.H_target)
 
 function Base.show(io::IO, ::MIME"text/plain", tr::TrainingResults)
     @printf(io, "TrainingResults\n%20s: %d\n",  "Number of structures",  length(tr.fc))
+    ncomps = length(unique(m[:formula] for m in tr.fc.metadata))
+    @printf(io, "%20s: %d\n",  "Number of compositions",  ncomps)
     @printf(io, "%-10s: %10.5f eV      ", "RMSE",  rmse_per_atom(tr))
     @printf(io, "%-10s: %10.5f eV\n", "MAE",  mae_per_atom(tr))
     imax, label_max = maximum_error(tr)
@@ -417,7 +414,7 @@ end
 
 function print_spearman(io, tr)
     @printf(io, "Spearman Scores:\n")
-    for (f, s) in zip(spearman_each_comp(tr)...)
+    for (f, s) in spearman_each_comp(tr)
         @printf(io, "  %-10s: %10.5f\n", f, s)
     end
 end
@@ -442,15 +439,97 @@ Return unique reduced formula and their spearman scores.
 """
 function spearman_each_comp(tr::TrainingResults) 
     forms = [m[:formula] for m in tr.fc.metadata]
+    nat = natoms(tr.fc)
     uforms = unique(forms)
-    stmp = zeros(length(uforms))
-    for (i, fu) in enumerate(uforms)
+    out = Dict{Symbol, eltype(tr.H_target)}()
+    for fu in uforms
         idx = findall(x -> x == fu, forms)
-        stmp[i] = corspearman(tr.H_pred[idx], tr.H_target[idx])
+        # Compare per-atom energy difference, otherwise having more diversity in the formula units
+        # will results in overly optimistic spearman scores.
+        out[fu] =  corspearman(tr.H_target[idx] ./ nat[idx], tr.H_pred[idx] ./ nat[idx])
     end
-    sidx = sortperm(stmp;rev=true)
-    uforms[sidx], stmp[sidx] 
+    out
 end
+
+function per_atom_scatter_each_comp(tr::TrainingResults)
+    Dict(
+        Pair(comp, (t.H_target ./ natoms(t.fc), t.H_pred ./ natoms(t.fc))) for (comp, t) in each_comp(tr)
+    )
+end
+
+function per_atom_scatter_data(tr::TrainingResults)
+    nat = natoms(tr.fc)
+    (tr.H_target ./ nat, tr.H_pred ./ nat)
+end
+
+
+function each_comp(tr::TrainingResults)
+    forms = [m[:formula] for m in tr.fc.metadata]
+    uforms = unique(forms)
+    Dict(Pair(form, tr[findall(x -> x == form, forms)]) for form in uforms)
+end
+
+"""
+    ensemble_std(tr::TrainingResults{M, T};per_atom=true) where {M, T<:EnsembleNNInterface}
+
+Return the standard deviation from the ensemble for each data point. Defaults to atomic energy.
+"""
+function ensemble_std(tr::TrainingResults{M, T};min_weight=0.05) where {M, T<:EnsembleNNInterface}
+    function fvstd_atomic(fvec)
+        std(mean(m(fvec)) for (m, w) in  zip(tr.model.models, tr.model.weights) if w > min_weight)
+    end
+    return fvstd_atomic.(tr.fc.fvecs)
+end
+
+mutable struct TrainingResultsSummary
+    rmse::Vector{Float64}
+    mae::Vector{Float64}
+    spearman::Vector{Dict{Symbol,Float64}}
+    r2::Vector{Dict{Symbol,Float64}}
+    "Number of model parameters"
+    nparam::Int
+    "Length of the feature vector"
+    nfeat::Int
+    metadata::Any
+end
+
+"""
+    TrainingResultsSummary(train, test ,valid)
+
+Construct a TrainingResultsSummary object from TrainingResults for the train, test and 
+validation sets.
+"""
+function TrainingResultsSummary(train, test ,valid)
+    rmse = Float64[rmse_per_atom(x) for x in [train, test, valid]]
+    mae = Float64[mae_per_atom(x) for x in [train, test, valid]]
+    sp = Dict{Symbol,Float64}[spearman_each_comp(x) for x in [train,test,valid]]
+    r2 = Dict{Symbol,Float64}[r2score_each_comp(x) for x in [train,test,valid]]
+    np = nparams(train.model)
+    nfeat = nfeatures(train.fc.feature)
+    TrainingResultsSummary(rmse, mae, sp, r2, np, nfeat, nothing)
+end
+
+"""
+    r2score_each_comp(tr::TrainingResults)
+    
+Compute the R2 score for each composition separately as it does not make sense to compute 
+using the full dataset containing different compositions.
+
+See also: https://scikit-learn.org/stable/modules/model_evaluation.html#r2-score
+"""
+function r2score_each_comp(tr::TrainingResults)
+    data = per_atom_scatter_each_comp(tr)
+    out = Dict{Symbol, Float64}()
+    for (comp, (target, pred)) in data
+        mt = mean(target)
+        sstot = sum((target .- mt) .^ 2) 
+        ssres = sum((target .- pred) .^ 2)
+        out[comp] = 1 - ssres / sstot
+    end
+    out
+end
+
+r2score(tr::TrainingResults) = mean(values(r2score_each_comp(tr)))
 
 """
     spearman(tr::TrainingResults)
@@ -458,8 +537,7 @@ end
 Compute the average spearman score for each composition. 
 """
 function spearman(tr::TrainingResults)
-    _, values = spearman_each_comp(tr)
-    return mean(values)
+    return mean(values(spearman_each_comp(tr)))
 end
 
 

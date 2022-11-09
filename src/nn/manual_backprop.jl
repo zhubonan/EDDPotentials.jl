@@ -278,13 +278,13 @@ Select the ChainGradients with the right size
 function _get_or_create_chaingradients(itf, inp)
     bsize = size(inp, 2)
     idx = findfirst(x -> x.n == bsize, itf.gchains)
+    # Create the ChainGradients of the desired size on-the-fly
     if isnothing(idx)
-        cg = ChainGradients(itf.chain, bsize)
-        push!(itf.gchains , cg)
+        cgtmp = ChainGradients(itf.chain, bsize)
+        push!(itf.gchains , cgtmp)
         idx = length(itf.gchains)
-    else
-        cg = itf.gchains[idx]
     end
+    cg = itf.gchains[idx]
     itf.last_id = idx
     cg
 end
@@ -372,13 +372,22 @@ end
 
 nparams(itf::ManualFluxBackPropInterface) = nparams(itf.chain)
 
-function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_uniform_f64, xt=nothing, yt=nothing, σ=tanh, apply_xt=true)
-    input = Dense(nfeatures(cf) => nodes[1], σ;init)
+function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_uniform_f64, xt=nothing, yt=nothing, σ=tanh, apply_xt=true, σs=nothing)
+    if isnothing(σs)
+        input = Dense(nfeatures(cf) => nodes[1], σ;init)
+    else
+        input = Dense(nfeatures(cf) => nodes[1], σs[1]; init)
+    end
+
     layers = Any[input]
     i = 1
     while i < length(nodes)
         i += 1
-        push!(layers, Dense(nodes[i-1]=>nodes[i], σ; init))
+        if isnothing(σs)
+            push!(layers, Dense(nodes[i-1]=>nodes[i], σ; init))
+        else
+            push!(layers, Dense(nodes[i-1]=>nodes[i], σs[i]; init))
+        end
     end
     push!(layers, Dense(nodes[i]=>1;init))
     ManualFluxBackPropInterface(Chain(layers...); xt, yt, apply_xt)
