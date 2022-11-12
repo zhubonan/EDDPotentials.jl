@@ -3,6 +3,7 @@ Various tool functions for workflow managements
 =#
 
 using CellBase: rattle!, reduce, Composition
+using ProgressMeter
 import CellBase: write_res
 using Base.Threads
 using JLD2
@@ -74,7 +75,7 @@ end
 Build structure using `buildcell` and return the relaxed structure.
 """
 function build_and_relax(seedfile::AbstractString, ensemble, cf; timeout=10, nmax=500, pressure_gpa=0.0,
-    show_trace=false)
+    show_trace=false, method=TwoPointSteepestDescent(), kwargs...)
     lines = open(seedfile, "r") do seed
         cellout = read(pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull), String)
         split(cellout, "\n")
@@ -88,17 +89,61 @@ function build_and_relax(seedfile::AbstractString, ensemble, cf; timeout=10, nma
     # Broken
     calc = EDDP.NNCalc(cell, cf, ensemble; nmax)
     vc = EDDP.VariableCellCalc(calc, external_pressure=ext)
-    res = EDDP.optimise!(vc; show_trace)
+    res = EDDP.optimise!(vc; show_trace, method, kwargs...)
     vc, res
 end
+
+"""
+    random_from_buildcell(seedfile; timeout=60)
+
+Run the `buildcell` progress with a defined timeout value.
+"""
+function random_from_buildcell(seedfile; timeout=60)
+    lines = open(seedfile, "r") do seed
+        cellout = read(pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull), String)
+        split(cellout, "\n")
+    end
+    @show lines
+    CellBase.read_cell(lines)
+end
+
+"""
+    build_random_structures(seedfile, outdir;n=1, show_progress=false, timeout=60)
+
+Build multiple random structures in the target folder.
+"""
+function build_random_structures(seedfile, outdir;n=1, show_progress=false, timeout=60, outfmt="res")
+    i = 0
+    if show_progress
+        prog = Progress(n)
+    end
+    while i< n 
+        cell = random_from_buildcell(seedfile;timeout)
+        label = EDDP.get_label(EDDP.stem(seedfile))
+        cell.metadata[:label] = label
+        if outfmt == "res"
+            write_res(joinpath(outdir, "$(label).res"), cell)
+        else
+            CellBase.write_cell(joinpath(outdir, "$(label).cell"), cell)
+        end
+        i += 1
+        if show_progress
+            ProgressMeter.update!(prog)
+        end
+    end
+end
+
 
 """
     run_rss(seedfile, ensemble, cf;max=1, outdir="./", kwargs...)
 
 Perform random structure searching using the seed file.
 """
-function run_rss(seedfile, ensemble, cf; max=1, outdir="./", packed=false, kwargs...)
+function run_rss(seedfile, ensemble, cf;show_progress=false, max=1, outdir="./", packed=false,
+                niggli_reduce_output=true, max_err=10, kwargs...)
     i = 1
+
+    isdir(outdir) || mkdir(outdir)
     if packed
         label = EDDP.get_label(EDDP.stem(seedfile))
         # Name of the packed out file
@@ -107,17 +152,51 @@ function run_rss(seedfile, ensemble, cf; max=1, outdir="./", packed=false, kwarg
     else
         mode = "w"
     end
-
+    nerr = 0
+    if show_progress
+        pmeter = Progress(max)
+    end
     while i <= max
-        vc, res = build_and_relax(seedfile, ensemble, cf; kwargs...)
+        local vc
+        try
+            vc, res = build_and_relax(seedfile, ensemble, cf; kwargs...)
+        catch err
+            isa(err, InterruptException) && throw(err)
+            if typeof(err) <: ProcessFailedException
+                @warn " `buildcell` failed to make the structure"
+            else
+                @warn "relaxation errored with $err"
+            end
+            if nerr >= max_err
+                @error "Maximum $(max_err) consecutive errors reached!"
+                 throw(err)
+            end
+            nerr += 1
+            continue
+        end
+        # Reset the error counter
+        nerr = 0
+ 
         label = EDDP.get_label(EDDP.stem(seedfile))
         EDDP.update_metadata!(vc, label)
         if !packed
             outfile = joinpath(outdir, "$(label).res")
         end
         # Write output file
-        write_res(outfile, get_cell(vc), mode)
+        cell = get_cell(vc)
+        # Run niggli reduction - skip the loop if failed.
+        if niggli_reduce_output
+            try
+                cell = niggli_reduce_cell(cell)
+            catch err 
+                continue
+            end
+        end
+        write_res(outfile, cell, mode)
         i += 1
+        if show_progress
+            ProgressMeter.next!(pmeter)
+        end
     end
 end
 
@@ -331,134 +410,8 @@ function build_one_cell(seedfile, outdir; save_as_res=true, build_timeout=5, sup
 end
 
 
-function run_pp3_many(workdir, indir, outdir, seedfile; n_parallel=1, keep=false)
-    files = glob(joinpath(indir, "*.res"))
-    ensure_dir(workdir)
-    for file in files
-        working_path = joinpath(workdir, splitpath(file)[end])
-        cp(file, working_path, force=true)
-        try
-            run_pp3(working_path, seedfile, joinpath(outdir, splitpath(file)[end]))
-        catch error
-            if typeof(error) <: ArgumentError
-                @warn "Failed to calculate energy for $(file)!"
-                continue
-            end
-            throw(error)
-        end
-        if !keep
-            for suffix in [".cell", ".conv", "-out.cell", ".pp", ".res"]
-                rm(swapext(working_path, suffix))
-            end
-        end
-    end
-end
-
-
-function run_pp3(file::AbstractString, seedfile::AbstractString, outpath::AbstractString)
-    if endswith(file, ".res")
-        cell = CellBase.read_res(file)
-        # Write as cell file
-        CellBase.write_cell(swapext(file, ".cell"), cell)
-    else
-        cell = CellBase.read_cell(file)
-    end
-    # Copy the seed file
-    cp(swapext(seedfile, ".pp"), swapext(file, ".pp"), force=true)
-    # Run pp3 relax
-    # Read enthalpy
-    enthalpy = 0.0
-    pressure = 0.0
-    for line in eachline(pipeline(`pp3 -n $(splitext(file)[1])`))
-        if contains(line, "Enthalpy")
-            enthalpy = parse(Float64, split(line)[end])
-        end
-        if contains(line, "Pressure")
-            pressure = parse(Float64, split(line)[end])
-        end
-    end
-    # Write res
-    cell.metadata[:enthalpy] = enthalpy
-    cell.metadata[:pressure] = pressure
-    cell.metadata[:label] = stem(file)
-    CellBase.write_res(outpath, cell)
-    cell
-end
-
 swapext(fname, new) = splitext(fname)[1] * new
 
-
-
-"""
-    run_crud(workdir, indir, outdir;n_parallel=1, mpinp=4)
-
-Use `crud.pl` to calculate energies of all files in the input folder and store
-the results to the output folder.
-It is assumed that the files are named like `SEED-XX-XX-XX.res` and the parameters
-for calculations are stored under `<workdir>/SEED.cell` and `<workdir>/SEED.param`. 
-"""
-function run_crud(workdir, indir, outdir; n_parallel=1, mpinp=4)
-    hopper_folder = joinpath(workdir, "hopper")
-    gd_folder = joinpath(workdir, "good_castep")
-    ensure_dir(hopper_folder)
-    ensure_dir(outdir)
-
-    # Clean the hopper folder
-    rm.(glob(joinpath(hopper_folder, "*.res")))
-
-    infiles = glob(joinpath(indir, "*.res"))
-    existing_file_names = map(stem, glob(joinpath(outdir, "*.res")))
-
-    # Copy files to the hopper folder, skipping any existing files in the output folder
-    nfiles = 0
-    for file in infiles
-        stem(file) in existing_file_names && continue
-        cp(file, joinpath(hopper_folder, stem(file) * ".res"), force=true)
-        nfiles += 1
-    end
-    @info "Number of files to calculate: $(nfiles)"
-
-    # Run n_parallel instances of crud.pl
-    # TODO: This is only a temporary solution - should implement crud-like 
-    # tool in Julia itself
-    tasks = []
-    try
-        @sync begin
-            for i = 1:n_parallel
-                push!(tasks, @async run(setenv(`crud.pl -singlepoint -mpinp $mpinp`, dir=workdir)))
-                sleep(0.01)
-            end
-        end
-    catch error
-        if typeof(error) <: InterruptException
-            Base.throwto.(tasks, InterruptException())
-        end
-        throw(error)
-    end
-
-    # Transfer files to the target folder
-    nfiles = 0
-    for file in infiles
-        fname = stem(file) * ".res"
-        fsrc = joinpath(gd_folder, fname)
-        fdst = joinpath(outdir, fname)
-        if isfile(fsrc)
-            cp(fsrc, fdst, force=true)
-            rm(fsrc)
-            nfiles += 1
-        end
-
-        # Copy CASTEP files is there is any
-        fname = stem(file) * ".castep"
-        fsrc = joinpath(gd_folder, fname)
-        fdst = joinpath(outdir, fname)
-        if isfile(fsrc)
-            cp(fsrc, fdst, force=true)
-            rm(fsrc)
-        end
-    end
-    @info "Number of new structures calculated: $(nfiles)"
-end
 
 """
     shake_res(files::Vector, nshake::Int, amp::Real)

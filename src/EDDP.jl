@@ -29,6 +29,8 @@ include("tools.jl")
 include("opt.jl")
 include("iterative_build.jl")
 
+include("link/link.jl")
+
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export distance_between, distance_squared_between, displace!, clip, Cell, supercell
 export distance_matrix, laplacian_matrix, nmodules, find_modules

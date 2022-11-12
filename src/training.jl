@@ -211,62 +211,62 @@ end
 @_itf_per_atom_wrap(max_ae_per_atom)
 @_itf_per_atom_wrap(mae_per_atom)
 
-function train_multi_distributed(itf, x, y; nmodels=10, kwargs...)
+# function train_multi_distributed(itf, x, y; nmodels=10, kwargs...)
                   
-    results_channel = RemoteChannel(() -> Channel(nmodels))
-    job_channel = RemoteChannel(() -> Channel(nmodels))
+#     results_channel = RemoteChannel(() -> Channel(nmodels))
+#     job_channel = RemoteChannel(() -> Channel(nmodels))
 
-    # Put the jobs
-    for i=1:nmodels
-        put!(job_channel, i)
-    end
-    futures = []
-    for p in workers()
-        push!(futures, remotecall(worker_train_one, 
-                                 p, itf, x, y, job_channel, results_channel;kwargs...))
-    end
+#     # Put the jobs
+#     for i=1:nmodels
+#         put!(job_channel, i)
+#     end
+#     futures = []
+#     for p in workers()
+#         push!(futures, remotecall(worker_train_one, 
+#                                  p, itf, x, y, job_channel, results_channel;kwargs...))
+#     end
 
-    # Check for any errors - works should not return until they are explicitly signaled
-    sleep(0.1)
-    for future in futures
-        if isready(future)
-            output = fetch(future)
-            @error "Error detected for the worker $output"
-            throw(output)
-        end
-    end
+#     # Check for any errors - works should not return until they are explicitly signaled
+#     sleep(0.1)
+#     for future in futures
+#         if isready(future)
+#             output = fetch(future)
+#             @error "Error detected for the worker $output"
+#             throw(output)
+#         end
+#     end
 
 
-    # Receive the data and update the progress
-    i = 1
-    p = Progress(nmodels)
-    all_models = []
-    try
-        while i <= nmodels
-            itf, out = take!(results_channel)
-            showvalues = [(:rmse, minimum(out[3][:, 2]))]
-            ProgressMeter.next!(p;showvalues)
-            push!(all_models, itf)
-            i +=1
-        end
-    catch err
-        if isa(err, InterruptException)
-            Base.throwto(foreach_task, err)
-        else
-            throw(err)
-        end
-    finally
-        # Send signals to stop the workers
-        foreach(x -> put!(job_channel, -1), 1:length(workers()))
-        sleep(1.0)
-        # Close all channels
-        close(job_channel)
-        close(results_channel)
-    end
-    create_ensemble(all_models, x, y)      
-end
+#     # Receive the data and update the progress
+#     i = 1
+#     p = Progress(nmodels)
+#     all_models = []
+#     try
+#         while i <= nmodels
+#             itf, out = take!(results_channel)
+#             showvalues = [(:rmse, minimum(out[3][:, 2]))]
+#             ProgressMeter.next!(p;showvalues)
+#             push!(all_models, itf)
+#             i +=1
+#         end
+#     catch err
+#         if isa(err, InterruptException)
+#             Base.throwto(foreach_task, err)
+#         else
+#             throw(err)
+#         end
+#     finally
+#         # Send signals to stop the workers
+#         foreach(x -> put!(job_channel, -1), 1:length(workers()))
+#         sleep(1.0)
+#         # Close all channels
+#         close(job_channel)
+#         close(results_channel)
+#     end
+#     create_ensemble(all_models, x, y)      
+# end
 
-function train_multi_threaded(itf, x, y; nmodels=10, suffix=nothing, kwargs...)
+function train_multi_threaded(itf, fc_train, fc_test; nmodels=10, suffix=nothing, prefix=nothing, use_test_for_ensemble=true, kwargs...)
                   
     results_channel = Channel(nmodels)
     job_channel = Channel(nmodels)
@@ -277,7 +277,7 @@ function train_multi_threaded(itf, x, y; nmodels=10, suffix=nothing, kwargs...)
     end
     tasks = []
     for _ in 1:nthreads()
-        push!(tasks, Threads.@spawn worker_train_one(itf, x, y, job_channel, results_channel;kwargs...))
+        push!(tasks, Threads.@spawn worker_train_one(itf, fc_train, fc_test, job_channel, results_channel;kwargs...))
     end
 
     # Check for any errors - works should not return until they are explicitly signaled
@@ -295,7 +295,11 @@ function train_multi_threaded(itf, x, y; nmodels=10, suffix=nothing, kwargs...)
     p = Progress(nmodels)
     all_models = []
     ts = Dates.format(now(), "yyyy-mm-dd-HH-MM-SS")
-    fname = "models-$(ts)"
+    if prefix === nothing
+        fname = "models-$(ts)"
+    else
+        fname = "$(prefix)-models-$(ts)"
+    end
 
     # Add suffix for saved models
     if !isnothing(suffix)
@@ -326,7 +330,11 @@ function train_multi_threaded(itf, x, y; nmodels=10, suffix=nothing, kwargs...)
         close(job_channel)
         close(results_channel)
     end
-    create_ensemble(all_models, x, y)      
+    if use_test_for_ensemble
+        create_ensemble(all_models, fc_train + fc_test)      
+    else
+        create_ensemble(all_models, fc_train)      
+    end
 end
 
 
@@ -336,8 +344,8 @@ end
 
 Create ensemble model from training data.
 """
-function create_ensemble(all_models, fc_train::FeatureContainer, args...;kwargs...)      
-    x, y = get_fit_data(fc_train)
+function create_ensemble(all_models, fc::FeatureContainer, args...;kwargs...)      
+    x, y = get_fit_data(fc)
     create_ensemble(all_models, x, y;kwargs...)
 end
 
@@ -347,7 +355,7 @@ end
 
 Train one model and put the results into a channel
 """
-function worker_train_one(model, x, y, jobs_channel, results_channel;kwargs...)
+function worker_train_one(model, train, test, jobs_channel, results_channel;kwargs...)
     while true
         job_id = take!(jobs_channel)
         # Signals no more work to do
@@ -356,7 +364,7 @@ function worker_train_one(model, x, y, jobs_channel, results_channel;kwargs...)
             break
         end
         new_model = reinit(model)
-        out = train!(new_model, x, y;kwargs...)
+        out = train!(new_model, train, test;kwargs...)
         # Put the output in the channel storing the results
         if isa(model, ManualFluxBackPropInterface)
             clear_transient_gradients!(model)
@@ -511,7 +519,7 @@ end
 
 """
     r2score_each_comp(tr::TrainingResults)
-    
+
 Compute the R2 score for each composition separately as it does not make sense to compute 
 using the full dataset containing different compositions.
 

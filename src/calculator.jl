@@ -461,7 +461,7 @@ corresponds to the actual iterations of the underlying LBFGS iterations.
 """
 function optimise!(calc::AbstractCalc; show_trace=false, 
                    g_abstol=1e-6, f_reltol=0.0, successive_f_tol=2, traj=nothing,
-                   method=TwoPointSteepestDescent())
+                   method=TwoPointSteepestDescent(), kwargs...)
     p0 = get_positions(calc)[:]
 
     "Energy"
@@ -484,7 +484,7 @@ function optimise!(calc::AbstractCalc; show_trace=false,
         # Collect the trajectory if requested
         forces .* -1
     end
-    res = optimize(x -> fo(x, calc), x -> go(x, calc), p0, method, Optim.Options(; show_trace=show_trace, g_abstol, f_reltol, successive_f_tol); inplace=false)
+    res = optimize(x -> fo(x, calc), x -> go(x, calc), p0, method, Optim.Options(; show_trace=show_trace, g_abstol, f_reltol, successive_f_tol, kwargs...); inplace=false)
     res
 end
 
