@@ -103,7 +103,6 @@ function random_from_buildcell(seedfile; timeout=60)
         cellout = read(pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull), String)
         split(cellout, "\n")
     end
-    @show lines
     CellBase.read_cell(lines)
 end
 

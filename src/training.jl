@@ -167,7 +167,7 @@ function train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_test::F
         f, g!, pview, callback = EDDP.generate_f_g_optim(model, fc_train, fc_test)
         od = OnceDifferentiable(f, g!, collect(pview))
         x0 = collect(pview)
-        opt_res = Optim.optimize(od, x0;callback=callback)
+        opt_res = Optim.optimize(od, x0;callback=callback, kwargs...)
         opt_res, collect(pview)
     end
 end
@@ -266,7 +266,10 @@ end
 #     create_ensemble(all_models, x, y)      
 # end
 
-function train_multi_threaded(itf, fc_train, fc_test; nmodels=10, suffix=nothing, prefix=nothing, use_test_for_ensemble=true, kwargs...)
+function train_multi_threaded(itf, fc_train, fc_test; 
+    show_progress=true,
+    nmodels=10, suffix=nothing, prefix=nothing, save_each_model=true, 
+    use_test_for_ensemble=true, kwargs...)
                   
     results_channel = Channel(nmodels)
     job_channel = Channel(nmodels)
@@ -292,7 +295,9 @@ function train_multi_threaded(itf, fc_train, fc_test; nmodels=10, suffix=nothing
 
     # Receive the data and update the progress
     i = 1
-    p = Progress(nmodels)
+    if show_progress
+        p = Progress(nmodels)
+    end
     all_models = []
     ts = Dates.format(now(), "yyyy-mm-dd-HH-MM-SS")
     if prefix === nothing
@@ -309,10 +314,12 @@ function train_multi_threaded(itf, fc_train, fc_test; nmodels=10, suffix=nothing
     try
         while i <= nmodels
             itf, out = take!(results_channel)
-            showvalues = [(:rmse, minimum(out[3][:, 2]))]
-            ProgressMeter.next!(p;showvalues)
+            if show_progress
+                showvalues = [(:rmse, minimum(out[3][:, 2]))]
+                ProgressMeter.next!(p;showvalues)
+            end
             # Save to files
-            save_as_jld2(@sprintf("%s-%03d.jld2", fname, i), itf)
+            save_each_model && save_as_jld2(@sprintf("%s-%03d.jld2", fname, i), itf)
             push!(all_models, itf)
             i +=1
         end
@@ -360,7 +367,6 @@ function worker_train_one(model, train, test, jobs_channel, results_channel;kwar
         job_id = take!(jobs_channel)
         # Signals no more work to do
         if job_id < 0
-            @info "Worker completed"
             break
         end
         new_model = reinit(model)
