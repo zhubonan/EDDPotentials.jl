@@ -421,8 +421,8 @@ function Base.show(io::IO, ::MIME"text/plain", tr::TrainingResults)
     @printf(io, "%20s: %d\n",  "Number of compositions",  ncomps)
     @printf(io, "%-10s: %10.5f eV      ", "RMSE",  rmse_per_atom(tr))
     @printf(io, "%-10s: %10.5f eV\n", "MAE",  mae_per_atom(tr))
-    imax, label_max = maximum_error(tr)
-    @printf(io, "%-10s: %10.2f meV     on structure: %20s\n", "Max error",  imax, label_max)
+    max_mae, label_max = maximum_error(tr)
+    @printf(io, "%-10s: %10.2f meV     on structure: %20s\n", "Max absolute error",  max_mae, label_max)
     @printf(io, "%-10s: %10.5f", "Average Spearman", spearman(tr))
 end
 
@@ -443,7 +443,7 @@ function maximum_error(tr::TrainingResults)
     maximum_ae = maximum(ae)
     imax = findfirst( x-> x== maximum_ae, ae)
     label_max = tr.fc.labels[imax]
-    return imax, label_max
+    return maximum_ae, label_max
 end
 
 """
