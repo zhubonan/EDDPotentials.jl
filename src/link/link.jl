@@ -275,6 +275,17 @@ function run_disp_castep(indir, outdir, seedfile;categories, priority=90, projec
                          watch_every=60,
                          threshold=0.98,
                          kwargs...)
+
+    "Get the number of completed jobs"
+    function get_completed_jobs(project_name)
+        cmd = `disp db summary --singlepoint --project $project_name --json`
+        json_string = readchomp(pipeline(cmd))
+        data = parse_disp_output(json_string)
+        ncomp = get(data, "COMPLETED", 0) 
+        nall = get(data, "ALL", -1)
+        ncomp, nall
+    end
+
     file_pattern = joinpath(indir, "*.res")
     seed = splitext(seedfile)[1]
     # Setup the inputs
@@ -289,8 +300,14 @@ function run_disp_castep(indir, outdir, seedfile;categories, priority=90, projec
     end
 
     if !monitor_only
-        @info "Command to be run $(cmd)"
-        run(cmd)
+        # Check if jobs have been submitted already
+        ncomp, nall = get_completed_jobs(project_name)
+        if nall == -1
+            @info "Command to be run $(cmd)"
+            run(cmd)
+        else
+            @info "There are already $(ncomp) out of $(nall) jobs completed - monitoring the progress next."
+        end
     else
         @info "Not launching jobs - only watching for completion"
     end
@@ -299,11 +316,7 @@ function run_disp_castep(indir, outdir, seedfile;categories, priority=90, projec
     @info "Start watching for progress"
     sleep(1)
     while true
-        cmd = `disp db summary --singlepoint --project $project_name --json`
-        json_string = readchomp(pipeline(cmd))
-        data = parse_disp_output(json_string)
-        ncomp = get(data, "COMPLETED", 0) 
-        nall = get(data, "ALL", -1)
+        ncomp, nall = get_completed_jobs(project_name)
         if ncomp / nall > threshold
             @info " $(ncomp)/$(nall) calculation completed - moving on ..."
             break
@@ -391,8 +404,11 @@ end
 Parse the output of `disp db summary`
 """
 function parse_disp_output(json_string)
-    tmp = JSON.parse(json_string)
     data = Dict{String, Int}()
+    if contains(json_string, "No data")
+        return data
+    end
+    tmp = JSON.parse(json_string)
     for (x, y) in tmp
         # How to unpack this way due to nested multi-index
         if contains(x, "RES")
