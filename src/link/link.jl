@@ -268,6 +268,22 @@ end
 builder_uuid(bu::Builder) = builder_uuid(bu.state.workdir)
 
 """
+    _disp_get_completed_jobs(project_name)
+
+Get the number of completed jobs as well as the total number of jobs under a certain project.
+NOTE: this requires `disp` to be avaliable in the commandline.
+"""
+function _disp_get_completed_jobs(project_name)
+    cmd = `disp db summary --singlepoint --project $project_name --json`
+    json_string = readchomp(pipeline(cmd))
+    data = parse_disp_output(json_string)
+    ncomp = get(data, "COMPLETED", 0) 
+    nall = get(data, "ALL", -1)
+    ncomp, nall
+end
+
+
+"""
 Run relaxation through DISP
 """
 function run_disp_castep(indir, outdir, seedfile;categories, priority=90, project_prefix="eddp.jl",
@@ -275,16 +291,6 @@ function run_disp_castep(indir, outdir, seedfile;categories, priority=90, projec
                          watch_every=60,
                          threshold=0.98,
                          kwargs...)
-
-    "Get the number of completed jobs"
-    function get_completed_jobs(project_name)
-        cmd = `disp db summary --singlepoint --project $project_name --json`
-        json_string = readchomp(pipeline(cmd))
-        data = parse_disp_output(json_string)
-        ncomp = get(data, "COMPLETED", 0) 
-        nall = get(data, "ALL", -1)
-        ncomp, nall
-    end
 
     file_pattern = joinpath(indir, "*.res")
     seed = splitext(seedfile)[1]
@@ -301,7 +307,7 @@ function run_disp_castep(indir, outdir, seedfile;categories, priority=90, projec
 
     if !monitor_only
         # Check if jobs have been submitted already
-        ncomp, nall = get_completed_jobs(project_name)
+        ncomp, nall = _disp_get_completed_jobs(project_name)
         if nall == -1
             @info "Command to be run $(cmd)"
             run(cmd)
@@ -316,7 +322,7 @@ function run_disp_castep(indir, outdir, seedfile;categories, priority=90, projec
     @info "Start watching for progress"
     sleep(1)
     while true
-        ncomp, nall = get_completed_jobs(project_name)
+        ncomp, nall = _disp_get_completed_jobs(project_name)
         if ncomp / nall > threshold
             @info " $(ncomp)/$(nall) calculation completed - moving on ..."
             break

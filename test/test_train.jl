@@ -96,7 +96,7 @@ include("utils.jl")
         @test isa(out, Real)
 
         ## Test distributed training
-        res = EDDP.train_multi_distributed(model, fc_train, fc_test;nmodels=3)
+        res = EDDP.train_multi_threaded(model, fc_train, fc_test;nmodels=3)
         @test isa(res, EDDP.EnsembleNNInterface)
     end
 
