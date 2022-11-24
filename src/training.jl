@@ -422,7 +422,7 @@ function Base.show(io::IO, ::MIME"text/plain", tr::TrainingResults)
     @printf(io, "%-10s: %10.5f eV      ", "RMSE",  rmse_per_atom(tr))
     @printf(io, "%-10s: %10.5f eV\n", "MAE",  mae_per_atom(tr))
     max_mae, label_max = maximum_error(tr)
-    @printf(io, "%-10s: %10.2f meV     on structure: %20s\n", "Max absolute error",  max_mae, label_max)
+    @printf(io, "%-10s: %10.2f eV     on structure: %20s\n", "Max absolute error",  max_mae, label_max)
     @printf(io, "%-10s: %10.5f", "Average Spearman", spearman(tr))
 end
 

@@ -143,13 +143,19 @@ function get_enthalpy(calc::NNCalc;forces=false, rebuild_nl=true)
     get_energy(calc;forces, rebuild_nl)
 end
 
-function get_forces(calc::NNCalc; rebuild_nl=true)
+function get_forces(calc::NNCalc; rebuild_nl=true, make_copy=true)
     calculate!(calc; forces=true, rebuild_nl)
+    if make_copy
+        return copy(calc.forces)
+    end
     calc.forces
 end
 
-function get_stress(calc::NNCalc; rebuild_nl=true)
+function get_stress(calc::NNCalc; rebuild_nl=true, make_copy=true)
     calculate!(calc; forces=true, rebuild_nl)
+    if make_copy
+        return copy(calc.stress)
+    end
     calc.stress
 end
 
