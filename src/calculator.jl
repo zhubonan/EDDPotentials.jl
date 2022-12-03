@@ -287,7 +287,7 @@ function _calculate_two_pass!(calc)
 end
 
 """
-    update_feature_vector!(wt::CellWorkSpace)
+    update_feature_vector!(calc::NNCalc; rebuild_nl=true, gradients=true, global_minsep=0.01, maxvol=100, gv_offset=0)
 
 Returns the updated the feature vectors after atomic displacements
 """

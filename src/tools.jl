@@ -139,6 +139,7 @@ end
 Perform random structure searching using the seed file.
 """
 function run_rss(seedfile, ensemble, cf;show_progress=false, max=1, outdir="./", packed=false,
+                ensemble_std_max=-1., ensemble_std_min=-1.,
                 niggli_reduce_output=true, max_err=10, kwargs...)
     i = 1
 
@@ -173,6 +174,16 @@ function run_rss(seedfile, ensemble, cf;show_progress=false, max=1, outdir="./",
             nerr += 1
             continue
         end
+
+        # Check for ensemble error and act
+        # This prunes structure that we are too confident, e.g. nothing to learn from
+        if ensemble_std_min > 0. || ensemble_std_max > 0.
+            estd = get_energy_std(vc.calc)
+            if estd < ensemble_std_min || estd > ensemble_std_max
+                continue 
+            end
+        end
+
         # Reset the error counter
         nerr = 0
  

@@ -30,6 +30,9 @@ const FEATURESPEC_NAME="cf"
     relax_extra_opts::Dict{Symbol,Any} = Dict()
     rss_pressure_gpa::Float64=0.1
     rss_niggli_reduce::Bool=true
+    core_size::Float64=1.0
+    ensemble_std_min::Float64=0.0
+    ensemble_std_max::Float64=-1.0
 end
 
 abstract type AbstractTrainer end
@@ -152,8 +155,11 @@ Generate random structure (if needed) as training data for the `Builder`.
 """
 function _generate_random_structures(bu::Builder, iter)
     # Generate new structures
-    ndata = nstructures(bu, iter)
     if iter == 0
+        # Sanity check - are we definitely overfitting?
+        if nfeatures(bu.cf) > bu.state.n_initial 
+            @warn "The number of features $(nfeature(bu.cf)) is larger than the initial training size!"
+        end
         # First cycle
         outdir = _input_structure_dir(bu)
         ensure_dir(outdir)
@@ -175,6 +181,9 @@ function _generate_random_structures(bu::Builder, iter)
             @info "Generating $(nstruct) training structures for iteration $iter."
             # Generate data sets
             run_rss(bu.state.seedfile, ensemble, bu.cf; 
+                core_size=bu.state.core_size,
+                ensemble_std_max=bu.state.ensemble_std_max,
+                ensemble_std_min=bu.state.ensemble_std_min,
                 max=nstruct, 
                 outdir=_input_structure_dir(bu),
                 pressure_gpa=bu.state.rss_pressure_gpa,
