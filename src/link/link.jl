@@ -174,7 +174,7 @@ function _generate_random_structures(bu::Builder, iter)
     else
         # Read ensemble file
         efname = joinpath(bu.state.workdir, "ensemble-gen$(iter-1).jld2")
-        @assert isfile(efname) "Ensemble file $(fname) does not exist!"
+        @assert isfile(efname) "Ensemble file $(efname) does not exist!"
         ensemble = load_from_jld2(efname, EnsembleNNInterface)
         nstruct = bu.state.per_generation - ndata
         if nstruct > 0 
