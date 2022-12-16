@@ -2,8 +2,8 @@
 =#
 
 using StaticArrays
-using Molly
-import Molly
+using .Molly
+import .Molly
 
 struct EDDPInter{T}
     calc::T
