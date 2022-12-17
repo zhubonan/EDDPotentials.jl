@@ -155,14 +155,15 @@ Generate random structure (if needed) as training data for the `Builder`.
 """
 function _generate_random_structures(bu::Builder, iter)
     # Generate new structures
+    outdir = _input_structure_dir(bu)
+    ensure_dir(outdir)
+    ndata = length(glob(joinpath(outdir, "*.res")))
     if iter == 0
+        # First cycle generate from the seed without relaxation
         # Sanity check - are we definitely overfitting?
         if nfeatures(bu.cf) > bu.state.n_initial 
             @warn "The number of features $(nfeature(bu.cf)) is larger than the initial training size!"
         end
-        # First cycle
-        outdir = _input_structure_dir(bu)
-        ensure_dir(outdir)
         # Generate random structures
         nstruct = bu.state.n_initial - ndata
         if nstruct > 0
@@ -172,6 +173,7 @@ function _generate_random_structures(bu::Builder, iter)
             )
         end
     else
+        # Subsequent cycles - generate from the seed and perform relaxation
         # Read ensemble file
         efname = joinpath(bu.state.workdir, "ensemble-gen$(iter-1).jld2")
         @assert isfile(efname) "Ensemble file $(efname) does not exist!"
@@ -185,7 +187,7 @@ function _generate_random_structures(bu::Builder, iter)
                 ensemble_std_max=bu.state.ensemble_std_max,
                 ensemble_std_min=bu.state.ensemble_std_min,
                 max=nstruct, 
-                outdir=_input_structure_dir(bu),
+                outdir=outdir,
                 pressure_gpa=bu.state.rss_pressure_gpa,
                 niggli_reduce_output=bu.state.rss_niggli_reduce
             )

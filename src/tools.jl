@@ -74,7 +74,9 @@ end
 
 Build structure using `buildcell` and return the relaxed structure.
 """
-function build_and_relax(seedfile::AbstractString, ensemble, cf; timeout=10, nmax=500, pressure_gpa=0.0,
+function build_and_relax(seedfile::AbstractString, ensemble, cf; 
+    timeout=10, nmax=500, pressure_gpa=0.0,
+    core_size=1.0,
     show_trace=false, method=TwoPointSteepestDescent(), kwargs...)
     lines = open(seedfile, "r") do seed
         cellout = read(pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull), String)
@@ -87,7 +89,7 @@ function build_and_relax(seedfile::AbstractString, ensemble, cf; timeout=10, nma
     cell = CellBase.read_cell(lines)
 
     # Broken
-    calc = EDDP.NNCalc(cell, cf, ensemble; nmax)
+    calc = EDDP.NNCalc(cell, cf, ensemble; nmax, core=CoreReplusion(core_size))
     vc = EDDP.VariableCellCalc(calc, external_pressure=ext)
     res = EDDP.optimise!(vc; show_trace, method, kwargs...)
     vc, res
