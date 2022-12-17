@@ -69,28 +69,47 @@ function write_res(path, vc::VariableCellCalc; symprec=1e-2, label="EDDP")
     update_metadata!(vc, label; symprec)
     write_res(path, get_cell(vc))
 end
+
+
 """
     build_and_relax(seedfile::AbstractString, ensemble, cf;timeout=10, nmax=500, pressure_gpa=0., 
 
 Build structure using `buildcell` and return the relaxed structure.
+
+- `init_structure_transform`: A function that transforms the initial structure. If `nothing` is returned, skip this generated structure.
 """
-function build_and_relax(seedfile::AbstractString, ensemble, cf; 
-    timeout=10, nmax=500, pressure_gpa=0.0,
-    core_size=1.0,
-    show_trace=false, method=TwoPointSteepestDescent(), kwargs...)
-    lines = open(seedfile, "r") do seed
-        cellout = read(pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull), String)
-        split(cellout, "\n")
+function build_and_relax(seedfile::AbstractString, ensemble, cf; timeout=10, nmax=500, pressure_gpa=0.0,
+    show_trace=false, method=TwoPointSteepestDescent(), core_radius=1.0, init_structure_transform=nothing, kwargs...)
+
+    local cell
+    while true
+        lines = open(seedfile, "r") do seed
+            cellout = read(pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull), String)
+            split(cellout, "\n")
+        end
+
+            # Generate a unique label
+        cell = CellBase.read_cell(lines)
+
+        if !isnothing(init_structure_transform)
+            cell = init_structure_transform(cell)
+            if isnothing(cell)
+                # This generated structure is no good....
+                continue
+            end
+        end
+        break
     end
 
-    # Generate a unique label
+    calc = EDDP.NNCalc(cell, cf, ensemble; nmax, core=CoreReplusion(core_radius))
+
+    # Setup variable cell relaxation
     p = pressure_gpa / 160.21766208
     ext = diagm([p, p, p])
-    cell = CellBase.read_cell(lines)
 
-    # Broken
-    calc = EDDP.NNCalc(cell, cf, ensemble; nmax, core=CoreReplusion(core_size))
     vc = EDDP.VariableCellCalc(calc, external_pressure=ext)
+
+    # Run optimisation
     res = EDDP.optimise!(vc; show_trace, method, kwargs...)
     vc, res
 end
@@ -139,9 +158,12 @@ end
     run_rss(seedfile, ensemble, cf;max=1, outdir="./", kwargs...)
 
 Perform random structure searching using the seed file.
+
+- `init_structure_transform`: A function that transforms the initial structure. If `nothing` is returned, skip this generated structure.
 """
 function run_rss(seedfile, ensemble, cf;show_progress=false, max=1, outdir="./", packed=false,
                 ensemble_std_max=-1., ensemble_std_min=-1.,
+                init_structure_transform=nothing,
                 niggli_reduce_output=true, max_err=10, kwargs...)
     i = 1
 
@@ -161,7 +183,7 @@ function run_rss(seedfile, ensemble, cf;show_progress=false, max=1, outdir="./",
     while i <= max
         local vc
         try
-            vc, res = build_and_relax(seedfile, ensemble, cf; kwargs...)
+            vc, res = build_and_relax(seedfile, ensemble, cf;init_structure_transform, kwargs...)
         catch err
             isa(err, InterruptException) && throw(err)
             if typeof(err) <: ProcessFailedException

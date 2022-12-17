@@ -15,5 +15,6 @@ function __init__()
     end
 end
 
+include("restools.jl")
 
 end # module EDDPTools
