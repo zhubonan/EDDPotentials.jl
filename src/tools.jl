@@ -10,7 +10,7 @@ using JLD2
 using Dates
 using UUIDs
 
-function relax_structures(files, en_path::AbstractString, cf; savepath="relaxed", skip_existing=true, nmax=1000, core_radius=1.0)
+function relax_structures(files, en_path::AbstractString, cf; savepath="relaxed", skip_existing=true, nmax=1000, core_size=1.0)
 
     ensemble = load_from_jld2(en_path, EnsembleNNInterface)
 
@@ -26,7 +26,7 @@ function relax_structures(files, en_path::AbstractString, cf; savepath="relaxed"
         # Skip and existing file
         skip_existing && isfile(joinpath(savepath, fname)) && return
 
-        calc = NNCalc(structures[i], cf, deepcopy(ensemble); nmax=nmax, core=CoreReplusion(core_radius))
+        calc = NNCalc(structures[i], cf, deepcopy(ensemble); nmax=nmax, core=CoreReplusion(core_size))
         vc = VariableCellCalc(calc)
 
         optimise!(vc)
@@ -79,7 +79,7 @@ Build structure using `buildcell` and return the relaxed structure.
 - `init_structure_transform`: A function that transforms the initial structure. If `nothing` is returned, skip this generated structure.
 """
 function build_and_relax(seedfile::AbstractString, ensemble, cf; timeout=10, nmax=500, pressure_gpa=0.0,
-    show_trace=false, method=TwoPointSteepestDescent(), core_radius=1.0, init_structure_transform=nothing, kwargs...)
+    show_trace=false, method=TwoPointSteepestDescent(), core_size=1.0, init_structure_transform=nothing, kwargs...)
 
     local cell
     while true
@@ -101,7 +101,7 @@ function build_and_relax(seedfile::AbstractString, ensemble, cf; timeout=10, nma
         break
     end
 
-    calc = EDDP.NNCalc(cell, cf, ensemble; nmax, core=CoreReplusion(core_radius))
+    calc = EDDP.NNCalc(cell, cf, ensemble; nmax, core=CoreReplusion(core_size))
 
     # Setup variable cell relaxation
     p = pressure_gpa / 160.21766208
