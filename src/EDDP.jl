@@ -17,6 +17,7 @@ disable_timer!(to)
 # External
 include("nnls.jl")
 include("feature.jl")
+include("embedding.jl")
 include("gradient.jl")
 include("nn/interface.jl")
 include("nntools.jl")

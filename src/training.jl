@@ -15,6 +15,7 @@ using Printf
 using StatsBase
 using CatViews
 import Base
+import CellBase
 
 const XT_NAME="xt"
 const YT_NAME="yt"
@@ -387,6 +388,7 @@ struct TrainingResults{F, T}
     H_target::Vector{Float64}
 end
 
+CellBase.natoms(x::TrainingResults) = natoms(x.fc)
 
 """
     Base.getindex(v::TrainingResults, idx::Union{UnitRange, Vector{T}}) where {T<: Int}   
@@ -411,6 +413,11 @@ end
 
 function mae_per_atom(tr::TrainingResults)
     abs.((tr.H_target .- tr.H_pred) ./ natoms(tr.fc)) |> mean 
+end
+
+"Absolute per-atom error"
+function ae_per_atom(tr::TrainingResults)
+    abs.((tr.H_target .- tr.H_pred) ./ natoms(tr.fc))
 end
 
 absolute_error(tr::TrainingResults) = abs.(tr.H_pred .- tr.H_target)
