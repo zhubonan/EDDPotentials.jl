@@ -373,24 +373,8 @@ end
 nparams(itf::ManualFluxBackPropInterface) = nparams(itf.chain)
 
 function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_uniform_f64, xt=nothing, yt=nothing, σ=tanh, apply_xt=true, σs=nothing)
-    if isnothing(σs)
-        input = Dense(nfeatures(cf) => nodes[1], σ;init)
-    else
-        input = Dense(nfeatures(cf) => nodes[1], σs[1]; init)
-    end
-
-    layers = Any[input]
-    i = 1
-    while i < length(nodes)
-        i += 1
-        if isnothing(σs)
-            push!(layers, Dense(nodes[i-1]=>nodes[i], σ; init))
-        else
-            push!(layers, Dense(nodes[i-1]=>nodes[i], σs[i]; init))
-        end
-    end
-    push!(layers, Dense(nodes[i]=>1;init))
-    ManualFluxBackPropInterface(Chain(layers...); xt, yt, apply_xt)
+    chain = flux_mlp_model(cf, nodes...;init)
+    ManualFluxBackPropInterface(chain; xt, yt, apply_xt)
 end
 
 # JLD2 custom serialization - we do not need to store ChainGradients which are 

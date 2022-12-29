@@ -55,6 +55,44 @@ function load_from_jld2(str::AbstractString, t::Type{<:AbstractNNInterface})
 end
 
 
+"""
+Obtain an baseline MLP model
+"""
+function flux_mlp_model(cf::CellFeature, nodes...;init=glorot_uniform_f64, 
+         σ=tanh_fast,
+         embedding=nothing,
+         σs=nothing)
+
+    if embedding === nothing
+        ninp = nfeatures(cf)
+    else
+        fsizes = feature_size(cf)
+        ninp = fsizes[1]
+        ninp += nfeatures(cf.two_body[1]) * num_embed(embedding.two_body)
+        ninp += nfeatures(cf.three_body[1]) * num_embed(embedding.three_body)
+    end
+    if isnothing(σs)
+        input = Dense(ninp => nodes[1], σ;init)
+    else
+        input = Dense(ninp => nodes[1], σs[1]; init)
+    end
+
+    layers = Any[input]
+    if embedding !== nothing
+        pushfirst!(layers, embedding)
+    end
+    i = 1
+    while i < length(nodes)
+        i += 1
+        if isnothing(σs)
+            push!(layers, Dense(nodes[i-1]=>nodes[i], σ; init))
+        else
+            push!(layers, Dense(nodes[i-1]=>nodes[i], σs[i]; init))
+        end
+    end
+    push!(layers, Dense(nodes[i]=>1;init))
+    Chain(layers...)
+end
 
 ## Standardisation
 

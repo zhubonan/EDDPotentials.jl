@@ -10,6 +10,8 @@ Embedding can be used to alleviate this issue by applying effectively a specie-a
 weighted sum of the features.
 =#
 
+import Flux
+
 """
 Embedding for a specific body order
 """
@@ -115,7 +117,7 @@ end
 """
 Apply CellEmbedding to a full feature vector
 """
-function (ce::CellEmbedding)(vector)
+function (ce::CellEmbedding)(vector::AbstractVector)
     fsize = feature_size(ce.cf)
     v2 = two_body_view(ce.cf, vector)
     v3 = three_body_view(ce.cf, vector)
@@ -123,3 +125,11 @@ function (ce::CellEmbedding)(vector)
     e3 = ce.three_body(v3)
     vcat(vector[1:fsize[1]], vec(e2), vec(e3))
 end
+
+function (ce::CellEmbedding)(matrix::AbstractMatrix)
+    hcat([ce(col) for col in eachcol(matrix)]...)
+end
+
+
+
+Flux.trainable(ce::CellEmbedding) = (ce.two_body.weights, ce.three_body.weights)
