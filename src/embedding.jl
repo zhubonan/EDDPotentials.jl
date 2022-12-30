@@ -73,13 +73,14 @@ end
 """
 Apply weighted averages to each column of a matrix, the weights are stored in a matrix as well.
 
-NOTE: this function allocates but can be used for autograd
+```math
+O = F W
+```
+
+This is simply right multiply the weight matrix.
 """
 function _apply_embedding(weight, mat)
-    # Use broadcast to computed weighted averages 
-    vcat([
-        sum(x .* mat', dims=1) for x in eachcol(weight)
-        ]...)'
+    mat * weight
 end
 
 
