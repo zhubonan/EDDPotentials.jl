@@ -16,7 +16,7 @@ import Flux
 Embedding for a specific body order
 """
 struct BodyEmbedding{T}
-    weights::Matrix{T}
+    weight::Matrix{T}
 end
 
 function BodyEmbedding(T, features, n)
@@ -26,8 +26,8 @@ function BodyEmbedding(T, features, n)
     @assert length(unique(nfeatures.(features))) == 1
 
     # The weight has the dimension (number of feature sets, n)
-    weights = rand(T, nf, n)
-    BodyEmbedding(weights)
+    weight = rand(T, nf, n)
+    BodyEmbedding(weight)
 end
 
 BodyEmbedding(features, n) = BodyEmbedding(Float64, features, n)
@@ -35,12 +35,12 @@ BodyEmbedding(features, n) = BodyEmbedding(Float64, features, n)
 """
 Number of embedded vectors
 """
-num_embed(x::BodyEmbedding) = size(x.weights, 2) 
+num_embed(x::BodyEmbedding) = size(x.weight, 2) 
 
 """
 Number of feature sets to be compressed
 """
-num_feat(x::BodyEmbedding) = size(x.weights, 1) 
+num_feat(x::BodyEmbedding) = size(x.weight, 1) 
 
 
 """
@@ -52,7 +52,7 @@ function (embed::BodyEmbedding)(vector)
     @assert nl * l == length(vector) 
 
     # Construct the output vector
-    _apply_embedding(embed.weights, reshape(vector, l, nl))
+    _apply_embedding(embed.weight, reshape(vector, l, nl))
 end
 
 """
@@ -75,10 +75,10 @@ Apply weighted averages to each column of a matrix, the weights are stored in a 
 
 NOTE: this function allocates but can be used for autograd
 """
-function _apply_embedding(weights, mat)
+function _apply_embedding(weight, mat)
     # Use broadcast to computed weighted averages 
     vcat([
-        sum(x .* mat', dims=1) for x in eachcol(weights)
+        sum(x .* mat', dims=1) for x in eachcol(weight)
         ]...)'
 end
 
@@ -132,4 +132,4 @@ end
 
 
 
-Flux.trainable(ce::CellEmbedding) = (ce.two_body.weights, ce.three_body.weights)
+Flux.trainable(ce::CellEmbedding) = (ce.two_body.weight, ce.three_body.weight)

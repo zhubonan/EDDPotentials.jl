@@ -297,15 +297,9 @@ end
 function forward!(itf::ManualFluxBackPropInterface, inp::Matrix;make_copy=false)
 
     gchain = _get_or_create_chaingradients(itf, inp)
-    # Apply x transformation
-    if !isnothing(itf.xt) && itf.apply_xt
-        nl = itf.xt.len
-        inptmp = copy(inp)
-        transform!(itf.xt, @view(inptmp[end-nl+1:end, :]))
-        out = forward!(gchain, itf.chain, inptmp)
-    else
-        out = forward!(gchain, itf.chain, inp)
-    end
+
+    out = forward!(gchain, itf.chain, transformed_inp(itf, inp))
+
     # Apply y transformation
     if !isnothing(itf.yt)
         reconstruct!(itf.yt, out)

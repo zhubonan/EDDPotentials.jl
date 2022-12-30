@@ -245,4 +245,20 @@ function reinit!(itf::ManualFluxBackPropInterface, init=ginit)
     itf
 end
 
-reinit(itf::ManualFluxBackPropInterface, init=ginit) = reinit!(deepcopy(itf), init)
+reinit(itf::AbstractNNInterface, init=ginit) = reinit!(deepcopy(itf), init)
+
+function reinit!(itf::FluxInterface, init=ginit)
+    reinit!(itf.model, init)
+    itf
+end
+
+function reinit!(be::BodyEmbedding, init=ginit)
+    be.weight .= init(size(be.weight)...)
+    be
+end
+
+function reinit!(ce::CellEmbedding, init=ginit)
+    reinit!(ce.two_body, init)
+    reinit!(ce.three_body, init)
+    ce
+end

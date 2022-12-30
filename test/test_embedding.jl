@@ -24,5 +24,6 @@ include("utils.jl")
     # All together - converting an full feature vector
     ce = EDDP.CellEmbedding(cf, 2)
     out = ce(fvec1)
-    @test length(out) == 2 + 6 + 18
+    global ce, out, fvec1
+    @test size(out, 1) == 2 + 6 + 18
 end

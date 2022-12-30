@@ -9,15 +9,27 @@ mutable struct FluxInterface{T, N} <: AbstractNNInterface
     inp
     pullback_p
     pullback_inp
+    xt
+    yt
+    training_mode::Bool
+    apply_xt::Bool
 end
 
 get_flux_model(itf::FluxInterface) = itf.model
 
-FluxInterface(model) = FluxInterface(model, Flux.params(model), nothing, nothing, nothing)
+FluxInterface(model) = FluxInterface(model, Flux.params(model), nothing, nothing, nothing, nothing, nothing, true, false)
+
 
 function forward!(itf::FluxInterface, inp)
     itf.inp = inp
-    itf.model(inp)
+    # Reset the pullbacks
+    itf.pullback_p = nothing
+    itf.pullback_inp = nothing
+    out = itf.model(transformed_inp(itf, inp))
+    if !isnothing(itf.yt)
+        reconstruct!(itf.yt, out)
+    end
+    out
 end
 
 paramvector(itf::FluxInterface) = vcat([vec(x) for x in itf.params]...)
@@ -37,20 +49,29 @@ function setparamvector!(itf::FluxInterface, param)
 end
 
 function gradinp!(gvec, itf::FluxInterface, inp=itf.inp)
-    if inp != itf.inp || itf.pullback_inp === nothing
-        forward!(itf, inp)
-        backward!(itf)
+    forward!(itf, inp)
+    backward!(itf;computed_grad_inp=true, compute_grad_param=false)
+    if itf.yt === nothing
+        y_bar = 1
+    else
+        y_bar = itf.yt.scale[1]
     end
-    grad,  = itf.pullback_inp(1)
+    grad,  = itf.pullback_inp(y_bar)
     gvec .= grad
 end
 
 function gradparam!(gvec, itf::FluxInterface, inp=itf.inp)
-    if inp != itf.inp || itf.pullback_inp === nothing
-        forward!(itf, inp)
-        backward!(itf)
+    forward!(itf, inp)
+    backward!(itf;computed_grad_inp=false, compute_grad_param=true)
+    # Check if the results are standardised
+    if itf.yt === nothing
+        y_bar = 1
+    else
+        y_bar = itf.yt.scale[1]
     end
-    grad = itf.pullback_p(1)
+    # Call the pullback to obtain the gradients
+    grad = itf.pullback_p(y_bar)
+    # Assign the gradients to the gradient array
     i = 1
     for elem in grad.params
         g = grad.grads[elem]
@@ -64,9 +85,15 @@ function (itf::FluxInterface)(inp)
     forward!(itf, inp)
 end
 
-"No nothing - as the gradients calculated with gradparam! and gradinp!"
-function backward!(itf::FluxInterface, args...;kwargs...) 
-    out, itf.pullback_inp = Flux.pullback(x -> sum(itf.model(x)), itf.inp)
-    out, itf.pullback_p = Flux.pullback(() -> sum(itf.model(itf.inp)), itf.params)
-    out
+"""
+Run the backward step - this creates the pull back functions
+"""
+function backward!(itf::FluxInterface, args...;compute_grad_param=true, 
+    computed_grad_inp=true, kwargs...) 
+    if  (compute_grad_param || itf.training_mode) && (itf.pullback_p === nothing)
+        _, itf.pullback_p = Flux.pullback(() -> sum(itf.model(itf.inp)), itf.params)
+    end 
+    if computed_grad_inp && (itf.pullback_inp === nothing)
+        _, itf.pullback_inp = Flux.pullback(x -> sum(itf.model(x)), itf.inp)
+    end
 end

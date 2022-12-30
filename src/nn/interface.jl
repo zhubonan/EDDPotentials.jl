@@ -66,6 +66,7 @@ function flux_mlp_model(cf::CellFeature, nodes...;init=glorot_uniform_f64,
     if embedding === nothing
         ninp = nfeatures(cf)
     else
+        # Adding embedding layer
         fsizes = feature_size(cf)
         ninp = fsizes[1]
         ninp += nfeatures(cf.two_body[1]) * num_embed(embedding.two_body)
@@ -77,10 +78,13 @@ function flux_mlp_model(cf::CellFeature, nodes...;init=glorot_uniform_f64,
         input = Dense(ninp => nodes[1], σs[1]; init)
     end
 
-    layers = Any[input]
     if embedding !== nothing
-        pushfirst!(layers, embedding)
+        # Adding embedding layer
+        layers = Any[embedding, input]
+    else
+        layers = Any[input]
     end
+    # Adding dense layers
     i = 1
     while i < length(nodes)
         i += 1
@@ -92,6 +96,19 @@ function flux_mlp_model(cf::CellFeature, nodes...;init=glorot_uniform_f64,
     end
     push!(layers, Dense(nodes[i]=>1;init))
     Chain(layers...)
+end
+
+"""
+Obtain an transformed the input array
+"""
+function transformed_inp(itf, inp)
+    if (itf.xt !== nothing) && (itf.apply_xt)
+        inptmp = copy(inp)
+        transform!(itf.xt, @view(inptmp[end-itf.xt.len+1:end, :]))
+        return inptmp
+    else
+        return inp
+    end
 end
 
 ## Standardisation
