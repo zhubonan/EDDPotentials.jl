@@ -171,16 +171,39 @@ Collect the gradients after back-propagration into a vector
 function collect_gradients!(gvec::AbstractVector, gbuff::ChainGradients)
     i = 1
     for layer in gbuff.layers
-        for j = 1:size(layer.gw, 2), k = 1:size(layer.gw, 1)
-            gvec[i] = layer.gw[k, j]
-            i += 1
-        end
-        for j = 1:size(layer.gb, 2), k = 1:size(layer.gb, 1)
-            gvec[i] = layer.gb[k, j]
-            i += 1
-        end
+        _, i = _collect_gradient!(gvec, layer, i)
     end
     gvec
+end
+
+function _collect_gradient!(gvec, source::AbstractVecOrMat, i)
+    for j in axes(source, 2), k in axes(source, 1)
+        gvec[i] = source[k, j]
+        i += 1
+    end
+    gvec, i
+end
+
+"""
+    _collect_gradient!(gvec, g::DenseGradient, i)
+
+Collect gradient from a DenseGradient layer
+"""
+function _collect_gradient!(gvec, g::DenseGradient, i)
+    _, i = _collect_gradient!(gvec, g.gw, i)
+    _, i = _collect_gradient!(gvec, g.gb, i)
+    gvec, i
+end
+
+"""
+    _collect_gradient!(gvec, g::CellEmbeddingGradient, i)
+
+Collect gradient from a CellEmbeddingGradient layer
+"""
+function _collect_gradient!(gvec, g::CellEmbeddingGradient, i)
+    _, i = _collect_gradient!(gvec, g.two_body.gw, i)
+    _, i = _collect_gradient!(gvec, g.three_body.gw, i)
+    gvec, i
 end
 
 """
