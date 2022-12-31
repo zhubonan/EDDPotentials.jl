@@ -1,5 +1,6 @@
 using EDDP: TwoBodyFeature, ThreeBodyFeature, CellFeature, FeatureOptions, withgradient, nfeatures
 using Test
+using Flux
 
 include("utils.jl")
 
@@ -26,4 +27,58 @@ include("utils.jl")
     out = ce(fvec1)
     global ce, out, fvec1
     @test size(out, 1) == 2 + 6 + 18
+end
+
+@testset "Embedding Backprop" begin
+    nat = 10
+    cf = EDDP.CellFeature([:O, :H])
+    ce = EDDP.CellEmbedding(cf, 5)
+    bg = EDDP.BodyEmbeddingGradient(ce.two_body, nat)
+
+    inp = rand(nfeatures(cf), nat)
+    out = ce(inp)
+    inp_2bd = rand(EDDP.feature_size(cf)[2], nat)
+    out_2bd = ce.two_body(inp_2bd)
+
+    # Backprop
+    EDDP.forward!(bg, ce.two_body, out_2bd, inp_2bd, 1, 1)
+
+    layers = [
+        ce,
+        Dense(rand(5, size(out, 1)), rand(5)),
+        Dense(rand(1, 5))
+    ]
+    chain = Chain(layers)
+    chaing = EDDP.ChainGradients(chain, nat)
+
+    # CellEmbeddingGradient
+    cg = EDDP.CellEmbeddingGradient(ce, nat)
+    EDDP.forward!(cg, ce, chaing.layers[2], inp, 1, 1)
+    fill!(cg.gu, 1)
+    EDDP.backprop!(cg, ce);
+
+
+    # Check chain
+    EDDP.forward!(chaing, chain, inp)
+    EDDP.backward!(chaing, chain)
+    # Check results
+    @test all(chain(inp) .≈ chaing.layers[end].out)
+
+    # Check against Flux
+    param = Flux.params(chain)
+    grad = Flux.gradient(() -> sum(chain(inp)), param)
+
+    gflux = grad[chain[1].two_body.weight]
+    gmbp = chaing.layers[1].two_body.gw
+    @test all(gmbp .≈ gmbp)
+
+    gflux = grad[chain[1].three_body.weight]
+    gmbp = chaing.layers[1].three_body.gw
+    @test all(gmbp .≈ gmbp)
+
+    # Evaluation mode - test the gradients of the input matrix
+    EDDP.forward!(chaing, chain, inp)
+    EDDP.backward!(chaing, chain;weight_and_bias=false)
+    grad, = Flux.gradient(inp -> sum(chain(inp)), inp)
+    @test all(grad .≈ chaing.layers[1].gx)
 end

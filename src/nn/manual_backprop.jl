@@ -122,18 +122,35 @@ function ChainGradients(chain::Chain, n::Int)
     nl = length(chain.layers)
     for i = nl:-1:1
         layer = chain.layers[i]
-        if layer.σ == identity
-            gσ = (x, y) -> one(x)
-        elseif  (layer.σ == tanh_fast) || (layer.σ == tanh)
-            gσ = (x, y) -> 1 - y^2
-        else
-            gσ = (x, y) -> layer.σ'(x)
+        # gradient of the activation function
+        if isa(layer, Dense)
+            if layer.σ == identity
+                gσ = (x, y) -> one(x)
+            elseif  (layer.σ == tanh_fast) || (layer.σ == tanh)
+                gσ = (x, y) -> 1 - y^2
+            else
+                gσ = (x, y) -> layer.σ'(x)
+            end
         end
+
+        # Construct and build the gradient propagators
         if i == nl
-            gbuffer = DenseGradient(layer, gσ, n)
+            if isa(layer, Dense)
+                gbuffer = DenseGradient(layer, gσ, n)
+            elseif isa(layer, CellEmbedding)
+                gbuffer = CellEmbeddingGradient(layer, n)
+            else
+                throw(ErrorException("Unknown input type: $(layer)."))
+            end
         else
             # Output from this layer is the input of the next layer
-            gbuffer = DenseGradient(layer, gσ, n, gds[1].x)
+            if isa(layer, Dense)
+                gbuffer = DenseGradient(layer, gσ, n, gds[1].x)
+            elseif isa(layer, CellEmbedding)
+                gbuffer = CellEmbeddingGradient(layer, n)
+            else
+                throw(ErrorException("Unknown input type: $(layer)."))
+            end
         end
         # Since we build the buffer in the reverse order, push to the front of the Vector
         pushfirst!(gds, gbuffer)
@@ -366,8 +383,9 @@ end
 
 nparams(itf::ManualFluxBackPropInterface) = nparams(itf.chain)
 
-function ManualFluxBackPropInterface(cf::CellFeature, nodes...;init=glorot_uniform_f64, xt=nothing, yt=nothing, σ=tanh, apply_xt=true, σs=nothing)
-    chain = flux_mlp_model(cf, nodes...;init)
+function ManualFluxBackPropInterface(cf::CellFeature, 
+    nodes...;init=glorot_uniform_f64, xt=nothing, yt=nothing, σ=tanh, apply_xt=true, σs=nothing, embedding=nothing)
+    chain = flux_mlp_model(cf, nodes...;init, σ, σs, embedding)
     ManualFluxBackPropInterface(chain; xt, yt, apply_xt)
 end
 
