@@ -3,6 +3,14 @@ Interface using standard Flux + Zygote
 =#
 using Flux
 
+"""
+Standard Flux interface wrapping a `model` object.
+
+This interface uses Zygote for AD. 
+Performance is not ideal for training using the LM method due to the accumulated overheads of
+calling the `gradient` function.
+It should be OK to use for inference (but still inferior compared to `ManualFluxBackPropInterface`).
+"""
 mutable struct FluxInterface{T, N} <: AbstractNNInterface
     model::T
     params::N
@@ -13,6 +21,12 @@ mutable struct FluxInterface{T, N} <: AbstractNNInterface
     yt
     training_mode::Bool
     apply_xt::Bool
+end
+
+function Base.show(io::IO, m::MIME"text/plain", x::FluxInterface)
+    println(io, "FluxInterface(")
+    Base.show(io, m, x.model)
+    print(io, "\n)")
 end
 
 get_flux_model(itf::FluxInterface) = itf.model

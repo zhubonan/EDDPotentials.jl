@@ -16,6 +16,8 @@ using StatsBase
 using CatViews
 import Base
 import CellBase
+using TensorBoardLogger
+using Logging
 
 const XT_NAME="xt"
 const YT_NAME="yt"
@@ -122,6 +124,7 @@ function train_lm!(itf::AbstractNNInterface, x, y;
                    x_test=x, y_test=y,
                    earlystop=50,
                    keep_best=true,
+                   tb_logger_dir=nothing,
                    p=1.25,
                    args...
                    ) 
@@ -129,6 +132,11 @@ function train_lm!(itf::AbstractNNInterface, x, y;
     
     train_natoms = [size(v, 2) for v in x]
     test_natoms = [size(v, 2) for v in x_test]
+
+    tb_logger = nothing
+    if tb_logger_dir !== nothing
+        tb_logger = TBLogger(tb_logger_dir)
+    end
 
     function progress_tracker()
         rmse_train = rmse_per_atom(itf, x, y, train_natoms)
@@ -141,6 +149,14 @@ function train_lm!(itf::AbstractNNInterface, x, y;
         show_progress && @printf "RMSE Train %10.5f eV | Test %10.5f eV\n" rmse_train rmse_test
         flush(stdout)
         push!(rec, (rmse_train, rmse_test))
+
+        # Tensor board logging
+        if tb_logger !== nothing
+            with_logger(tb_logger) do 
+                @info "" rmse_test=rmse_test rmse_train=rmse_train            
+            end
+        end
+
         rmse_test, paramvector(itf)
     end
 

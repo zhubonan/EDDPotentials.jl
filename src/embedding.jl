@@ -31,6 +31,11 @@ function BodyEmbedding(T, features::Union{Vector, Tuple}, n::Int)
     BodyEmbedding(weight, nfeatures(features[1]))
 end
 
+function Base.show(io::IO, e::BodyEmbedding)
+  print(io, "BodyEmbedding(", length_before(e), " => ", length_after(e))
+  print(io, ")")
+end
+
 BodyEmbedding(features::Union{Vector, Tuple}, n::Int) = BodyEmbedding(Float64, features, n)
 
 """
@@ -128,6 +133,30 @@ function CellEmbedding(cf::CellFeature, n::Int, m::Int=n)
     )
 end
 
+length_after(e::CellEmbedding) = feature_size(e.cf)[1] + length_after(e.two_body) + length_after(e.three_body)
+length_before(e::CellEmbedding) = nfeatures(e.cf)
+
+function Base.show(io::IO, e::CellEmbedding)
+    length_in = nfeatures(e.cf)
+    length_out = feature_size(e.cf)[1] + length_after(e.two_body) + length_after(e.three_body)
+    print(io, "CellEmbedding(", length_in, " => ", length_out)
+    print(io, ")")
+end
+
+
+for T in [
+    :CellEmbedding, :BodyEmbedding
+  ]
+  @eval function Base.show(io::IO, m::MIME"text/plain", x::$T)
+    if !get(io, :compact, false)
+      Flux._layer_show(io, x)
+    else
+      show(io, x)
+    end
+  end
+end
+
+
 function two_body_view(cf, vector)
     n1bd = feature_size(cf)[1]
     n2bd = feature_size(cf)[2]
@@ -168,6 +197,7 @@ end
 
 
 Flux.trainable(ce::CellEmbedding) = (ce.two_body.weight, ce.three_body.weight)
+Flux.trainable(ce::BodyEmbedding) = (ce.weight,)
 
 ## Explicit gradient computation
 """
