@@ -283,7 +283,7 @@ function ManualFluxBackPropInterface(chain::Chain;xt=nothing, yt=nothing, apply_
     ManualFluxBackPropInterface(chain, typeof(g)[], 1, xt, yt, apply_xt)
 end
 
-function Base.show(io::IO, m::MIME"text/plain", x::ManualFluxBackPropInterface )
+function Base.show(io::IO, m::MIME"text/plain", x::ManualFluxBackPropInterface)
     println(io, "ManualFluxBackPropInterface(")
     Base.show(io, m, x.chain)
     print(io, "\n)")
