@@ -13,6 +13,10 @@ function __init__()
         @info "Loading Molly-related stuff"
         include("molly.jl")
     end
+    @require Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80" begin
+        @info "Loading plotting stuff"
+        include("plotting.jl")
+    end
 end
 
 include("restools.jl")

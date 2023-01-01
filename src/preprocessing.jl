@@ -8,6 +8,16 @@ import Base
 
 using Base.Threads
 
+"""
+Allow path to start with "/" when globbing by converting it to a relative path
+"""
+function glob_allow_abs(path)
+    if startswith(path, "/")
+        path = relpath(path)
+    end
+    return glob(path)
+end
+
 
 """
     StructureContainer{T}
@@ -35,7 +45,7 @@ function StructureContainer(paths::Vector;threshold=10., select_func=minimum)
     resolved_paths = String[]
     for path in paths
         if contains(path, "*") || contains(path, "?")
-            append!(resolved_paths, glob(path))
+            append!(resolved_paths, glob_allow_abs(path))
         else
             push!(resolved_paths, path)
         end

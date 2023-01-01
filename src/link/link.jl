@@ -158,7 +158,7 @@ function _generate_random_structures(bu::Builder, iter)
     # Generate new structures
     outdir = _input_structure_dir(bu)
     ensure_dir(outdir)
-    ndata = length(glob(joinpath(outdir, "*.res")))
+    ndata = length(glob_allow_abs(joinpath(outdir, "*.res")))
     if iter == 0
         # First cycle generate from the seed without relaxation
         # Sanity check - are we definitely overfitting?
@@ -196,7 +196,7 @@ function _generate_random_structures(bu::Builder, iter)
             @info "Shaking generated structures."
             outdir = joinpath(bu.state.workdir, "gen$(iter)")
             shake_res(
-                collect(glob(joinpath(outdir, "*.res"))), 
+                collect(glob_allow_abs(joinpath(outdir, "*.res"))), 
                 bu.state.shake_per_minima, 
                 bu.state.shake_amp, 
                 bu.state.shake_cell_amp
@@ -237,6 +237,9 @@ function _run_external(bu::Builder)
     return false
 end
 
+"""
+Carry out training and save the ensemble as a JLD2 archive.
+"""
 function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
     t = bu.trainer
     ## Training new models
@@ -357,7 +360,7 @@ end
 Use PP3 for singlepoint calculation - launch many calculations in parallel.
 """
 function run_pp3_many(workdir, indir, outdir, seedfile; n_parallel=1, keep=false)
-    files = glob(joinpath(indir, "*.res"))
+    files = glob_allow_abs(joinpath(indir, "*.res"))
     ensure_dir(workdir)
     for file in files
         working_path = joinpath(workdir, splitpath(file)[end])
@@ -451,7 +454,7 @@ function summarise(builder::Builder)
     println("Seed file: $(opts.seedfile)")
 
     function print_res_count(path)
-        nfiles = length(glob(joinpath(path, "*.res")))
+        nfiles = length(glob_allow_abs(joinpath(path, "*.res")))
         println("  $(path): $(nfiles) structures")
         nfiles
     end
@@ -487,7 +490,7 @@ function walk_forward_tests(bu::Builder;print_results=false, fc_show_progress=fa
             end
         end
         has_ensemble(bu, iter) || break
-        @info "Loading features for generation $iter..."
+        @info "Loading features of generation $(iter+1) to test for generation $(iter)..."
         fc = load_features(bu, iter + 1;show_progress=fc_show_progress)
         ensemble = load_ensemble(bu, iter)
         tr = EDDP.TrainingResults(ensemble, fc)
@@ -524,21 +527,29 @@ function is_training_data_ready(bu::Builder, iteration=bu.state.iteration)
     return false
 end
 
-nstructures(bu::Builder, iteration) =  length(glob(joinpath(bu.state.workdir, "gen$(iteration)/*.res")))
-nstructures_calculated(bu::Builder, iteration) =  length(glob(joinpath(bu.state.workdir, "gen$(iteration)-dft/*.res")))
+nstructures(bu::Builder, iteration) =  length(glob_allow_abs(joinpath(bu.state.workdir, "gen$(iteration)/*.res")))
+nstructures_calculated(bu::Builder, iteration) =  length(glob_allow_abs(joinpath(bu.state.workdir, "gen$(iteration)-dft/*.res")))
+
+function load_structures(bu::Builder, iteration::Vararg{Int})
+    dirs = [
+        joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter in iteration
+    ]
+    sc = EDDP.StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
+    return sc 
+end
+load_structures(bu::Builder) = load_structures(bu, 0:bu.state.iteration)
+load_structures(bu::Builder, iteration) = load_structures(bu, iteration...)
 
 """
     load_features(bu::Builder, iteration...)
 
 Loading features for specific iterations.   
 """
-function load_features(bu::Builder, iteration...;show_progress=true)
-    dirs = [
-        joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter in iteration
-    ]
-    cf = bu.cf
-    sc = EDDP.StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
-    return EDDP.FeatureContainer(sc, cf;nmax=bu.trainer.nmax, show_progress);
+function load_features(bu::Builder, iteration::Vararg{Int};show_progress=true)
+    sc = load_structures(bu, iteration...;)
+    return EDDP.FeatureContainer(sc, bu.cf;nmax=bu.trainer.nmax, show_progress);
 end
 
-load_features(bu::Builder) = load_features(bu, (0:bu.state.iteration)...)
+load_features(bu::Builder;kwargs...) = load_features(bu, 0:bu.state.iteration;kwargs...)
+load_features(bu::Builder, iteration;kwargs...) = load_features(bu, iteration...;kwargs...)
+
