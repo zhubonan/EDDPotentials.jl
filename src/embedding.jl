@@ -250,8 +250,8 @@ function BodyEmbeddingGradient(embed::BodyEmbedding, n)
     BodyEmbeddingGradient(embed, n, out)
 end
 
-weight_gradient(e::BodyEmbedding) = e.gw
-input_gradient(e::BodyEmbedding) = e.gx
+weight_gradient(e::BodyEmbeddingGradient) = e.gw
+input_gradient(e::BodyEmbeddingGradient) = e.gx
 
 
 """
@@ -308,6 +308,7 @@ struct CellEmbeddingGradient{T}
     gx::Matrix{T}
 end
 
+input_gradient(e::CellEmbeddingGradient) = e.gx
 
 function CellEmbeddingGradient(ce::CellEmbedding{C, T}, n::Int, out) where {C, T}
     offset = feature_size(ce.cf)[1]

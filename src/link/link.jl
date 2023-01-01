@@ -62,9 +62,10 @@ struct Builder{M<:AbstractTrainer}
     state::BuilderState
     cf::CellFeature
     trainer::M
+    cf_embedding
     # Set the iteration states
-    function Builder(state, cf, trainer)
-        builder = new{typeof(trainer)}(state, cf, trainer)
+    function Builder(state, cf, trainer, cf_embedding=nothing)
+        builder = new{typeof(trainer)}(state, cf, trainer, cf_embedding)
         _set_iteration!(builder)
         builder_uuid(builder)
         builder
@@ -248,7 +249,7 @@ function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
     fc = EDDP.FeatureContainer(sc, cf;nmax=t.nmax);
     train, test, valid = split(fc, t.train_split...)
     model = EDDP.ManualFluxBackPropInterface(cf, t.n_nodes...;
-                xt=train.xt, yt=train.yt, apply_xt=false)
+                xt=train.xt, yt=train.yt, apply_xt=false, embedding=bu.cf_embedding)
     ensemble = EDDP.train_multi_threaded(EDDP.reinit(model), 
                 prefix="gen$(bu.state.iteration)",
                 train, test;nmodels=t.nmodels, 

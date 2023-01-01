@@ -23,6 +23,9 @@ include("utils.jl")
     end
 
     function _test_forces_fd_vc(calc; amp=1e-7, atol=1e-5, idx=1)
+        if !isa(calc, EDDP.VariableCellCalc)
+            calc = VariableCellCalc(calc)
+        end
         ftmp = copy(EDDP.get_forces(calc))
         etmp = EDDP.get_enthalpy(calc)
         positions(get_cell(calc))[idx] += amp
@@ -41,6 +44,7 @@ include("utils.jl")
         calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
         nnitf.chain(calc.v)
         
+        # Test copying positions
         cell2 = deepcopy(cell)
         positions(cell2) .= 0.
         EDDP.copycell!(cell, cell2)
@@ -59,8 +63,57 @@ include("utils.jl")
 
         # Test against small displacements finite displacements
         _test_forces_fd(calc)
-        this_calc=calc
+        _test_forces_fd_vc(calc)
     end
+
+    @testset "MBP&Embedding" begin
+        embed = EDDP.CellEmbedding(cf, 2)
+        nnitf = EDDP.ManualFluxBackPropInterface(
+            cf, 5;embedding=embed
+            )
+        calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
+        nnitf.chain(calc.v)
+
+        eng = EDDP.get_energy(calc)
+        @test isa(eng, Float64)
+
+        forces = EDDP.get_forces(calc)
+        # Newton's second law
+        @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10 )) 
+
+        stress = EDDP.get_stress(calc)
+        @test size(stress) == (3,3)
+        @test any(stress .!== 0.)
+
+        # Test against small displacements finite displacements
+        _test_forces_fd(calc)
+        _test_forces_fd_vc(calc)
+    end
+
+    @testset "Flux&Embedding" begin
+        embed = EDDP.CellEmbedding(cf, 2)
+        model = EDDP.flux_mlp_model(cf, 5;embedding=embed)
+        nnitf = EDDP.FluxInterface(
+            model)
+        calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
+        nnitf.model(calc.v)
+
+        eng = EDDP.get_energy(calc)
+        @test isa(eng, Float64)
+
+        forces = EDDP.get_forces(calc)
+        # Newton's second law
+        @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10 )) 
+
+        stress = EDDP.get_stress(calc)
+        @test size(stress) == (3,3)
+        @test any(stress .!== 0.)
+
+        # Test against small displacements finite displacements
+        _test_forces_fd(calc)
+        _test_forces_fd_vc(calc)
+    end
+
 
     @testset "Ensemble" begin
          nnitfs = [EDDP.ManualFluxBackPropInterface(Chain(
@@ -75,6 +128,9 @@ include("utils.jl")
         @test eng != 0.
         @test size(std_per_atom) == (length(cell),)
         @test std_tot != 0.
+
+        _test_forces_fd(calc)
+        _test_forces_fd_vc(calc)
     end
 
     @testset "Linear" begin
@@ -91,8 +147,7 @@ include("utils.jl")
         @test any(stress .!== 0.)
 
         _test_forces_fd(calc)
-
-
+        _test_forces_fd_vc(calc)
     end
     
     @testset "VCFilter" begin
@@ -135,8 +190,6 @@ include("utils.jl")
         positions(get_cell(calc))[1] += 0.001
         EDDP.calculate!(calc;rebuild_nl=false)
         @test p1 == calc.last_nn_build_pos[1]
-        global calc
-
     end
 end
 
