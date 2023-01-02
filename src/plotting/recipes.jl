@@ -15,7 +15,7 @@ end
     _get_target_and_pred(tr)
 end
 
-function resample_mae_rmse(pred, target, samples)
+function resample_mae_rmse(target, pred, samples)
     rel = target .- minimum(target)
     output_rmse = zeros(length(samples))
     output_mae = similar(output_rmse)
@@ -98,5 +98,154 @@ enthalpyandvolume
         xlabel := L"Volume ($\AA^3$ / atom)"
         ylabel := ytext
         V, H
+    end
+end
+
+
+@userplot InOutSample
+"""
+    inoutsample(builder::Builder, i::Int)
+
+Return plots for out-of-sample prediction analysis.
+This function loads the model trained up to ``i`` iteration and apply it to the ``i + 1`` iteration.
+The prediction results is hence effectively "out-of-sample".
+
+Ideally, we want the out-of-sample to behave like the in-sample results.
+Unless otherwise stateed, latter refers to the training data and the model at the ``i`` iteration.
+"""
+inoutsample
+
+function _get_inoutsample_data(builder, test_iter)
+    # Data Processing
+    eiter = load_ensemble(builder, test_iter)
+    enextiter = load_ensemble(builder, test_iter+1)
+
+    @info "Loading features"
+    fcnextiter = load_features(builder, test_iter+1, show_progress=false)
+    fciter = load_features(builder, 0:test_iter, show_progress=false)
+    @info "Features loaded"
+
+    troutsample = TrainingResults(eiter, fcnextiter)
+    trinsample = TrainingResults(eiter, fciter)
+    troutsample_insample = TrainingResults(enextiter, fcnextiter)
+    scnextiter = load_structures(builder, test_iter+1)
+    (;troutsample, trinsample, troutsample_insample, scnextiter)
+end
+
+@recipe function fh(h::InOutSample)
+
+    if isa(h.args[1], Builder)
+        builder, test_iter = h.args
+        troutsample, trinsample, troutsample_insample, scnextiter = _get_inoutsample_data(builder, test_iter)
+    else
+        troutsample, trinsample, troutsample_insample, scnextiter = h.args[1]
+    end
+
+    # Data Processing
+
+    # Target vs predicted enthalpies
+
+    layout := @layout [
+        scatter ev
+        relabs resample
+    ]
+
+    markersize := 2
+    markerstrokewidth := 1
+    xlabelfontsize := 8
+    ylabelfontsize := 8
+    legendfontsize := 7
+    xtickfontsize := 7
+    ytickfontsize := 7
+
+    @series begin
+        subplot := 1
+        seriestype := :scatter
+        label := "In-sample"
+        trinsample
+    end
+
+    @series begin
+        subplot := 1
+        seriestype := :scatter
+        label := "Out-of-sample"
+        xlabel := "Energy (eV / atom)"
+        ylabel := "Energy (eV / atom)"
+        aspectratio := :equal
+        troutsample
+    end
+
+
+    function evplot_data(sc)
+
+        H = enthalpy_per_atom(sc)
+        V = volume.(sc.structures) ./ natoms(sc)
+        V, H
+    end
+
+    function evplot_data(tr, sc)
+        sc_base = sc
+        labels = tr.fc.labels
+        sc = sc_base[labels]
+
+        H = tr.H_pred ./ natoms(tr)
+        V = volume.(sc.structures) ./ natoms(sc)
+        V, H
+    end
+
+    subplot := 2
+    @series begin
+        seriestype := :scatter
+        xlabel := L"Volume ($\AA^3$ / atom)"
+        ylabel := "Enthalpy (eV / atom)"
+        label := "Target"
+        evplot_data(scnextiter)
+    end
+
+    @series begin
+        seriestype := :scatter
+        xlabel := L"Volume ($\AA^3$ / atom)"
+        ylabel := "Predicted Enthalpy (eV / atom)"
+        label := "Predicted"
+        evplot_data(troutsample, scnextiter)
+    end
+
+
+    function relative_ae(tr, label_text)
+        target, pred = _get_target_and_pred(tr)
+
+        error = abs.(pred .- target)
+        rel = target .- minimum(target)
+        @series begin
+            seriestype := :scatter
+            subplot := 3
+            xlabel := "Relative energy (eV /atom)"
+            ylabel := "Absolute error (eV /atom)"
+            label := label_text
+            rel, error
+        end
+    end
+
+    relative_ae(trinsample, "In-sample")
+    relative_ae(troutsample, "Out-of-sample")
+
+
+    resampel_range = LinRange(0, 3, 100)
+    y1, _ =   resample_mae_rmse(trinsample, resampel_range)
+    y2, _ =   resample_mae_rmse(troutsample, resampel_range)
+
+    subplot := 4
+    @series begin
+        label := "MAE: In-sample"
+        xlabel := "Threshold (eV / atom)" 
+        ylabel := "Energy (eV / atom)"
+        resampel_range, y1
+    end
+
+    @series begin
+        label := "MAE: Out-of-sample"
+        xlabel := "Threshold (eV / atom)" 
+        ylabel := "Energy (eV / atom)"
+        resampel_range, y2
     end
 end

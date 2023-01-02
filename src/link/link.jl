@@ -33,6 +33,8 @@ const FEATURESPEC_NAME="cf"
     core_size::Float64=1.0
     ensemble_std_min::Float64=0.0
     ensemble_std_max::Float64=-1.0
+    "Run walk-forward test before re-training"
+    run_walk_forward::Bool=false
 end
 
 abstract type AbstractTrainer end
@@ -129,6 +131,11 @@ function step!(bu::Builder)
     end
     ns = nstructures(bu, iter)
     @info "Number of new structures in iteration $(iter): $ns"
+
+    # Optional - run walk-forward test
+    if bu.state.run_walk_forward
+        walk_forward_tests(bu;print_results=true, iters=[iter-1])
+    end
 
     # Retrain model
     @info "Starting training for iteration $iter."
@@ -479,9 +486,12 @@ raw"""
 Perform walk forward tests - test if the data of generation ``N`` can be predicted by the model 
 from generation ``N-1``, and compare it with the results using model from generation ``N`` itself. 
 """
-function walk_forward_tests(bu::Builder;print_results=false, fc_show_progress=false, check_training_data=false)
-    trs = []
-    for iter in 0:bu.state.iteration-1
+function walk_forward_tests(bu::Builder;
+    print_results=false, 
+    iters=0:bu.state.iteration-1,
+    fc_show_progress=false, 
+    check_training_data=false)
+    for iter in iters
         if check_training_data
             is_training_data_ready(bu, iter+1) || continue
         else
