@@ -175,6 +175,11 @@ end
 
 function train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_test::FeatureContainer
                 ;train_method="lm", kwargs...)
+    @info "Training samples : $(length(fc_train))"
+    @info "Test samples     : $(length(fc_train))"
+    @info "Training method  : $(train_method)"
+    @debug "Keyord arguments : $(kwargs)"
+
     if train_method == "lm"
         x_train, y_train = get_fit_data(fc_train)
         x_test, y_test = get_fit_data(fc_test)

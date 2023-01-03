@@ -35,6 +35,8 @@ const FEATURESPEC_NAME="cf"
     ensemble_std_max::Float64=-1.0
     "Run walk-forward test before re-training"
     run_walk_forward::Bool=false
+    "Override the project_prefix"
+    project_prefix_override::String=""
 end
 
 abstract type AbstractTrainer end
@@ -225,8 +227,14 @@ Run external code for generating training data
 function _run_external(bu::Builder)
     ensure_dir(_output_structure_dir(bu))
     if bu.state.dft_mode=="disp-castep"
+        if bu.state.project_prefix_override == ""
+            project_prefix = "eddp.jl/$(builder_short_uuid(bu))"
+        else
+            project_prefix = bu.state.project_prefix_override
+        end
         run_disp_castep(
             _input_structure_dir(bu), _output_structure_dir(bu), bu.state.seedfile_calc;
+            project_prefix,
             threshold=bu.state.per_generation_threshold,
             bu.state.dft_kwargs...
         )
@@ -288,6 +296,7 @@ function builder_uuid(workdir='.')
 end
 
 builder_uuid(bu::Builder) = builder_uuid(bu.state.workdir)
+builder_short_uuid(x) = builder_uuid(x)[1:8]
 
 """
     _disp_get_completed_jobs(project_name)
@@ -317,7 +326,7 @@ function run_disp_castep(indir, outdir, seedfile;categories, priority=90, projec
     file_pattern = joinpath(indir, "*.res")
     seed = splitext(seedfile)[1]
     # Setup the inputs
-    project_name = joinpath(gethostname(), project_prefix, abspath(indir)[2:end])
+    project_name = joinpath(project_prefix, abspath(indir)[2:end])
     seed_stem = splitext(basename(seedfile))[1]
     cmd=`disp deploy singlepoint --seed $seed_stem --base-cell $seed.cell --param $seed.param --cell $file_pattern --project $project_name --priority $priority` 
 
