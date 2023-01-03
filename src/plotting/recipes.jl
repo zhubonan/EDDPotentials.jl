@@ -7,12 +7,43 @@ using LaTeXStrings
 
 _get_target_and_pred(tr::TrainingResults) =  tr.H_target ./ natoms(tr), tr.H_pred ./ natoms(tr)
 
+function has_multiple_comp(fc::FeatureContainer)
+    length(unique([m[:formula] for m in fc.metadata])) > 1
+end
+
+function has_multiple_comp(sc::StructureContainer)
+    length(unique([reduce_composition(Composition(m)) for m in sc.structures])) > 1
+end
+
+"""
+Return relative per-atom energies
+"""
+function _get_rel_target_and_pred(tr::TrainingResults)
+    comps = [m[:formula] for m in tr.fc.metadata]
+    target, pred = _get_target_and_pred(tr)
+    for comp in unique(comps)
+        mask = map(x -> x == comp, comps)
+        ref = minimum(target[mask])
+        target[mask] .-= ref
+        pred[mask] .-= ref
+    end
+    target, pred
+end
+
 @recipe function f(tr::TrainingResults) 
-    _get_target_and_pred(tr)
+    if has_multiple_comp(tr.fc)
+        _get_rel_target_and_pred(tr)
+    else
+        _get_target_and_pred(tr)
+    end
 end
 
 @recipe function f(::Type{TrainingResults}, tr::TrainingResults) 
-    _get_target_and_pred(tr)
+    if has_multiple_comp(tr.fc)
+        _get_rel_target_and_pred(tr)
+    else
+        _get_target_and_pred(tr)
+    end
 end
 
 function resample_mae_rmse(target, pred, samples)
@@ -28,7 +59,7 @@ function resample_mae_rmse(target, pred, samples)
     output_mae, output_rmse
 end
 
-resample_mae_rmse(tr::TrainingResults, samples) = resample_mae_rmse(_get_target_and_pred(tr)..., samples)
+resample_mae_rmse(tr::TrainingResults, samples) = resample_mae_rmse(_get_rel_target_and_pred(tr)..., samples)
 
 @userplot RelativeAbsoluteError
 
@@ -115,7 +146,7 @@ Unless otherwise stateed, latter refers to the training data and the model at th
 """
 inoutsample
 
-function _get_inoutsample_data(builder, test_iter)
+function _get_inoutsample_data(builder, test_iter, comp=nothing)
     # Data Processing
     eiter = load_ensemble(builder, test_iter)
     enextiter = load_ensemble(builder, test_iter+1)
@@ -135,8 +166,9 @@ end
 @recipe function fh(h::InOutSample)
 
     if isa(h.args[1], Builder)
-        builder, test_iter = h.args
-        troutsample, trinsample, troutsample_insample, scnextiter = _get_inoutsample_data(builder, test_iter)
+        builder, test_iter, _... = h.args
+        length(h.args) == 3 ? comp = h.args[3] : comp = nothing
+        troutsample, trinsample, troutsample_insample, scnextiter = _get_inoutsample_data(builder, test_iter, comp)
     else
         troutsample, trinsample, troutsample_insample, scnextiter = h.args[1]
     end
@@ -180,6 +212,15 @@ end
 
         H = enthalpy_per_atom(sc)
         V = volume.(sc.structures) ./ natoms(sc)
+        if has_multiple_comp(sc)
+            comps = [Composition(m) for m in sc.structures]
+            for comp in comps
+                mask = map(x -> x == comp, comps)
+                min = minimum(H[mask])
+                H[mask] .-= min
+            end
+        end
+
         V, H
     end
 
@@ -188,7 +229,12 @@ end
         labels = tr.fc.labels
         sc = sc_base[labels]
 
-        H = tr.H_pred ./ natoms(tr)
+        if has_multiple_comp(tr.fc)
+            H = _get_rel_target_and_pred(tr)[1]
+        else
+            H = tr.H_pred ./ natoms(tr)
+        end
+
         V = volume.(sc.structures) ./ natoms(sc)
         V, H
     end
@@ -216,6 +262,14 @@ end
 
         error = abs.(pred .- target)
         rel = target .- minimum(target)
+
+        # Reset references energy for multiple compositions
+        comps = [m[:formula] for m in tr.fc.metadata]
+        for comp in unique(comps)
+            mask = map(x -> x == comp, comps)
+            rel[mask] .-= minimum(rel[mask])
+        end
+
         @series begin
             seriestype := :scatter
             subplot := 3
