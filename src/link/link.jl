@@ -108,7 +108,19 @@ function link!(builder::Builder
     while state.iteration <= state.max_iterations
         step!(builder
         )
+        if should_stop(bu)
+            @warn "Aborted training loop at iteration: $(state.iteration)."
+            return
+        end
     end
+end
+
+function should_stop(bu::Builder)
+    if isfile(joinpath(bu.state.workdir, "STOP"))
+        @log "STOP file detected, aborting...."
+        return true
+    end
+    return false
 end
 
 ensure_dir(args...) = isdir(joinpath(args...)) || mkdir(joinpath(args...)) 
@@ -117,6 +129,7 @@ ensure_dir(args...) = isdir(joinpath(args...)) || mkdir(joinpath(args...))
 Run a step step for the Builder
 """
 function step!(bu::Builder)
+    should_stop(bu) && return
     iter = bu.state.iteration
     if has_ensemble(bu, iter) 
         bu.state.iteration += 1
@@ -124,11 +137,13 @@ function step!(bu::Builder)
     end
     # Generate new structures
     _generate_random_structures(bu, iter)
+    should_stop(bu) && return
 
     # Run external code for 
     if !is_training_data_ready(bu, iter)
         @info "Starting energy calculations for iteration $iter."
         flag = _run_external(bu)
+        should_stop(bu) && return
         flag || throw(ErrorException("Cannot find external code to run for generating training data"))
     end
     ns = nstructures(bu, iter)
@@ -137,6 +152,7 @@ function step!(bu::Builder)
     # Optional - run walk-forward test
     if bu.state.run_walk_forward
         walk_forward_tests(bu;print_results=true, iters=[iter-1])
+        should_stop(bu) && return
     end
 
     # Retrain model
