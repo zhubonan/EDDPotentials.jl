@@ -146,14 +146,14 @@ Unless otherwise stateed, latter refers to the training data and the model at th
 """
 inoutsample
 
-function _get_inoutsample_data(builder, test_iter, comp=nothing)
+function _get_inoutsample_data(builder, test_iter, iter_start=0)
     # Data Processing
     eiter = load_ensemble(builder, test_iter)
     enextiter = load_ensemble(builder, test_iter+1)
 
     @info "Loading features"
     fcnextiter = load_features(builder, test_iter+1, show_progress=false)
-    fciter = load_features(builder, 0:test_iter, show_progress=false)
+    fciter = load_features(builder, iter_start:test_iter, show_progress=false)
     @info "Features loaded"
 
     troutsample = TrainingResults(eiter, fcnextiter)
@@ -166,9 +166,7 @@ end
 @recipe function fh(h::InOutSample)
 
     if isa(h.args[1], Builder)
-        builder, test_iter, _... = h.args
-        length(h.args) == 3 ? comp = h.args[3] : comp = nothing
-        troutsample, trinsample, troutsample_insample, scnextiter = _get_inoutsample_data(builder, test_iter, comp)
+        troutsample, trinsample, troutsample_insample, scnextiter = _get_inoutsample_data(h.args...)
     else
         troutsample, trinsample, troutsample_insample, scnextiter = h.args[1]
     end
