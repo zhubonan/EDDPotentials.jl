@@ -117,7 +117,7 @@ end
 
 function should_stop(bu::Builder)
     if isfile(joinpath(bu.state.workdir, "STOP"))
-        @log "STOP file detected, aborting...."
+        @warn "STOP file detected, aborting...."
         return true
     end
     return false
