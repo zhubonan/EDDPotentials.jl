@@ -516,6 +516,7 @@ function walk_forward_tests(bu::Builder;
     iters=0:bu.state.iteration-1,
     fc_show_progress=false, 
     check_training_data=false)
+    trs = []
     for iter in iters
         if check_training_data
             is_training_data_ready(bu, iter+1) || continue
