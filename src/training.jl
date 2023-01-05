@@ -175,10 +175,6 @@ end
 
 function train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_test::FeatureContainer
                 ;train_method="lm", kwargs...)
-    @info "Training samples : $(length(fc_train))"
-    @info "Test samples     : $(length(fc_train))"
-    @info "Training method  : $(train_method)"
-    @debug "Keyord arguments : $(kwargs)"
 
     if train_method == "lm"
         x_train, y_train = get_fit_data(fc_train)
@@ -301,6 +297,12 @@ function train_multi_threaded(itf, fc_train, fc_test;
         put!(job_channel, i)
     end
     tasks = []
+
+    @info "Training samples : $(length(fc_train))"
+    @info "Test samples     : $(length(fc_test))"
+    @info "Training method  : $(get(kwargs, :train_method, nothing))"
+    @debug "Keyord arguments : $(kwargs)"
+
     for _ in 1:nthreads()
         push!(tasks, Threads.@spawn worker_train_one(itf, fc_train, fc_test, job_channel, results_channel;kwargs...))
     end
