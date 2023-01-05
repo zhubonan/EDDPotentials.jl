@@ -108,7 +108,7 @@ function link!(builder::Builder
     while state.iteration <= state.max_iterations
         step!(builder
         )
-        if should_stop(bu)
+        if should_stop(builder)
             @warn "Aborted training loop at iteration: $(state.iteration)."
             return
         end
