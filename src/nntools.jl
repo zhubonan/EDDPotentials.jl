@@ -75,7 +75,7 @@ function setup_fj(model::AbstractNNInterface, data::AbstractVector, y)
     function fj!(fvec, jmat, param)
         setparamvector!(model, param)
         # Compute the gradients
-        compute_objectives_diff(fvec, jmat, model, data, y;jtmp)
+        compute_objectives_diff(fvec, jmat, model, data, y; jtmp)
         fvec, jmat
     end
     function f!(fvec, param)
@@ -98,10 +98,18 @@ function compute_objectives(f, itf, data::AbstractVector, y)
     f
 end
 
-function compute_objectives_diff(f, jmat, itf, data::AbstractVector, y;jtmp = jmat[1, :], ngps=10)
+function compute_objectives_diff(
+    f,
+    jmat,
+    itf,
+    data::AbstractVector,
+    y;
+    jtmp = jmat[1, :],
+    ngps = 10,
+)
     nt = nthreads()
     if nt > 1 && div(length(data), nt) > 10
-        _compute_objectives_diff_threaded(f, jmat, itf, data, y;jtmp, ngps)
+        _compute_objectives_diff_threaded(f, jmat, itf, data, y; jtmp, ngps)
     else
         for (i, inp) in enumerate(data)
             out = forward!(itf, inp)
@@ -119,37 +127,45 @@ end
 
 Divide a range into multiple chunks such that each thread receives up to `ngps` chunks in total.
 """
-function _chunk_ranges(ndata; ngps=1)
+function _chunk_ranges(ndata; ngps = 1)
     nt = nthreads()
     ndivide = nt * ngps
-    ningroup = div(ndata,  ndivide)
+    ningroup = div(ndata, ndivide)
     if ningroup == 0
-        out = [i:i for i in 1:ndata]
+        out = [i:i for i = 1:ndata]
         @assert sum(length, out) == ndata
         return out
     end
     out = UnitRange{Int64}[]
     i = 1
-    for _ in 1:ndivide
+    for _ = 1:ndivide
         push!(out, i:i+ningroup-1)
         i += ningroup
     end
     m = mod(ndata, ndivide)
     if m != 0
-        push!(out, ndata - m +1:ndata)
+        push!(out, ndata-m+1:ndata)
     end
     @assert sum(length, out) == ndata
     out
 end
-    
 
-function _compute_objectives_diff_threaded(f, jmat, itf, data::AbstractVector, y;jtmp = jmat[1, :], ngps=10)
-    chunks = _chunk_ranges(length(data);ngps)
+
+function _compute_objectives_diff_threaded(
+    f,
+    jmat,
+    itf,
+    data::AbstractVector,
+    y;
+    jtmp = jmat[1, :],
+    ngps = 10,
+)
+    chunks = _chunk_ranges(length(data); ngps)
     Threads.@threads for idx in chunks
         # Thread local copy
         itf_ = deepcopy(itf)
         jtmp_ = copy(jtmp)
-        for i in idx 
+        for i in idx
             inp = data[i]
             out = forward!(itf_, inp)
             backward!(itf_)
@@ -226,30 +242,32 @@ end
 
 
 if VERSION >= v"1.7"
-  @doc """
-      default_rng_value()
-  Create an instance of the default RNG depending on Julia's version.
-  - Julia version is < 1.7: `Random.GLOBAL_RNG`
-  - Julia version is >= 1.7: `Random.default_rng()`
-  """
-  default_rng_value() = Random.default_rng()
+    @doc """
+        default_rng_value()
+    Create an instance of the default RNG depending on Julia's version.
+    - Julia version is < 1.7: `Random.GLOBAL_RNG`
+    - Julia version is >= 1.7: `Random.default_rng()`
+    """
+    default_rng_value() = Random.default_rng()
 else
-  default_rng_value() = Random.GLOBAL_RNG
+    default_rng_value() = Random.GLOBAL_RNG
 end
 
 
-function glorot_uniform_f64(rng::AbstractRNG, dims::Integer...; gain::Real=1)
-  scale = Float64(gain) * sqrt(24.0f0 / sum(Flux.nfan(dims...)))
-  (rand(rng, Float32, dims...) .- 0.5f0) .* scale
+function glorot_uniform_f64(rng::AbstractRNG, dims::Integer...; gain::Real = 1)
+    scale = Float64(gain) * sqrt(24.0f0 / sum(Flux.nfan(dims...)))
+    (rand(rng, Float32, dims...) .- 0.5f0) .* scale
 end
-glorot_uniform_f64(dims::Integer...; kw...) = glorot_uniform_f64(default_rng_value(), dims...; kw...)
-glorot_uniform_f64(rng::AbstractRNG=default_rng_value(); init_kwargs...) = (dims...; kwargs...) -> glorot_uniform_f64(rng, dims...; init_kwargs..., kwargs...)
+glorot_uniform_f64(dims::Integer...; kw...) =
+    glorot_uniform_f64(default_rng_value(), dims...; kw...)
+glorot_uniform_f64(rng::AbstractRNG = default_rng_value(); init_kwargs...) =
+    (dims...; kwargs...) -> glorot_uniform_f64(rng, dims...; init_kwargs..., kwargs...)
 
 const ginit = glorot_uniform_f64
 
 
 # For reinitialising the weights
-function reinit!(chain::Chain, init=ginit)
+function reinit!(chain::Chain, init = ginit)
     for layer in chain.layers
         reinit!(layer, init)
     end
@@ -257,30 +275,30 @@ function reinit!(chain::Chain, init=ginit)
 end
 
 
-function reinit!(layer::Dense, init=ginit)
+function reinit!(layer::Dense, init = ginit)
     layer.weight .= init(size(layer.weight)...)
     layer.bias .= init(size(layer.bias)...)
     layer
 end
 
-function reinit!(itf::ManualFluxBackPropInterface, init=ginit) 
+function reinit!(itf::ManualFluxBackPropInterface, init = ginit)
     reinit!(itf.chain, init)
     itf
 end
 
-reinit(itf::AbstractNNInterface, init=ginit) = reinit!(deepcopy(itf), init)
+reinit(itf::AbstractNNInterface, init = ginit) = reinit!(deepcopy(itf), init)
 
-function reinit!(itf::FluxInterface, init=ginit)
+function reinit!(itf::FluxInterface, init = ginit)
     reinit!(itf.model, init)
     itf
 end
 
-function reinit!(be::BodyEmbedding, init=ginit)
+function reinit!(be::BodyEmbedding, init = ginit)
     be.weight .= init(size(be.weight)...)
     be
 end
 
-function reinit!(ce::CellEmbedding, init=ginit)
+function reinit!(ce::CellEmbedding, init = ginit)
     reinit!(ce.two_body, init)
     reinit!(ce.three_body, init)
     ce

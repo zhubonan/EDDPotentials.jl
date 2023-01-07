@@ -11,14 +11,14 @@ Performance is not ideal for training using the LM method due to the accumulated
 calling the `gradient` function.
 It should be OK to use for inference (but still inferior compared to `ManualFluxBackPropInterface`).
 """
-mutable struct FluxInterface{T, N} <: AbstractNNInterface
+mutable struct FluxInterface{T,N} <: AbstractNNInterface
     model::T
     params::N
-    inp
-    pullback_p
-    pullback_inp
-    xt
-    yt
+    inp::Any
+    pullback_p::Any
+    pullback_inp::Any
+    xt::Any
+    yt::Any
     training_mode::Bool
     apply_xt::Bool
 end
@@ -31,7 +31,17 @@ end
 
 get_flux_model(itf::FluxInterface) = itf.model
 
-FluxInterface(model) = FluxInterface(model, Flux.params(model), nothing, nothing, nothing, nothing, nothing, true, false)
+FluxInterface(model) = FluxInterface(
+    model,
+    Flux.params(model),
+    nothing,
+    nothing,
+    nothing,
+    nothing,
+    nothing,
+    true,
+    false,
+)
 
 
 function forward!(itf::FluxInterface, inp)
@@ -48,35 +58,35 @@ end
 
 paramvector(itf::FluxInterface) = vcat([vec(x) for x in itf.params]...)
 
-function paramvector!(vec, itf::FluxInterface) 
-    vec.= paramvector(itf)
+function paramvector!(vec, itf::FluxInterface)
+    vec .= paramvector(itf)
 end
 
 nparams(itf::FluxInterface) = sum(length, itf.params)
 
-function setparamvector!(itf::FluxInterface, param)  
+function setparamvector!(itf::FluxInterface, param)
     i = 1
     for elem in itf.params
-        elem[:] .= param[i:i+length(elem) - 1]
+        elem[:] .= param[i:i+length(elem)-1]
         i += length(elem)
     end
 end
 
-function gradinp!(gvec, itf::FluxInterface, inp=itf.inp)
+function gradinp!(gvec, itf::FluxInterface, inp = itf.inp)
     forward!(itf, inp)
-    backward!(itf;computed_grad_inp=true, compute_grad_param=false)
+    backward!(itf; computed_grad_inp = true, compute_grad_param = false)
     if itf.yt === nothing
         y_bar = 1
     else
         y_bar = itf.yt.scale[1]
     end
-    grad,  = itf.pullback_inp(y_bar)
+    grad, = itf.pullback_inp(y_bar)
     gvec .= grad
 end
 
-function gradparam!(gvec, itf::FluxInterface, inp=itf.inp)
+function gradparam!(gvec, itf::FluxInterface, inp = itf.inp)
     forward!(itf, inp)
-    backward!(itf;computed_grad_inp=false, compute_grad_param=true)
+    backward!(itf; computed_grad_inp = false, compute_grad_param = true)
     # Check if the results are standardised
     if itf.yt === nothing
         y_bar = 1
@@ -102,11 +112,16 @@ end
 """
 Run the backward step - this creates the pull back functions
 """
-function backward!(itf::FluxInterface, args...;compute_grad_param=true, 
-    computed_grad_inp=true, kwargs...) 
-    if  (compute_grad_param || itf.training_mode) && (itf.pullback_p === nothing)
+function backward!(
+    itf::FluxInterface,
+    args...;
+    compute_grad_param = true,
+    computed_grad_inp = true,
+    kwargs...,
+)
+    if (compute_grad_param || itf.training_mode) && (itf.pullback_p === nothing)
         _, itf.pullback_p = Flux.pullback(() -> sum(itf.model(itf.inp)), itf.params)
-    end 
+    end
     if computed_grad_inp && (itf.pullback_inp === nothing)
         _, itf.pullback_inp = Flux.pullback(x -> sum(itf.model(x)), itf.inp)
     end

@@ -20,7 +20,7 @@ struct BodyEmbedding{T}
     flength::Int
 end
 
-function BodyEmbedding(T, features::Union{Vector, Tuple}, n::Int)
+function BodyEmbedding(T, features::Union{Vector,Tuple}, n::Int)
     nf = length(features)
 
     # Check that all features have the same length
@@ -32,21 +32,21 @@ function BodyEmbedding(T, features::Union{Vector, Tuple}, n::Int)
 end
 
 function Base.show(io::IO, e::BodyEmbedding)
-  print(io, "BodyEmbedding(", length_before(e), " => ", length_after(e))
-  print(io, ")")
+    print(io, "BodyEmbedding(", length_before(e), " => ", length_after(e))
+    print(io, ")")
 end
 
-BodyEmbedding(features::Union{Vector, Tuple}, n::Int) = BodyEmbedding(Float64, features, n)
+BodyEmbedding(features::Union{Vector,Tuple}, n::Int) = BodyEmbedding(Float64, features, n)
 
 """
 Number of embedded vectors
 """
-num_embed(x::BodyEmbedding) = size(x.weight, 2) 
+num_embed(x::BodyEmbedding) = size(x.weight, 2)
 
 """
 Number of feature sets to be compressed
 """
-num_feat(x::BodyEmbedding) = size(x.weight, 1) 
+num_feat(x::BodyEmbedding) = size(x.weight, 1)
 
 """
 Number of elements for each feature
@@ -63,7 +63,7 @@ Apply the embedding
 function (embed::BodyEmbedding)(vector::AbstractVector)
     nl = num_feat(embed)
     l = embed.flength
-    @assert nl * l == length(vector) 
+    @assert nl * l == length(vector)
     # Construct the output vector
     _apply_embedding(embed.weight, reshape(vector, l, nl))
 end
@@ -119,41 +119,37 @@ end
 """
 Embedding for a full CellFeature
 """
-struct CellEmbedding{C, T}
+struct CellEmbedding{C,T}
     cf::C
     two_body::BodyEmbedding{T}
     three_body::BodyEmbedding{T}
 end
 
-function CellEmbedding(cf::CellFeature, n::Int, m::Int=n)
-    CellEmbedding(
-        cf, 
-        BodyEmbedding(cf.two_body, n),
-        BodyEmbedding(cf.three_body,m)
-    )
+function CellEmbedding(cf::CellFeature, n::Int, m::Int = n)
+    CellEmbedding(cf, BodyEmbedding(cf.two_body, n), BodyEmbedding(cf.three_body, m))
 end
 
-length_after(e::CellEmbedding) = feature_size(e.cf)[1] + length_after(e.two_body) + length_after(e.three_body)
+length_after(e::CellEmbedding) =
+    feature_size(e.cf)[1] + length_after(e.two_body) + length_after(e.three_body)
 length_before(e::CellEmbedding) = nfeatures(e.cf)
 
 function Base.show(io::IO, e::CellEmbedding)
     length_in = nfeatures(e.cf)
-    length_out = feature_size(e.cf)[1] + length_after(e.two_body) + length_after(e.three_body)
+    length_out =
+        feature_size(e.cf)[1] + length_after(e.two_body) + length_after(e.three_body)
     print(io, "CellEmbedding(", length_in, " => ", length_out)
     print(io, ")")
 end
 
 
-for T in [
-    :CellEmbedding, :BodyEmbedding
-  ]
-  @eval function Base.show(io::IO, m::MIME"text/plain", x::$T)
-    if !get(io, :compact, false)
-      Flux._layer_show(io, x)
-    else
-      show(io, x)
+for T in [:CellEmbedding, :BodyEmbedding]
+    @eval function Base.show(io::IO, m::MIME"text/plain", x::$T)
+        if !get(io, :compact, false)
+            Flux._layer_show(io, x)
+        else
+            show(io, x)
+        end
     end
-  end
 end
 
 
@@ -241,7 +237,7 @@ function BodyEmbeddingGradient(embed::BodyEmbedding, n, out)
         out,
         copy(out),
         n,
-        num_each_feat_elements(embed)
+        num_each_feat_elements(embed),
     )
 end
 
@@ -257,7 +253,7 @@ input_gradient(e::BodyEmbeddingGradient) = e.gx
 """
 Perform backpropagation - this requires the forward pass to be run an upstream gradients computed
 """
-function backprop!(eg::BodyEmbeddingGradient, e::BodyEmbedding;weight_and_bias=true)
+function backprop!(eg::BodyEmbeddingGradient, e::BodyEmbedding; weight_and_bias = true)
     nf = num_each_feat_elements(e)
     neb = num_embed(e)
     gu_tmp = similar(eg.gu, nf, neb)
@@ -265,7 +261,7 @@ function backprop!(eg::BodyEmbeddingGradient, e::BodyEmbedding;weight_and_bias=t
 
     fill!(eg.gw, 0)
     # Compute for each column - need to pack the inputs
-    for i in 1:eg.n
+    for i = 1:eg.n
         # Compute for each input column
         gu_tmp[:] .= eg.gu[:, i]
         x_tmp[:] .= eg.x[:, i]
@@ -280,7 +276,14 @@ end
 """
 Forward pass
 """
-function forward!(gradient::BodyEmbeddingGradient, layer::BodyEmbedding, next_input_array, x, i, nlayers)
+function forward!(
+    gradient::BodyEmbeddingGradient,
+    layer::BodyEmbedding,
+    next_input_array,
+    x,
+    i,
+    nlayers,
+)
     # Store the input - needed for gradient computation later
     i == 1 && (gradient.x .= x)
     x_reshaped = reshape(x, num_each_feat_elements(layer), num_feat(layer), size(x, 2))
@@ -310,12 +313,12 @@ end
 
 input_gradient(e::CellEmbeddingGradient) = e.gx
 
-function CellEmbeddingGradient(ce::CellEmbedding{C, T}, n::Int, out) where {C, T}
+function CellEmbeddingGradient(ce::CellEmbedding{C,T}, n::Int, out) where {C,T}
     offset = feature_size(ce.cf)[1]
     #out = zeros(T, length_after(ce.two_body) + length_after(ce.three_body) + offset, n)
     x = zeros(T, length_before(ce.two_body) + length_before(ce.three_body) + offset, n)
     CellEmbeddingGradient(
-        BodyEmbeddingGradient(ce.two_body, n), 
+        BodyEmbeddingGradient(ce.two_body, n),
         BodyEmbeddingGradient(ce.three_body, n),
         offset,
         out,
@@ -325,7 +328,7 @@ function CellEmbeddingGradient(ce::CellEmbedding{C, T}, n::Int, out) where {C, T
     )
 end
 
-function CellEmbeddingGradient(ce::CellEmbedding{C, T}, n::Int,) where {C, T}
+function CellEmbeddingGradient(ce::CellEmbedding{C,T}, n::Int) where {C,T}
     offset = feature_size(ce.cf)[1]
     out = zeros(T, length_after(ce.two_body) + length_after(ce.three_body) + offset, n)
     CellEmbeddingGradient(ce, n, out)
@@ -334,7 +337,14 @@ end
 """
 Forward pass
 """
-function forward!(gradient::CellEmbeddingGradient, layer::CellEmbedding, next_gradient, x, i, nlayers)
+function forward!(
+    gradient::CellEmbeddingGradient,
+    layer::CellEmbedding,
+    next_gradient,
+    x,
+    i,
+    nlayers,
+)
     n2 = length_before(layer.two_body)
     n3 = length_before(layer.three_body)
 
@@ -343,26 +353,33 @@ function forward!(gradient::CellEmbeddingGradient, layer::CellEmbedding, next_gr
 
     # Inputs for two-body and three-body features
     offset = gradient.offset
-    x_two_body = view(x, offset+1:offset + n2, :)
-    x_three_body = view(x, offset+ n2 + 1:offset + n2 + n3, :)
+    x_two_body = view(x, offset+1:offset+n2, :)
+    x_three_body = view(x, offset+n2+1:offset+n2+n3, :)
 
     # Next input - again we split it here
-    next_two_body = view(next_gradient.x, offset+1:offset + l2, :)
-    next_three_body = view(next_gradient.x, offset+ l2 + 1:offset + l2 + l3, :)
+    next_two_body = view(next_gradient.x, offset+1:offset+l2, :)
+    next_three_body = view(next_gradient.x, offset+l2+1:offset+l2+l3, :)
 
     forward!(gradient.two_body, layer.two_body, next_two_body, x_two_body, i, nlayers)
-    forward!(gradient.three_body, layer.three_body, next_three_body, x_three_body, i, nlayers)
+    forward!(
+        gradient.three_body,
+        layer.three_body,
+        next_three_body,
+        x_three_body,
+        i,
+        nlayers,
+    )
 
     # Pass through for the one-body
     gradient.out[1:offset, :] = x[1:offset, :]
     # Store the outputs of two and three body
-    gradient.out[offset + 1:offset + l2, :] .= gradient.two_body.out
-    gradient.out[offset + 1 + l2:offset + l2 + l3, :] .= gradient.three_body.out
+    gradient.out[offset+1:offset+l2, :] .= gradient.two_body.out
+    gradient.out[offset+1+l2:offset+l2+l3, :] .= gradient.three_body.out
 
 end
 
 
-function backprop!(cg::CellEmbeddingGradient, ce::CellEmbedding;weight_and_bias=true)
+function backprop!(cg::CellEmbeddingGradient, ce::CellEmbedding; weight_and_bias = true)
 
     n2 = length_before(ce.two_body)
     n3 = length_before(ce.three_body)
@@ -372,10 +389,10 @@ function backprop!(cg::CellEmbeddingGradient, ce::CellEmbedding;weight_and_bias=
 
     # Update the upstream gradients
     offset = cg.offset
-    cg.two_body.gu .= cg.gu[offset+1:offset + l2, :]
-    cg.three_body.gu .= cg.gu[offset + 1 + l2:offset + l2 + l3, :]
-    backprop!(cg.two_body, ce.two_body;weight_and_bias)
-    backprop!(cg.three_body, ce.three_body;weight_and_bias)
+    cg.two_body.gu .= cg.gu[offset+1:offset+l2, :]
+    cg.three_body.gu .= cg.gu[offset+1+l2:offset+l2+l3, :]
+    backprop!(cg.two_body, ce.two_body; weight_and_bias)
+    backprop!(cg.three_body, ce.three_body; weight_and_bias)
 
     # Update gx
     # one-body
@@ -383,5 +400,5 @@ function backprop!(cg::CellEmbeddingGradient, ce::CellEmbedding;weight_and_bias=
     # two-body
     cg.gx[1+offset:offset+n2, :] .= cg.two_body.gx
     # three-body
-    cg.gx[1+ n2 + offset:offset+n2 + n3, :] .= cg.three_body.gx
+    cg.gx[1+n2+offset:offset+n2+n3, :] .= cg.three_body.gx
 end

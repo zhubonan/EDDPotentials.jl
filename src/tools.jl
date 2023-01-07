@@ -10,7 +10,15 @@ using JLD2
 using Dates
 using UUIDs
 
-function relax_structures(files, en_path::AbstractString, cf; savepath="relaxed", skip_existing=true, nmax=1000, core_size=1.0)
+function relax_structures(
+    files,
+    en_path::AbstractString,
+    cf;
+    savepath = "relaxed",
+    skip_existing = true,
+    nmax = 1000,
+    core_size = 1.0,
+)
 
     ensemble = load_from_jld2(en_path, EnsembleNNInterface)
 
@@ -26,15 +34,21 @@ function relax_structures(files, en_path::AbstractString, cf; savepath="relaxed"
         # Skip and existing file
         skip_existing && isfile(joinpath(savepath, fname)) && return
 
-        calc = NNCalc(structures[i], cf, deepcopy(ensemble); nmax=nmax, core=CoreReplusion(core_size))
+        calc = NNCalc(
+            structures[i],
+            cf,
+            deepcopy(ensemble);
+            nmax = nmax,
+            core = CoreReplusion(core_size),
+        )
         vc = VariableCellCalc(calc)
 
         optimise!(vc)
-        write_res(joinpath(savepath, fname), vc; label=fname, symprec=0.1)
+        write_res(joinpath(savepath, fname), vc; label = fname, symprec = 0.1)
     end
 
     @info "Total number of structures: $n"
-    for i in 1:n
+    for i = 1:n
         do_work(i)
         next!(p)
     end
@@ -47,7 +61,7 @@ end
 
 Update the metadata attached to a `Cell`` object
 """
-function update_metadata!(vc::AbstractCalc, label; symprec=1e-2)
+function update_metadata!(vc::AbstractCalc, label; symprec = 1e-2)
     this_cell = get_cell(vc)
     # Set metadata
     this_cell.metadata[:enthalpy] = get_enthalpy(vc)
@@ -65,7 +79,7 @@ end
 
 Write structure in VariableCellCalc as SHELX file.
 """
-function write_res(path, vc::VariableCellCalc; symprec=1e-2, label="EDDP")
+function write_res(path, vc::VariableCellCalc; symprec = 1e-2, label = "EDDP")
     update_metadata!(vc, label; symprec)
     write_res(path, get_cell(vc))
 end
@@ -78,14 +92,25 @@ Build structure using `buildcell` and return the relaxed structure.
 
 - `init_structure_transform`: A function that transforms the initial structure. If `nothing` is returned, skip this generated structure.
 """
-function build_and_relax(seedfile::AbstractString, ensemble, cf; timeout=10, nmax=500, pressure_gpa=0.0,
-    relax_cell=true,
-    show_trace=false, method=TwoPointSteepestDescent(), core_size=1.0, init_structure_transform=nothing, kwargs...)
+function build_and_relax(
+    seedfile::AbstractString,
+    ensemble,
+    cf;
+    timeout = 10,
+    nmax = 500,
+    pressure_gpa = 0.0,
+    relax_cell = true,
+    show_trace = false,
+    method = TwoPointSteepestDescent(),
+    core_size = 1.0,
+    init_structure_transform = nothing,
+    kwargs...,
+)
 
-    cell = build_one(seedfile;timeout, init_structure_transform)
+    cell = build_one(seedfile; timeout, init_structure_transform)
 
-    calc = EDDP.NNCalc(cell, cf, ensemble; nmax, core=CoreReplusion(core_size))
-    vc, res = relax!(calc;relax_cell, pressure_gpa, show_trace, method, kwargs...)
+    calc = EDDP.NNCalc(cell, cf, ensemble; nmax, core = CoreReplusion(core_size))
+    vc, res = relax!(calc; relax_cell, pressure_gpa, show_trace, method, kwargs...)
     vc, res
 end
 
@@ -94,7 +119,12 @@ end
 
 Build a single structure via `buildcell`.
 """
-function build_one(seedfile;timeout=10, init_structure_transform=nothing, max_attemp=100)
+function build_one(
+    seedfile;
+    timeout = 10,
+    init_structure_transform = nothing,
+    max_attemp = 100,
+)
     local cell::Cell{Float64}
     i = 1
     while true
@@ -102,11 +132,14 @@ function build_one(seedfile;timeout=10, init_structure_transform=nothing, max_at
             throw(ErrorException("Maximum attempt for building structure exceeded!"))
         end
         lines = open(seedfile, "r") do seed
-            cellout = read(pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull), String)
+            cellout = read(
+                pipeline(`timeout $(timeout) buildcell`, stdin = seed, stderr = devnull),
+                String,
+            )
             split(cellout, "\n")
         end
 
-            # Generate a unique label
+        # Generate a unique label
         cell = CellBase.read_cell(lines)
 
         if !isnothing(init_structure_transform)
@@ -128,12 +161,19 @@ end
 
 Relax the structure of the calculator.
 """
-function relax!(calc::NNCalc;relax_cell=true, pressure_gpa, show_trace, method, opt_kwargs...)
+function relax!(
+    calc::NNCalc;
+    relax_cell = true,
+    pressure_gpa,
+    show_trace,
+    method,
+    opt_kwargs...,
+)
 
     if relax_cell
         p = pressure_gpa / 160.21766208
         ext = diagm([p, p, p])
-        vc = EDDP.VariableCellCalc(calc, external_pressure=ext)
+        vc = EDDP.VariableCellCalc(calc, external_pressure = ext)
         # Run optimisation
         res = EDDP.optimise!(vc; show_trace, method, opt_kwargs...)
     else
@@ -150,13 +190,20 @@ end
 
 Build multiple random structures in the target folder.
 """
-function build_random_structures(seedfile, outdir;n=1, show_progress=false, timeout=60, outfmt="res")
+function build_random_structures(
+    seedfile,
+    outdir;
+    n = 1,
+    show_progress = false,
+    timeout = 60,
+    outfmt = "res",
+)
     i = 0
     if show_progress
         prog = Progress(n)
     end
-    while i< n 
-        cell = build_one(seedfile;timeout)
+    while i < n
+        cell = build_one(seedfile; timeout)
         label = EDDP.get_label(EDDP.stem(seedfile))
         cell.metadata[:label] = label
         if outfmt == "res"
@@ -179,12 +226,23 @@ Perform random structure searching using the seed file.
 
 - `init_structure_transform`: A function that transforms the initial structure. If `nothing` is returned, skip this generated structure.
 """
-function run_rss(seedfile, ensemble, cf;show_progress=false, max=1, outdir="./", packed=false,
-                ensemble_std_max=-1., ensemble_std_min=-1.,
-                init_structure_transform=nothing,
-                composition_engmin=Dict{Composition, Float64}(),
-                eng_threshold=-1.,
-                niggli_reduce_output=true, max_err=10, kwargs...)
+function run_rss(
+    seedfile,
+    ensemble,
+    cf;
+    show_progress = false,
+    max = 1,
+    outdir = "./",
+    packed = false,
+    ensemble_std_max = -1.0,
+    ensemble_std_min = -1.0,
+    init_structure_transform = nothing,
+    composition_engmin = Dict{Composition,Float64}(),
+    eng_threshold = -1.0,
+    niggli_reduce_output = true,
+    max_err = 10,
+    kwargs...,
+)
     i = 1
 
     isdir(outdir) || mkdir(outdir)
@@ -200,19 +258,26 @@ function run_rss(seedfile, ensemble, cf;show_progress=false, max=1, outdir="./",
         pmeter = Progress(max)
     end
     while i <= max
-        vc, res = build_and_relax_one(seedfile, ensemble, cf;max_err, init_structure_transform, kwargs...)
+        vc, res = build_and_relax_one(
+            seedfile,
+            ensemble,
+            cf;
+            max_err,
+            init_structure_transform,
+            kwargs...,
+        )
 
         # Check for ensemble error and act
         # This prunes structure that we are too confident, e.g. nothing to learn from
-        if ensemble_std_min > 0. || ensemble_std_max > 0.
+        if ensemble_std_min > 0.0 || ensemble_std_max > 0.0
             estd = get_energy_std(vc.calc) / length(get_cell(vc))
             if estd < ensemble_std_min
                 @info "Ensemble standard deviation $(estd) is too small ($(ensemble_std_max))!"
-                continue 
+                continue
             end
-            if  estd > ensemble_std_max
+            if estd > ensemble_std_max
                 @info "Ensemble standard deviation $(estd) is too large ($(ensemble_std_max))!"
-                continue 
+                continue
             end
         end
 
@@ -239,7 +304,7 @@ function run_rss(seedfile, ensemble, cf;show_progress=false, max=1, outdir="./",
         if niggli_reduce_output
             try
                 cell = niggli_reduce_cell(cell)
-            catch err 
+            catch err
                 continue
             end
         end
@@ -257,15 +322,21 @@ end
 
 Build and relax a single structure, ensure that the process *does* generate a new structure.
 """
-function build_and_relax_one(seedfile::AbstractString, ensemble, cf::CellFeature; 
-    init_structure_transform=nothing,
-    max_err=10, kwargs...)
+function build_and_relax_one(
+    seedfile::AbstractString,
+    ensemble,
+    cf::CellFeature;
+    init_structure_transform = nothing,
+    max_err = 10,
+    kwargs...,
+)
     nerr = 1
     local vc
     local res
     while true
         try
-            vc, res = build_and_relax(seedfile, ensemble, cf;init_structure_transform, kwargs...)
+            vc, res =
+                build_and_relax(seedfile, ensemble, cf; init_structure_transform, kwargs...)
         catch err
             isa(err, InterruptException) && throw(err)
             if typeof(err) <: ProcessFailedException
@@ -317,7 +388,7 @@ end
 """
 Check if a feature vector already present in an array of vectors
 """
-function is_unique_fvec(all_fvecs, fvec; tol=1e-2, lim=5)
+function is_unique_fvec(all_fvecs, fvec; tol = 1e-2, lim = 5)
     match = false
     for ref in all_fvecs
         dist = CellBase.fingerprint_distance(ref, fvec; lim)
@@ -348,13 +419,13 @@ swapext(fname, new) = splitext(fname)[1] * new
 Shake the given structures and write new files with suffix `-shake-N.res`.
 
 """
-function shake_res(files::Vector, nshake::Int, amp::Real, cellamp::Real=0.02)
+function shake_res(files::Vector, nshake::Int, amp::Real, cellamp::Real = 0.02)
     for f in files
         cell = read_res(f)
         pos_backup = get_positions(cell)
         cellmat_backup = get_cellmat(cell)
         label = cell.metadata[:label]
-        for i in 1:nshake
+        for i = 1:nshake
             rattle!(cell, amp)
             rattle_cell!(cell, cellamp)
             cell.metadata[:label] = label * "-shake-$i"
@@ -403,10 +474,10 @@ The equilibrium position is at ``r_c/2``.
 
 Support only single a element for now.
 """
-function lj_like_calc(cell::Cell; α=1.0, a=6, rc=3.0)
+function lj_like_calc(cell::Cell; α = 1.0, a = 6, rc = 3.0)
     elem = unique(species(cell))
     @assert length(elem) == 1 "Only works for single specie Cell for now."
-    cf = EDDP.CellFeature(elem, p2=[a, 2a], p3=[], q3=[], rcut2=rc)
+    cf = EDDP.CellFeature(elem, p2 = [a, 2a], p3 = [], q3 = [], rcut2 = rc)
     model = EDDP.LinearInterface([0, -2, 1.0] .* α)
     EDDP.NNCalc(cell, cf, model)
 end

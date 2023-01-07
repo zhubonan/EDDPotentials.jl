@@ -15,15 +15,15 @@ struct EnsembleNNInterface{T<:Tuple} <: AbstractNNInterface
     end
 end
 
-function (itf::EnsembleNNInterface)(inp, args...;kwargs...)
-    forward!(itf, inp, args...;kwargs...)
+function (itf::EnsembleNNInterface)(inp, args...; kwargs...)
+    forward!(itf, inp, args...; kwargs...)
 end
 
 function forward!(itf::EnsembleNNInterface, inp)
     out = forward!(itf.models[1], inp)
     out .*= itf.weights[1]
     length(itf.models) == 1 && return out
-    for im in 2:length(itf.models)
+    for im = 2:length(itf.models)
         model, wt = itf.models[im], itf.weights[im]
         out .+= forward!(model, inp) .* wt
     end
@@ -32,11 +32,11 @@ end
 
 function backward!(itf::EnsembleNNInterface, args...; kwargs...)
     for model in itf.models
-        backward!(model, args...;kwargs...) 
+        backward!(model, args...; kwargs...)
     end
 end
 
-function gradinp!(gvec, itf::EnsembleNNInterface;tmpg=copy(gvec))
+function gradinp!(gvec, itf::EnsembleNNInterface; tmpg = copy(gvec))
     fill!(tmpg, 0)
     fill!(gvec, 0)
     for (model, wt) in zip(itf.models, itf.weights)
@@ -60,7 +60,7 @@ function paramvector(itf::EnsembleNNInterface)
     vecs = paramvector(itf.models[1])
     length(itf.models) == 1 && return out
 
-    for im in 2:length(itf.models)
+    for im = 2:length(itf.models)
         model = itf.models[im]
         append!(vecs, paramvector(model))
     end
@@ -94,7 +94,7 @@ function Base.show(io::IO, m::MIME"text/plain", v::EnsembleNNInterface)
     println(io, "Weights: $(v.weights)")
 end
 
-function save_as_jld2(f::Union{JLD2.Group, JLD2.JLDFile}, obj::EnsembleNNInterface)
+function save_as_jld2(f::Union{JLD2.Group,JLD2.JLDFile}, obj::EnsembleNNInterface)
     topgroup = JLD2.Group(f, "ensemble")
     group = JLD2.Group(topgroup, "models")
     for (i, model) in enumerate(obj.models)
@@ -111,9 +111,9 @@ end
 
 Load from JLD2 file or JLD2 group. 
 """
-function load_from_jld2(f::Union{JLD2.Group, JLD2.JLDFile}, ::Type{<:EnsembleNNInterface})
+function load_from_jld2(f::Union{JLD2.Group,JLD2.JLDFile}, ::Type{<:EnsembleNNInterface})
     topgroup = f["ensemble"]
-    group = topgroup["models"] 
+    group = topgroup["models"]
     models = []
     ids = Int[]
     for key in keys(group)

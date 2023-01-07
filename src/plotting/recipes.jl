@@ -5,7 +5,8 @@ This files contains recipies for using Plots.jl for visualization
 using RecipesBase
 using LaTeXStrings
 
-_get_target_and_pred(tr::TrainingResults) =  tr.H_target ./ natoms(tr), tr.H_pred ./ natoms(tr)
+_get_target_and_pred(tr::TrainingResults) =
+    tr.H_target ./ natoms(tr), tr.H_pred ./ natoms(tr)
 
 function has_multiple_comp(fc::FeatureContainer)
     length(unique([m[:formula] for m in fc.metadata])) > 1
@@ -30,7 +31,7 @@ function _get_rel_target_and_pred(tr::TrainingResults)
     target, pred
 end
 
-@recipe function f(tr::TrainingResults) 
+@recipe function f(tr::TrainingResults)
     if has_multiple_comp(tr.fc)
         _get_rel_target_and_pred(tr)
     else
@@ -38,7 +39,7 @@ end
     end
 end
 
-@recipe function f(::Type{TrainingResults}, tr::TrainingResults) 
+@recipe function f(::Type{TrainingResults}, tr::TrainingResults)
     if has_multiple_comp(tr.fc)
         _get_rel_target_and_pred(tr)
     else
@@ -52,14 +53,15 @@ function resample_mae_rmse(target, pred, samples)
     output_mae = similar(output_rmse)
     for (i, cutoff) in enumerate(samples)
         mask = rel .< cutoff
-        err = pred[mask] .- target[mask] 
+        err = pred[mask] .- target[mask]
         output_rmse[i] = sqrt(sum(err .^ 2) / length(err))
         output_mae[i] = sum(abs, err) / length(err)
     end
     output_mae, output_rmse
 end
 
-resample_mae_rmse(tr::TrainingResults, samples) = resample_mae_rmse(_get_rel_target_and_pred(tr)..., samples)
+resample_mae_rmse(tr::TrainingResults, samples) =
+    resample_mae_rmse(_get_rel_target_and_pred(tr)..., samples)
 
 @userplot RelativeAbsoluteError
 
@@ -146,27 +148,28 @@ Unless otherwise stateed, latter refers to the training data and the model at th
 """
 inoutsample
 
-function _get_inoutsample_data(builder, test_iter, iter_start=0)
+function _get_inoutsample_data(builder, test_iter, iter_start = 0)
     # Data Processing
     eiter = load_ensemble(builder, test_iter)
-    enextiter = load_ensemble(builder, test_iter+1)
+    enextiter = load_ensemble(builder, test_iter + 1)
 
     @info "Loading features"
-    fcnextiter = load_features(builder, test_iter+1, show_progress=false)
-    fciter = load_features(builder, iter_start:test_iter, show_progress=false)
+    fcnextiter = load_features(builder, test_iter + 1, show_progress = false)
+    fciter = load_features(builder, iter_start:test_iter, show_progress = false)
     @info "Features loaded"
 
     troutsample = TrainingResults(eiter, fcnextiter)
     trinsample = TrainingResults(eiter, fciter)
     troutsample_insample = TrainingResults(enextiter, fcnextiter)
-    scnextiter = load_structures(builder, test_iter+1)
-    (;troutsample, trinsample, troutsample_insample, scnextiter)
+    scnextiter = load_structures(builder, test_iter + 1)
+    (; troutsample, trinsample, troutsample_insample, scnextiter)
 end
 
 @recipe function fh(h::InOutSample)
 
     if isa(h.args[1], Builder)
-        troutsample, trinsample, troutsample_insample, scnextiter = _get_inoutsample_data(h.args...)
+        troutsample, trinsample, troutsample_insample, scnextiter =
+            _get_inoutsample_data(h.args...)
     else
         troutsample, trinsample, troutsample_insample, scnextiter = h.args[1]
     end
@@ -283,20 +286,20 @@ end
 
 
     resampel_range = LinRange(0, 3, 100)
-    y1, _ =   resample_mae_rmse(trinsample, resampel_range)
-    y2, _ =   resample_mae_rmse(troutsample, resampel_range)
+    y1, _ = resample_mae_rmse(trinsample, resampel_range)
+    y2, _ = resample_mae_rmse(troutsample, resampel_range)
 
     subplot := 4
     @series begin
         label := "MAE: In-sample"
-        xlabel := "Threshold (eV / atom)" 
+        xlabel := "Threshold (eV / atom)"
         ylabel := "Energy (eV / atom)"
         resampel_range, y1
     end
 
     @series begin
         label := "MAE: Out-of-sample"
-        xlabel := "Threshold (eV / atom)" 
+        xlabel := "Threshold (eV / atom)"
         ylabel := "Energy (eV / atom)"
         resampel_range, y2
     end

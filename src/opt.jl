@@ -16,12 +16,20 @@ Reference:
     - Barzilai, J. and Borwein, J.M., 1988. Two-point step size gradient methods. IMA journal of numerical analysis, 8(1), pp.141-148
 
 """
-function opt_tpsd(vc::AbstractCalc; f_tol=1e-4, s_tol=1e-6, e_tol=1e-5, 
-                  itermax=1000, trace=false, α_tol=1e-10, callback=nothing, 
-                  trajectory=nothing)
+function opt_tpsd(
+    vc::AbstractCalc;
+    f_tol = 1e-4,
+    s_tol = 1e-6,
+    e_tol = 1e-5,
+    itermax = 1000,
+    trace = false,
+    α_tol = 1e-10,
+    callback = nothing,
+    trajectory = nothing,
+)
     f = get_forces(vc)
     f0 = similar(f)
-    e0 = -9999.
+    e0 = -9999.0
     x = get_positions(vc)
     step = similar(x)
     x0 = x
@@ -29,7 +37,7 @@ function opt_tpsd(vc::AbstractCalc; f_tol=1e-4, s_tol=1e-6, e_tol=1e-5,
     # Initial step
     α = 1e-8
     dx = similar(x)
-    df = similar(f) 
+    df = similar(f)
 
     converged = false
     i = 1
@@ -56,7 +64,7 @@ function opt_tpsd(vc::AbstractCalc; f_tol=1e-4, s_tol=1e-6, e_tol=1e-5,
         de = abs(e - e0)
 
         # Check for convergence criteria
-        if fmax < f_tol && smax < s_tol && de < e_tol 
+        if fmax < f_tol && smax < s_tol && de < e_tol
             converged = true
         end
 
@@ -64,13 +72,20 @@ function opt_tpsd(vc::AbstractCalc; f_tol=1e-4, s_tol=1e-6, e_tol=1e-5,
         dx .= x .- x0
         df .= f .- f0
         if i > 1
-            α =  abs(dot(dx, df) / (dot(df, df) + floatmin(eltype(x))))
+            α = abs(dot(dx, df) / (dot(df, df) + floatmin(eltype(x))))
         end
 
         # Show trace information
         if trace
-            @info @sprintf("Iteration %d  |F|= %-10.5g |Smax|= %-10.5g dE= %-10.5g α= %-10.5g |step|= %-10.5g",
-                           i, fmax, smax, de, α, norm(step))
+            @info @sprintf(
+                "Iteration %d  |F|= %-10.5g |Smax|= %-10.5g dE= %-10.5g α= %-10.5g |step|= %-10.5g",
+                i,
+                fmax,
+                smax,
+                de,
+                α,
+                norm(step)
+            )
         end
 
         # Check if Alpha is too small
@@ -78,7 +93,7 @@ function opt_tpsd(vc::AbstractCalc; f_tol=1e-4, s_tol=1e-6, e_tol=1e-5,
             converged = false
             break
         end
-    
+
         # Check if we are converged
         converged && break
 

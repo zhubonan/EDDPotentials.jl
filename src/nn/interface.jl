@@ -58,10 +58,14 @@ end
 """
 Obtain an baseline MLP model
 """
-function flux_mlp_model(cf::CellFeature, nodes...;init=glorot_uniform_f64, 
-         σ=tanh_fast,
-         embedding=nothing,
-         σs=nothing)
+function flux_mlp_model(
+    cf::CellFeature,
+    nodes...;
+    init = glorot_uniform_f64,
+    σ = tanh_fast,
+    embedding = nothing,
+    σs = nothing,
+)
 
     if embedding === nothing
         ninp = nfeatures(cf)
@@ -73,7 +77,7 @@ function flux_mlp_model(cf::CellFeature, nodes...;init=glorot_uniform_f64,
         ninp += nfeatures(cf.three_body[1]) * num_embed(embedding.three_body)
     end
     if isnothing(σs)
-        input = Dense(ninp => nodes[1], σ;init)
+        input = Dense(ninp => nodes[1], σ; init)
     else
         input = Dense(ninp => nodes[1], σs[1]; init)
     end
@@ -89,12 +93,12 @@ function flux_mlp_model(cf::CellFeature, nodes...;init=glorot_uniform_f64,
     while i < length(nodes)
         i += 1
         if isnothing(σs)
-            push!(layers, Dense(nodes[i-1]=>nodes[i], σ; init))
+            push!(layers, Dense(nodes[i-1] => nodes[i], σ; init))
         else
-            push!(layers, Dense(nodes[i-1]=>nodes[i], σs[i]; init))
+            push!(layers, Dense(nodes[i-1] => nodes[i], σs[i]; init))
         end
     end
-    push!(layers, Dense(nodes[i]=>1;init))
+    push!(layers, Dense(nodes[i] => 1; init))
     Chain(layers...)
 end
 

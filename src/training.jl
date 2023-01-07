@@ -19,38 +19,38 @@ import CellBase
 using TensorBoardLogger
 using Logging
 
-const XT_NAME="xt"
-const YT_NAME="yt"
-const FEATURESPEC_NAME="cf"
+const XT_NAME = "xt"
+const YT_NAME = "yt"
+const FEATURESPEC_NAME = "cf"
 
 
 @with_kw struct TrainingOptions
-    nmodels::Int=256
-    max_iter::Int=300
+    nmodels::Int = 256
+    max_iter::Int = 300
     "number of hidden nodes in each layer"
-    n_nodes::Vector{Int}=[8]
-    yt_name::String=YT_NAME
-    xt_name::String=XT_NAME
-    featurespec_name::String=FEATURESPEC_NAME
-    earlystop::Int=30
-    show_progress::Bool=false
+    n_nodes::Vector{Int} = [8]
+    yt_name::String = YT_NAME
+    xt_name::String = XT_NAME
+    featurespec_name::String = FEATURESPEC_NAME
+    earlystop::Int = 30
+    show_progress::Bool = false
     "Store the data used for training in the archive"
-    store_training_data::Bool=true
-    rmse_threshold::Float64=0.5
+    store_training_data::Bool = true
+    rmse_threshold::Float64 = 0.5
 end
 
 """
 Genreate a `Chain` based on a vector specifying the number of hidden nodes in each layer
 """
 function generate_chain(nfeature, nnodes)
-    if length(nnodes) == 0 
+    if length(nnodes) == 0
         return Chain(Dense(nfeature, 1))
     end
 
-    models = Any[Dense(nfeature, nnodes[1], tanh;bias=true)]
+    models = Any[Dense(nfeature, nnodes[1], tanh; bias = true)]
     # Add more layers
     if length(nnodes) > 1
-        for i in 2:length(nnodes)
+        for i = 2:length(nnodes)
             push!(models, Dense(nnodes[i-1], nnodes[i]))
         end
     end
@@ -61,7 +61,7 @@ end
 
 
 "Load CellFeature serialized in the archive"
-function load_featurespec(fname;opts=TrainingOptions())
+function load_featurespec(fname; opts = TrainingOptions())
     featurespec = jldopen(fname) do file
         file[opts.featurespec_name]
     end
@@ -93,15 +93,14 @@ end
 
 Create an EnsembleNNInterface from a vector of interfaces and x, y data for fitting.
 """
-function create_ensemble(models, x::AbstractVector, y::AbstractVector;
-                         threshold=1e-3)
+function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold = 1e-3)
     weights = nnls_weights(models, x, y)
     tmp_models = collect(models)
     mask = weights .< threshold
     # Eliminate models with weights lower than the threshold
     while sum(mask) > 0
         # Models with weights higher than the threshold
-        tmp_models = tmp_models[map(!, mask)] 
+        tmp_models = tmp_models[map(!, mask)]
         # Refit the weights
         weights = nnls_weights(tmp_models, x, y)
         # Models with small weights
@@ -110,26 +109,31 @@ function create_ensemble(models, x::AbstractVector, y::AbstractVector;
     EnsembleNNInterface(Tuple(tmp_models), weights)
 end
 
-EnsembleNNInterface(models, fc::FeatureContainer;threshold=1e-3) = create_ensemble(models, get_fit_data(fc)...;threshold)
+EnsembleNNInterface(models, fc::FeatureContainer; threshold = 1e-3) =
+    create_ensemble(models, get_fit_data(fc)...; threshold)
 
 predict_energy(itf::AbstractNNInterface, vec) = sum(itf(vec))
 
 """
 Perform training for the given TrainingConfig
 """
-function train_lm!(itf::AbstractNNInterface, x, y;
-                   p0=EDDP.paramvector(itf),
-                   maxIter=1000,
-                   show_progress=false,
-                   x_test=x, y_test=y,
-                   earlystop=50,
-                   keep_best=true,
-                   tb_logger_dir=nothing,
-                   p=1.25,
-                   args...
-                   ) 
+function train_lm!(
+    itf::AbstractNNInterface,
+    x,
+    y;
+    p0 = EDDP.paramvector(itf),
+    maxIter = 1000,
+    show_progress = false,
+    x_test = x,
+    y_test = y,
+    earlystop = 50,
+    keep_best = true,
+    tb_logger_dir = nothing,
+    p = 1.25,
+    args...,
+)
     rec = []
-    
+
     train_natoms = [size(v, 2) for v in x]
     test_natoms = [size(v, 2) for v in x_test]
 
@@ -146,14 +150,15 @@ function train_lm!(itf::AbstractNNInterface, x, y;
         else
             rmse_test = rmse_per_atom(itf, x_test, y_test, test_natoms)
         end
-        show_progress && @printf "RMSE Train %10.5f eV | Test %10.5f eV\n" rmse_train rmse_test
+        show_progress &&
+            @printf "RMSE Train %10.5f eV | Test %10.5f eV\n" rmse_train rmse_test
         flush(stdout)
         push!(rec, (rmse_train, rmse_test))
 
         # Tensor board logging
         if tb_logger !== nothing
-            with_logger(tb_logger) do 
-                @info "" rmse_test=rmse_test rmse_train=rmse_train            
+            with_logger(tb_logger) do
+                @info "" rmse_test = rmse_test rmse_train = rmse_train
             end
         end
 
@@ -161,31 +166,45 @@ function train_lm!(itf::AbstractNNInterface, x, y;
     end
 
     # Setting up the object for minimization
-    f!, j!, fj! = setup_fj(itf, x, y);
-    od2 = OnceDifferentiable(f!, j!, fj!, p0, zeros(eltype(x[1]), length(x)), inplace=true);
+    f!, j!, fj! = setup_fj(itf, x, y)
+    od2 =
+        OnceDifferentiable(f!, j!, fj!, p0, zeros(eltype(x[1]), length(x)), inplace = true)
 
     callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
-    
-    opt_res = levenberg_marquardt(od2, p0;show_trace=false, 
-                                  callback=callback, p=p, 
-                                  maxIter=maxIter, keep_best=keep_best, earlystop, args...)
+
+    opt_res = levenberg_marquardt(
+        od2,
+        p0;
+        show_trace = false,
+        callback = callback,
+        p = p,
+        maxIter = maxIter,
+        keep_best = keep_best,
+        earlystop,
+        args...,
+    )
     # Update the p0 of the training configuration
-    opt_res, paramvector(itf), [map(x->x[1], rec) map(x->x[2], rec)], (f!, j!, fj!)
+    opt_res, paramvector(itf), [map(x -> x[1], rec) map(x -> x[2], rec)], (f!, j!, fj!)
 end
 
-function train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_test::FeatureContainer
-                ;train_method="lm", kwargs...)
+function train!(
+    itf::AbstractNNInterface,
+    fc_train::FeatureContainer,
+    fc_test::FeatureContainer;
+    train_method = "lm",
+    kwargs...,
+)
 
     if train_method == "lm"
         x_train, y_train = get_fit_data(fc_train)
         x_test, y_test = get_fit_data(fc_test)
-        train_lm!(itf, x_train, y_train;x_test, y_test, kwargs...)
+        train_lm!(itf, x_train, y_train; x_test, y_test, kwargs...)
     elseif train_method == "optim"
         model = get_flux_model(itf)
         f, g!, pview, callback = EDDP.generate_f_g_optim(model, fc_train, fc_test)
         od = OnceDifferentiable(f, g!, collect(pview))
         x0 = collect(pview)
-        opt_res = Optim.optimize(od, x0;callback=callback, kwargs...)
+        opt_res = Optim.optimize(od, x0; callback = callback, kwargs...)
         opt_res, collect(pview)
     end
 end
@@ -216,9 +235,9 @@ end
 Allow func(itf, fc) signature to be used....
 """
 macro _itf_per_atom_wrap(expr)
-    quote 
+    quote
         function $(esc(expr))(itf::AbstractNNInterface, fc::FeatureContainer)
-            x, y=  get_fit_data(fc)
+            x, y = get_fit_data(fc)
             nat = size.(x, 2)
             $expr(itf, x, y, nat)
         end
@@ -230,7 +249,7 @@ end
 @_itf_per_atom_wrap(mae_per_atom)
 
 # function train_multi_distributed(itf, x, y; nmodels=10, kwargs...)
-                  
+
 #     results_channel = RemoteChannel(() -> Channel(nmodels))
 #     job_channel = RemoteChannel(() -> Channel(nmodels))
 
@@ -284,16 +303,24 @@ end
 #     create_ensemble(all_models, x, y)      
 # end
 
-function train_multi_threaded(itf, fc_train, fc_test; 
-    show_progress=true,
-    nmodels=10, suffix=nothing, prefix=nothing, save_each_model=true, 
-    use_test_for_ensemble=true, kwargs...)
-                  
+function train_multi_threaded(
+    itf,
+    fc_train,
+    fc_test;
+    show_progress = true,
+    nmodels = 10,
+    suffix = nothing,
+    prefix = nothing,
+    save_each_model = true,
+    use_test_for_ensemble = true,
+    kwargs...,
+)
+
     results_channel = Channel(nmodels)
     job_channel = Channel(nmodels)
 
     # Put the jobs
-    for i=1:nmodels
+    for i = 1:nmodels
         put!(job_channel, i)
     end
     tasks = []
@@ -303,8 +330,18 @@ function train_multi_threaded(itf, fc_train, fc_test;
     @info "Training method  : $(get(kwargs, :train_method, nothing))"
     @debug "Keyord arguments : $(kwargs)"
 
-    for _ in 1:nthreads()
-        push!(tasks, Threads.@spawn worker_train_one(itf, fc_train, fc_test, job_channel, results_channel;kwargs...))
+    for _ = 1:nthreads()
+        push!(
+            tasks,
+            Threads.@spawn worker_train_one(
+                itf,
+                fc_train,
+                fc_test,
+                job_channel,
+                results_channel;
+                kwargs...,
+            )
+        )
     end
 
     # Check for any errors - works should not return until they are explicitly signaled
@@ -340,12 +377,12 @@ function train_multi_threaded(itf, fc_train, fc_test;
             itf, out = take!(results_channel)
             if show_progress
                 showvalues = [(:rmse, minimum(out[3][:, 2]))]
-                ProgressMeter.next!(p;showvalues)
+                ProgressMeter.next!(p; showvalues)
             end
             # Save to files
             save_each_model && save_as_jld2(@sprintf("%s-%03d.jld2", fname, i), itf)
             push!(all_models, itf)
-            i +=1
+            i += 1
         end
     catch err
         if isa(err, InterruptException)
@@ -362,9 +399,9 @@ function train_multi_threaded(itf, fc_train, fc_test;
         close(results_channel)
     end
     if use_test_for_ensemble
-        create_ensemble(all_models, fc_train + fc_test)      
+        create_ensemble(all_models, fc_train + fc_test)
     else
-        create_ensemble(all_models, fc_train)      
+        create_ensemble(all_models, fc_train)
     end
 end
 
@@ -375,9 +412,9 @@ end
 
 Create ensemble model from training data.
 """
-function create_ensemble(all_models, fc::FeatureContainer, args...;kwargs...)      
+function create_ensemble(all_models, fc::FeatureContainer, args...; kwargs...)
     x, y = get_fit_data(fc)
-    create_ensemble(all_models, x, y;kwargs...)
+    create_ensemble(all_models, x, y; kwargs...)
 end
 
 
@@ -386,7 +423,7 @@ end
 
 Train one model and put the results into a channel
 """
-function worker_train_one(model, train, test, jobs_channel, results_channel;kwargs...)
+function worker_train_one(model, train, test, jobs_channel, results_channel; kwargs...)
     while true
         job_id = take!(jobs_channel)
         # Signals no more work to do
@@ -394,7 +431,7 @@ function worker_train_one(model, train, test, jobs_channel, results_channel;kwar
             break
         end
         new_model = reinit(model)
-        out = train!(new_model, train, test;kwargs...)
+        out = train!(new_model, train, test; kwargs...)
         # Put the output in the channel storing the results
         if isa(model, ManualFluxBackPropInterface)
             clear_transient_gradients!(model)
@@ -404,7 +441,7 @@ function worker_train_one(model, train, test, jobs_channel, results_channel;kwar
 end
 
 
-struct TrainingResults{F, T}
+struct TrainingResults{F,T}
     fc::F
     model::T
     H_pred::Vector{Float64}
@@ -418,7 +455,7 @@ CellBase.natoms(x::TrainingResults) = natoms(x.fc)
 
 Allow slicing to work on TrainingResults.
 """
-function Base.getindex(v::TrainingResults, idx::Union{UnitRange, Vector{T}}) where {T<: Int}   
+function Base.getindex(v::TrainingResults, idx::Union{UnitRange,Vector{T}}) where {T<:Int}
     TrainingResults(v.fc[idx], v.model, v.H_pred[idx], v.H_target[idx])
 end
 
@@ -435,7 +472,7 @@ function rmse_per_atom(tr::TrainingResults)
 end
 
 function mae_per_atom(tr::TrainingResults)
-    abs.((tr.H_target .- tr.H_pred) ./ natoms(tr.fc)) |> mean 
+    abs.((tr.H_target .- tr.H_pred) ./ natoms(tr.fc)) |> mean
 end
 
 "Absolute per-atom error"
@@ -446,13 +483,19 @@ end
 absolute_error(tr::TrainingResults) = abs.(tr.H_pred .- tr.H_target)
 
 function Base.show(io::IO, ::MIME"text/plain", tr::TrainingResults)
-    @printf(io, "TrainingResults\n%20s: %d\n",  "Number of structures",  length(tr.fc))
+    @printf(io, "TrainingResults\n%20s: %d\n", "Number of structures", length(tr.fc))
     ncomps = length(unique(m[:formula] for m in tr.fc.metadata))
-    @printf(io, "%20s: %d\n",  "Number of compositions",  ncomps)
-    @printf(io, "%-10s: %10.5f eV      ", "RMSE",  rmse_per_atom(tr))
-    @printf(io, "%-10s: %10.5f eV\n", "MAE",  mae_per_atom(tr))
+    @printf(io, "%20s: %d\n", "Number of compositions", ncomps)
+    @printf(io, "%-10s: %10.5f eV      ", "RMSE", rmse_per_atom(tr))
+    @printf(io, "%-10s: %10.5f eV\n", "MAE", mae_per_atom(tr))
     max_mae, label_max = maximum_error(tr)
-    @printf(io, "%-10s: %10.2f eV     on structure: %20s\n", "Max absolute error",  max_mae, label_max)
+    @printf(
+        io,
+        "%-10s: %10.2f eV     on structure: %20s\n",
+        "Max absolute error",
+        max_mae,
+        label_max
+    )
     @printf(io, "%-10s: %10.5f", "Average Spearman", spearman(tr))
 end
 
@@ -464,14 +507,14 @@ function print_spearman(io, tr)
 end
 
 print_spearman(tr::TrainingResults) = print_spearman(stdout, tr)
- 
+
 
 Base.show(io::IO, tr::TrainingResults) = Base.show(io, MIME("text/plain"), tr)
 
 function maximum_error(tr::TrainingResults)
     ae = absolute_error(tr)
     maximum_ae = maximum(ae)
-    imax = findfirst( x-> x== maximum_ae, ae)
+    imax = findfirst(x -> x == maximum_ae, ae)
     label_max = tr.fc.labels[imax]
     return maximum_ae, label_max
 end
@@ -481,23 +524,24 @@ end
 
 Return unique reduced formula and their spearman scores. 
 """
-function spearman_each_comp(tr::TrainingResults) 
+function spearman_each_comp(tr::TrainingResults)
     forms = [m[:formula] for m in tr.fc.metadata]
     nat = natoms(tr.fc)
     uforms = unique(forms)
-    out = Dict{Symbol, eltype(tr.H_target)}()
+    out = Dict{Symbol,eltype(tr.H_target)}()
     for fu in uforms
         idx = findall(x -> x == fu, forms)
         # Compare per-atom energy difference, otherwise having more diversity in the formula units
         # will results in overly optimistic spearman scores.
-        out[fu] =  corspearman(tr.H_target[idx] ./ nat[idx], tr.H_pred[idx] ./ nat[idx])
+        out[fu] = corspearman(tr.H_target[idx] ./ nat[idx], tr.H_pred[idx] ./ nat[idx])
     end
     out
 end
 
 function per_atom_scatter_each_comp(tr::TrainingResults)
     Dict(
-        Pair(comp, (t.H_target ./ natoms(t.fc), t.H_pred ./ natoms(t.fc))) for (comp, t) in each_comp(tr)
+        Pair(comp, (t.H_target ./ natoms(t.fc), t.H_pred ./ natoms(t.fc))) for
+        (comp, t) in each_comp(tr)
     )
 end
 
@@ -518,9 +562,15 @@ end
 
 Return the standard deviation from the ensemble for each data point. Defaults to atomic energy.
 """
-function ensemble_std(tr::TrainingResults{M, T};min_weight=0.05) where {M, T<:EnsembleNNInterface}
+function ensemble_std(
+    tr::TrainingResults{M,T};
+    min_weight = 0.05,
+) where {M,T<:EnsembleNNInterface}
     function fvstd_atomic(fvec)
-        std(mean(m(fvec)) for (m, w) in  zip(tr.model.models, tr.model.weights) if w > min_weight)
+        std(
+            mean(m(fvec)) for
+            (m, w) in zip(tr.model.models, tr.model.weights) if w > min_weight
+        )
     end
     return fvstd_atomic.(tr.fc.fvecs)
 end
@@ -543,11 +593,11 @@ end
 Construct a TrainingResultsSummary object from TrainingResults for the train, test and 
 validation sets.
 """
-function TrainingResultsSummary(train, test ,valid)
+function TrainingResultsSummary(train, test, valid)
     rmse = Float64[rmse_per_atom(x) for x in [train, test, valid]]
     mae = Float64[mae_per_atom(x) for x in [train, test, valid]]
-    sp = Dict{Symbol,Float64}[spearman_each_comp(x) for x in [train,test,valid]]
-    r2 = Dict{Symbol,Float64}[r2score_each_comp(x) for x in [train,test,valid]]
+    sp = Dict{Symbol,Float64}[spearman_each_comp(x) for x in [train, test, valid]]
+    r2 = Dict{Symbol,Float64}[r2score_each_comp(x) for x in [train, test, valid]]
     np = nparams(train.model)
     nfeat = nfeatures(train.fc.feature)
     TrainingResultsSummary(rmse, mae, sp, r2, np, nfeat, nothing)
@@ -563,10 +613,10 @@ See also: https://scikit-learn.org/stable/modules/model_evaluation.html#r2-score
 """
 function r2score_each_comp(tr::TrainingResults)
     data = per_atom_scatter_each_comp(tr)
-    out = Dict{Symbol, Float64}()
+    out = Dict{Symbol,Float64}()
     for (comp, (target, pred)) in data
         mt = mean(target)
-        sstot = sum((target .- mt) .^ 2) 
+        sstot = sum((target .- mt) .^ 2)
         ssres = sum((target .- pred) .^ 2)
         out[comp] = 1 - ssres / sstot
     end
@@ -590,7 +640,7 @@ end
 
 Generate f, g!, view of the parameters and the callback function for NN training using Optim.
 """
-function generate_f_g_optim_alt(model, fc_train, fc_test;pow=2,earlystop=30)
+function generate_f_g_optim_alt(model, fc_train, fc_test; pow = 2, earlystop = 30)
 
     X = fc_train.fvecs
     Y = transform_y(fc_train)
@@ -604,19 +654,19 @@ function generate_f_g_optim_alt(model, fc_train, fc_test;pow=2,earlystop=30)
     Ha = fc_train.H ./ natoms(fc_train)
     Ha_test = fc_test.H ./ natoms(fc_test)
 
-    iter :: Int = 1
-    min_test :: Float64 = floatmax(Float64)
-    min_iter :: Int = 1
+    iter::Int = 1
+    min_test::Float64 = floatmax(Float64)
+    min_iter::Int = 1
 
     function f(x)
-        pview .= x 
-        return loss_all(mdl, X, Y;pow)
+        pview .= x
+        return loss_all(mdl, X, Y; pow)
     end
 
     function g!(g, x)
-        pview .= x 
-        grad = Zygote.gradient(ps) do 
-            loss_all(mdl, X, Y;pow)
+        pview .= x
+        grad = Zygote.gradient(ps) do
+            loss_all(mdl, X, Y; pow)
         end
         g .= CatView([grad.grads[x] for x in ps.params]...)
         return g
@@ -625,9 +675,21 @@ function generate_f_g_optim_alt(model, fc_train, fc_test;pow=2,earlystop=30)
     """
     Callback for progress display and early stopping
     """
-    function callback(args...;kwargs...)
-        rmse = ((mean.(mdl.(fc_train.fvecs)) .* fc_train.yt.scale[1]) .+ fc_train.yt.mean[1] .- Ha) .^ 2 |> mean |> sqrt
-        rmse_test = ((mean.(mdl.(fc_test.fvecs)) .* fc_test.yt.scale[1]) .+ fc_test.yt.mean[1] .- Ha_test) .^ 2 |> mean |> sqrt
+    function callback(args...; kwargs...)
+        rmse =
+            (
+                (mean.(mdl.(fc_train.fvecs)) .* fc_train.yt.scale[1]) .+
+                fc_train.yt.mean[1] .- Ha
+            ) .^ 2 |>
+            mean |>
+            sqrt
+        rmse_test =
+            (
+                (mean.(mdl.(fc_test.fvecs)) .* fc_test.yt.scale[1]) .+ fc_test.yt.mean[1] .-
+                Ha_test
+            ) .^ 2 |>
+            mean |>
+            sqrt
         @info "Iter $(iter) - RMSE $(round(rmse, digits=5)) eV / $(round(rmse_test, digits=5)) eV"
 
         if rmse_test < min_test
@@ -653,11 +715,11 @@ Compute the loss as absolute difference in total energy
 L = \sum_i |y_i - y_i^p|^l
 ```
 """
-function loss_all(model, fvecs, H;pow=2)
+function loss_all(model, fvecs, H; pow = 2)
     if pow == 2
-        (sum.(model.(fvecs)) .- H) .^ pow  |> sum
+        (sum.(model.(fvecs)) .- H) .^ pow |> sum
     else
-        abs.(sum.(model.(fvecs)) .- H)  .^ pow  |> sum
+        abs.(sum.(model.(fvecs)) .- H) .^ pow |> sum
     end
 end
 
@@ -668,7 +730,7 @@ Generate f, g!, view of the parameters and the callback function for NN training
 
 This is for 'batch' training where all of the data are included.
 """
-function generate_f_g_optim(model, fc_train, fc_test;pow=2,earlystop=30)
+function generate_f_g_optim(model, fc_train, fc_test; pow = 2, earlystop = 30)
 
     X = fc_train.fvecs
     nfeat = size(X[1], 1)
@@ -676,12 +738,12 @@ function generate_f_g_optim(model, fc_train, fc_test;pow=2,earlystop=30)
     xsizes = size.(X, 2)
 
     # Generate dataset by sizes, each dataset has X as a rank 3 tensor
-    datasets = Tuple{Array{eltype(X[1]), 3}, Vector{eltype(Y)}}[]
+    datasets = Tuple{Array{eltype(X[1]),3},Vector{eltype(Y)}}[]
     for usize in unique(xsizes)
-        mask = findall(x -> x==usize, xsizes)
+        mask = findall(x -> x == usize, xsizes)
         this_size = X[mask]
         # A rank 3 tensor
-        this_tensor = Array{eltype(X[1]), 3}(undef, nfeat, usize, length(mask))
+        this_tensor = Array{eltype(X[1]),3}(undef, nfeat, usize, length(mask))
         # Copy data to the tensor
         for (idx, i) in enumerate(mask)
             this_tensor[:, :, idx] .= X[i]
@@ -689,7 +751,7 @@ function generate_f_g_optim(model, fc_train, fc_test;pow=2,earlystop=30)
         this_H = Y[mask]
         push!(datasets, (this_tensor, this_H))
     end
-    
+
     mdl = model
 
     ps = Flux.params(mdl)
@@ -700,20 +762,20 @@ function generate_f_g_optim(model, fc_train, fc_test;pow=2,earlystop=30)
     Ha = fc_train.H ./ natoms(fc_train)
     Ha_test = fc_test.H ./ natoms(fc_test)
 
-    iter :: Int = 1
-    min_test :: Float64 = floatmax(Float64)
-    min_iter :: Int = 1
+    iter::Int = 1
+    min_test::Float64 = floatmax(Float64)
+    min_iter::Int = 1
 
     function f(x)
-        pview .= x 
+        pview .= x
         #return loss_all(mdl, X, Y;pow)
-        return loss_stacked(mdl, datasets;pow)
+        return loss_stacked(mdl, datasets; pow)
     end
 
     function g!(g, x)
-        pview .= x 
-        grad = Zygote.gradient(ps) do 
-            loss_stacked(mdl, datasets;pow)
+        pview .= x
+        grad = Zygote.gradient(ps) do
+            loss_stacked(mdl, datasets; pow)
         end
         g .= CatView([grad.grads[x] for x in ps.params]...)
         return g
@@ -722,9 +784,21 @@ function generate_f_g_optim(model, fc_train, fc_test;pow=2,earlystop=30)
     """
     Callback for progress display and early stopping
     """
-    function callback(args...;kwargs...)
-        rmse = ((mean.(mdl.(fc_train.fvecs)) .* fc_train.yt.scale[1]) .+ fc_train.yt.mean[1] .- Ha) .^ 2 |> mean |> sqrt
-        rmse_test = ((mean.(mdl.(fc_test.fvecs)) .* fc_test.yt.scale[1]) .+ fc_test.yt.mean[1] .- Ha_test) .^ 2 |> mean |> sqrt
+    function callback(args...; kwargs...)
+        rmse =
+            (
+                (mean.(mdl.(fc_train.fvecs)) .* fc_train.yt.scale[1]) .+
+                fc_train.yt.mean[1] .- Ha
+            ) .^ 2 |>
+            mean |>
+            sqrt
+        rmse_test =
+            (
+                (mean.(mdl.(fc_test.fvecs)) .* fc_test.yt.scale[1]) .+ fc_test.yt.mean[1] .-
+                Ha_test
+            ) .^ 2 |>
+            mean |>
+            sqrt
         @info "Iter $(iter) - RMSE $(round(rmse, digits=5)) eV / $(round(rmse_test, digits=5)) eV"
 
         if rmse_test < min_test
@@ -754,10 +828,9 @@ This function requires a dataset that consisted of rank3 tensors so the total en
 straightforwardly using a single call of `sum`.
 Each element of the dataset is consisted of structures with the same number of atoms.
 """
-function loss_stacked(model, datasets;pow=2)
+function loss_stacked(model, datasets; pow = 2)
     sum(datasets) do (x, y)
-        pred = sum(model(x), dims=2)[:]
+        pred = sum(model(x), dims = 2)[:]
         abs.(pred .- y) .^ pow |> sum
     end
 end
-

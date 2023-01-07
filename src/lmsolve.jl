@@ -47,34 +47,56 @@ Comp & Applied Math).
 # and the like. This way we could not only merge the two functions, but also have a convenient
 # way to provide an autodiff-made acceleration when someone doesn't provide an `avv`.
 # it would probably be very inefficient performace-wise for most cases, but it wouldn't hurt to have it somewhere
-function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T};
-    p=2.0,
-    update_weights=true,
-    x_tol::Real = 1e-8, g_tol::Real = 1e-12, maxIter::Integer = 1000,
-    lambda = T(10), tau=T(Inf), lambda_increase::Real = 10.0, lambda_decrease::Real = 0.1,
-    min_step_quality::Real = 1e-3, good_step_quality::Real = 0.75,
-    show_trace::Bool = false, lower::AbstractVector{T} = Array{T}(undef, 0), upper::AbstractVector{T} = Array{T}(undef, 0), avv!::Union{Function,Nothing,Avv} = nothing,
-    callback=nothing,
-    keep_best=true,
-    earlystop=0,
-    ) where T
+function levenberg_marquardt(
+    df::OnceDifferentiable,
+    initial_x::AbstractVector{T};
+    p = 2.0,
+    update_weights = true,
+    x_tol::Real = 1e-8,
+    g_tol::Real = 1e-12,
+    maxIter::Integer = 1000,
+    lambda = T(10),
+    tau = T(Inf),
+    lambda_increase::Real = 10.0,
+    lambda_decrease::Real = 0.1,
+    min_step_quality::Real = 1e-3,
+    good_step_quality::Real = 0.75,
+    show_trace::Bool = false,
+    lower::AbstractVector{T} = Array{T}(undef, 0),
+    upper::AbstractVector{T} = Array{T}(undef, 0),
+    avv!::Union{Function,Nothing,Avv} = nothing,
+    callback = nothing,
+    keep_best = true,
+    earlystop = 0,
+) where {T}
 
     # First evaluation
     value_jacobian!!(df, initial_x)
 
     if isfinite(tau)
-        lambda = tau*maximum(jacobian(df)'*jacobian(df))
+        lambda = tau * maximum(jacobian(df)' * jacobian(df))
     end
 
 
     # check parameters
-    ((isempty(lower) || length(lower)==length(initial_x)) && (isempty(upper) || length(upper)==length(initial_x))) ||
-            throw(ArgumentError("Bounds must either be empty or of the same length as the number of parameters."))
-    ((isempty(lower) || all(initial_x .>= lower)) && (isempty(upper) || all(initial_x .<= upper))) ||
-            throw(ArgumentError("Initial guess must be within bounds."))
-    (0 <= min_step_quality < 1) || throw(ArgumentError(" 0 <= min_step_quality < 1 must hold."))
-    (0 < good_step_quality <= 1) || throw(ArgumentError(" 0 < good_step_quality <= 1 must hold."))
-    (min_step_quality < good_step_quality) || throw(ArgumentError("min_step_quality < good_step_quality must hold."))
+    (
+        (isempty(lower) || length(lower) == length(initial_x)) &&
+        (isempty(upper) || length(upper) == length(initial_x))
+    ) || throw(
+        ArgumentError(
+            "Bounds must either be empty or of the same length as the number of parameters.",
+        ),
+    )
+    (
+        (isempty(lower) || all(initial_x .>= lower)) &&
+        (isempty(upper) || all(initial_x .<= upper))
+    ) || throw(ArgumentError("Initial guess must be within bounds."))
+    (0 <= min_step_quality < 1) ||
+        throw(ArgumentError(" 0 <= min_step_quality < 1 must hold."))
+    (0 < good_step_quality <= 1) ||
+        throw(ArgumentError(" 0 < good_step_quality <= 1 must hold."))
+    (min_step_quality < good_step_quality) ||
+        throw(ArgumentError("min_step_quality < good_step_quality must hold."))
 
 
     # other constants
@@ -106,7 +128,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
 
     # Initialised weights
     wt = ones(T, m)
-    if p != 2.0 
+    if p != 2.0
         wt .= abs.(value(df, initial_x)) .^ (p - 2.0)
     end
     #wtm = diagm(wt)
@@ -116,8 +138,8 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
 
     # and an alias for the jacobian
     J = jacobian(df)
-    dir_deriv = Array{T}(undef,m)
-    v = Array{T}(undef,n)
+    dir_deriv = Array{T}(undef, m)
+    v = Array{T}(undef, n)
 
     # Maintain a trace of the system.
     tr = OptimizationTrace{LevenbergMarquardt}()
@@ -150,7 +172,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         ATWA!(DtD, J, wt)
         # Scaled the lower bound by the mean value of the weight
         wt_mean = mean(wt)
-        for i in 1:length(DtD)
+        for i = 1:length(DtD)
             if DtD[i] <= MIN_DIAGONAL * wt_mean
                 DtD[i] = MIN_DIAGONAL * wt_mean
             end
@@ -161,7 +183,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         mul!(JJ, transpose(J .* wt), J)
 
         # Add the diagonal term without constructing the full matrix out
-        @simd for i in 1:n
+        @simd for i = 1:n
             @inbounds JJ[i, i] += lambda * DtD[i]
         end
 
@@ -246,11 +268,11 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
             end
             if rho > good_step_quality
                 # increase trust region radius
-                lambda = max(lambda_decrease*lambda, MIN_LAMBDA)
+                lambda = max(lambda_decrease * lambda, MIN_LAMBDA)
             end
         else
             # decrease trust region radius
-            lambda = min(lambda_increase*lambda, MAX_LAMBDA)
+            lambda = min(lambda_increase * lambda, MAX_LAMBDA)
         end
 
         iterCt += 1
@@ -259,8 +281,8 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         if p != 2.0 && update_weights
             vdf = value(df)
             for (i, v) in enumerate(wt)
-                t = abs(vdf[i] + WEIGHT_SHIFT) ^ (p - 2.)
-                wt[i] = t  
+                t = abs(vdf[i] + WEIGHT_SHIFT)^(p - 2.0)
+                wt[i] = t
             end
         end
 
@@ -268,7 +290,12 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         if show_trace
             g_norm = norm(J' * value(df), Inf)
             d = Dict("g(x)" => g_norm, "dx" => delta_x, "lambda" => lambda)
-            os = OptimizationState{LevenbergMarquardt}(iterCt, sum(abs2, value(df)), g_norm, d)
+            os = OptimizationState{LevenbergMarquardt}(
+                iterCt,
+                sum(abs2, value(df)),
+                g_norm,
+                d,
+            )
             push!(tr, os)
             println(os)
         end
@@ -279,7 +306,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         if norm(J' * value(df), Inf) < g_tol
             g_converged = true
         end
-        if norm(delta_x) < x_tol*(x_tol + norm(x))
+        if norm(delta_x) < x_tol * (x_tol + norm(x))
             x_converged = true
         end
         converged = g_converged | x_converged
@@ -297,7 +324,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
     end
 
     # Rewind to the best x
-    if keep_best 
+    if keep_best
         value_jacobian!!(df, best_x)
         x .= best_x
     end
@@ -322,7 +349,7 @@ function levenberg_marquardt(df::OnceDifferentiable, initial_x::AbstractVector{T
         tr,                    # trace
         first(df.f_calls),               # f_calls
         first(df.df_calls),               # g_calls
-        0                      # h_calls
+        0,                      # h_calls
     )
 end
 
@@ -338,8 +365,8 @@ function ATWA!(out, A, W)
     m, n = size(A)
     fill!(out, 0)
     @assert size(out, 1) == n
-    for i in 1:m
-        @simd for j in 1:n
+    for i = 1:m
+        @simd for j = 1:n
             @inbounds out[j] += A[i, j] * A[i, j] * W[i]
         end
     end

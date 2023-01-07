@@ -11,20 +11,20 @@ Mandatory Keyword arguments:
   - seedfile: Path to the seed file for random structure generation
 """
 @with_kw mutable struct BuildOptions
-    iteration::Int=0
+    iteration::Int = 0
     workdir::String
     seedfile::String
-    max_iterations::Int=5
-    per_generation::Int=100
-    shake_per_minima::Int=10
-    build_timeout::Float64=1.
-    shake_amp::Float64=0.02
-    shake_cell_amp::Float64=0.02
-    n_parallel::Int=1
-    mpinp::Int=2
-    n_initial::Int=1000
-    datapaths::Vector{String}=[]
-    dft_mode::String="castep"
+    max_iterations::Int = 5
+    per_generation::Int = 100
+    shake_per_minima::Int = 10
+    build_timeout::Float64 = 1.0
+    shake_amp::Float64 = 0.02
+    shake_cell_amp::Float64 = 0.02
+    n_parallel::Int = 1
+    mpinp::Int = 2
+    n_initial::Int = 1000
+    datapaths::Vector{String} = []
+    dft_mode::String = "castep"
     build_only::Bool = false
     relax_extra_opts::Dict{Symbol,Any} = Dict()
 end
@@ -38,14 +38,13 @@ perform searches, do DFT calculations to expand the training set.
 Note that the speed of slows down significantly with increasing data point (qudratic at least).
 Hence the training set needs to be selected carefully. 
 """
-function iterative_build(state::BuildOptions, feature_opts::FeatureOptions, 
-        training_opts::TrainingOptions
-    )
+function iterative_build(
+    state::BuildOptions,
+    feature_opts::FeatureOptions,
+    training_opts::TrainingOptions,
+)
     while state.iteration <= state.max_iterations
-        step!(state;
-        training_opts, 
-        feature_opts
-        )
+        step!(state; training_opts, feature_opts)
     end
 end
 
@@ -53,11 +52,17 @@ end
 function run_relaxation(state::BuildOptions, indir, outdir)
     @info "Relaxation from $(indir)"
     if state.dft_mode == "castep"
-        run_crud(state.workdir, indir, outdir;state.mpinp, state.n_parallel)
-    elseif  state.dft_mode == "pp3"
-        run_pp3_many(joinpath(state.workdir, ".pp3_work"), indir, outdir, state.seedfile;n_parallel=state.n_parallel)
-    elseif  state.dft_mode == "disp-castep"
-        run_disp_castep(indir, outdir, state.seedfile;state.relax_extra_opts...)
+        run_crud(state.workdir, indir, outdir; state.mpinp, state.n_parallel)
+    elseif state.dft_mode == "pp3"
+        run_pp3_many(
+            joinpath(state.workdir, ".pp3_work"),
+            indir,
+            outdir,
+            state.seedfile;
+            n_parallel = state.n_parallel,
+        )
+    elseif state.dft_mode == "disp-castep"
+        run_disp_castep(indir, outdir, state.seedfile; state.relax_extra_opts...)
     else
         throw(ErrorException("Unknown dft_mode: $(state.dft_mode)"))
     end
@@ -150,7 +155,7 @@ end
 #         state.iteration += 1
 #         return state
 #     end
-    
+
 #     # Setup the base folders
 #     curdir = subpath("iter-$(state.iteration)")
 #     ensure_dir(curdir)
@@ -252,7 +257,7 @@ function summarise_project(opts::BuildOptions)
     end
 
     total_dft = 0
-    for i=0:opts.max_iterations
+    for i = 0:opts.max_iterations
         println("iteration $i")
 
         path = subpath("iter-$i")

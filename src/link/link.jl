@@ -5,70 +5,70 @@ import Base
 using Parameters
 using JSON
 
-const XT_NAME="xt"
-const YT_NAME="yt"
-const FEATURESPEC_NAME="cf"
+const XT_NAME = "xt"
+const YT_NAME = "yt"
+const FEATURESPEC_NAME = "cf"
 
 
 @with_kw mutable struct BuilderState
-    iteration::Int=0
+    iteration::Int = 0
     workdir::String
     seedfile::String
-    seedfile_calc::String=seedfile
-    max_iterations::Int=5
-    per_generation::Int=100
-    per_generation_threshold::Float64=0.98
-    shake_per_minima::Int=10
-    build_timeout::Float64=1.
-    shake_amp::Float64=0.02
-    shake_cell_amp::Float64=0.02
-    n_parallel::Int=1
-    mpinp::Int=2
-    n_initial::Int=1000
-    dft_mode::String="castep"
-    dft_kwargs::NamedTuple=NamedTuple()
+    seedfile_calc::String = seedfile
+    max_iterations::Int = 5
+    per_generation::Int = 100
+    per_generation_threshold::Float64 = 0.98
+    shake_per_minima::Int = 10
+    build_timeout::Float64 = 1.0
+    shake_amp::Float64 = 0.02
+    shake_cell_amp::Float64 = 0.02
+    n_parallel::Int = 1
+    mpinp::Int = 2
+    n_initial::Int = 1000
+    dft_mode::String = "castep"
+    dft_kwargs::NamedTuple = NamedTuple()
     relax_extra_opts::Dict{Symbol,Any} = Dict()
-    rss_pressure_gpa::Float64=0.1
-    rss_niggli_reduce::Bool=true
-    core_size::Float64=1.0
-    ensemble_std_min::Float64=0.0
-    ensemble_std_max::Float64=-1.0
+    rss_pressure_gpa::Float64 = 0.1
+    rss_niggli_reduce::Bool = true
+    core_size::Float64 = 1.0
+    ensemble_std_min::Float64 = 0.0
+    ensemble_std_max::Float64 = -1.0
     "Run walk-forward test before re-training"
-    run_walk_forward::Bool=false
+    run_walk_forward::Bool = false
     "Override the project_prefix"
-    project_prefix_override::String=""
+    project_prefix_override::String = ""
 end
 
 abstract type AbstractTrainer end
 
 @with_kw mutable struct LocalLMTrainer <: AbstractTrainer
-    energy_threshold::Float64=10.
-    nmax::Int=3000
-    nmodels::Int=256
-    user_test_for_ensemble::Bool=true
-    max_iter::Int=300
+    energy_threshold::Float64 = 10.0
+    nmax::Int = 3000
+    nmodels::Int = 256
+    user_test_for_ensemble::Bool = true
+    max_iter::Int = 300
     "number of hidden nodes in each layer"
-    n_nodes::Vector{Int}=[8]
-    earlystop::Int=30
-    show_progress::Bool=true
+    n_nodes::Vector{Int} = [8]
+    earlystop::Int = 30
+    show_progress::Bool = true
     "Store the data used for training in the archive"
-    store_training_data::Bool=true
-    rmse_threshold::Float64=0.5
-    training_mode::String="manual_backprop"
-    training_kwargs::NamedTuple=NamedTuple()
-    train_split::NTuple{3, Float64}=(0.8, 0.1, 0.1)
-    use_test_for_ensemble::Bool=true
-    save_each_model::Bool=true
+    store_training_data::Bool = true
+    rmse_threshold::Float64 = 0.5
+    training_mode::String = "manual_backprop"
+    training_kwargs::NamedTuple = NamedTuple()
+    train_split::NTuple{3,Float64} = (0.8, 0.1, 0.1)
+    use_test_for_ensemble::Bool = true
+    save_each_model::Bool = true
 end
 
 
-struct Builder{M<:AbstractTrainer} 
+struct Builder{M<:AbstractTrainer}
     state::BuilderState
     cf::CellFeature
     trainer::M
-    cf_embedding
+    cf_embedding::Any
     # Set the iteration states
-    function Builder(state, cf, trainer, cf_embedding=nothing)
+    function Builder(state, cf, trainer, cf_embedding = nothing)
         builder = new{typeof(trainer)}(state, cf, trainer, cf_embedding)
         _set_iteration!(builder)
         builder_uuid(builder)
@@ -93,21 +93,19 @@ Fastword to the iteration by checking existing ensemble files
 """
 function _set_iteration!(builder::Builder)
     # Set the iteration number
-    for iter in 0:builder.state.max_iterations
+    for iter = 0:builder.state.max_iterations
         builder.state.iteration = iter
-        if !has_ensemble(builder, iter) 
+        if !has_ensemble(builder, iter)
             break
         end
     end
 end
 
 
-function link!(builder::Builder 
-    )
+function link!(builder::Builder)
     state = builder.state
     while state.iteration <= state.max_iterations
-        step!(builder
-        )
+        step!(builder)
         if should_stop(builder)
             @warn "Aborted training loop at iteration: $(state.iteration)."
             return
@@ -123,7 +121,7 @@ function should_stop(bu::Builder)
     return false
 end
 
-ensure_dir(args...) = isdir(joinpath(args...)) || mkdir(joinpath(args...)) 
+ensure_dir(args...) = isdir(joinpath(args...)) || mkdir(joinpath(args...))
 
 """
 Run a step step for the Builder
@@ -131,7 +129,7 @@ Run a step step for the Builder
 function step!(bu::Builder)
     should_stop(bu) && return
     iter = bu.state.iteration
-    if has_ensemble(bu, iter) 
+    if has_ensemble(bu, iter)
         bu.state.iteration += 1
         return bu
     end
@@ -144,14 +142,16 @@ function step!(bu::Builder)
         @info "Starting energy calculations for iteration $iter."
         flag = _run_external(bu)
         should_stop(bu) && return
-        flag || throw(ErrorException("Cannot find external code to run for generating training data"))
+        flag || throw(
+            ErrorException("Cannot find external code to run for generating training data"),
+        )
     end
     ns = nstructures(bu, iter)
     @info "Number of new structures in iteration $(iter): $ns"
 
     # Optional - run walk-forward test
     if bu.state.run_walk_forward
-        walk_forward_tests(bu;print_results=true, iters=[iter-1])
+        walk_forward_tests(bu; print_results = true, iters = [iter - 1])
         should_stop(bu) && return
     end
 
@@ -163,9 +163,9 @@ function step!(bu::Builder)
 
     # Record the labels of the structures and more information
     jldopen(savepath, "r+") do fh
-        fh["train_labels"] = train_labels 
-        fh["test_labels"] = test_labels 
-        fh["valid_labels"] = valid_labels 
+        fh["train_labels"] = train_labels
+        fh["test_labels"] = test_labels
+        fh["valid_labels"] = valid_labels
         fh["builder_uuid"] = builder_uuid(bu)
         fh["cf"] = bu.cf
     end
@@ -187,16 +187,14 @@ function _generate_random_structures(bu::Builder, iter)
     if iter == 0
         # First cycle generate from the seed without relaxation
         # Sanity check - are we definitely overfitting?
-        if nfeatures(bu.cf) > bu.state.n_initial 
+        if nfeatures(bu.cf) > bu.state.n_initial
             @warn "The number of features $(nfeature(bu.cf)) is larger than the initial training size!"
         end
         # Generate random structures
         nstruct = bu.state.n_initial - ndata
         if nstruct > 0
             @info "Genearating $(nstruct) initial training structures."
-            build_random_structures(bu.state.seedfile, outdir;
-            n=nstruct
-            )
+            build_random_structures(bu.state.seedfile, outdir; n = nstruct)
         end
     else
         # Subsequent cycles - generate from the seed and perform relaxation
@@ -205,36 +203,40 @@ function _generate_random_structures(bu::Builder, iter)
         @assert isfile(efname) "Ensemble file $(efname) does not exist!"
         ensemble = load_from_jld2(efname, EnsembleNNInterface)
         nstruct = bu.state.per_generation - ndata
-        if nstruct > 0 
+        if nstruct > 0
             @info "Generating $(nstruct) training structures for iteration $iter."
             # Generate data sets
-            run_rss(bu.state.seedfile, ensemble, bu.cf; 
-                core_size=bu.state.core_size,
-                ensemble_std_max=bu.state.ensemble_std_max,
-                ensemble_std_min=bu.state.ensemble_std_min,
-                max=nstruct, 
-                outdir=outdir,
-                pressure_gpa=bu.state.rss_pressure_gpa,
-                niggli_reduce_output=bu.state.rss_niggli_reduce
+            run_rss(
+                bu.state.seedfile,
+                ensemble,
+                bu.cf;
+                core_size = bu.state.core_size,
+                ensemble_std_max = bu.state.ensemble_std_max,
+                ensemble_std_min = bu.state.ensemble_std_min,
+                max = nstruct,
+                outdir = outdir,
+                pressure_gpa = bu.state.rss_pressure_gpa,
+                niggli_reduce_output = bu.state.rss_niggli_reduce,
             )
             # Shake the generate structures
             @info "Shaking generated structures."
             outdir = joinpath(bu.state.workdir, "gen$(iter)")
             shake_res(
-                collect(glob_allow_abs(joinpath(outdir, "*.res"))), 
-                bu.state.shake_per_minima, 
-                bu.state.shake_amp, 
-                bu.state.shake_cell_amp
-                )
+                collect(glob_allow_abs(joinpath(outdir, "*.res"))),
+                bu.state.shake_per_minima,
+                bu.state.shake_amp,
+                bu.state.shake_cell_amp,
+            )
         end
     end
 end
 
 
 "Directory for input structures"
-_input_structure_dir(bu::Builder)  = joinpath(bu.state.workdir, "gen$(bu.state.iteration)")
+_input_structure_dir(bu::Builder) = joinpath(bu.state.workdir, "gen$(bu.state.iteration)")
 "Directory for output structures after external calculations"
-_output_structure_dir(bu::Builder)  = joinpath(bu.state.workdir, "gen$(bu.state.iteration)-dft")
+_output_structure_dir(bu::Builder) =
+    joinpath(bu.state.workdir, "gen$(bu.state.iteration)-dft")
 
 
 """
@@ -242,27 +244,40 @@ Run external code for generating training data
 """
 function _run_external(bu::Builder)
     ensure_dir(_output_structure_dir(bu))
-    if bu.state.dft_mode=="disp-castep"
+    if bu.state.dft_mode == "disp-castep"
         if bu.state.project_prefix_override == ""
             project_prefix = "eddp.jl/$(builder_short_uuid(bu))"
         else
             project_prefix = bu.state.project_prefix_override
         end
         run_disp_castep(
-            _input_structure_dir(bu), _output_structure_dir(bu), bu.state.seedfile_calc;
+            _input_structure_dir(bu),
+            _output_structure_dir(bu),
+            bu.state.seedfile_calc;
             project_prefix,
-            threshold=bu.state.per_generation_threshold,
-            bu.state.dft_kwargs...
+            threshold = bu.state.per_generation_threshold,
+            bu.state.dft_kwargs...,
         )
         return true
     elseif bu.state.dft_mode == "pp3"
-        run_pp3_many(joinpath(bu.state.workdir, ".pp3_work"), 
-            _input_structure_dir(bu), _output_structure_dir(bu), bu.state.seedfile_calc;n_parallel=bu.state.n_parallel, bu.state.dft_kwargs...)
+        run_pp3_many(
+            joinpath(bu.state.workdir, ".pp3_work"),
+            _input_structure_dir(bu),
+            _output_structure_dir(bu),
+            bu.state.seedfile_calc;
+            n_parallel = bu.state.n_parallel,
+            bu.state.dft_kwargs...,
+        )
         return true
     elseif bu.state.dft_mode == "castep"
         run_crud(
-            bu.state.workdir, 
-            _input_structure_dir(bu), _output_structure_dir(bu);mpinp=bu.state.mpinp, bu.state.n_parallel, bu.state.dft_kwargs...)
+            bu.state.workdir,
+            _input_structure_dir(bu),
+            _output_structure_dir(bu);
+            mpinp = bu.state.mpinp,
+            bu.state.n_parallel,
+            bu.state.dft_kwargs...,
+        )
         return true
     end
     return false
@@ -274,34 +289,43 @@ Carry out training and save the ensemble as a JLD2 archive.
 function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
     t = bu.trainer
     ## Training new models
-    dirs = [
-        joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter in 0:bu.state.iteration
-    ]
+    dirs =
+        [joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter = 0:bu.state.iteration]
     @info "Training data from: $(dirs)"
     cf = bu.cf
-    sc = EDDP.StructureContainer(dirs, threshold=t.energy_threshold)
-    fc = EDDP.FeatureContainer(sc, cf;nmax=t.nmax);
+    sc = EDDP.StructureContainer(dirs, threshold = t.energy_threshold)
+    fc = EDDP.FeatureContainer(sc, cf; nmax = t.nmax)
     train, test, valid = split(fc, t.train_split...)
-    model = EDDP.ManualFluxBackPropInterface(cf, t.n_nodes...;
-                xt=train.xt, yt=train.yt, apply_xt=false, embedding=bu.cf_embedding)
-    ensemble = EDDP.train_multi_threaded(EDDP.reinit(model), 
-                prefix="gen$(bu.state.iteration)",
-                train, test;nmodels=t.nmodels, 
-                show_progress=t.show_progress,
-                earlystop=t.earlystop,
-                save_each_model=t.save_each_model,
-                use_test_for_ensemble=t.use_test_for_ensemble)
+    model = EDDP.ManualFluxBackPropInterface(
+        cf,
+        t.n_nodes...;
+        xt = train.xt,
+        yt = train.yt,
+        apply_xt = false,
+        embedding = bu.cf_embedding,
+    )
+    ensemble = EDDP.train_multi_threaded(
+        EDDP.reinit(model),
+        prefix = "gen$(bu.state.iteration)",
+        train,
+        test;
+        nmodels = t.nmodels,
+        show_progress = t.show_progress,
+        earlystop = t.earlystop,
+        save_each_model = t.save_each_model,
+        use_test_for_ensemble = t.use_test_for_ensemble,
+    )
     return ensemble, train.labels, test.labels, valid.labels
 end
 
 
-function builder_uuid(workdir='.')
+function builder_uuid(workdir = '.')
     fname = joinpath(workdir, ".eddp_builder")
     if isfile(fname)
         uuid = open(fname) do fh
             chomp(readline(fh))
         end
-    else 
+    else
         uuid = string(uuid4())
         open(fname, "w") do fh
             write(fh, uuid)
@@ -324,7 +348,7 @@ function _disp_get_completed_jobs(project_name)
     cmd = `disp db summary --singlepoint --project $project_name --json`
     json_string = readchomp(pipeline(cmd))
     data = parse_disp_output(json_string)
-    ncomp = get(data, "COMPLETED", 0) 
+    ncomp = get(data, "COMPLETED", 0)
     nall = get(data, "ALL", -1)
     ncomp, nall
 end
@@ -333,18 +357,25 @@ end
 """
 Run relaxation through DISP
 """
-function run_disp_castep(indir, outdir, seedfile;categories, priority=90, project_prefix="eddp.jl",
-                         monitor_only=false,
-                         watch_every=60,
-                         threshold=0.98,
-                         kwargs...)
+function run_disp_castep(
+    indir,
+    outdir,
+    seedfile;
+    categories,
+    priority = 90,
+    project_prefix = "eddp.jl",
+    monitor_only = false,
+    watch_every = 60,
+    threshold = 0.98,
+    kwargs...,
+)
 
     file_pattern = joinpath(indir, "*.res")
     seed = splitext(seedfile)[1]
     # Setup the inputs
     project_name = joinpath(project_prefix, abspath(indir)[2:end])
     seed_stem = splitext(basename(seedfile))[1]
-    cmd=`disp deploy singlepoint --seed $seed_stem --base-cell $seed.cell --param $seed.param --cell $file_pattern --project $project_name --priority $priority` 
+    cmd = `disp deploy singlepoint --seed $seed_stem --base-cell $seed.cell --param $seed.param --cell $file_pattern --project $project_name --priority $priority`
 
     # Define the categories
     for category in categories
@@ -380,7 +411,7 @@ function run_disp_castep(indir, outdir, seedfile;categories, priority=90, projec
     end
     # Pulling calculations down
     isdir(outdir) || mkdir(outdir)
-    cmd = Cmd(`disp db retrieve-project --project $project_name`, dir=outdir)
+    cmd = Cmd(`disp db retrieve-project --project $project_name`, dir = outdir)
     run(cmd)
     @info "Calculation results pulled into $outdir."
 end
@@ -391,12 +422,12 @@ end
 
 Use PP3 for singlepoint calculation - launch many calculations in parallel.
 """
-function run_pp3_many(workdir, indir, outdir, seedfile; n_parallel=1, keep=false)
+function run_pp3_many(workdir, indir, outdir, seedfile; n_parallel = 1, keep = false)
     files = glob_allow_abs(joinpath(indir, "*.res"))
     ensure_dir(workdir)
     for file in files
         working_path = joinpath(workdir, splitpath(file)[end])
-        cp(file, working_path, force=true)
+        cp(file, working_path, force = true)
         try
             run_pp3(working_path, seedfile, joinpath(outdir, splitpath(file)[end]))
         catch error
@@ -429,7 +460,7 @@ function run_pp3(file, seedfile, outpath)
         cell = CellBase.read_cell(file)
     end
     # Copy the seed file
-    cp(swapext(seedfile, ".pp"), swapext(file, ".pp"), force=true)
+    cp(swapext(seedfile, ".pp"), swapext(file, ".pp"), force = true)
     # Run pp3 relax
     # Read enthalpy
     enthalpy = 0.0
@@ -457,7 +488,7 @@ end
 Parse the output of `disp db summary`
 """
 function parse_disp_output(json_string)
-    data = Dict{String, Int}()
+    data = Dict{String,Int}()
     if contains(json_string, "No data")
         return data
     end
@@ -492,7 +523,7 @@ function summarise(builder::Builder)
     end
 
     total_dft = 0
-    for i=0:opts.max_iterations
+    for i = 0:opts.max_iterations
         println("iteration $i")
 
         path = subpath("gen$i")
@@ -511,45 +542,50 @@ raw"""
 Perform walk forward tests - test if the data of generation ``N`` can be predicted by the model 
 from generation ``N-1``, and compare it with the results using model from generation ``N`` itself. 
 """
-function walk_forward_tests(bu::Builder;
-    print_results=false, 
-    iters=0:bu.state.iteration-1,
-    fc_show_progress=false, 
-    check_training_data=false)
+function walk_forward_tests(
+    bu::Builder;
+    print_results = false,
+    iters = 0:bu.state.iteration-1,
+    fc_show_progress = false,
+    check_training_data = false,
+)
     trs = []
     for iter in iters
         if check_training_data
-            is_training_data_ready(bu, iter+1) || continue
+            is_training_data_ready(bu, iter + 1) || continue
         else
-            if nstructures_calculated(bu, iter+1) < 1
+            if nstructures_calculated(bu, iter + 1) < 1
                 continue
             end
         end
         has_ensemble(bu, iter) || break
         @info "Loading features of generation $(iter+1) to test for generation $(iter)..."
-        fc = load_features(bu, iter + 1;show_progress=fc_show_progress)
+        fc = load_features(bu, iter + 1; show_progress = fc_show_progress)
         ensemble = load_ensemble(bu, iter)
         tr = EDDP.TrainingResults(ensemble, fc)
         push!(trs, tr)
         if print_results
-            println("Trained model using iteration 0-$iter applied for iteration $(iter+1):")
+            println(
+                "Trained model using iteration 0-$iter applied for iteration $(iter+1):",
+            )
             println(tr)
         end
     end
     trs
 end
 
-function has_ensemble(bu::Builder, iteration=bu.state.iteration)
-    isfile(joinpath(bu.state.workdir, "ensemble-gen$(iteration).jld2") )
+function has_ensemble(bu::Builder, iteration = bu.state.iteration)
+    isfile(joinpath(bu.state.workdir, "ensemble-gen$(iteration).jld2"))
 end
 
-function load_ensemble(bu::Builder, iteration=bu.state.iteration)
-    EDDP.load_from_jld2(ensemble_name(bu, iteration), EDDP.EnsembleNNInterface) 
+function load_ensemble(bu::Builder, iteration = bu.state.iteration)
+    EDDP.load_from_jld2(ensemble_name(bu, iteration), EDDP.EnsembleNNInterface)
 end
 
-ensemble_name(bu, iteration=bu.state.iteration) = joinpath(bu.state.workdir, "ensemble-gen$(iteration).jld2")
+ensemble_name(bu, iteration = bu.state.iteration) =
+    joinpath(bu.state.workdir, "ensemble-gen$(iteration).jld2")
 
-function is_training_data_ready(bu::Builder, iteration=bu.state.iteration)
+function is_training_data_ready(bu::Builder, iteration = bu.state.iteration)
     isdir(joinpath(bu.state.workdir, "gen$(iteration)-dft")) || return false
     ndft = nstructures_calculated(bu, iteration)
     if iteration == 0
@@ -563,15 +599,15 @@ function is_training_data_ready(bu::Builder, iteration=bu.state.iteration)
     return false
 end
 
-nstructures(bu::Builder, iteration) =  length(glob_allow_abs(joinpath(bu.state.workdir, "gen$(iteration)/*.res")))
-nstructures_calculated(bu::Builder, iteration) =  length(glob_allow_abs(joinpath(bu.state.workdir, "gen$(iteration)-dft/*.res")))
+nstructures(bu::Builder, iteration) =
+    length(glob_allow_abs(joinpath(bu.state.workdir, "gen$(iteration)/*.res")))
+nstructures_calculated(bu::Builder, iteration) =
+    length(glob_allow_abs(joinpath(bu.state.workdir, "gen$(iteration)-dft/*.res")))
 
 function load_structures(bu::Builder, iteration::Vararg{Int})
-    dirs = [
-        joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter in iteration
-    ]
-    sc = EDDP.StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
-    return sc 
+    dirs = [joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter in iteration]
+    sc = EDDP.StructureContainer(dirs, threshold = bu.trainer.energy_threshold)
+    return sc
 end
 load_structures(bu::Builder) = load_structures(bu, 0:bu.state.iteration)
 load_structures(bu::Builder, iteration) = load_structures(bu, iteration...)
@@ -581,11 +617,11 @@ load_structures(bu::Builder, iteration) = load_structures(bu, iteration...)
 
 Loading features for specific iterations.   
 """
-function load_features(bu::Builder, iteration::Vararg{Int};show_progress=true)
+function load_features(bu::Builder, iteration::Vararg{Int}; show_progress = true)
     sc = load_structures(bu, iteration...;)
-    return EDDP.FeatureContainer(sc, bu.cf;nmax=bu.trainer.nmax, show_progress);
+    return EDDP.FeatureContainer(sc, bu.cf; nmax = bu.trainer.nmax, show_progress)
 end
 
-load_features(bu::Builder;kwargs...) = load_features(bu, 0:bu.state.iteration;kwargs...)
-load_features(bu::Builder, iteration;kwargs...) = load_features(bu, iteration...;kwargs...)
-
+load_features(bu::Builder; kwargs...) = load_features(bu, 0:bu.state.iteration; kwargs...)
+load_features(bu::Builder, iteration; kwargs...) =
+    load_features(bu, iteration...; kwargs...)

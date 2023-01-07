@@ -20,7 +20,7 @@ Buffer for storing gradients of a dense network
 y = σ.(W * x .+ b)
 ```
 """
-struct DenseGradient{N, T}
+struct DenseGradient{N,T}
     "Gradient of the weight"
     gw::Matrix{T}
     "Gradient of the bias"
@@ -88,7 +88,7 @@ Compute the gradients of a dense network based on back-propagation.
 Args:
 * `weight_and_bias`: Update the gradients for weight and bias. Defaults to true.
 """
-function backprop!(dg::DenseGradient, d::Dense;weight_and_bias=true)
+function backprop!(dg::DenseGradient, d::Dense; weight_and_bias = true)
     # Update the upstream gradient
     for i in eachindex(dg.wx)
         dg.gu[i] *= dg.gσ(dg.wx[i], dg.out[i])
@@ -105,7 +105,7 @@ function backprop!(dg::DenseGradient, d::Dense;weight_and_bias=true)
 
     #dg.gb .= sum(dg.gu, dims=2)  # Gradient of the bias
     if weight_and_bias
-        mul!(dg.gw, dg.gu, dg.x')   
+        mul!(dg.gw, dg.gu, dg.x')
     end
     mul!(dg.gx, d.weight', dg.gu)
 end
@@ -126,7 +126,7 @@ function ChainGradients(chain::Chain, n::Int)
         if isa(layer, Dense)
             if layer.σ == identity
                 gσ = (x, y) -> one(x)
-            elseif  (layer.σ == tanh_fast) || (layer.σ == tanh)
+            elseif (layer.σ == tanh_fast) || (layer.σ == tanh)
                 gσ = (x, y) -> 1 - y^2
             else
                 gσ = (x, y) -> layer.σ'(x)
@@ -166,7 +166,7 @@ Do a forward pass compute the intermediate quantities for each layer
 function forward!(chaing::ChainGradients, chain::Chain, x)
     nlayers = length(chain.layers)
 
-    for i = 1:length(chain.layers) - 1
+    for i = 1:length(chain.layers)-1
         forward!(chaing.layers[i], chain.layers[i], chaing.layers[i+1], x, i, nlayers)
         x = chaing.layers[i].out
     end
@@ -180,7 +180,14 @@ end
 """
 Internal per-layer forward pass
 """
-function forward!(gradient::DenseGradient, layer::Dense, next_gradient::DenseGradient, x, i, nlayers)
+function forward!(
+    gradient::DenseGradient,
+    layer::Dense,
+    next_gradient::DenseGradient,
+    x,
+    i,
+    nlayers,
+)
     # Input of the first layer
     i == 1 && (gradient.x .= x)
     # Compute the pre-activation output
@@ -201,7 +208,7 @@ Args:
 * `gu`: is the upstream gradient for the loss of the entire chain. The default is equivalent to:
   `loss = sum(chain(x))`, which is a matrix of `1` in the same shape of the output matrix.
 """
-function backward!(chaing::ChainGradients, chain::Chain;gu=1, weight_and_bias=true)
+function backward!(chaing::ChainGradients, chain::Chain; gu = 1, weight_and_bias = true)
     nlayers = length(chain.layers)
     # Set the upstream gradient
     fill!(chaing.layers[end].gu, gu)
@@ -227,7 +234,7 @@ function paramvector!(vec::AbstractVector, model::Chain)
     # Can be optimized here
     for item in fparam
         l = length(item)
-        vec[i: i+l-1] .= item[:]
+        vec[i:i+l-1] .= item[:]
         i += l
     end
     vec
@@ -266,7 +273,7 @@ end
 Interface for DenseGradient implementation 
 =#
 
-mutable struct ManualFluxBackPropInterface{T, G, X, Z} <: AbstractNNInterface
+mutable struct ManualFluxBackPropInterface{T,G,X,Z} <: AbstractNNInterface
     chain::T
     gchains::Vector{ChainGradients{G}}
     last_id::Int
@@ -278,7 +285,12 @@ end
 
 get_flux_model(itf::ManualFluxBackPropInterface) = itf.chain
 
-function ManualFluxBackPropInterface(chain::Chain;xt=nothing, yt=nothing, apply_xt=true) 
+function ManualFluxBackPropInterface(
+    chain::Chain;
+    xt = nothing,
+    yt = nothing,
+    apply_xt = true,
+)
     g = ChainGradients(chain, 1)
     ManualFluxBackPropInterface(chain, typeof(g)[], 1, xt, yt, apply_xt)
 end
@@ -298,7 +310,7 @@ function _get_or_create_chaingradients(itf, inp)
     # Create the ChainGradients of the desired size on-the-fly
     if isnothing(idx)
         cgtmp = ChainGradients(itf.chain, bsize)
-        push!(itf.gchains , cgtmp)
+        push!(itf.gchains, cgtmp)
         idx = length(itf.gchains)
     end
     cg = itf.gchains[idx]
@@ -311,7 +323,7 @@ function clear_transient_gradients!(g::ManualFluxBackPropInterface)
 end
 
 
-function forward!(itf::ManualFluxBackPropInterface, inp::Matrix;make_copy=false)
+function forward!(itf::ManualFluxBackPropInterface, inp::Matrix; make_copy = false)
 
     gchain = _get_or_create_chaingradients(itf, inp)
 
@@ -324,7 +336,12 @@ function forward!(itf::ManualFluxBackPropInterface, inp::Matrix;make_copy=false)
     !make_copy ? out : copy(out)
 end
 
-function forward!(itf::ManualFluxBackPropInterface, inp::Matrix, inptmp::Matrix;make_copy=false)
+function forward!(
+    itf::ManualFluxBackPropInterface,
+    inp::Matrix,
+    inptmp::Matrix;
+    make_copy = false,
+)
     gchain = _get_or_create_chaingradients(itf, inp)
     # Apply x transformation
     if !isnothing(itf.xt) && itf.apply_xt
@@ -342,8 +359,8 @@ function forward!(itf::ManualFluxBackPropInterface, inp::Matrix, inptmp::Matrix;
     !make_copy ? out : copy(out)
 end
 
-function (itf::ManualFluxBackPropInterface)(inp;make_copy=false)
-    forward!(itf, inp;make_copy)
+function (itf::ManualFluxBackPropInterface)(inp; make_copy = false)
+    forward!(itf, inp; make_copy)
 end
 
 function gradparam!(gvec::AbstractVector, itf::ManualFluxBackPropInterface)
@@ -371,7 +388,8 @@ function gradinp!(gvec::AbstractVecOrMat, itf::ManualFluxBackPropInterface)
     gvec
 end
 
-backward!(itf::ManualFluxBackPropInterface;kwargs...) = backward!(itf.gchains[itf.last_id], itf.chain;kwargs...)
+backward!(itf::ManualFluxBackPropInterface; kwargs...) =
+    backward!(itf.gchains[itf.last_id], itf.chain; kwargs...)
 
 
 paramvector(itf::ManualFluxBackPropInterface) = paramvector(itf.chain)
@@ -383,9 +401,18 @@ end
 
 nparams(itf::ManualFluxBackPropInterface) = nparams(itf.chain)
 
-function ManualFluxBackPropInterface(cf::CellFeature, 
-    nodes...;init=glorot_uniform_f64, xt=nothing, yt=nothing, σ=tanh, apply_xt=true, σs=nothing, embedding=nothing)
-    chain = flux_mlp_model(cf, nodes...;init, σ, σs, embedding)
+function ManualFluxBackPropInterface(
+    cf::CellFeature,
+    nodes...;
+    init = glorot_uniform_f64,
+    xt = nothing,
+    yt = nothing,
+    σ = tanh,
+    apply_xt = true,
+    σs = nothing,
+    embedding = nothing,
+)
+    chain = flux_mlp_model(cf, nodes...; init, σ, σs, embedding)
     ManualFluxBackPropInterface(chain; xt, yt, apply_xt)
 end
 
@@ -399,7 +426,7 @@ end
 
 Save the interface into an opened JLD2 file/JLD2 group.
 """
-function save_as_jld2(f::Union{JLD2.JLDFile, JLD2.Group}, obj::ManualFluxBackPropInterface)
+function save_as_jld2(f::Union{JLD2.JLDFile,JLD2.Group}, obj::ManualFluxBackPropInterface)
     f["chain"] = obj.chain
     f["xt"] = obj.xt
     f["yt"] = obj.yt
@@ -413,10 +440,13 @@ end
 
 Load from JLD2 file/JLD2 group.
 """
-function load_from_jld2(f::Union{JLD2.JLDFile, JLD2.Group}, ::Type{ManualFluxBackPropInterface})
+function load_from_jld2(
+    f::Union{JLD2.JLDFile,JLD2.Group},
+    ::Type{ManualFluxBackPropInterface},
+)
     chain = f["chain"]
     xt = f["xt"]
     yt = f["yt"]
-    apply_xt=f["apply_xt"]
-    ManualFluxBackPropInterface(chain;xt, yt, apply_xt)
+    apply_xt = f["apply_xt"]
+    ManualFluxBackPropInterface(chain; xt, yt, apply_xt)
 end
