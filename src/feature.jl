@@ -42,6 +42,15 @@ function genp(pmin, pmax, np)
 end
 
 """
+Generate p/q as geometry series
+"""
+function genp(p::Union{UnitRange, StepRange})
+    genp(p[1], p[end], length(p))
+end
+
+genp(p::AbstractVector) = genp(p...)
+
+"""
     permequal(A, i, j)
 
 Check equivalence considering all permutations with the first element matched. 
@@ -639,6 +648,7 @@ Options for constructing CellFeature
     g3 = gfr
 end
 
+
 """
 Construct feature specifications
 """
@@ -653,10 +663,18 @@ function CellFeature(
     g2=gfr,
     f3=fr,
     g3=gfr,
+    geometry_sequence=false
 )
 
+    # Apply geomtry sequence for the powers
+    if geometry_sequence
+        p2 = genp(p2)
+        p3 = genp(p3)
+        q3 = genp(q3)
+    end
+
     # Sort the elements to ensure stability
-    elements = sort(unique(elements))
+    elements = sort(unique(map(Symbol, elements)))
     # Two body terms
     two_body_features = []
     existing_comb = []

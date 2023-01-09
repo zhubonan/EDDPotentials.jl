@@ -4,6 +4,7 @@ Code for iteratively building the model
 import Base
 using Parameters
 using JSON
+using YAML
 
 const XT_NAME = "xt"
 const YT_NAME = "yt"
@@ -12,7 +13,7 @@ const FEATURESPEC_NAME = "cf"
 
 @with_kw mutable struct BuilderState
     iteration::Int = 0
-    workdir::String
+    workdir::String = "."
     seedfile::String
     seedfile_calc::String = seedfile
     max_iterations::Int = 5
@@ -76,12 +77,89 @@ struct Builder{M<:AbstractTrainer}
     end
 end
 
-function Base.show(io::IO, ::MIME"text/plain", bu::Builder)
-    println(io, "Builder")
+
+"""
+    Builder(str::AbstractString="link.yaml")
+
+Load the builder from a YAML file. The file contains nested key-values pairs
+similar to the constructors of the types.
+
+```yaml
+state:
+    seedfile : "test.cell"
+
+trainer:
+    type : "locallm"
+    nmodels : 128
+cf:
+    elements : ["H", "O"]
+    # Power of the polynomials as geometry sequence 
+    p2       : [2, 10, 5] 
+    geometry_sequence : true
+
+cf_embedding:
+    n : 3
+```
+
+"""
+function Builder(str::AbstractString="link.yaml")
+    @info "Loading from file $(str)"
+
+    loaded = YAML.load_file(str;dicttype=Dict{Symbol,Any})
+    state =  BuilderState(;loaded[:state]...)
+
+    # Setup cell Feature
+    cf_dict = loaded[:cf]
+    elements = pop!(cf_dict, :elements)
+    cf =  CellFeature(elements; cf_dict...)
+
+    # Setup trainer
+    trainer = pop!(loaded[:trainer], :type)
+    if trainer == "locallm"
+        trainer =  LocalLMTrainer(;loaded[:trainer]...)
+    else
+        throw(ErrorException("trainer type $(trainer) is not known"))
+    end
+
+    # Setup embedding
+    if :cf_embedding in keys(loaded)
+        n = loaded[:cf_embedding][:n]
+        m = get(loaded[:cf_embedding], :m, n)
+        embedding = CellEmbedding(cf, n, m)
+    else
+        embedding = nothing
+    end
+
+    Builder(
+        state,
+        cf,
+        trainer, 
+        embedding,
+    )
+end
+
+function Base.show(io::IO, m::MIME"text/plain", bu::Builder)
+    println(io, "Builder:")
+    println(io, "  Working directory: $(bu.state.workdir) ($(abspath(bu.state.workdir)))")
+    println(io, "  Iteration: $(bu.state.iteration)")
+    println(io, "  Seed file: $(bu.state.seedfile)")
+    println("\nState: ")
+    show(io, m, bu.state)
+    println("\nTrainer: ")
+    show(io, m, bu.trainer)
+    println("\nCellFeature: ")
+    show(io, m, bu.cf)
+    println("\nEmbedding: ")
+    show(io, m, bu.cf_embedding)
+end
+
+function Base.show(io::IO, bu::Builder)
+    println(io, "Builder:")
     println(io, "  Working directory: $(bu.state.workdir) ($(abspath(bu.state.workdir)))")
     println(io, "  Iteration: $(bu.state.iteration)")
     println(io, "  Seed file: $(bu.state.seedfile)")
 end
+
 
 Base.show(io::IO, bu::Builder) = Base.show(io, MIME("text/plain"), bu)
 
@@ -656,3 +734,4 @@ function run_rss(
         packed,
     )
 end
+

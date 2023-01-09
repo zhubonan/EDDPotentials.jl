@@ -35,6 +35,7 @@ TensorBoardLogger = "899adc3e-224a-11e9-021f-63837185c80f"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [compat]
