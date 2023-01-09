@@ -88,7 +88,7 @@ Compute the gradients of a dense network based on back-propagation.
 Args:
 * `weight_and_bias`: Update the gradients for weight and bias. Defaults to true.
 """
-function backprop!(dg::DenseGradient, d::Dense; weight_and_bias = true)
+function backprop!(dg::DenseGradient, d::Dense; weight_and_bias=true)
     # Update the upstream gradient
     for i in eachindex(dg.wx)
         dg.gu[i] *= dg.gσ(dg.wx[i], dg.out[i])
@@ -208,7 +208,7 @@ Args:
 * `gu`: is the upstream gradient for the loss of the entire chain. The default is equivalent to:
   `loss = sum(chain(x))`, which is a matrix of `1` in the same shape of the output matrix.
 """
-function backward!(chaing::ChainGradients, chain::Chain; gu = 1, weight_and_bias = true)
+function backward!(chaing::ChainGradients, chain::Chain; gu=1, weight_and_bias=true)
     nlayers = length(chain.layers)
     # Set the upstream gradient
     fill!(chaing.layers[end].gu, gu)
@@ -285,12 +285,7 @@ end
 
 get_flux_model(itf::ManualFluxBackPropInterface) = itf.chain
 
-function ManualFluxBackPropInterface(
-    chain::Chain;
-    xt = nothing,
-    yt = nothing,
-    apply_xt = true,
-)
+function ManualFluxBackPropInterface(chain::Chain; xt=nothing, yt=nothing, apply_xt=true)
     g = ChainGradients(chain, 1)
     ManualFluxBackPropInterface(chain, typeof(g)[], 1, xt, yt, apply_xt)
 end
@@ -323,7 +318,7 @@ function clear_transient_gradients!(g::ManualFluxBackPropInterface)
 end
 
 
-function forward!(itf::ManualFluxBackPropInterface, inp::Matrix; make_copy = false)
+function forward!(itf::ManualFluxBackPropInterface, inp::Matrix; make_copy=false)
 
     gchain = _get_or_create_chaingradients(itf, inp)
 
@@ -340,7 +335,7 @@ function forward!(
     itf::ManualFluxBackPropInterface,
     inp::Matrix,
     inptmp::Matrix;
-    make_copy = false,
+    make_copy=false,
 )
     gchain = _get_or_create_chaingradients(itf, inp)
     # Apply x transformation
@@ -359,7 +354,7 @@ function forward!(
     !make_copy ? out : copy(out)
 end
 
-function (itf::ManualFluxBackPropInterface)(inp; make_copy = false)
+function (itf::ManualFluxBackPropInterface)(inp; make_copy=false)
     forward!(itf, inp; make_copy)
 end
 
@@ -404,13 +399,13 @@ nparams(itf::ManualFluxBackPropInterface) = nparams(itf.chain)
 function ManualFluxBackPropInterface(
     cf::CellFeature,
     nodes...;
-    init = glorot_uniform_f64,
-    xt = nothing,
-    yt = nothing,
-    σ = tanh,
-    apply_xt = true,
-    σs = nothing,
-    embedding = nothing,
+    init=glorot_uniform_f64,
+    xt=nothing,
+    yt=nothing,
+    σ=tanh,
+    apply_xt=true,
+    σs=nothing,
+    embedding=nothing,
 )
     chain = flux_mlp_model(cf, nodes...; init, σ, σs, embedding)
     ManualFluxBackPropInterface(chain; xt, yt, apply_xt)

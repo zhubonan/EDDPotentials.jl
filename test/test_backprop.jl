@@ -10,7 +10,7 @@ using Test
     allclose(x, y, tol=1e-5) = all(abs.(x .- y) .< tol)
 
     @testset "single layer" begin
-        d1 = Dense(5=>10, tanh)
+        d1 = Dense(5 => 10, tanh)
         d1.bias .= rand(10)
         chain = Chain(d1)
         chaing = ChainGradients(chain, 10)
@@ -29,8 +29,8 @@ using Test
     @testset "dual layer" begin
 
         # Two layer propagation
-        d1 = Dense(5=>10, tanh)
-        d2 = Dense(10=>8)
+        d1 = Dense(5 => 10, tanh)
+        d2 = Dense(10 => 8)
         chain = Chain(d1, d2)
         chaing = ChainGradients(chain, 10)
         x = rand(Float32, 5, 10)
@@ -41,8 +41,8 @@ using Test
 
         f(z) = sum(d2(d1.σ.(z * x .+ d1.bias)))
         fb(z) = sum(d2(d1.σ.(d1.weight * x .+ z)))
-        f2(z) = sum( d2.σ.(z * d1(x) .+ d2.bias))
-        fb2(z) = sum( d2.σ.(d2.weight * d1(x) .+ z))
+        f2(z) = sum(d2.σ.(z * d1(x) .+ d2.bias))
+        fb2(z) = sum(d2.σ.(d2.weight * d1(x) .+ z))
         @test all(f(d1.weight) .≈ sum(chain(x)))
         @test all(f2(d2.weight) .≈ sum(chain(x)))
 
@@ -65,7 +65,7 @@ using Test
         d2gx = Flux.gradient(x -> sum(d2(x)), d1(x))[1]
         @test allclose(d2gx, chaing.layers[2].gx)
     end
-    
+
     @testset "jacobian" begin
         ## Compare hand written backprop vs Zytoge
         chain = EDDP.generate_chain(21, [5])
@@ -75,7 +75,7 @@ using Test
         gd = Flux.jacobian(() -> [sum(chain(x)) for x in inp], Flux.params(chain))
         gp! = EDDP.setup_fg_backprop(chain, inp, [1.0, 1.0])
         jmat = zeros(eltype(inp[1]), 2, 116)
-        gp!([0., 1.0], jmat, EDDP.paramvector(chain))
+        gp!([0.0, 1.0], jmat, EDDP.paramvector(chain))
 
         @test allclose(jmat[:, 1:105], gd.grads[gd.params[1]])
         @test allclose(jmat[:, 106:110], gd.grads[gd.params[2]])
@@ -90,7 +90,7 @@ using Test
         gd = Flux.jacobian(() -> [sum(chain(x)) for x in inp], Flux.params(chain))
         gp! = EDDP.setup_fg_backprop(chain, inp, [1.0, 1.0])
         jmat = zeros(eltype(inp[1]), length(inp), 181)
-        gp!([0., 1.], jmat, EDDP.paramvector(chain))
+        gp!([0.0, 1.0], jmat, EDDP.paramvector(chain))
         @test allclose(jmat[:, 1:105], gd.grads[gd.params[1]])
         @test allclose(jmat[:, 106:110], gd.grads[gd.params[2]])
         @test allclose(jmat[:, 111:160], gd.grads[gd.params[3]])

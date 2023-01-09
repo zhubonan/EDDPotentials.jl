@@ -5,7 +5,7 @@ struct TwoPointSteepestDescent{F} <: Optim.FirstOrderOptimizer
     manifold::Optim.Manifold
 end
 
-TwoPointSteepestDescent(; α_init = 1e-8, manifold = Optim.Flat()) =
+TwoPointSteepestDescent(; α_init=1e-8, manifold=Optim.Flat()) =
     TwoPointSteepestDescent(α_init, manifold)
 
 mutable struct TPSDState <: Optim.AbstractOptimizerState
@@ -61,7 +61,7 @@ function Optim.trace!(
     iteration,
     method::TwoPointSteepestDescent,
     options,
-    curr_time = time(),
+    curr_time=time(),
 )
     Optim.common_trace!(tr, d, state, iteration, method, options, curr_time)
 end

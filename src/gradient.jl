@@ -38,12 +38,7 @@ end
 """
 Initialise a buffer for computing forces
 """
-function ForceBuffer(
-    fvec::Matrix{T};
-    ndims = 3,
-    core = nothing,
-    mode = "one-pass",
-) where {T}
+function ForceBuffer(fvec::Matrix{T}; ndims=3, core=nothing, mode="one-pass") where {T}
     nf, nat = size(fvec)
     if mode == "one-pass"
         gvec = zeros(T, ndims, nf, nat, nat)
@@ -450,13 +445,13 @@ function compute_fv!(
     features2,
     features3,
     cell::Cell;
-    nl = NeighbourList(
+    nl=NeighbourList(
         cell,
         maximum(x.rcut for x in (features2..., features3...));
-        savevec = false,
+        savevec=false,
     ),
-    offset = 0,
-    core = nothing,
+    offset=0,
+    core=nothing,
 )
 
     # Main quantities
@@ -552,12 +547,12 @@ function compute_fv_gv!(
     features2,
     features3,
     cell::Cell;
-    nl = NeighbourList(
+    nl=NeighbourList(
         cell,
         maximum(x.rcut for x in (features2..., features3...));
-        savevec = true,
+        savevec=true,
     ),
-    offset = 0,
+    offset=0,
 )
 
     # Main quantities
@@ -719,12 +714,12 @@ function compute_fv_gv!(
     features3,
     cell::Cell,
     gv;
-    nl = NeighbourList(
+    nl=NeighbourList(
         cell,
         maximum(x.rcut for x in (features2..., features3...));
-        savevec = true,
+        savevec=true,
     ),
-    offset = 0,
+    offset=0,
 )
 
     # Main quantities
@@ -898,14 +893,14 @@ end
 
 Propagate chain rule to obtain the forces
 """
-function _force_update!(fb::ForceBuffer, nl, gv; offset = 0)
+function _force_update!(fb::ForceBuffer, nl, gv; offset=0)
     # Zero the buffer
     gf_at = fb.gvec
     fill!(fb.forces, 0)
     Threads.@threads for iat in axes(gf_at, 4)  # Atom index
         # Only neighbouring atoms will affect each other via feature vectors
         self_updated = false
-        for (j, _, _) in eachneighbour(nl, iat, unique = true)
+        for (j, _, _) in eachneighbour(nl, iat, unique=true)
             j == iat && (self_updated = true)
             for i = 1+offset:size(gf_at, 2)
                 for _i in axes(fb.forces, 1)  # xyz
@@ -935,7 +930,7 @@ end
 
 Propagate chain rule to obtain the stress
 """
-function _stress_update!(fb::ForceBuffer, gv; offset = 0)
+function _stress_update!(fb::ForceBuffer, gv; offset=0)
     # Zero the buffer
     gf_at = fb.stotv
     fill!(fb.stress, 0)

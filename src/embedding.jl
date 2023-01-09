@@ -125,7 +125,7 @@ struct CellEmbedding{C,T}
     three_body::BodyEmbedding{T}
 end
 
-function CellEmbedding(cf::CellFeature, n::Int, m::Int = n)
+function CellEmbedding(cf::CellFeature, n::Int, m::Int=n)
     CellEmbedding(cf, BodyEmbedding(cf.two_body, n), BodyEmbedding(cf.three_body, m))
 end
 
@@ -253,7 +253,7 @@ input_gradient(e::BodyEmbeddingGradient) = e.gx
 """
 Perform backpropagation - this requires the forward pass to be run an upstream gradients computed
 """
-function backprop!(eg::BodyEmbeddingGradient, e::BodyEmbedding; weight_and_bias = true)
+function backprop!(eg::BodyEmbeddingGradient, e::BodyEmbedding; weight_and_bias=true)
     nf = num_each_feat_elements(e)
     neb = num_embed(e)
     gu_tmp = similar(eg.gu, nf, neb)
@@ -379,7 +379,7 @@ function forward!(
 end
 
 
-function backprop!(cg::CellEmbeddingGradient, ce::CellEmbedding; weight_and_bias = true)
+function backprop!(cg::CellEmbeddingGradient, ce::CellEmbedding; weight_and_bias=true)
 
     n2 = length_before(ce.two_body)
     n3 = length_before(ce.three_body)

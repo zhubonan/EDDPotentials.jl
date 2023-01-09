@@ -10,7 +10,7 @@ include("utils.jl")
     cell = _h2_cell()
 
     cf = EDDP.CellFeature(
-        EDDP.FeatureOptions(elements=unique(species(cell)), p2=[2], q3=[2, 3], p3=[2, 3])
+        EDDP.FeatureOptions(elements=unique(species(cell)), p2=[2], q3=[2, 3], p3=[2, 3]),
     )
 
     function _test_forces_fd(calc, amp=1e-7, atol=1e-5)
@@ -19,7 +19,7 @@ include("utils.jl")
         positions(get_cell(calc))[1] += amp
         @test EDDP._need_calc(calc, true)
         tmp = (get_energy(calc) - etmp) / amp
-        @test -tmp ≈ ftmp[1] atol=atol
+        @test -tmp ≈ ftmp[1] atol = atol
     end
 
     function _test_forces_fd_vc(calc; amp=1e-7, atol=1e-5, idx=1)
@@ -31,22 +31,21 @@ include("utils.jl")
         positions(get_cell(calc))[idx] += amp
         @test EDDP._need_calc(calc, true)
         tmp = (EDDP.get_enthalpy(calc) - etmp) / amp
-        @test -tmp ≈ ftmp[idx] atol=atol 
+        @test -tmp ≈ ftmp[idx] atol = atol
     end
 
 
 
     @testset "MBP" begin
-        nnitf = EDDP.ManualFluxBackPropInterface(Chain(
-            Dense(rand(5, EDDP.nfeatures(cf))), Dense(rand(1, 5))
-            )
-            )
-        calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
+        nnitf = EDDP.ManualFluxBackPropInterface(
+            Chain(Dense(rand(5, EDDP.nfeatures(cf))), Dense(rand(1, 5))),
+        )
+        calc = EDDP.NNCalc(cell, cf, nnitf; core=nothing)
         nnitf.chain(calc.v)
-        
+
         # Test copying positions
         cell2 = deepcopy(cell)
-        positions(cell2) .= 0.
+        positions(cell2) .= 0.0
         EDDP.copycell!(cell, cell2)
         @test EDDP.is_equal(cell, cell2)
 
@@ -55,11 +54,11 @@ include("utils.jl")
 
         forces = EDDP.get_forces(calc)
         # Newton's second law
-        @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10 )) 
+        @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10))
 
         stress = EDDP.get_stress(calc)
-        @test size(stress) == (3,3)
-        @test any(stress .!== 0.)
+        @test size(stress) == (3, 3)
+        @test any(stress .!== 0.0)
 
         # Test against small displacements finite displacements
         _test_forces_fd(calc)
@@ -68,10 +67,8 @@ include("utils.jl")
 
     @testset "MBP&Embedding" begin
         embed = EDDP.CellEmbedding(cf, 2)
-        nnitf = EDDP.ManualFluxBackPropInterface(
-            cf, 5;embedding=embed
-            )
-        calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
+        nnitf = EDDP.ManualFluxBackPropInterface(cf, 5; embedding=embed)
+        calc = EDDP.NNCalc(cell, cf, nnitf; core=nothing)
         nnitf.chain(calc.v)
 
         eng = EDDP.get_energy(calc)
@@ -79,11 +76,11 @@ include("utils.jl")
 
         forces = EDDP.get_forces(calc)
         # Newton's second law
-        @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10 )) 
+        @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10))
 
         stress = EDDP.get_stress(calc)
-        @test size(stress) == (3,3)
-        @test any(stress .!== 0.)
+        @test size(stress) == (3, 3)
+        @test any(stress .!== 0.0)
 
         # Test against small displacements finite displacements
         _test_forces_fd(calc)
@@ -92,10 +89,9 @@ include("utils.jl")
 
     @testset "Flux&Embedding" begin
         embed = EDDP.CellEmbedding(cf, 2)
-        model = EDDP.flux_mlp_model(cf, 5;embedding=embed)
-        nnitf = EDDP.FluxInterface(
-            model)
-        calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
+        model = EDDP.flux_mlp_model(cf, 5; embedding=embed)
+        nnitf = EDDP.FluxInterface(model)
+        calc = EDDP.NNCalc(cell, cf, nnitf; core=nothing)
         nnitf.model(calc.v)
 
         eng = EDDP.get_energy(calc)
@@ -103,11 +99,11 @@ include("utils.jl")
 
         forces = EDDP.get_forces(calc)
         # Newton's second law
-        @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10 )) 
+        @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10))
 
         stress = EDDP.get_stress(calc)
-        @test size(stress) == (3,3)
-        @test any(stress .!== 0.)
+        @test size(stress) == (3, 3)
+        @test any(stress .!== 0.0)
 
         # Test against small displacements finite displacements
         _test_forces_fd(calc)
@@ -116,18 +112,19 @@ include("utils.jl")
 
 
     @testset "Ensemble" begin
-         nnitfs = [EDDP.ManualFluxBackPropInterface(Chain(
-            Dense(rand(5, EDDP.nfeatures(cf))), Dense(rand(1, 5))
-            )
-            ) for _ in 1:5]
+        nnitfs = [
+            EDDP.ManualFluxBackPropInterface(
+                Chain(Dense(rand(5, EDDP.nfeatures(cf))), Dense(rand(1, 5))),
+            ) for _ = 1:5
+        ]
         nnitf = EDDP.EnsembleNNInterface(Tuple(nnitfs), repeat([0.2], 5))
-        calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
+        calc = EDDP.NNCalc(cell, cf, nnitf; core=nothing)
         eng = get_energy(calc)
         std_per_atom = EDDP.get_per_atom_energy_std(calc)
         std_tot = EDDP.get_energy_std(calc)
-        @test eng != 0.
+        @test eng != 0.0
         @test size(std_per_atom) == (length(cell),)
-        @test std_tot != 0.
+        @test std_tot != 0.0
 
         _test_forces_fd(calc)
         _test_forces_fd_vc(calc)
@@ -135,30 +132,30 @@ include("utils.jl")
 
     @testset "Linear" begin
         nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
-        calc = EDDP.NNCalc(cell, cf, nnitf;core=nothing)
+        calc = EDDP.NNCalc(cell, cf, nnitf; core=nothing)
         eng = get_energy(calc)
         forces = get_forces(calc)
         stress = get_stress(calc)
 
         @test isa(eng, Float64)
 
-        @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10 )) 
-        @test size(stress) == (3,3)
-        @test any(stress .!== 0.)
+        @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10))
+        @test size(stress) == (3, 3)
+        @test any(stress .!== 0.0)
 
         _test_forces_fd(calc)
         _test_forces_fd_vc(calc)
     end
-    
+
     @testset "VCFilter" begin
         nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
         calc = EDDP.NNCalc(cell, cf, nnitf)
-        filter =  EDDP.VariableCellCalc(calc)
+        filter = EDDP.VariableCellCalc(calc)
         _test_forces_fd(filter)
         _test_forces_fd_vc(filter)
         stress = get_stress(filter)
-        @test size(stress) == (3,3)
-        @test any(stress .!== 0.)
+        @test size(stress) == (3, 3)
+        @test any(stress .!== 0.0)
 
         # Sizes of the positions
         pos = get_positions(filter)
@@ -168,9 +165,9 @@ include("utils.jl")
         @test EDDP._need_calc(filter, false)
 
         # External pressure
-        filter =  EDDP.VariableCellCalc(calc; external_pressure=diagm([3., 3., 3.]))
+        filter = EDDP.VariableCellCalc(calc; external_pressure=diagm([3.0, 3.0, 3.0]))
         _test_forces_fd_vc(filter, idx=1)
-        _test_forces_fd_vc(filter, idx=nions(get_cell(calc))+3)
+        _test_forces_fd_vc(filter, idx=nions(get_cell(calc)) + 3)
         @test get_energy(filter) != EDDP.get_enthalpy(filter)
         @test get_pressure(filter) != 0
         @test get_pressure(calc) != 0
@@ -182,13 +179,13 @@ include("utils.jl")
         calc = EDDP.NNCalc(cell, cf, nnitf)
         p1 = calc.last_nn_build_pos[1]
         positions(get_cell(calc))[1] += 3.0
-        EDDP.calculate!(calc;rebuild_nl=false)
+        EDDP.calculate!(calc; rebuild_nl=false)
         @test p1 != calc.last_nn_build_pos[1]
 
         # This should not Trigger rebuild
         p1 = calc.last_nn_build_pos[1]
         positions(get_cell(calc))[1] += 0.001
-        EDDP.calculate!(calc;rebuild_nl=false)
+        EDDP.calculate!(calc; rebuild_nl=false)
         @test p1 == calc.last_nn_build_pos[1]
     end
 end
@@ -197,7 +194,13 @@ end
 @testset "Relax" begin
     cell = _h2_cell(10, 1.5)
     cf = EDDP.CellFeature(
-        EDDP.FeatureOptions(elements=unique(species(cell)), rcut2=3.5, p2=[6, 12], p3=[], q3=[])
+        EDDP.FeatureOptions(
+            elements=unique(species(cell)),
+            rcut2=3.5,
+            p2=[6, 12],
+            p3=[],
+            q3=[],
+        ),
     )
 
     nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
@@ -208,9 +211,9 @@ end
     EDDP.optimise!(calc)
 
     # Expected distance
-    rexp = (1 - (5/2/2^6)^(1/6)) * 3.5
+    rexp = (1 - (5 / 2 / 2^6)^(1 / 6)) * 3.5
     dd = distance_between(cell[1], cell[2])
-    @test dd ≈ rexp atol=1e-6
+    @test dd ≈ rexp atol = 1e-6
 
     # Test recording trajectory
     cell = _h2_cell(10, 1.5)
@@ -220,7 +223,7 @@ end
     @test res.g_converged
 
     dd = distance_between(cell[1], cell[2])
-    @test dd ≈ rexp atol=1e-6
+    @test dd ≈ rexp atol = 1e-6
 
     @test length(traj) > 1
     @test :enthalpy in keys(traj[1].metadata)
@@ -230,7 +233,12 @@ end
     cell = _h2_cell()
 
     cf = EDDP.CellFeature(
-        EDDP.FeatureOptions(elements=unique(species(cell)), p2=[2,4], q3=[3,4], p3=[3,4])
+        EDDP.FeatureOptions(
+            elements=unique(species(cell)),
+            p2=[2, 4],
+            q3=[3, 4],
+            p3=[3, 4],
+        ),
     )
 
     nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
@@ -263,7 +271,7 @@ end
 
 
     # Start from scratch
-    calc2 = EDDP.NNCalc(cell, cf, nnitf;mode="two-pass")
+    calc2 = EDDP.NNCalc(cell, cf, nnitf; mode="two-pass")
     EDDP.calculate!(calc2)
     @test v1 == calc2.v
     @test e1 == calc2.eng
@@ -280,24 +288,24 @@ end
 end
 
 @testset "Opt" begin
-   cell = _h2_cell() 
-   calc = EDDP.lj_like_calc(cell;rc=6.0)
-   traj = []
-   @test EDDP.opt_tpsd(calc, trajectory=traj)
-   @test length(traj) > 1
-   @test maximum(norm.(eachcol(EDDP.get_forces(calc)))) < 1e-4
-   @test EDDP.opt_tpsd(EDDP.VariableCellCalc(calc))
-   @test maximum(EDDP.get_stress(calc)) < 1e-4
-   
+    cell = _h2_cell()
+    calc = EDDP.lj_like_calc(cell; rc=6.0)
+    traj = []
+    @test EDDP.opt_tpsd(calc, trajectory=traj)
+    @test length(traj) > 1
+    @test maximum(norm.(eachcol(EDDP.get_forces(calc)))) < 1e-4
+    @test EDDP.opt_tpsd(EDDP.VariableCellCalc(calc))
+    @test maximum(EDDP.get_stress(calc)) < 1e-4
 
-   cell = _h2_cell() 
-   calc = EDDP.lj_like_calc(cell;rc=6.0)
-   # With external pressure
-   p = 1e-2
-   vc = EDDP.VariableCellCalc(calc, external_pressure=diagm([p, p, p]))
-   global vc
-   EDDP.opt_tpsd(vc;)
-   @test maximum(abs.(EDDP.get_forces(vc.calc))) < 1e-3
-   @test maximum(EDDP.get_stress(vc.calc)) > 1e-3
-   @test maximum(EDDP.get_stress(vc) .- vc.external_pressure) < 1e-4
+
+    cell = _h2_cell()
+    calc = EDDP.lj_like_calc(cell; rc=6.0)
+    # With external pressure
+    p = 1e-2
+    vc = EDDP.VariableCellCalc(calc, external_pressure=diagm([p, p, p]))
+    global vc
+    EDDP.opt_tpsd(vc;)
+    @test maximum(abs.(EDDP.get_forces(vc.calc))) < 1e-3
+    @test maximum(EDDP.get_stress(vc.calc)) > 1e-3
+    @test maximum(EDDP.get_stress(vc) .- vc.external_pressure) < 1e-4
 end

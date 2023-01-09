@@ -103,12 +103,12 @@ function NNCalc(
     cell::Cell{T},
     cf::CellFeature,
     nn::AbstractNNInterface;
-    shell_size = 2.0,
-    rcut = suggest_rcut(cf; offset = shell_size),
-    mode = "one-pass",
-    nmax = 500,
-    savevec = true,
-    core = CoreReplusion(1.0),
+    shell_size=2.0,
+    rcut=suggest_rcut(cf; offset=shell_size),
+    mode="one-pass",
+    nmax=500,
+    savevec=true,
+    core=CoreReplusion(1.0),
 ) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
@@ -126,7 +126,7 @@ function NNCalc(
         fb.forces,  # Forces
         fb.stress,  # Stress
         zeros(T, nions(cell)), # Energy
-        NNCalcParam(; mode = mode),
+        NNCalcParam(; mode=mode),
         nn,
     )
 end
@@ -143,26 +143,26 @@ function _reinit_fb!(calc, mode)
     end
 end
 
-function get_energy(calc::NNCalc; forces = false, rebuild_nl = true)
+function get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     calculate!(calc; forces, rebuild_nl)
     # Include the core energy if any
     sum(calc.eng) + calc.force_buffer.ecore[1]
 end
 
-function get_enthalpy(calc::NNCalc; forces = false, rebuild_nl = true)
+function get_enthalpy(calc::NNCalc; forces=false, rebuild_nl=true)
     get_energy(calc; forces, rebuild_nl)
 end
 
-function get_forces(calc::NNCalc; rebuild_nl = true, make_copy = true)
-    calculate!(calc; forces = true, rebuild_nl)
+function get_forces(calc::NNCalc; rebuild_nl=true, make_copy=true)
+    calculate!(calc; forces=true, rebuild_nl)
     if make_copy
         return copy(calc.forces)
     end
     calc.forces
 end
 
-function get_stress(calc::NNCalc; rebuild_nl = true, make_copy = true)
-    calculate!(calc; forces = true, rebuild_nl)
+function get_stress(calc::NNCalc; rebuild_nl=true, make_copy=true)
+    calculate!(calc; forces=true, rebuild_nl)
     if make_copy
         return copy(calc.stress)
     end
@@ -180,7 +180,7 @@ function _need_calc(calc::NNCalc, forces)
     return true
 end
 
-@timeit to function calculate!(calc::NNCalc; forces = true, rebuild_nl = true)
+@timeit to function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
     # Nothing to do if the cell has not changed since last time
 
     _need_calc(calc, forces) || return
@@ -206,7 +206,7 @@ function _rebuild_on_demand(calc; rebuild_nl)
     if rebuild_nl
         rebuild = true
     else
-        tol = (calc.nl.rcut - suggest_rcut(calc.cf; offset = 0.0))^2 / 2
+        tol = (calc.nl.rcut - suggest_rcut(calc.cf; offset=0.0))^2 / 2
         rebuild = false
         for i = 1:natoms(cell)
             if distance_squared_between(pos[i], calc.last_nn_build_pos[i]) > tol
@@ -229,7 +229,7 @@ Note: must be run after a energy call!
 """
 function get_per_atom_energy_std(calc::NNCalc{T,N,M,X}) where {T,N,M,X<:EnsembleNNInterface}
     per_atom = reduce(vcat, forward!.(calc.nninterface.models, Ref(calc.v)))
-    dropdims(std(per_atom, dims = 1), dims = 1)
+    dropdims(std(per_atom, dims=1), dims=1)
 end
 
 """
@@ -238,15 +238,15 @@ Note: must be run after a energy call!
 """
 function get_energy_std(calc::NNCalc{T,N,M,X}) where {T,N,M,X<:EnsembleNNInterface}
     per_atom = reduce(vcat, forward!.(calc.nninterface.models, Ref(calc.v)))
-    std(sum(per_atom, dims = 2))
+    std(sum(per_atom, dims=2))
 end
 
-function _calculate!(calc, rebuild, forces = true)
+function _calculate!(calc, rebuild, forces=true)
     # Compute feature vector and the gradients
     @timeit to "update_feature_vector!" update_feature_vector!(
         calc;
-        rebuild_nl = rebuild,
-        gradients = forces,
+        rebuild_nl=rebuild,
+        gradients=forces,
     )
     # Energy evaluation
     calc.eng .= @timeit to "forward!" forward!(calc.nninterface, calc.v)[1, :]
@@ -257,15 +257,15 @@ function _calculate!(calc, rebuild, forces = true)
     if forces
         @timeit to "backward!" backward!(
             calc.nninterface;
-            gu = one(eltype(calc.v)),
-            weight_and_bias = false,
+            gu=one(eltype(calc.v)),
+            weight_and_bias=false,
         )
         # Calculate the gradient of the feature vectors on the outputs (energies)
         @timeit to "gradinp!" gradinp!(calc.gv, calc.nninterface)
         # Apply chain rule to get the forces
         n1bd = feature_size(calc.cf)[1]
         # Force is only applicable on n-body features where N>1
-        @timeit to "apply_chainrule!" apply_chainrule!(calc, calc.gv, offset = 1)
+        @timeit to "apply_chainrule!" apply_chainrule!(calc, calc.gv, offset=1)
         # Scale stress by the volume
         calc.stress ./= volume(get_cell(calc))
         calc.param.forces_calculated = true
@@ -289,7 +289,7 @@ function _calculate_two_pass!(calc)
         cf.three_body,
         cell;
         calc.nl,
-        offset = n1bd,
+        offset=n1bd,
     ) # This zeros all elements
     calc.force_buffer.ecore[1] = ecore
     @timeit to "one_body" one_body_vectors!(calc.v, cell, calc.cf)
@@ -299,8 +299,8 @@ function _calculate_two_pass!(calc)
     # Compute gradients
     @timeit to "backward!" backward!(
         calc.nninterface;
-        gu = one(eltype(calc.v)),
-        weight_and_bias = false,
+        gu=one(eltype(calc.v)),
+        weight_and_bias=false,
     )
     # Save the gradients
     @timeit to "gradinp!" gradinp!(calc.gv, calc.nninterface)
@@ -313,7 +313,7 @@ function _calculate_two_pass!(calc)
         cell,
         calc.gv;
         calc.nl,
-        offset = n1bd,
+        offset=n1bd,
     )
 
     _substract_force_drift(calc.forces)
@@ -330,11 +330,11 @@ Returns the updated the feature vectors after atomic displacements
 """
 function update_feature_vector!(
     calc::NNCalc;
-    rebuild_nl = true,
-    gradients = true,
-    global_minsep = 0.01,
-    maxvol = 100,
-    gv_offset = 0,
+    rebuild_nl=true,
+    gradients=true,
+    global_minsep=0.01,
+    maxvol=100,
+    gv_offset=0,
 )
 
     cell = get_cell(calc)
@@ -355,7 +355,7 @@ function update_feature_vector!(
             calc.cf.three_body,
             cell;
             nl,
-            offset = n1bd,
+            offset=n1bd,
         )
         #else
         #    @timeit to "compute_fv_gv!" compute_fv_gv!(calc.force_buffer, calc.cf.two_body, calc.cf.three_body, cell, gv;nl, offset=n1bd)
@@ -367,8 +367,8 @@ function update_feature_vector!(
             calc.cf.three_body,
             cell;
             nl,
-            offset = n1bd,
-            core = calc.force_buffer.core,
+            offset=n1bd,
+            core=calc.force_buffer.core,
         )
         calc.force_buffer.ecore[1] = ecore
     end
@@ -388,7 +388,7 @@ end
 """
 Apply Chain rule to compute forces
 """
-function apply_chainrule!(calc, gv; offset = 0)
+function apply_chainrule!(calc, gv; offset=0)
     _force_update!(calc.force_buffer, calc.nl, gv; offset)
     _stress_update!(calc.force_buffer, gv; offset)
     _substract_force_drift(calc.force_buffer.forces)
@@ -418,10 +418,10 @@ end
 
 _need_calc(calc::VariableCellCalc, forces) = _need_calc(calc.calc, forces)
 get_cell(c::VariableCellCalc) = get_cell(c.calc)
-get_energy(c::VariableCellCalc; rebuild_nl = true, kwargs...) =
+get_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) =
     get_energy(c.calc; rebuild_nl, kwargs...)
 
-function VariableCellCalc(calc::NNCalc{T}; external_pressure = zeros(T, 3, 3)) where {T}
+function VariableCellCalc(calc::NNCalc{T}; external_pressure=zeros(T, 3, 3)) where {T}
     latt = copy(cellmat(get_cell(calc)))
     lattice_factor = convert(T, nions(get_cell(calc)))
     VariableCellCalc(calc, Lattice(latt), lattice_factor, external_pressure)
@@ -456,7 +456,7 @@ end
 Construct force and stress for the filter object
 """
 function _get_forces_and_stress(vc::VariableCellCalc; rebuild_nl, kwargs...)
-    calculate!(vc.calc; forces = true, rebuild_nl, kwargs...)
+    calculate!(vc.calc; forces=true, rebuild_nl, kwargs...)
     dgrad = deformgradient(vc)
     vol = volume(get_cell(vc))
     # Compute the stress
@@ -475,16 +475,16 @@ end
 """
 Forces including the stress contributions that is consistent with the augmented positions
 """
-get_forces(vc::VariableCellCalc; rebuild_nl = true, kwargs...) =
+get_forces(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
     _get_forces_and_stress(vc; rebuild_nl, kwargs...)[1]
-_get_effective_stress(vc::VariableCellCalc; rebuild_nl = true, kwargs...) =
+_get_effective_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
     _get_forces_and_stress(vc; rebuild_nl, kwargs...)[2]
 
 """
     get_stress(vc::VariableCellCalc;kwargs...)
 Return the effective stress of the VaraibleCellCalc (including the external pressure)
 """
-get_stress(vc::VariableCellCalc; rebuild_nl = true, kwargs...) =
+get_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
     get_stress(vc.calc; rebuild_nl, kwargs...)
 
 function get_enthalpy(vc::VariableCellCalc; kwargs...)
@@ -522,12 +522,12 @@ corresponds to the actual iterations of the underlying LBFGS iterations.
 """
 function optimise!(
     calc::AbstractCalc;
-    show_trace = false,
-    g_abstol = 1e-6,
-    f_reltol = 0.0,
-    successive_f_tol = 2,
-    traj = nothing,
-    method = TwoPointSteepestDescent(),
+    show_trace=false,
+    g_abstol=1e-6,
+    f_reltol=0.0,
+    successive_f_tol=2,
+    traj=nothing,
+    method=TwoPointSteepestDescent(),
     kwargs...,
 )
     p0 = get_positions(calc)[:]
@@ -558,13 +558,13 @@ function optimise!(
         p0,
         method,
         Optim.Options(;
-            show_trace = show_trace,
+            show_trace=show_trace,
             g_abstol,
             f_reltol,
             successive_f_tol,
             kwargs...,
         );
-        inplace = false,
+        inplace=false,
     )
     res
 end

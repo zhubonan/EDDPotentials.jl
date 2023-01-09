@@ -61,10 +61,10 @@ Obtain an baseline MLP model
 function flux_mlp_model(
     cf::CellFeature,
     nodes...;
-    init = glorot_uniform_f64,
-    σ = tanh_fast,
-    embedding = nothing,
-    σs = nothing,
+    init=glorot_uniform_f64,
+    σ=tanh_fast,
+    embedding=nothing,
+    σs=nothing,
 )
 
     if embedding === nothing

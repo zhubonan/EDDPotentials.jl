@@ -13,7 +13,7 @@ using EDDPTools
 using PyCall
 
 # Create a random structure
-cell = Cell(Lattice(5., 5., 5.), repeat([:H], 10), rand(3, 10).*5)
+cell = Cell(Lattice(5.0, 5.0, 5.0), repeat([:H], 10), rand(3, 10) .* 5)
 ecalc = EDDP.lj_like_calc(cell)
 atoms, calc = EDDPTools.get_ase_atoms_and_calculator(ecalc)
 

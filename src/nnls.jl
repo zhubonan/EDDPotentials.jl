@@ -192,11 +192,11 @@ end
 NNLSWorkspace(
     m::Integer,
     n::Integer,
-    eltype::Type{T} = Float64,
-    indextype::Type{I} = Int,
+    eltype::Type{T}=Float64,
+    indextype::Type{I}=Int,
 ) where {T,I} = NNLSWorkspace{T,I}(m, n)
 
-function NNLSWorkspace(A::Matrix{T}, b::Vector{T}, indextype::Type{I} = Int) where {T,I}
+function NNLSWorkspace(A::Matrix{T}, b::Vector{T}, indextype::Type{I}=Int) where {T,I}
     m, n = size(A)
     @assert size(b) == (m,)
     work = NNLSWorkspace{T,I}(m, n)
@@ -286,7 +286,7 @@ N-VECTOR, X, THAT SOLVES THE LEAST SQUARES PROBLEM
 """
 function solve!(
     work::NNLSWorkspace{T,TI},
-    max_iter::Integer = (3 * size(work.QA, 2)),
+    max_iter::Integer=(3 * size(work.QA, 2)),
 ) where {T,TI}
     checkargs(work)
 
@@ -555,14 +555,14 @@ function solve!(
     work::NNLSWorkspace{T},
     A::AbstractMatrix{T},
     b::AbstractVector{T},
-    max_iter = (3 * size(A, 2)),
+    max_iter=(3 * size(A, 2)),
 ) where {T}
     load!(work, A, b)
     solve!(work, max_iter)
     work.x
 end
 
-function nnls(A::DenseMatrix{T}, b::DenseVector{T}, max_iter = (3 * size(A, 2))) where {T}
+function nnls(A::DenseMatrix{T}, b::DenseVector{T}, max_iter=(3 * size(A, 2))) where {T}
     work = NNLSWorkspace(A, b)
     solve!(work, max_iter)
     work.x
@@ -702,7 +702,7 @@ solution ``z`` and the dual solution ``λ``.
 """
 function solve!(
     work::QPWorkspace{T},
-    eps_infeasible = 1e-4,
+    eps_infeasible=1e-4,
 ) where {T<:LinearAlgebra.BlasFloat}
     checkunsolved(work)
 
@@ -770,7 +770,7 @@ function solve!(
     z, λ
 end
 
-function solve!(work::QPWorkspace{T}, eps_infeasible = 1e-4) where {T}
+function solve!(work::QPWorkspace{T}, eps_infeasible=1e-4) where {T}
     checkunsolved(work)
 
     Q = work.L # is set to Q initially; modified to be L

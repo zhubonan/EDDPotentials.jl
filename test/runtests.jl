@@ -3,7 +3,7 @@ using CellBase
 using Test
 
 @testset "Tools" begin
-    cell = Cell(Lattice(10, 10, 10), [:H], [[0., 0., 4]])
+    cell = Cell(Lattice(10, 10, 10), [:H], [[0.0, 0.0, 4]])
     cpar = cellpar(cell)
     spos = CellBase.scaled_positions(cell)
     # Test for rattling the cell

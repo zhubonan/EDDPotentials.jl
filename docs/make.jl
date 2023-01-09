@@ -1,11 +1,7 @@
 using Documenter
 using EDDP
 
-makedocs(
-    sitename = "EDDP",
-    format = Documenter.HTML(),
-    modules = [EDDP]
-)
+makedocs(sitename="EDDP", format=Documenter.HTML(), modules=[EDDP])
 
 # Documenter can also automatically deploy documentation to gh-pages.
 # See "Hosting Documentation" and deploydocs() in the Documenter manual

@@ -5,16 +5,20 @@ using EDDP
 using CellBase
 
 function _h2_cell(l=4.0, factor=1.0)
-    tmp = Float64[0 0.1  
-    0 2.0  
-    0.1 0] .* factor
+    tmp = Float64[
+        0 0.1
+        0 2.0
+        0.1 0
+    ] .* factor
     Cell(Lattice(l, l, l), [:H, :H], tmp)
 end
 
 function _h2o_cell(l=4.0, factor=1.0)
-    tmp = Float64[0 0.1 1 
-    0 1 1 
-    0.1 0 1] .* factor
+    tmp = Float64[
+        0 0.1 1
+        0 1 1
+        0.1 0 1
+    ] .* factor
     Cell(Lattice(l, l, l), [:H, :H, :O], tmp)
 end
 
@@ -22,7 +26,12 @@ end
 
 function _generate_cf(cell::Cell)
     cf = EDDP.CellFeature(
-        EDDP.FeatureOptions(elements=unique(species(cell)), p2=[6, 12], q3=[2,3], p3=[2,3])
+        EDDP.FeatureOptions(
+            elements=unique(species(cell)),
+            p2=[6, 12],
+            q3=[2, 3],
+            p3=[2, 3],
+        ),
     )
     cf
 end
@@ -38,7 +47,7 @@ function _get_calc()
     calc
 end
 
-function allclose(x, y;kwargs...)
+function allclose(x, y; kwargs...)
     all(isapprox.(x, y; kwargs...))
 end
 

@@ -10,8 +10,8 @@ include("utils.jl")
     sc = EDDP.StructureContainer([fpath])
 
     # Test indexing
-    @test isa(sc[1], Cell) 
-    @test isa(sc[1:2], EDDP.StructureContainer) 
+    @test isa(sc[1], Cell)
+    @test isa(sc[1:2], EDDP.StructureContainer)
     @test length(sc) == 11
     labels = [x.metadata[:label] for x in sc.structures]
     @test isa(sc[[labels[1], labels[2]]], EDDP.StructureContainer)
@@ -43,9 +43,9 @@ include("utils.jl")
     @test isa(collect(fc)[1], Tuple)
 
     # Test standardisation
-    fc1, fc2 = split(fc[1:10], 5, 3;shuffle=false, standardize=false)
+    fc1, fc2 = split(fc[1:10], 5, 3; shuffle=false, standardize=false)
     fc11, fc12 = EDDP.standardize(fc1, fc2)
-    @test mean(reduce(hcat, fc11.fvecs)[2, :]) ≈ 0. atol=1e-8
+    @test mean(reduce(hcat, fc11.fvecs)[2, :]) ≈ 0.0 atol = 1e-8
     @test fc11.fvecs != fc1.fvecs
     @test !isapprox(mean(reduce(hcat, fc1.fvecs)[2, :]), 0, atol=1e-8)
 
@@ -62,7 +62,7 @@ include("utils.jl")
     @test !isnothing(fc2.xt)
     @test fc1.xt === fc2.xt
     @test fc1.yt === fc2.yt
-    @test mean(reduce(hcat, fc1.fvecs)[2, :]) ≈ 0. atol=1e-8
-    @test !isapprox(mean(reduce(hcat, fc2.fvecs)[2, :]),  0.; atol=1e-8) 
+    @test mean(reduce(hcat, fc1.fvecs)[2, :]) ≈ 0.0 atol = 1e-8
+    @test !isapprox(mean(reduce(hcat, fc2.fvecs)[2, :]), 0.0; atol=1e-8)
 
 end

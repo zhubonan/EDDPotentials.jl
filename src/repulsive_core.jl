@@ -31,6 +31,6 @@ end
 
 Construct a core repulsion with a specific cut off radius.
 """
-function CoreReplusion(rcut = 2.0)
+function CoreReplusion(rcut=2.0)
     CoreReplusion(core_repulsion, gcore_repulsion, Float64(rcut), 1.0)
 end

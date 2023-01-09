@@ -47,7 +47,7 @@ function generate_chain(nfeature, nnodes)
         return Chain(Dense(nfeature, 1))
     end
 
-    models = Any[Dense(nfeature, nnodes[1], tanh; bias = true)]
+    models = Any[Dense(nfeature, nnodes[1], tanh; bias=true)]
     # Add more layers
     if length(nnodes) > 1
         for i = 2:length(nnodes)
@@ -61,7 +61,7 @@ end
 
 
 "Load CellFeature serialized in the archive"
-function load_featurespec(fname; opts = TrainingOptions())
+function load_featurespec(fname; opts=TrainingOptions())
     featurespec = jldopen(fname) do file
         file[opts.featurespec_name]
     end
@@ -93,7 +93,7 @@ end
 
 Create an EnsembleNNInterface from a vector of interfaces and x, y data for fitting.
 """
-function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold = 1e-3)
+function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold=1e-3)
     weights = nnls_weights(models, x, y)
     tmp_models = collect(models)
     mask = weights .< threshold
@@ -109,7 +109,7 @@ function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold
     EnsembleNNInterface(Tuple(tmp_models), weights)
 end
 
-EnsembleNNInterface(models, fc::FeatureContainer; threshold = 1e-3) =
+EnsembleNNInterface(models, fc::FeatureContainer; threshold=1e-3) =
     create_ensemble(models, get_fit_data(fc)...; threshold)
 
 predict_energy(itf::AbstractNNInterface, vec) = sum(itf(vec))
@@ -121,15 +121,15 @@ function train_lm!(
     itf::AbstractNNInterface,
     x,
     y;
-    p0 = EDDP.paramvector(itf),
-    maxIter = 1000,
-    show_progress = false,
-    x_test = x,
-    y_test = y,
-    earlystop = 50,
-    keep_best = true,
-    tb_logger_dir = nothing,
-    p = 1.25,
+    p0=EDDP.paramvector(itf),
+    maxIter=1000,
+    show_progress=false,
+    x_test=x,
+    y_test=y,
+    earlystop=50,
+    keep_best=true,
+    tb_logger_dir=nothing,
+    p=1.25,
     args...,
 )
     rec = []
@@ -167,19 +167,18 @@ function train_lm!(
 
     # Setting up the object for minimization
     f!, j!, fj! = setup_fj(itf, x, y)
-    od2 =
-        OnceDifferentiable(f!, j!, fj!, p0, zeros(eltype(x[1]), length(x)), inplace = true)
+    od2 = OnceDifferentiable(f!, j!, fj!, p0, zeros(eltype(x[1]), length(x)), inplace=true)
 
     callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
 
     opt_res = levenberg_marquardt(
         od2,
         p0;
-        show_trace = false,
-        callback = callback,
-        p = p,
-        maxIter = maxIter,
-        keep_best = keep_best,
+        show_trace=false,
+        callback=callback,
+        p=p,
+        maxIter=maxIter,
+        keep_best=keep_best,
         earlystop,
         args...,
     )
@@ -191,7 +190,7 @@ function train!(
     itf::AbstractNNInterface,
     fc_train::FeatureContainer,
     fc_test::FeatureContainer;
-    train_method = "lm",
+    train_method="lm",
     kwargs...,
 )
 
@@ -204,7 +203,7 @@ function train!(
         f, g!, pview, callback = EDDP.generate_f_g_optim(model, fc_train, fc_test)
         od = OnceDifferentiable(f, g!, collect(pview))
         x0 = collect(pview)
-        opt_res = Optim.optimize(od, x0; callback = callback, kwargs...)
+        opt_res = Optim.optimize(od, x0; callback=callback, kwargs...)
         opt_res, collect(pview)
     end
 end
@@ -307,12 +306,12 @@ function train_multi_threaded(
     itf,
     fc_train,
     fc_test;
-    show_progress = true,
-    nmodels = 10,
-    suffix = nothing,
-    prefix = nothing,
-    save_each_model = true,
-    use_test_for_ensemble = true,
+    show_progress=true,
+    nmodels=10,
+    suffix=nothing,
+    prefix=nothing,
+    save_each_model=true,
+    use_test_for_ensemble=true,
     kwargs...,
 )
 
@@ -564,7 +563,7 @@ Return the standard deviation from the ensemble for each data point. Defaults to
 """
 function ensemble_std(
     tr::TrainingResults{M,T};
-    min_weight = 0.05,
+    min_weight=0.05,
 ) where {M,T<:EnsembleNNInterface}
     function fvstd_atomic(fvec)
         std(
@@ -640,7 +639,7 @@ end
 
 Generate f, g!, view of the parameters and the callback function for NN training using Optim.
 """
-function generate_f_g_optim_alt(model, fc_train, fc_test; pow = 2, earlystop = 30)
+function generate_f_g_optim_alt(model, fc_train, fc_test; pow=2, earlystop=30)
 
     X = fc_train.fvecs
     Y = transform_y(fc_train)
@@ -715,7 +714,7 @@ Compute the loss as absolute difference in total energy
 L = \sum_i |y_i - y_i^p|^l
 ```
 """
-function loss_all(model, fvecs, H; pow = 2)
+function loss_all(model, fvecs, H; pow=2)
     if pow == 2
         (sum.(model.(fvecs)) .- H) .^ pow |> sum
     else
@@ -730,7 +729,7 @@ Generate f, g!, view of the parameters and the callback function for NN training
 
 This is for 'batch' training where all of the data are included.
 """
-function generate_f_g_optim(model, fc_train, fc_test; pow = 2, earlystop = 30)
+function generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
 
     X = fc_train.fvecs
     nfeat = size(X[1], 1)
@@ -828,9 +827,9 @@ This function requires a dataset that consisted of rank3 tensors so the total en
 straightforwardly using a single call of `sum`.
 Each element of the dataset is consisted of structures with the same number of atoms.
 """
-function loss_stacked(model, datasets; pow = 2)
+function loss_stacked(model, datasets; pow=2)
     sum(datasets) do (x, y)
-        pred = sum(model(x), dims = 2)[:]
+        pred = sum(model(x), dims=2)[:]
         abs.(pred .- y) .^ pow |> sum
     end
 end

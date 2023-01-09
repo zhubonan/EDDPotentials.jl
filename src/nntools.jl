@@ -104,8 +104,8 @@ function compute_objectives_diff(
     itf,
     data::AbstractVector,
     y;
-    jtmp = jmat[1, :],
-    ngps = 10,
+    jtmp=jmat[1, :],
+    ngps=10,
 )
     nt = nthreads()
     if nt > 1 && div(length(data), nt) > 10
@@ -127,7 +127,7 @@ end
 
 Divide a range into multiple chunks such that each thread receives up to `ngps` chunks in total.
 """
-function _chunk_ranges(ndata; ngps = 1)
+function _chunk_ranges(ndata; ngps=1)
     nt = nthreads()
     ndivide = nt * ngps
     ningroup = div(ndata, ndivide)
@@ -157,8 +157,8 @@ function _compute_objectives_diff_threaded(
     itf,
     data::AbstractVector,
     y;
-    jtmp = jmat[1, :],
-    ngps = 10,
+    jtmp=jmat[1, :],
+    ngps=10,
 )
     chunks = _chunk_ranges(length(data); ngps)
     Threads.@threads for idx in chunks
@@ -254,20 +254,20 @@ else
 end
 
 
-function glorot_uniform_f64(rng::AbstractRNG, dims::Integer...; gain::Real = 1)
+function glorot_uniform_f64(rng::AbstractRNG, dims::Integer...; gain::Real=1)
     scale = Float64(gain) * sqrt(24.0f0 / sum(Flux.nfan(dims...)))
     (rand(rng, Float32, dims...) .- 0.5f0) .* scale
 end
 glorot_uniform_f64(dims::Integer...; kw...) =
     glorot_uniform_f64(default_rng_value(), dims...; kw...)
-glorot_uniform_f64(rng::AbstractRNG = default_rng_value(); init_kwargs...) =
+glorot_uniform_f64(rng::AbstractRNG=default_rng_value(); init_kwargs...) =
     (dims...; kwargs...) -> glorot_uniform_f64(rng, dims...; init_kwargs..., kwargs...)
 
 const ginit = glorot_uniform_f64
 
 
 # For reinitialising the weights
-function reinit!(chain::Chain, init = ginit)
+function reinit!(chain::Chain, init=ginit)
     for layer in chain.layers
         reinit!(layer, init)
     end
@@ -275,30 +275,30 @@ function reinit!(chain::Chain, init = ginit)
 end
 
 
-function reinit!(layer::Dense, init = ginit)
+function reinit!(layer::Dense, init=ginit)
     layer.weight .= init(size(layer.weight)...)
     layer.bias .= init(size(layer.bias)...)
     layer
 end
 
-function reinit!(itf::ManualFluxBackPropInterface, init = ginit)
+function reinit!(itf::ManualFluxBackPropInterface, init=ginit)
     reinit!(itf.chain, init)
     itf
 end
 
-reinit(itf::AbstractNNInterface, init = ginit) = reinit!(deepcopy(itf), init)
+reinit(itf::AbstractNNInterface, init=ginit) = reinit!(deepcopy(itf), init)
 
-function reinit!(itf::FluxInterface, init = ginit)
+function reinit!(itf::FluxInterface, init=ginit)
     reinit!(itf.model, init)
     itf
 end
 
-function reinit!(be::BodyEmbedding, init = ginit)
+function reinit!(be::BodyEmbedding, init=ginit)
     be.weight .= init(size(be.weight)...)
     be
 end
 
-function reinit!(ce::CellEmbedding, init = ginit)
+function reinit!(ce::CellEmbedding, init=ginit)
     reinit!(ce.two_body, init)
     reinit!(ce.three_body, init)
     ce

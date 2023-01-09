@@ -7,7 +7,7 @@ feature_opts = EDDP.FeatureOptions(
     q3=[2, 4, 6, 8],
     rcut2=3.75,
     rcut3=3.75,
-    )
+)
 
 cf = EDDP.CellFeature(feature_opts)
 
@@ -26,4 +26,3 @@ model = EDDP.ManualFluxBackPropInterface
 # relax_extra_opts=Dict{Symbol, Any}(:categories=>["24-core", "4-core"], :priority=>100),
 # dft_mode="disp-castep"
 # )
-

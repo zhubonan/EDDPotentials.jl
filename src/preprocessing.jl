@@ -41,7 +41,7 @@ Args:
     - `energy_threshold`: structures with per-atom energy higher than this are excluded. 
       Relative to the median energy.
 """
-function StructureContainer(paths::Vector; threshold = 10.0, select_func = minimum)
+function StructureContainer(paths::Vector; threshold=10.0, select_func=minimum)
     resolved_paths = String[]
     for path in paths
         if contains(path, "*") || contains(path, "?")
@@ -68,9 +68,9 @@ end
 function StructureContainer(
     structures::Vector{T},
     engs,
-    labels = ["structure_$(i)" for i = 1:length(structures)];
-    threshold = 10.0,
-    select_func = minimum,
+    labels=["structure_$(i)" for i = 1:length(structures)];
+    threshold=10.0,
+    select_func=minimum,
 ) where {T<:Cell}
     H = engs
     Ha = H ./ natoms.(structures)
@@ -98,7 +98,7 @@ end
 """
 Return index selected based on per-formula atomic energy
 """
-function _select_per_atom_threshold(structures, Ha; select_func = minimum, threshold = 10.0)
+function _select_per_atom_threshold(structures, Ha; select_func=minimum, threshold=10.0)
     reduced_comps = reduce_composition.(Composition.(structures))
     unique_comp = unique(reduced_comps)
     selected_idx = Int[]
@@ -111,7 +111,7 @@ function _select_per_atom_threshold(structures, Ha; select_func = minimum, thres
     selected_idx
 end
 
-_select_per_atom_threshold(sc; select_func = minimum, threshold = 10.0) =
+_select_per_atom_threshold(sc; select_func=minimum, threshold=10.0) =
     sc[_select_per_atom_threshold(
         sc.structures,
         sc.H ./ natoms(sc);
@@ -123,7 +123,7 @@ _select_per_atom_threshold(sc; select_func = minimum, threshold = 10.0) =
 """
 Split a vector by integer numbres
 """
-function _split_vector(c, nsplit::Vararg{Int}; shuffle = true, seed = 42)
+function _split_vector(c, nsplit::Vararg{Int}; shuffle=true, seed=42)
     out = []
     rng = MersenneTwister(seed)
     if shuffle
@@ -142,7 +142,7 @@ end
 """
 Split a vector by fractions
 """
-function _split_vector(c, nsplit::Vararg{Real}; shuffle = true, seed = 42)
+function _split_vector(c, nsplit::Vararg{Real}; shuffle=true, seed=42)
     ntot = length(c)
     intsplit = nsplit .* ntot .|> floor .|> Int
     _split_vector(c, intsplit...; shuffle, seed)
@@ -251,8 +251,8 @@ Get a feature container.
 function FeatureContainer(
     sc::StructureContainer,
     feature::CellFeature;
-    nmax = 500,
-    show_progress = true,
+    nmax=500,
+    show_progress=true,
     kwargs...,
 )
 
@@ -284,7 +284,7 @@ end
 function FeatureContainer(
     sc::StructureContainer,
     feature::FeatureOptions;
-    nmax = 500,
+    nmax=500,
     kwargs...,
 )
     FeatureContainer(sc::StructureContainer, CellFeature(feature); nmax, kwargs...)
@@ -294,7 +294,7 @@ function FeatureContainer(sc::StructureContainer; kwargs...)
     symbols = reduce(vcat, unique.(species.(sc.structures)))
     FeatureContainer(
         sc::StructureContainer,
-        FeatureOptions(elements = unique(symbols));
+        FeatureOptions(elements=unique(symbols));
         kwargs...,
     )
 end
@@ -303,7 +303,7 @@ end
 Base.IndexStyle(T::StructureContainer) = IndexLinear()
 Base.IndexStyle(T::FeatureContainer) = IndexLinear()
 
-Base.iterate(v::Union{FeatureContainer,StructureContainer}, state = 1) =
+Base.iterate(v::Union{FeatureContainer,StructureContainer}, state=1) =
     state > length(v) ? nothing : (v[state], state + 1)
 Base.eltype(::Type{StructureContainer{T,N}}) where {T,N} = Cell{T}
 Base.eltype(::Type{FeatureContainer{T,N}}) where {T,N} = Tuple{T,N}
@@ -367,8 +367,8 @@ Split the training
 """
 function train_test_split(
     v::Union{FeatureContainer,StructureContainer};
-    ratio_test = 0.1,
-    shuffle = true,
+    ratio_test=0.1,
+    shuffle=true,
 )
     ntest = Int(floor(length(v) * ratio_test))
     ntrain = length(v) - ntest
@@ -388,10 +388,10 @@ By default, the output container will have their feature vectors standardized.
 function Base.split(
     c::Union{StructureContainer,FeatureContainer},
     nsplit::Vararg;
-    shuffle = true,
-    standardize = true,
-    apply_transform = true,
-    seed = 42,
+    shuffle=true,
+    standardize=true,
+    apply_transform=true,
+    seed=42,
 )
     out = _split_vector(c, nsplit...; shuffle, seed)
     isa(c, FeatureContainer) && standardize && standardize!(out...; apply_transform)
@@ -413,18 +413,13 @@ Standardize the data in the `FeatureContainer`. The feature vectors are modified
 Note that only the input features are fitted and scaled, the outputs are only fitted
 but the standardisation is not applied.
 """
-function standardize!(
-    fc::FeatureContainer;
-    xt = nothing,
-    yt = nothing,
-    apply_transform = true,
-)
+function standardize!(fc::FeatureContainer; xt=nothing, yt=nothing, apply_transform=true)
 
     if xt === nothing
         if isnothing(fc.xt)
             total_x_train = reduce(hcat, fc.fvecs)
             n1 = feature_size(fc.feature)[1]
-            xt = fit(StatsBase.ZScoreTransform, @view(total_x_train[n1+1:end, :]), dims = 2)
+            xt = fit(StatsBase.ZScoreTransform, @view(total_x_train[n1+1:end, :]), dims=2)
             if apply_transform && !fc.is_x_transformed
                 # We have to make copy to avoid affect the original data which may present in other objects
                 fvecs = copy.(fc.fvecs)
@@ -451,7 +446,7 @@ function standardize!(
     if yt === nothing
         if isnothing(fc.yt)
             y = fc.H
-            yt = fit(ZScoreTransform, reshape(y ./ natoms(fc), 1, length(y)), dims = 2)
+            yt = fit(ZScoreTransform, reshape(y ./ natoms(fc), 1, length(y)), dims=2)
             fc.yt = yt
         end
     else
@@ -470,9 +465,9 @@ Standardise multiple feature containers. Only the first argument is used for fit
 """
 function standardize!(fc_train, fc1, fcs...; kwargs...)
     standardize!(fc_train)
-    standardize!(fc1; xt = fc_train.xt, yt = fc_train.yt, kwargs...)
+    standardize!(fc1; xt=fc_train.xt, yt=fc_train.yt, kwargs...)
     for fc in fcs
-        standardize!(fc; xt = fc_train.xt, yt = fc_train.yt, kwargs...)
+        standardize!(fc; xt=fc_train.xt, yt=fc_train.yt, kwargs...)
     end
 
 end
@@ -487,7 +482,7 @@ function standardize(fc_train, fcs...; kwargs...)
     _fcs = deepcopy.(fcs)
     standardize!(_fc_train; kwargs...)
     for fc in _fcs
-        standardize!(fc; xt = fc_train.xt, yt = fc_train.yt, kwargs...)
+        standardize!(fc; xt=fc_train.xt, yt=fc_train.yt, kwargs...)
     end
     (_fc_train, _fcs...)
 end
@@ -511,7 +506,7 @@ function transform_x!(xt, x_train)
     x_train
 end
 
-function transform_x!(fc::FeatureContainer; xt = fc.xt)
+function transform_x!(fc::FeatureContainer; xt=fc.xt)
     fvecs = copy.(fc.fvecs)
     @assert !fc.is_x_transformed
     transform_x!(xt, fvecs)
@@ -519,7 +514,7 @@ function transform_x!(fc::FeatureContainer; xt = fc.xt)
     fc.is_x_transformed = true
 end
 
-function transform_y(fc::FeatureContainer; yt = fc.yt)
+function transform_y(fc::FeatureContainer; yt=fc.yt)
     Hps = fc.H ./ natoms(fc)
     Hps .-= yt.mean[1]
     Hps ./= yt.scale[1]
@@ -538,7 +533,7 @@ function reconstruct_x!(xt, x_train)
     x_train
 end
 
-function reconstruct_x!(fc::FeatureContainer; xt = fc.xt)
+function reconstruct_x!(fc::FeatureContainer; xt=fc.xt)
     fvecs = copy.(fc.fvecs)
     @assert fc.is_x_transformed
     reconstruct_x!(xt, fvecs)

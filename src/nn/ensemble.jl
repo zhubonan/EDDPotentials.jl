@@ -36,7 +36,7 @@ function backward!(itf::EnsembleNNInterface, args...; kwargs...)
     end
 end
 
-function gradinp!(gvec, itf::EnsembleNNInterface; tmpg = copy(gvec))
+function gradinp!(gvec, itf::EnsembleNNInterface; tmpg=copy(gvec))
     fill!(tmpg, 0)
     fill!(gvec, 0)
     for (model, wt) in zip(itf.models, itf.weights)

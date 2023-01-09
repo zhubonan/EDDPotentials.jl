@@ -24,7 +24,7 @@ function write_features(fc::FeatureContainer, outfile)
     @assert nfeats[1] + nfeats[2] * fsize_eddp[1] + nfeats[3] * fsize_eddp[2] ==
             nfeatures(cf)
     pw = join(string.(fc.feature.two_body[1].p), " ")
-    rmax = suggest_rcut(fc.feature; offset = 1.0)
+    rmax = suggest_rcut(fc.feature; offset=1.0)
     open(outfile, "w") do io
         for i = 1:ntot
             feat = fc.fvecs[i]
@@ -41,10 +41,10 @@ function write_features(fc::FeatureContainer, outfile)
                 label,
                 rmax,
                 pw;
-                comp = comp,
-                pressure = metadata[:pressure],
-                volume = metadata[:volume],
-                enthalpy = H,
+                comp=comp,
+                pressure=metadata[:pressure],
+                volume=metadata[:volume],
+                enthalpy=H,
             )
         end
     end

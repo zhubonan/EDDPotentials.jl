@@ -72,9 +72,9 @@ function setparamvector!(itf::FluxInterface, param)
     end
 end
 
-function gradinp!(gvec, itf::FluxInterface, inp = itf.inp)
+function gradinp!(gvec, itf::FluxInterface, inp=itf.inp)
     forward!(itf, inp)
-    backward!(itf; computed_grad_inp = true, compute_grad_param = false)
+    backward!(itf; computed_grad_inp=true, compute_grad_param=false)
     if itf.yt === nothing
         y_bar = 1
     else
@@ -84,9 +84,9 @@ function gradinp!(gvec, itf::FluxInterface, inp = itf.inp)
     gvec .= grad
 end
 
-function gradparam!(gvec, itf::FluxInterface, inp = itf.inp)
+function gradparam!(gvec, itf::FluxInterface, inp=itf.inp)
     forward!(itf, inp)
-    backward!(itf; computed_grad_inp = false, compute_grad_param = true)
+    backward!(itf; computed_grad_inp=false, compute_grad_param=true)
     # Check if the results are standardised
     if itf.yt === nothing
         y_bar = 1
@@ -115,8 +115,8 @@ Run the backward step - this creates the pull back functions
 function backward!(
     itf::FluxInterface,
     args...;
-    compute_grad_param = true,
-    computed_grad_inp = true,
+    compute_grad_param=true,
+    computed_grad_inp=true,
     kwargs...,
 )
     if (compute_grad_param || itf.training_mode) && (itf.pullback_p === nothing)

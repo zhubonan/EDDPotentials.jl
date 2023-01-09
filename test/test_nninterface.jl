@@ -1,5 +1,12 @@
 using EDDP
-using EDDP: LinearInterface, ManualFluxBackPropInterface, paramvector, setparamvector!, nparams, gradparam!, gradinp!
+using EDDP:
+    LinearInterface,
+    ManualFluxBackPropInterface,
+    paramvector,
+    setparamvector!,
+    nparams,
+    gradparam!,
+    gradinp!
 using Flux
 using Test
 
@@ -12,8 +19,8 @@ include("utils.jl")
         l = LinearInterface(coeff)
 
         @test size(EDDP.forward!(l, x)) == (1, 2)
-        @test l(x) == [sum(coeff.*coeff) sum(coeff.*coeff)]
-        
+        @test l(x) == [sum(coeff .* coeff) sum(coeff .* coeff)]
+
         @test begin
             grad = similar(x)
             gradinp!(grad, l, x)
@@ -26,21 +33,21 @@ include("utils.jl")
     end
 
     @testset "Flux" begin
-            l = EDDP.FluxInterface(Dense(10=>1))
-            x = rand(10, 2)
+        l = EDDP.FluxInterface(Dense(10 => 1))
+        x = rand(10, 2)
 
-            @test size(EDDP.forward!(l, x)) == (1, 2)
-            
-            grad = similar(x)
-            gradinp!(grad, l, x)
-            @test begin
-                grad[:, 1] == l.model.weight[:]
-            end
+        @test size(EDDP.forward!(l, x)) == (1, 2)
 
-            EDDP.backward!(l)
-            grad = zeros(EDDP.nparams(l))
-            gradparam!(grad, l, x)
-            @test allclose(grad[1:size(x, 1)], sum(x, dims=2)[:], atol=1e-6)
+        grad = similar(x)
+        gradinp!(grad, l, x)
+        @test begin
+            grad[:, 1] == l.model.weight[:]
+        end
+
+        EDDP.backward!(l)
+        grad = zeros(EDDP.nparams(l))
+        gradparam!(grad, l, x)
+        @test allclose(grad[1:size(x, 1)], sum(x, dims=2)[:], atol=1e-6)
     end
 
 
@@ -60,19 +67,19 @@ include("utils.jl")
         EDDP.gradinp!(gout, itf)
 
         @test EDDP.nparams(itf) == 220
-        @test size(EDDP.paramvector(itf)) == (220, )
-        pvec = zeros(220) 
+        @test size(EDDP.paramvector(itf)) == (220,)
+        pvec = zeros(220)
         EDDP.paramvector!(pvec, itf)
         @test pvec[1] == chain.layers[1].weight[1]
 
         # Setting parameter vectors
-        pvec[1:10] .= 0.
+        pvec[1:10] .= 0.0
         EDDP.setparamvector!(itf, pvec)
-        @test all(chain.layers[1].weight[1:10] .== 0.)
+        @test all(chain.layers[1].weight[1:10] .== 0.0)
     end
 
     @testset "Ensemble" begin
-        function linearitf() 
+        function linearitf()
             coeff = [0.1 0.2 0.3]
             LinearInterface(coeff)
         end
@@ -82,7 +89,7 @@ include("utils.jl")
         coeff = [0.1, 0.2, 0.3]
         x = repeat(coeff, 1, 2)
         @test size(EDDP.forward!(itf, x)) == (1, 2)
-        @test itf(x) == [sum(coeff.*coeff) sum(coeff.*coeff)]
+        @test itf(x) == [sum(coeff .* coeff) sum(coeff .* coeff)]
         itf(x)  # Forward step - implied
         @test begin
             grad = similar(x)
@@ -112,7 +119,7 @@ include("utils.jl")
         # Manually compute the gradients....
         g1 = EDDP.gradinp!(zeros(size(inp)...), itf.models[1])
         g2 = EDDP.gradinp!(zeros(size(inp)...), itf.models[2])
-        g3 = @. g1 * 0.8 + g2 *0.2
+        g3 = @. g1 * 0.8 + g2 * 0.2
         @test g3 == gv
 
         gp = zeros(nparams(itf))
@@ -120,4 +127,3 @@ include("utils.jl")
         @test gp[1:nparams(itf.models[1])] == EDDP.paramvector(itf.models[1])
     end
 end
-

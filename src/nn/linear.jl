@@ -32,15 +32,15 @@ function setparamvector!(itf::LinearInterface, param)
     vec(itf.param) .= vec(param)
 end
 
-function gradinp!(gvec, itf::LinearInterface, inp = itf.inp)
+function gradinp!(gvec, itf::LinearInterface, inp=itf.inp)
     for i ∈ axes(inp, 2)
         gvec[:, i] = itf.param
     end
     gvec
 end
 
-function gradparam!(gvec, itf::LinearInterface, inp = itf.inp)
-    gvec .= transpose(sum(inp, dims = 2))[:]
+function gradparam!(gvec, itf::LinearInterface, inp=itf.inp)
+    gvec .= transpose(sum(inp, dims=2))[:]
 end
 
 function (itf::LinearInterface)(inp)

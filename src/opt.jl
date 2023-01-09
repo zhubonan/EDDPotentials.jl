@@ -18,14 +18,14 @@ Reference:
 """
 function opt_tpsd(
     vc::AbstractCalc;
-    f_tol = 1e-4,
-    s_tol = 1e-6,
-    e_tol = 1e-5,
-    itermax = 1000,
-    trace = false,
-    α_tol = 1e-10,
-    callback = nothing,
-    trajectory = nothing,
+    f_tol=1e-4,
+    s_tol=1e-6,
+    e_tol=1e-5,
+    itermax=1000,
+    trace=false,
+    α_tol=1e-10,
+    callback=nothing,
+    trajectory=nothing,
 )
     f = get_forces(vc)
     f0 = similar(f)

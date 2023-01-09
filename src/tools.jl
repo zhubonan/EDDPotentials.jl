@@ -14,10 +14,10 @@ function relax_structures(
     files,
     en_path::AbstractString,
     cf;
-    savepath = "relaxed",
-    skip_existing = true,
-    nmax = 1000,
-    core_size = 1.0,
+    savepath="relaxed",
+    skip_existing=true,
+    nmax=1000,
+    core_size=1.0,
 )
 
     ensemble = load_from_jld2(en_path, EnsembleNNInterface)
@@ -38,13 +38,13 @@ function relax_structures(
             structures[i],
             cf,
             deepcopy(ensemble);
-            nmax = nmax,
-            core = CoreReplusion(core_size),
+            nmax=nmax,
+            core=CoreReplusion(core_size),
         )
         vc = VariableCellCalc(calc)
 
         optimise!(vc)
-        write_res(joinpath(savepath, fname), vc; label = fname, symprec = 0.1)
+        write_res(joinpath(savepath, fname), vc; label=fname, symprec=0.1)
     end
 
     @info "Total number of structures: $n"
@@ -61,7 +61,7 @@ end
 
 Update the metadata attached to a `Cell`` object
 """
-function update_metadata!(vc::AbstractCalc, label; symprec = 1e-2)
+function update_metadata!(vc::AbstractCalc, label; symprec=1e-2)
     this_cell = get_cell(vc)
     # Set metadata
     this_cell.metadata[:enthalpy] = get_enthalpy(vc)
@@ -79,7 +79,7 @@ end
 
 Write structure in VariableCellCalc as SHELX file.
 """
-function write_res(path, vc::VariableCellCalc; symprec = 1e-2, label = "EDDP")
+function write_res(path, vc::VariableCellCalc; symprec=1e-2, label="EDDP")
     update_metadata!(vc, label; symprec)
     write_res(path, get_cell(vc))
 end
@@ -96,20 +96,20 @@ function build_and_relax(
     seedfile::AbstractString,
     ensemble,
     cf;
-    timeout = 10,
-    nmax = 500,
-    pressure_gpa = 0.0,
-    relax_cell = true,
-    show_trace = false,
-    method = TwoPointSteepestDescent(),
-    core_size = 1.0,
-    init_structure_transform = nothing,
+    timeout=10,
+    nmax=500,
+    pressure_gpa=0.0,
+    relax_cell=true,
+    show_trace=false,
+    method=TwoPointSteepestDescent(),
+    core_size=1.0,
+    init_structure_transform=nothing,
     kwargs...,
 )
 
     cell = build_one(seedfile; timeout, init_structure_transform)
 
-    calc = EDDP.NNCalc(cell, cf, ensemble; nmax, core = CoreReplusion(core_size))
+    calc = EDDP.NNCalc(cell, cf, ensemble; nmax, core=CoreReplusion(core_size))
     vc, res = relax!(calc; relax_cell, pressure_gpa, show_trace, method, kwargs...)
     vc, res
 end
@@ -119,12 +119,7 @@ end
 
 Build a single structure via `buildcell`.
 """
-function build_one(
-    seedfile;
-    timeout = 10,
-    init_structure_transform = nothing,
-    max_attemp = 100,
-)
+function build_one(seedfile; timeout=10, init_structure_transform=nothing, max_attemp=100)
     local cell::Cell{Float64}
     i = 1
     while true
@@ -133,7 +128,7 @@ function build_one(
         end
         lines = open(seedfile, "r") do seed
             cellout = read(
-                pipeline(`timeout $(timeout) buildcell`, stdin = seed, stderr = devnull),
+                pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull),
                 String,
             )
             split(cellout, "\n")
@@ -163,7 +158,7 @@ Relax the structure of the calculator.
 """
 function relax!(
     calc::NNCalc;
-    relax_cell = true,
+    relax_cell=true,
     pressure_gpa,
     show_trace,
     method,
@@ -173,7 +168,7 @@ function relax!(
     if relax_cell
         p = pressure_gpa / 160.21766208
         ext = diagm([p, p, p])
-        vc = EDDP.VariableCellCalc(calc, external_pressure = ext)
+        vc = EDDP.VariableCellCalc(calc, external_pressure=ext)
         # Run optimisation
         res = EDDP.optimise!(vc; show_trace, method, opt_kwargs...)
     else
@@ -193,10 +188,10 @@ Build multiple random structures in the target folder.
 function build_random_structures(
     seedfile,
     outdir;
-    n = 1,
-    show_progress = false,
-    timeout = 60,
-    outfmt = "res",
+    n=1,
+    show_progress=false,
+    timeout=60,
+    outfmt="res",
 )
     i = 0
     if show_progress
@@ -230,17 +225,17 @@ function run_rss(
     seedfile,
     ensemble,
     cf;
-    show_progress = false,
-    max = 1,
-    outdir = "./",
-    packed = false,
-    ensemble_std_max = -1.0,
-    ensemble_std_min = -1.0,
-    init_structure_transform = nothing,
-    composition_engmin = Dict{Composition,Float64}(),
-    eng_threshold = -1.0,
-    niggli_reduce_output = true,
-    max_err = 10,
+    show_progress=false,
+    max=1,
+    outdir="./",
+    packed=false,
+    ensemble_std_max=-1.0,
+    ensemble_std_min=-1.0,
+    init_structure_transform=nothing,
+    composition_engmin=Dict{Composition,Float64}(),
+    eng_threshold=-1.0,
+    niggli_reduce_output=true,
+    max_err=10,
     kwargs...,
 )
     i = 1
@@ -326,8 +321,8 @@ function build_and_relax_one(
     seedfile::AbstractString,
     ensemble,
     cf::CellFeature;
-    init_structure_transform = nothing,
-    max_err = 10,
+    init_structure_transform=nothing,
+    max_err=10,
     kwargs...,
 )
     nerr = 1
@@ -388,7 +383,7 @@ end
 """
 Check if a feature vector already present in an array of vectors
 """
-function is_unique_fvec(all_fvecs, fvec; tol = 1e-2, lim = 5)
+function is_unique_fvec(all_fvecs, fvec; tol=1e-2, lim=5)
     match = false
     for ref in all_fvecs
         dist = CellBase.fingerprint_distance(ref, fvec; lim)
@@ -419,7 +414,7 @@ swapext(fname, new) = splitext(fname)[1] * new
 Shake the given structures and write new files with suffix `-shake-N.res`.
 
 """
-function shake_res(files::Vector, nshake::Int, amp::Real, cellamp::Real = 0.02)
+function shake_res(files::Vector, nshake::Int, amp::Real, cellamp::Real=0.02)
     for f in files
         cell = read_res(f)
         pos_backup = get_positions(cell)
@@ -474,10 +469,10 @@ The equilibrium position is at ``r_c/2``.
 
 Support only single a element for now.
 """
-function lj_like_calc(cell::Cell; α = 1.0, a = 6, rc = 3.0)
+function lj_like_calc(cell::Cell; α=1.0, a=6, rc=3.0)
     elem = unique(species(cell))
     @assert length(elem) == 1 "Only works for single specie Cell for now."
-    cf = EDDP.CellFeature(elem, p2 = [a, 2a], p3 = [], q3 = [], rcut2 = rc)
+    cf = EDDP.CellFeature(elem, p2=[a, 2a], p3=[], q3=[], rcut2=rc)
     model = EDDP.LinearInterface([0, -2, 1.0] .* α)
     EDDP.NNCalc(cell, cf, model)
 end

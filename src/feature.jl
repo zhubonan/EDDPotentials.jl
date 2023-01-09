@@ -38,7 +38,7 @@ Generate p/q as a geometry series
 """
 function genp(pmin, pmax, np)
     β = (pmax / pmin)^(1 / (np - 1))
-    collect(round(pmin * β^(i - 1), digits = 3) for i = 1:np)
+    collect(round(pmin * β^(i - 1), digits=3) for i = 1:np)
 end
 
 """
@@ -137,7 +137,7 @@ Args:
     - iat: starting index of the vector to be updated
     - istart: starting index of the vector to be updated
 """
-function (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart = 1)
+function (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart=1)
     val = f.f(rij, f.rcut)
     i = istart
     for j = 1:nfeatures(f)
@@ -168,7 +168,7 @@ function withgradient!(e, g, f::TwoBodyFeature, rij, iat, istart)
     e, g
 end
 
-function withgradient!(e, g, f::TwoBodyFeature, rij, si, sj, iat, istart = 1)
+function withgradient!(e, g, f::TwoBodyFeature, rij, si, sj, iat, istart=1)
     permequal(f.sij_idx, si, sj) && withgradient!(e, g, f, rij, iat, istart)
     e, g
 end
@@ -180,7 +180,7 @@ function withgradient(f::TwoBodyFeature, rij)
 end
 
 
-function (f::TwoBodyFeature)(out::AbstractMatrix, rij, si, sj, iat, istart = 1)
+function (f::TwoBodyFeature)(out::AbstractMatrix, rij, si, sj, iat, istart=1)
     permequal(f.sij_idx, si, sj) && f(out, rij, iat, istart)
     out
 end
@@ -243,7 +243,7 @@ nfeatures(f::ThreeBodyFeature) = f.np * f.nq
 
 Accumulate an existing feature vector
 """
-function (f::ThreeBodyFeature)(out::AbstractMatrix, rij, rik, rjk, iat, istart = 1)
+function (f::ThreeBodyFeature)(out::AbstractMatrix, rij, rik, rjk, iat, istart=1)
     func = f.f
     rcut = f.rcut
     fij = func(rij, rcut)
@@ -271,7 +271,7 @@ function (f::ThreeBodyFeature)(
     sj,
     sk,
     iat,
-    istart = 1,
+    istart=1,
 )
     permequal(f.sijk_idx, si, sj, sk) && f(out, rij, rik, rjk, iat, istart)
     out
@@ -280,19 +280,7 @@ end
 "(f::ThreeBodyFeature)(rij) = f(zeros(nfeatures(f)), rij, rik, rjk)"
 (f::ThreeBodyFeature)(rij, rik, rjk) = f(zeros(nfeatures(f), 1), rij, rik, rjk, 1, 1)
 
-function withgradient!(
-    e,
-    g,
-    f::ThreeBodyFeature,
-    rij,
-    rik,
-    rjk,
-    si,
-    sj,
-    sk,
-    iat,
-    istart = 1,
-)
+function withgradient!(e, g, f::ThreeBodyFeature, rij, rik, rjk, si, sj, sk, iat, istart=1)
     permequal(f.sijk_idx, si, sj, sk) && withgradient!(e, g, f, rij, rik, rjk, iat, istart)
     e, g
 end
@@ -367,8 +355,8 @@ function feature_vector2!(
     fvecs,
     features::Tuple,
     cell::Cell;
-    nl = NeighbourList(cell, features[1].rcut),
-    offset = 0,
+    nl=NeighbourList(cell, features[1].rcut),
+    offset=0,
 )
     # Feature vectors
     nfe = map(nfeatures, features)
@@ -394,8 +382,8 @@ end
 function feature_vector2(
     features::Tuple,
     cell::Cell;
-    nmax = 500,
-    nl = NeighbourList(cell, maximum(f.rcut for f in features) + 1.0, nmax),
+    nmax=500,
+    nl=NeighbourList(cell, maximum(f.rcut for f in features) + 1.0, nmax),
 )
     # Feature vectors
     nfe = map(nfeatures, features)
@@ -407,8 +395,8 @@ end
 function feature_vector3(
     features::Tuple,
     cell::Cell;
-    nmax = 500,
-    nl = NeighbourList(cell, maximum(f.rcut for f in features) + 1.0, nmax),
+    nmax=500,
+    nl=NeighbourList(cell, maximum(f.rcut for f in features) + 1.0, nmax),
 )
     # Feature vectors
     nfe = map(nfeatures, features)
@@ -427,8 +415,8 @@ function feature_vector3!(
     fvecs,
     features::Tuple,
     cell::Cell;
-    nl = NeighbourList(cell, features[1].rcut),
-    offset = 0,
+    nl=NeighbourList(cell, features[1].rcut),
+    offset=0,
 )
     nat = natoms(cell)
     nfe = map(nfeatures, features)
@@ -549,7 +537,7 @@ end
 
 Construct a vector containing the TwoBodyFeatures
 """
-function two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func = fr, gfunc = gfr)
+function two_body_feature_from_mapping(cell::Cell, p_mapping, rcut, func=fr, gfunc=gfr)
     us = unique(species(cell))
     features = TwoBodyFeature{typeof(func),typeof(gfunc)}[]
     for map_pair in p_mapping
@@ -578,9 +566,9 @@ function three_body_feature_from_mapping(
     cell::Cell,
     pq_mapping,
     rcut,
-    func = fr,
-    gfunc = gfr;
-    check = false,
+    func=fr,
+    gfunc=gfr;
+    check=false,
 )
     us = unique(species(cell))
     features = ThreeBodyFeature{typeof(func),typeof(gfunc)}[]
@@ -656,15 +644,15 @@ Construct feature specifications
 """
 function CellFeature(
     elements;
-    p2 = 2:8,
-    p3 = p2,
-    q3 = p3,
-    rcut2 = 4.0,
-    rcut3 = rcut2,
-    f2 = fr,
-    g2 = gfr,
-    f3 = fr,
-    g3 = gfr,
+    p2=2:8,
+    p3=p2,
+    q3=p3,
+    rcut2=4.0,
+    rcut3=rcut2,
+    f2=fr,
+    g2=gfr,
+    f3=fr,
+    g3=gfr,
 )
 
     # Sort the elements to ensure stability
@@ -714,7 +702,7 @@ end
 
 Return the name for the features.
 """
-function feature_names(features...; show_value = true)
+function feature_names(features...; show_value=true)
     names = String[]
     for feat in features
         if isa(feat, TwoBodyFeature)
@@ -798,13 +786,13 @@ function nbodyfeatures(c::CellFeature, nbody)
     return 0
 end
 
-function feature_vector(cf::CellFeature, cell::Cell; nmax = 500, skin = 1.0)
+function feature_vector(cf::CellFeature, cell::Cell; nmax=500, skin=1.0)
     # Infer rmax
-    rcut = suggest_rcut(cf; offset = skin)
+    rcut = suggest_rcut(cf; offset=skin)
     nl = NeighbourList(cell, rcut, nmax)
     vecs = zeros(sum(feature_size(cf)), length(cell))
     n1 = feature_size(cf)[1]
-    compute_fv!(vecs, cf.two_body, cf.three_body, cell; nl, offset = n1)
+    compute_fv!(vecs, cf.two_body, cf.three_body, cell; nl, offset=n1)
     one_body_vectors!(vecs, cell, cf)
     vecs
 end
@@ -815,7 +803,7 @@ end
 Construct one-body features for the structure.
 The one-body feature is essentially an one-hot encoding of the specie labels 
 """
-function one_body_vectors(cell::Cell, cf::CellFeature; offset = 0)
+function one_body_vectors(cell::Cell, cf::CellFeature; offset=0)
     vecs = zeros(length(cf.elements), length(cell))
     one_body_vectors!(vecs, cell, cf)
 end
@@ -826,7 +814,7 @@ end
 Construct one-body features for the structure.
 The one-body feature is essentially an one-hot encoding of the specie labels 
 """
-function one_body_vectors!(v::AbstractMatrix, cell::Cell, cf::CellFeature; offset = 0)
+function one_body_vectors!(v::AbstractMatrix, cell::Cell, cf::CellFeature; offset=0)
     symbols = species(cell)
     for (iat, s) in enumerate(symbols)
         for (ispec, sZ) in enumerate(cf.elements)
@@ -845,7 +833,7 @@ end
 """
 Get a suggested rcut for NN list for a CellFeature
 """
-function suggest_rcut(cf::CellFeature; offset = 1.0)
+function suggest_rcut(cf::CellFeature; offset=1.0)
     r3 = maximum(x.rcut for x in cf.two_body)
     r2 = maximum(x.rcut for x in cf.three_body)
     max(r3, r2) + offset
@@ -854,7 +842,7 @@ end
 """
 Get a suggested rcut for NN list for a CellFeature
 """
-function suggest_rcut(features...; offset = 1.0)
+function suggest_rcut(features...; offset=1.0)
     maximum(x.rcut for x in features) + offset
 end
 """
@@ -870,13 +858,13 @@ function feature_vector!(
     features2::Tuple,
     features3::Tuple,
     cell::Cell;
-    nl = NeighbourList(
+    nl=NeighbourList(
         cell,
         maximum(x.rcut for x in (features2..., features3...));
-        savevec = true,
+        savevec=true,
     ),
-    offset = 0,
-    core = nothing,
+    offset=0,
+    core=nothing,
 )
 
     nfe3 = map(nfeatures, features3)

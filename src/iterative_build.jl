@@ -59,7 +59,7 @@ function run_relaxation(state::BuildOptions, indir, outdir)
             indir,
             outdir,
             state.seedfile;
-            n_parallel = state.n_parallel,
+            n_parallel=state.n_parallel,
         )
     elseif state.dft_mode == "disp-castep"
         run_disp_castep(indir, outdir, state.seedfile; state.relax_extra_opts...)

@@ -12,7 +12,7 @@ import CellBase
 
 Load SHELX files into a datafrmae. Paths can be a iterator of file paths or file handles.
 """
-function load_res(paths; basic = false)
+function load_res(paths; basic=false)
     data = CellBase.Cell{Float64}[]
     for path in paths
         append!(data, read_res_many(path))
@@ -82,7 +82,7 @@ will not be used in any further comparison.
 
 The `cut_off` is scaled by the minimum bond length.
 """
-function deduplicate(func, df, cut_off = 0.1)
+function deduplicate(func, df, cut_off=0.1)
     l = size(df, 1)
     taken = collect(1:l)
     for i = 1:l
@@ -112,7 +112,7 @@ end
 
 # Gather the structures to refine
 
-function select_refine(frame; dist_func = evdist, dist_cutoff = 0.001, top_n = 10)
+function select_refine(frame; dist_func=evdist, dist_cutoff=0.001, top_n=10)
     labels = String[]
     for (name, group) in pairs(groupby(frame, :reduced_formula))
         @info "Processing $(name[:reduced_formula])"
