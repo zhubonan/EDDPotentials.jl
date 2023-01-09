@@ -27,7 +27,7 @@ const FEATURESPEC_NAME = "cf"
     mpinp::Int = 2
     n_initial::Int = 1000
     dft_mode::String = "castep"
-    dft_kwargs::NamedTuple = NamedTuple()
+    dft_kwargs::Any = NamedTuple()
     relax_extra_opts::Dict{Symbol,Any} = Dict()
     rss_pressure_gpa::Float64 = 0.1
     rss_niggli_reduce::Bool = true
@@ -105,18 +105,18 @@ cf_embedding:
 function Builder(str::AbstractString="link.yaml")
     @info "Loading from file $(str)"
 
-    loaded = YAML.load_file(str;dicttype=Dict{Symbol,Any})
-    state =  BuilderState(;loaded[:state]...)
+    loaded = YAML.load_file(str; dicttype=Dict{Symbol,Any})
+    state = BuilderState(; loaded[:state]...)
 
     # Setup cell Feature
     cf_dict = loaded[:cf]
     elements = pop!(cf_dict, :elements)
-    cf =  CellFeature(elements; cf_dict...)
+    cf = CellFeature(elements; cf_dict...)
 
     # Setup trainer
     trainer = pop!(loaded[:trainer], :type)
     if trainer == "locallm"
-        trainer =  LocalLMTrainer(;loaded[:trainer]...)
+        trainer = LocalLMTrainer(; loaded[:trainer]...)
     else
         throw(ErrorException("trainer type $(trainer) is not known"))
     end
@@ -130,12 +130,7 @@ function Builder(str::AbstractString="link.yaml")
         embedding = nothing
     end
 
-    Builder(
-        state,
-        cf,
-        trainer, 
-        embedding,
-    )
+    Builder(state, cf, trainer, embedding)
 end
 
 function Base.show(io::IO, m::MIME"text/plain", bu::Builder)
@@ -159,9 +154,6 @@ function Base.show(io::IO, bu::Builder)
     println(io, "  Iteration: $(bu.state.iteration)")
     println(io, "  Seed file: $(bu.state.seedfile)")
 end
-
-
-Base.show(io::IO, bu::Builder) = Base.show(io, MIME("text/plain"), bu)
 
 
 """
@@ -713,13 +705,13 @@ Run random structures search using trained ensembel model. The output files are 
 function run_rss(
     builder::Builder;
     seed_file,
-    ensemble_id=builder.state.iteration;
+    ensemble_id=builder.state.iteration,
     max=1000,
     subfolder_name="search",
     ensemble_std_max=0.2,
     packed=true,
     show_progress=true,
-    kwargs...
+    kwargs...,
 )
     ensemble = load_ensemble(builder, ensemble_id)
     searchdir = joinpath(builder.state.workdir, subfolder_name)
@@ -733,7 +725,7 @@ function run_rss(
         outdir=searchdir,
         ensemble_std_max,
         packed,
-        kwargs...
+        kwargs...,
     )
 end
 
@@ -744,9 +736,6 @@ Run random structure searching for a configuration file for the builder.
 """
 function run_rss(str::AbstractString)
     builder = Builder(str)
-    rss_dict = YAML.load_file(str;dicttype=Dict{Symbol, Any})[:rss]
-    run_rss(
-        builder;
-        rss_dict...
-    )
+    rss_dict = YAML.load_file(str; dicttype=Dict{Symbol,Any})[:rss]
+    run_rss(builder; rss_dict...)
 end
