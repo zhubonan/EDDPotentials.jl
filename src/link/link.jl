@@ -711,7 +711,7 @@ Run random structures search using trained ensembel model. The output files are 
 `search` subfolder by default.
 """
 function run_rss(
-    builder::Builder,
+    builder::Builder;
     seed_file,
     ensemble_id=builder.state.iteration;
     max=1000,
@@ -719,6 +719,7 @@ function run_rss(
     ensemble_std_max=0.2,
     packed=true,
     show_progress=true,
+    kwargs...
 )
     ensemble = load_ensemble(builder, ensemble_id)
     searchdir = joinpath(builder.state.workdir, subfolder_name)
@@ -732,6 +733,20 @@ function run_rss(
         outdir=searchdir,
         ensemble_std_max,
         packed,
+        kwargs...
     )
 end
 
+"""
+    run_rss(str::AbstractString)
+
+Run random structure searching for a configuration file for the builder.
+"""
+function run_rss(str::AbstractString)
+    builder = Builder(str)
+    rss_dict = YAML.load_file(str;dicttype=Dict{Symbol, Any})[:rss]
+    run_rss(
+        builder;
+        rss_dict...
+    )
+end

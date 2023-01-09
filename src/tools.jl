@@ -222,9 +222,9 @@ Perform random structure searching using the seed file.
 - `init_structure_transform`: A function that transforms the initial structure. If `nothing` is returned, skip this generated structure.
 """
 function run_rss(
-    seedfile,
-    ensemble,
-    cf;
+    seedfile::AbstractString,
+    ensemble::AbstractNNInterface,
+    cf::CellFeature;
     show_progress=false,
     max=1,
     outdir="./",
