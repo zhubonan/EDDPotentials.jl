@@ -66,7 +66,19 @@ function _enrich_properties(frame)
 
     frame[!, :volume_per_atom] = frame.volume ./ frame.natoms
     frame[!, :volume_per_form] = frame.volume ./ frame.nform
-    frame
+    columns = names(frame)
+    # Swap the order of total enthalpy and enthalpy per formula
+    for i in axes(columns, 1)
+        if columns[i] == "enthalpy"
+            columns[i] = "enthalpy_per_form"
+            continue
+        end
+        if columns[i] == "enthalpy_per_form"
+            columns[i] = "enthalpy"
+            continue
+        end
+    end
+    select(frame, columns)
 end
 
 

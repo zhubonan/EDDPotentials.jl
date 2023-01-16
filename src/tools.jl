@@ -10,52 +10,6 @@ using JLD2
 using Dates
 using UUIDs
 
-function relax_structures(
-    files,
-    en_path::AbstractString,
-    cf;
-    savepath="relaxed",
-    skip_existing=true,
-    nmax=1000,
-    core_size=1.0,
-)
-
-    ensemble = load_from_jld2(en_path, EnsembleNNInterface)
-
-    structures = CellBase.read_cell.(files)
-
-    isdir(savepath) || mkdir(savepath)
-
-    p = Progress(length(structures))
-    n = length(structures)
-
-    function do_work(i)
-        fname = splitpath(files[i])[end]
-        # Skip and existing file
-        skip_existing && isfile(joinpath(savepath, fname)) && return
-
-        calc = NNCalc(
-            structures[i],
-            cf,
-            deepcopy(ensemble);
-            nmax=nmax,
-            core=CoreReplusion(core_size),
-        )
-        vc = VariableCellCalc(calc)
-
-        optimise!(vc)
-        write_res(joinpath(savepath, fname), vc; label=fname, symprec=0.1)
-    end
-
-    @info "Total number of structures: $n"
-    for i = 1:n
-        do_work(i)
-        next!(p)
-    end
-end
-
-
-
 """
     update_metadata!(vc::AbstractCalc, label;symprec=1e-2)
 
@@ -159,9 +113,10 @@ Relax the structure of the calculator.
 function relax!(
     calc::NNCalc;
     relax_cell=true,
-    pressure_gpa,
-    show_trace,
-    method,
+    pressure_gpa=0.,
+    show_trace=false,
+    method=TwoPointSteepestDescent(),
+    out_label="eddp-output",
     opt_kwargs...,
 )
 
@@ -175,7 +130,7 @@ function relax!(
         vc = calc
         res = EDDP.optimise!(calc; show_trace, method, opt_kwargs...)
     end
-    update_metadata!(vc, "eddp-output")
+    update_metadata!(vc, out_label)
     vc, res
 end
 
@@ -403,6 +358,7 @@ function get_label(seedname)
     "$(seedname)-$(dt)-$(suffix)"
 end
 
+"Return the *stea* part of a file name"
 stem(x) = splitext(splitpath(x)[end])[1]
 
 swapext(fname, new) = splitext(fname)[1] * new
@@ -475,4 +431,31 @@ function lj_like_calc(cell::Cell; α=1.0, a=6, rc=3.0)
     cf = EDDP.CellFeature(elem, p2=[a, 2a], p3=[], q3=[], rcut2=rc)
     model = EDDP.LinearInterface([0, -2, 1.0] .* α)
     EDDP.NNCalc(cell, cf, model)
+end
+
+
+"""
+    relax_structures(files, outdir, cf::CellFeature, ensemble::AbstractNNInterface;
+
+Relax many structures and place the relaxed structures in the output directory
+"""
+function relax_structures(files, outdir, cf::CellFeature, ensemble::AbstractNNInterface;
+    nmax=500,
+    core_size=1.0,
+    relax_cell=true, pressure_gpa=0., show_trace=false, method=TwoPointSteepestDescent(), kwargs...)
+    Threads.@threads for fname in files
+        # Deal with different types of inputs
+        if endswith(fname, ".res")
+            cell = read_res(fname)
+            label = cell.metadata[:label]
+        elseif endswith(fname, ".cell")
+            cell = read_cell(fname)
+            label = stem(fname)
+        end
+        calc = EDDP.NNCalc(cell, cf, deepcopy(ensemble); nmax, core=CoreReplusion(core_size))
+        vc, _ = relax!(calc; relax_cell, pressure_gpa, show_trace, method, out_label=label,
+                        kwargs...)
+        outname = joinpath(outdir, stem(fname) * ".res")
+        write_res(outname, get_cell(vc))
+    end
 end

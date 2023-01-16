@@ -106,7 +106,17 @@ function Builder(str::AbstractString="link.yaml")
     @info "Loading from file $(str)"
 
     loaded = YAML.load_file(str; dicttype=Dict{Symbol,Any})
-    state = BuilderState(; loaded[:state]...)
+    # Adjust the workdir to be that relative to the yaml file
+    paths = splitpath(str)
+    statedict = loaded[:state]
+    if length(paths) > 1
+        parents = paths[1:end-1]
+        @assert !startswith(statedict[:workdir], "/") ":workdir should be a relative path"
+        statedict[:workdir] = joinpath(parents..., statedict[:workdir])
+        @info "Setting workdir to $(statedict[:workdir])"
+    end
+
+    state = BuilderState(; statedict...)
 
     # Setup cell Feature
     cf_dict = loaded[:cf]
@@ -437,6 +447,7 @@ function run_disp_castep(
     monitor_only=false,
     watch_every=60,
     threshold=0.98,
+    disp_extra_args=String[],
     kwargs...,
 )
 
@@ -452,6 +463,9 @@ function run_disp_castep(
         push!(cmd.exec, "--category")
         push!(cmd.exec, category)
     end
+
+    # Add extra argument for DISP
+    append!(cmd.exec, disp_extra_args)
 
     if !monitor_only
         # Check if jobs have been submitted already
