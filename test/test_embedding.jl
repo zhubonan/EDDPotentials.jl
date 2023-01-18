@@ -3,6 +3,9 @@ using EDDP:
 using Test
 using Flux
 
+using ChainRulesCore
+using ChainRulesTestUtils
+
 include("utils.jl")
 
 @testset "Embedding" begin
@@ -78,4 +81,31 @@ end
     EDDP.backward!(chaing, chain; weight_and_bias=false)
     grad, = Flux.gradient(inp -> sum(chain(inp)), inp)
     @test all(grad .≈ chaing.layers[1].gx)
+end
+
+
+@testset "Embedding rrules" begin
+
+    # Test differentiating through body embedding with matrix input (batch input)
+    be = EDDP.BodyEmbedding(rand(2, 1), 2)
+    w = be.weight
+    features = rand(2, 4)
+    test_rrule(EDDP._apply_embedding_batch, w, features, check_thunked_output_tangent=true)
+
+    # Test differentiating  through cell embedding with matrix input (batch input) 
+
+    cf = EDDP.CellFeature([:H, :O])
+    ce = EDDP.CellEmbedding(cf, 2, 2)
+    features = rand(EDDP.nfeatures(cf), 2)
+    test_rrule(
+        EDDP._apply_embedding_cell,
+        EDDP.feature_size(ce.cf)[1] ⊢ NoTangent(),
+        EDDP.feature_size(ce.cf)[2] ⊢ NoTangent(),
+        EDDP.feature_size(ce.cf)[3] ⊢ NoTangent(),
+        ce.two_body.weight,
+        ce.three_body.weight,
+        features,
+        check_thunked_output_tangent=true,
+    )
+
 end

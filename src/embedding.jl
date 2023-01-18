@@ -187,15 +187,24 @@ function (ce::CellEmbedding)(vector::AbstractVector)
     vcat(vector[1:fsize[1]], vec(e2), vec(e3))
 end
 
+
 """
 Apply CellEmbedding to a full feature vector
 
 This is written in such way to support autograd...
 """
-function (ce::CellEmbedding)(matrix::AbstractMatrix)
-    hcat([ce(col) for col in eachcol(matrix)]...)
+function (ce::CellEmbedding)(mat::AbstractMatrix)
+    n1bd, n2bd, n3bd = feature_size(ce.cf)
+    _apply_embedding_cell(n1bd, n2bd, n3bd, ce.two_body.weight, ce.three_body.weight, mat)
 end
 
+function _apply_embedding_cell(n1bd, n2bd, n3bd,  w2, w3, mat::AbstractMatrix)
+    m2 = mat[n1bd+1:n2bd+n1bd, :]
+    m3 = mat[n1bd+n2bd+1:n2bd+n1bd+n3bd, :]
+    e2 = _apply_embedding_batch(w2, m2)
+    e3 = _apply_embedding_batch(w3, m3)
+    vcat(mat[1:n1bd, :], e2, e3)
+end
 
 
 
