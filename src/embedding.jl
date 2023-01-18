@@ -20,6 +20,9 @@ struct BodyEmbedding{T}
     flength::Int
 end
 
+Flux.@functor BodyEmbedding
+Flux.trainable(ce::BodyEmbedding) = (weight=ce.weight,)
+
 function BodyEmbedding(T, features::Union{Vector,Tuple}, n::Int)
     nf = length(features)
 
@@ -125,6 +128,9 @@ struct CellEmbedding{C,T}
     three_body::BodyEmbedding{T}
 end
 
+Flux.@functor CellEmbedding
+Flux.trainable(ce::CellEmbedding) = (two_body=ce.two_body, three_body=ce.three_body)
+
 function CellEmbedding(cf::CellFeature, n::Int, m::Int=n)
     CellEmbedding(cf, BodyEmbedding(cf.two_body, n), BodyEmbedding(cf.three_body, m))
 end
@@ -192,8 +198,6 @@ end
 
 
 
-Flux.trainable(ce::CellEmbedding) = (ce.two_body.weight, ce.three_body.weight)
-Flux.trainable(ce::BodyEmbedding) = (ce.weight,)
 
 ## Explicit gradient computation
 """

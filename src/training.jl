@@ -754,8 +754,9 @@ function generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
     mdl = model
 
     ps = Flux.params(mdl)
+
     # View into the parameters of the model
-    pview = CatView(ps.params...)
+    flat, rebuild = Flux.destructure(model)
 
     # Per-atom data
     Ha = fc_train.H ./ natoms(fc_train)
@@ -766,17 +767,17 @@ function generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
     min_iter::Int = 1
 
     function f(x)
-        pview .= x
+        mdl = rebuild(x)
         #return loss_all(mdl, X, Y;pow)
         return loss_stacked(mdl, datasets; pow)
     end
 
     function g!(g, x)
-        pview .= x
-        grad = Zygote.gradient(ps) do
+        grad = Zygote.gradient(x) do
+            mdl = rebuild(x)
             loss_stacked(mdl, datasets; pow)
         end
-        g .= CatView([grad.grads[x] for x in ps.params]...)
+        g .= grad[1]
         return g
     end
 
@@ -813,7 +814,7 @@ function generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
         false
     end
 
-    return f, g!, pview, callback
+    return f, g!, flat, callback
 end
 
 raw"""
