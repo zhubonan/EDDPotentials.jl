@@ -142,6 +142,9 @@ function train_lm!(
         tb_logger = TBLogger(tb_logger_dir)
     end
 
+    time_start = time()
+    last_time = time()
+    iter_count = 1
     function progress_tracker()
         rmse_train = rmse_per_atom(itf, x, y, train_natoms)
 
@@ -150,8 +153,14 @@ function train_lm!(
         else
             rmse_test = rmse_per_atom(itf, x_test, y_test, test_natoms)
         end
-        show_progress &&
-            @printf "RMSE Train %10.5f eV | Test %10.5f eV\n" rmse_train rmse_test
+        if show_progress
+            tnow = time()
+            elapsed = tnow - time_start
+            loop = tnow - last_time
+            last_time = tnow
+            @printf "Iter: %d %3.3f %3.3f RMSE Train %10.5f eV | Test %10.5f eV\n" iter_count loop elapsed rmse_train rmse_test
+        end
+         
         flush(stdout)
         push!(rec, (rmse_train, rmse_test))
 
@@ -161,6 +170,7 @@ function train_lm!(
                 @info "" rmse_test = rmse_test rmse_train = rmse_train
             end
         end
+        iter_count += 1
 
         rmse_test, paramvector(itf)
     end
@@ -171,7 +181,7 @@ function train_lm!(
 
     callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
 
-    opt_res = levenberg_marquardt(
+    opt_res = @timeit to "lm solve" levenberg_marquardt(
         od2,
         p0;
         show_trace=false,

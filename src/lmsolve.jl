@@ -4,6 +4,7 @@ levenberg-Marquardt solver adapted for solving EDDP potential
 The source code is adapted from that of LsqFit to allow more features.
 =#
 
+using Base.Threads
 using Distributions
 using OptimBase
 using LinearAlgebra
@@ -137,7 +138,9 @@ function levenberg_marquardt(
 
 
     # and an alias for the jacobian
-    J = jacobian(df)
+    J = @timeit to "jacobian" jacobian(df)
+    J2 = copy(J)
+    
     dir_deriv = Array{T}(undef, m)
     v = Array{T}(undef, n)
 
@@ -153,8 +156,8 @@ function levenberg_marquardt(
     while (~converged && iterCt < maxIter)
         # jacobian! will check if x is new or not, so it is only actually
         # evaluated if x was updated last iteration.
-        jacobian!(df, x) # has alias J
-
+        @timeit to "jacobian" jacobian!(df, x) # has alias J
+       
 
         # Page 170 least square data fitting and applications
         # we want to solve:
@@ -169,7 +172,8 @@ function levenberg_marquardt(
 
         # Vector of the diagonal elements
         #DtD = vec(sum(abs2, J, dims=1))
-        ATWA!(DtD, J, wt)
+        @timeit to "ATWA_DIAG!" ATWA_DIAG!(DtD, J, wt)
+
         # Scaled the lower bound by the mean value of the weight
         wt_mean = mean(wt)
         for i = 1:length(DtD)
@@ -180,7 +184,13 @@ function levenberg_marquardt(
 
         # delta_x = ( J'*W*J + lambda * Diagonal(DtD) ) \ ( -J'*value(df) )
         # Faster version J' * wt * J since wt is a diagonal matrix
-        mul!(JJ, transpose(J .* wt), J)
+        # This is the most tiem consuming part....
+        #@timeit to "mul!(JJ)" mul!(JJ, transpose(J .* wt), J)
+        #@timeit to "ATWA! (mul!(JJ))" ATWA!(JJ, J, wt)
+
+        # Embed the weights into the jacobian matrix - equivalent to JTAJ
+        @timeit to "JJ1" J2 .= sqrt.(wt) .* J
+        @timeit to "JJ2" JJ = transpose(J2) * J2
 
         # Add the diagonal term without constructing the full matrix out
         @simd for i = 1:n
@@ -193,7 +203,7 @@ function levenberg_marquardt(
         rmul!(n_buffer, -1)   # Fast inplace update, better than n_buffer .*= -1 !!!
 
         # Solve the matrix equation (A*x == B)
-        v .= JJ \ n_buffer
+        @timeit to "matinv" v .= JJ \ n_buffer
 
 
         # Geodesic acceleration part - can leave out for now
@@ -242,8 +252,8 @@ function levenberg_marquardt(
         # the number of f_calls
 
         # re-use n_buffer - for x^{n+1}
-        n_buffer .= x .+ delta_x
-        value(df, trial_f, n_buffer)
+        @timeit to "Buffer update" n_buffer .= x .+ delta_x
+        @timeit to "NN Eval" value(df, trial_f, n_buffer)
 
         # update the sum of squares
         trial_residual = sum(abs2.(trial_f) .* wt)
@@ -312,7 +322,7 @@ function levenberg_marquardt(
         converged = g_converged | x_converged
 
         if !isnothing(callback)
-            rmse_val, xtmp = callback()
+            @timeit to "callback eval" rmse_val, xtmp = callback()
             if length(test_rmse) > 0 && rmse_val < minimum(test_rmse)
                 best_x .= xtmp
             end
@@ -361,13 +371,36 @@ Compute the output of
 
 \$ diag(A^T W A) \$
 """
-function ATWA!(out, A, W)
+function ATWA_DIAG!(out, A, W)
     m, n = size(A)
     fill!(out, 0)
     @assert size(out, 1) == n
-    for i = 1:m
-        @simd for j = 1:n
+    Threads.@threads for j = 1:n
+        for i = 1:m
             @inbounds out[j] += A[i, j] * A[i, j] * W[i]
+        end
+    end
+    out
+end
+
+"""
+Implement the output of
+
+\$ A^T W A \$
+"""
+function ATWA!(out, A, W)
+    m, n = size(A)
+    fill(out, 0)
+    @assert size(out) == (n, n)
+    @assert size(W, 1) == m
+    for b in 1:n
+        @info b
+        for a in 1:n 
+            tmp = zero(eltype(A))
+            for i in 1:m 
+                tmp += A[i, a] * W[i] * A[i, b]
+            end
+            out[a, b] = tmp
         end
     end
     out
