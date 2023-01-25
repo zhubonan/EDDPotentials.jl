@@ -60,6 +60,12 @@ abstract type AbstractTrainer end
     train_split::NTuple{3,Float64} = (0.8, 0.1, 0.1)
     use_test_for_ensemble::Bool = true
     save_each_model::Bool = true
+    p::Float64=1.25
+    keep_best::Bool=true
+    tb_logger_dir::Any=nothing
+    log_file::Any=nothing
+    prefix::String=""
+    max_train::Int=999
 end
 
 

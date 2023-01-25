@@ -129,6 +129,7 @@ function train_lm!(
     earlystop=50,
     keep_best=true,
     tb_logger_dir=nothing,
+    log_file=nothing,
     p=1.25,
     args...,
 )
@@ -153,12 +154,18 @@ function train_lm!(
         else
             rmse_test = rmse_per_atom(itf, x_test, y_test, test_natoms)
         end
-        if show_progress
+        if show_progress || (log_file !== nothing)
             tnow = time()
             elapsed = tnow - time_start
             loop = tnow - last_time
             last_time = tnow
-            @printf "Iter: %d %3.3f %3.3f RMSE Train %10.5f eV | Test %10.5f eV\n" iter_count loop elapsed rmse_train rmse_test
+            logline = @sprintf "Iter: %d %3.3f %3.3f RMSE Train %10.5f eV | Test %10.5f eV\n" iter_count loop elapsed rmse_train rmse_test
+            show_progress && print(logline)
+            if log_file !== nothing
+                open(log_file, "a") do file
+                    write(file, logline)
+                end
+            end
         end
          
         flush(stdout)

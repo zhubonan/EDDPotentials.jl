@@ -32,6 +32,7 @@ include("opt.jl")
 include("iterative_build.jl")
 
 include("link/link.jl")
+include("link/trainer.jl")
 include("plotting/recipes.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
