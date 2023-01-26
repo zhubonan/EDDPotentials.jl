@@ -19,5 +19,6 @@
         "totalfe",
         "vecs",
         "vtmp"
-    ]
+    ],
+    "julia.execution.codeInREPL": true,
 }

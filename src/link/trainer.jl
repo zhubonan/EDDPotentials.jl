@@ -2,79 +2,132 @@
 Function for running training as a separate process
 =#
 
+const TRAINING_DIR="training"
 
 function run_trainer(trainer::AbstractTrainer, builder::Builder) end
 
-function run_trainer(trainer::LocalLMTrainer, builder::Builder)
+"""
+    dataset_name(bu::Builder)
+Name for the dataset file
+"""
+function dataset_name(bu::Builder)
+    i = bu.state.iteration
+    joinpath(bu.state.workdir, "gen-$i-dataset.jld2")
+end
 
-    training_dir = ensure_dir(builder.state.workdir, "training")
-    dataset_path = joinpath(builder.state.workdir, "dataset.jl")
+"""
+    write_dataset(builder)
+
+Write the dataset to the disk. These are large JLD2 archive containing the data for training, testing and validation
+"""
+function write_dataset(bu::Builder, fc=load_features(bu);name=dataset_name(bu))
+    # Save the dataset 
+    training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
+    name = joinpath(training_dir, name)
+
+    ensure_dir(training_dir)
+    train, test, valid = split(fc, bu.trainer.train_split...)
+    jldopen(name, "w") do file
+        file["train"] = train
+        file["test"] = test
+        file["validate"] = valid
+    end
+    # Write the labels
+    labels = Dict{String, Vector{String}}()
+    labels["train"] = train.labels 
+    labels["test"] = test.labels 
+    labels["validate"] = valid.labels
+    YAML.write_file(splitext(name)[1] * ".yaml", labels)
+    return
+end
+
+
+"""
+    run_trainer(trainer::LocalLMTrainer, builder::Builder)
+
+Train the model and write the result to the disk as a JLD2 archive.
+"""
+function run_trainer(tra::LocalLMTrainer, bu::Builder;
+    dataset_path = joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu))
+    )
+
+    training_dir = joinpath(bu.state.workdir, "training")
+    ensure_dir(training_dir)
 
     train, test, validation = jldopen(dataset_path) do file
-        file[:train], file[:test], file[:validate]
+        file["train"], file["test"], file["validate"]
     end
 
     # Enter the main training loop
     function nexisting()
-        count(x -> endswith(x, ".jld2") && startswith(x, trainer.prefix), readdir(training_dir))
+        count(x -> endswith(x, ".jld2") && startswith(x, tra.prefix), readdir(training_dir))
     end
 
     x_train, y_train = get_fit_data(train)
     x_test, y_test = get_fit_data(test)
 
     i_trained = 0
-    while nexisting() < trainer.nmodels || i_trained > trainer.max_train
+    while nexisting() < tra.nmodels || i_trained > tra.max_train
         
+        @info "Model initialized"
         # Initialise the model
         model = EDDP.ManualFluxBackPropInterface(
-            builder.cf,
-            trainer.n_nodes...;
+            bu.cf,
+            tra.n_nodes...;
             xt=train.xt,
             yt=train.yt,
             apply_xt=false,
-            embedding=builder.cf_embedding,
+            embedding=bu.cf_embedding,
         )
 
+        @info "Starting training"
         # Train one model and save it...
         train_lm!(model, x_train, y_train;x_test, y_test,
-        maxIter=trainer.max_iter,
-        earlystep=trainer.earlystop,
-        show_progress=trainer.show_progress,
-        p=trainer.p,
-        keep_best=trainer.keep_best,
-        tb_logger_dir=trainer.tb_logger_dir,
-        log_file=trainer.log_file,
+        maxIter=tra.max_iter,
+        earlystop=tra.earlystop,
+        show_progress=tra.show_progress,
+        p=tra.p,
+        keep_best=tra.keep_best,
+        tb_logger_dir=tra.tb_logger_dir,
+        log_file=tra.log_file,
         )
 
         # Display training results
-        if trainer.log_file !== nothing || trainer.show_progress
+        if tra.log_file !== nothing || tra.show_progress
             rtrain = TrainingResults(model, train)
             rtest = TrainingResults(model, test)
             rvalid = TrainingResults(model, validation)
-            if trainer.log_file !== nothing
-                open(trainer.log_file, "a") do file
+            if tra.log_file !== nothing
+                open(tra.log_file, "a") do file
                     println(file, "==== Training ====")
                     show(file, rtrain)
+                    print("\n")
                     println(file, "====== Test ======")
                     show(file, rtest)
+                    print("\n")
                     println(file, "=== Validation ===")
                     show(file, rvalid)
+                    print("\n")
                 end
             end
-            if trainer.show_progress
-                println(file, "==== Training ====")
-                show(stdout, rtrain)
-                println(file, "====== Test ======")
-                show(stdout, rtest)
-                println(file, "=== Validation ===")
-                show(stdout, rvalid)
+            if tra.show_progress
+                println("==== Training ====")
+                show(rtrain)
+                print("\n")
+                println("====== Test ======")
+                show(rtest)
+                print("\n")
+                println("=== Validation ===")
+                show(rvalid)
+                print("\n")
             end
         end
 
         # Save the model
         clear_transient_gradients!(model)
-        model_name = trainer.prefix * "model-" * string(uuid4())[1:4] * ".jld2"
+        model_name = tra.prefix * "model-" * string(uuid4())[1:8] * ".jld2"
         save_as_jld2(joinpath(training_dir, model_name), model)
+        @info "Model save $model_name"
         i_trained += 1
     end # End the while loop
     @info "Trainer completed - total number of trained models: $(i_trained)"
