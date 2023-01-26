@@ -631,6 +631,15 @@ function Base.:+(a::CellFeature, b::CellFeature)
     CellFeature(elements, two_body, three_body)
 end
 
+function Base.:(==)(A::CellFeature, B::CellFeature) 
+    for name in fieldnames(CellFeature)
+        if getproperty(A, name) != getproperty(B, name)
+            return false
+        end
+    end
+    return true
+end
+
 Base.show(io::IO, x::CellFeature) = Base.show(io, MIME("text/plain"), x)
 """
 Options for constructing CellFeature

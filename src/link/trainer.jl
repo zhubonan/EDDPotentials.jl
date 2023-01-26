@@ -47,7 +47,7 @@ end
 
 Train the model and write the result to the disk as a JLD2 archive.
 """
-function run_trainer(tra::LocalLMTrainer, bu::Builder;
+function run_trainer(bu::Builder, tra::LocalLMTrainer=bu.trainer;
     dataset_path = joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu))
     )
 
@@ -131,4 +131,38 @@ function run_trainer(tra::LocalLMTrainer, bu::Builder;
         i_trained += 1
     end # End the while loop
     @info "Trainer completed - total number of trained models: $(i_trained)"
+end
+
+
+"""
+    create_ensemble(bu::Builder, tra::LocalLMTrainer=bu.trainer;save_and_clean=false, kwargs...)
+
+Create ensemble from resulted models. Optionally save the created ensemble model and clear
+the transient data.
+"""
+function create_ensemble(bu::Builder, tra::LocalLMTrainer=bu.trainer;
+    save_and_clean=false,
+    dataset_path = joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu)),
+    use_validation=false,
+    pattern = joinpath(bu.state.workdir, TRAINING_DIR, tra.prefix * "model-*.jld2"),
+)
+    names = glob(pattern)
+    @assert !isempty(names) "No model found at $pattern"
+    # Load the models
+    models = load_from_jld2.(names, Ref(ManualFluxBackPropInterface)) 
+    train, test, validation = jldopen(dataset_path) do file
+        file["train"], file["test"], file["validate"]
+    end
+    if use_validation
+        total = train + test + validation
+    else
+        total = train + test
+    end
+    ensemble = create_ensemble(models, total)
+    if save_and_clean
+        savepath = joinpath(bu.state.workdir, tra.prefix * "ensemble-gen$(bu.state.iteration).jld2")
+        save_as_jld2(savepath, ensemble)
+        rm.(names)
+    end
+    ensemble
 end

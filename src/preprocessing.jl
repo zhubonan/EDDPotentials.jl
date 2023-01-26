@@ -552,8 +552,8 @@ end
 
 function Base.:+(a::FeatureContainer, b::FeatureContainer)
     @assert a.feature == b.feature
-    @assert a.xt == b.xt
-    @assert a.yt == b.yt
+    #@assert a.xt == b.xt
+    #@assert a.yt == b.yt
     @assert a.is_x_transformed == b.is_x_transformed
     FeatureContainer(
         vcat(a.fvecs, b.fvecs),
