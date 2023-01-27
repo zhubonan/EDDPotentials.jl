@@ -169,7 +169,7 @@ function create_ensemble(bu::Builder, tra::LocalLMTrainer=bu.trainer;
     end
     ensemble = create_ensemble(models, total)
     if save_and_clean
-        savepath = joinpath(bu.state.workdir, tra.prefix * "ensemble-gen$(bu.state.iteration).jld2")
+        savepath = joinpath(bu.state.workdir, ensemble_name(bu))
         save_as_jld2(savepath, ensemble)
         # Write additional metadata
         jldopen(savepath, "r+") do fh

@@ -279,9 +279,7 @@ function _generate_random_structures(bu::Builder, iter)
     else
         # Subsequent cycles - generate from the seed and perform relaxation
         # Read ensemble file
-        efname = joinpath(bu.state.workdir, "ensemble-gen$(iter-1).jld2")
-        @assert isfile(efname) "Ensemble file $(efname) does not exist!"
-        ensemble = load_from_jld2(efname, EnsembleNNInterface)
+        ensemble = load_ensemble(bu, iter-1)
         nstruct = bu.state.per_generation - ndata
         if nstruct > 0
             @info "Generating $(nstruct) training structures for iteration $iter."
@@ -684,15 +682,15 @@ function walk_forward_tests(
 end
 
 function has_ensemble(bu::Builder, iteration=bu.state.iteration)
-    isfile(joinpath(bu.state.workdir, "ensemble-gen$(iteration).jld2"))
+    isfile(joinpath(bu.state.workdir, "$(bu.trainer.prefix)ensemble-gen$(iteration).jld2"))
 end
 
 function load_ensemble(bu::Builder, iteration=bu.state.iteration)
     EDDP.load_from_jld2(ensemble_name(bu, iteration), EDDP.EnsembleNNInterface)
 end
 
-ensemble_name(bu, iteration=bu.state.iteration) =
-    joinpath(bu.state.workdir, "ensemble-gen$(iteration).jld2")
+ensemble_name(bu::Builder, iteration=bu.state.iteration) =
+    joinpath(bu.state.workdir, "$(bu.trainer.prefix)ensemble-gen$(iteration).jld2")
 
 function is_training_data_ready(bu::Builder, iteration=bu.state.iteration)
     isdir(joinpath(bu.state.workdir, "gen$(iteration)-dft")) || return false

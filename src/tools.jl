@@ -81,12 +81,21 @@ function build_one(seedfile; timeout=10, init_structure_transform=nothing, max_a
             throw(ErrorException("Maximum attempt for building structure exceeded!"))
         end
         lines = open(seedfile, "r") do seed
-            cellout = read(
-                pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull),
-                String,
-            )
-            split(cellout, "\n")
+            try
+                cellout = read(
+                    pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull),
+                    String,
+                )
+                split(cellout, "\n")
+            catch err
+                if typeof(err) <: ProcessFailedException
+                    @warn " `buildcell` failed to make the structure"
+                else
+                    throw(err)
+                end
+            end
         end
+        isnothing(lines) && continue
 
         # Generate a unique label
         cell = CellBase.read_cell(lines)
