@@ -110,13 +110,13 @@ function run_trainer(bu::Builder, tra::LocalLMTrainer=bu.trainer;
                 open(tra.log_file, "a") do file
                     println(file, "==== Training ====")
                     show(file, rtrain)
-                    print("\n")
+                    print(file, "\n")
                     println(file, "====== Test ======")
                     show(file, rtest)
-                    print("\n")
+                    print(file, "\n")
                     println(file, "=== Validation ===")
                     show(file, rvalid)
-                    print("\n")
+                    print(file, "\n")
                 end
             end
             if tra.show_progress
