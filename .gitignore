@@ -16,3 +16,9 @@ Manifest.toml
 examples/*
 *.jld2
 events.out*
+.eddp_builder
+.*.swp
+*.so
+
+scripts/*
+!scripts/sysimg.jl

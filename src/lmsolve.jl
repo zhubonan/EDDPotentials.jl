@@ -15,7 +15,6 @@ using LsqFit: Avv, OptimizationTrace, OptimizationState
 
 import Base.summary
 
-
 struct LevenbergMarquardt <: Optimizer end
 Base.summary(::LevenbergMarquardt) = "Levenberg-Marquardt"
 """

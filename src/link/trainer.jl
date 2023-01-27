@@ -215,7 +215,7 @@ function run_trainer()
     if args["prefix"] != ""
         builder.trainer.prefix = args["prefix"]
     end
-    if args["id"] != "" && builder.trainer.log_file != ""
+    if args["id"] != "" && builder.trainer.log_file !== nothing
         builder.trainer.log_file = builder.trainer.log_file  * "-" * args["id"]
     end
     run_trainer(builder)

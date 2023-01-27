@@ -394,9 +394,14 @@ function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
     end
     @info "Training processes launched, waiting..."
 
+    last_nm = num_existing_models(bu) 
     while !all(istaskdone.(tasks))
         nm = num_existing_models(bu) 
-        @info "Number of trained models: $nm"
+        # Print progress if the number of models have changed
+        if nm != last_nm
+            @info "Number of trained models: $nm"
+            last_nm = nm
+        end
         sleep(30)
     end
 
