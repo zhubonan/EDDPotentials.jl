@@ -382,7 +382,7 @@ function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
              "--project=$(project_path)", 
              "-e", 
              "using EDDP;EDDP.run_trainer()", "$(builder_file)",
-              "--iteration $(bu.state.iteration)"]
+              "--iteration", "$(bu.state.iteration)"]
             )
 
     # Call multiple trainer processes
