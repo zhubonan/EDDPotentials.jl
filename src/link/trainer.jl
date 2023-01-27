@@ -2,6 +2,8 @@
 Function for running training as a separate process
 =#
 
+using ArgParse
+
 const TRAINING_DIR="training"
 
 function run_trainer(trainer::AbstractTrainer, builder::Builder) end
@@ -14,6 +16,18 @@ function dataset_name(bu::Builder)
     i = bu.state.iteration
     joinpath(bu.state.workdir, "gen-$i-dataset.jld2")
 end
+
+"""
+    num_existing_models(bu::Builder, tra::LocalLMTrainer=bu.trainer)
+
+Return the number of existing models in the training directory.
+"""
+function num_existing_models(bu::Builder, tra::LocalLMTrainer=bu.trainer)
+    training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
+    count(x -> endswith(x, ".jld2") && startswith(x, tra.prefix * "model"), readdir(training_dir))
+end
+
+
 
 """
     write_dataset(builder)
@@ -41,7 +55,6 @@ function write_dataset(bu::Builder, fc=load_features(bu);name=dataset_name(bu))
     return
 end
 
-
 """
     run_trainer(trainer::LocalLMTrainer, builder::Builder)
 
@@ -59,15 +72,11 @@ function run_trainer(bu::Builder, tra::LocalLMTrainer=bu.trainer;
     end
 
     # Enter the main training loop
-    function nexisting()
-        count(x -> endswith(x, ".jld2") && startswith(x, tra.prefix), readdir(training_dir))
-    end
-
     x_train, y_train = get_fit_data(train)
     x_test, y_test = get_fit_data(test)
 
     i_trained = 0
-    while nexisting() < tra.nmodels || i_trained > tra.max_train
+    while num_existing_models(bu) < tra.nmodels || i_trained > tra.max_train
         
         @info "Model initialized"
         # Initialise the model
@@ -162,7 +171,52 @@ function create_ensemble(bu::Builder, tra::LocalLMTrainer=bu.trainer;
     if save_and_clean
         savepath = joinpath(bu.state.workdir, tra.prefix * "ensemble-gen$(bu.state.iteration).jld2")
         save_as_jld2(savepath, ensemble)
+        # Write additional metadata
+        jldopen(savepath, "r+") do fh
+            fh["train_labels"] = train.labels
+            fh["test_labels"] = test.labels
+            fh["valid_labels"] = validation.labels
+            fh["builder_uuid"] = builder_uuid(bu)
+            fh["cf"] = bu.cf
+        end
+        # Remove individual models
         rm.(names)
     end
     ensemble
+end
+
+"""
+    run_trainer()
+
+Run training through commandline interface.
+"""
+function run_trainer()
+    s = ArgParseSettings()
+    @add_arg_table s begin
+        "--prefix"
+            help = "Prefix used for the trained models."        
+            default = ""
+        "--iteration"
+            help = "Override the iteration setting of the builder."
+            default = -1
+            arg_type = Int
+        "--id"
+            help = "ID of the process"
+            default = ""
+            arg_type = String
+        "builder"
+            help = "Path to the builder file."
+    end
+    args = parse_args(s)
+    builder = Builder(args["builder"])
+    if args["iteration"] >= 0 
+        builder.state.iteration = args["iteration"]
+    end
+    if args["prefix"] != ""
+        builder.trainer.prefix = args["prefix"]
+    end
+    if args["id"] != "" && builder.trainer.log_file != ""
+        builder.trainer.log_file = builder.trainer.log_file  * "-" * args["id"]
+    end
+    run_trainer(builder)
 end

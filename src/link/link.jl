@@ -38,6 +38,7 @@ const FEATURESPEC_NAME = "cf"
     run_walk_forward::Bool = false
     "Override the project_prefix"
     project_prefix_override::String = ""
+    builder_file_path::String=""
 end
 
 abstract type AbstractTrainer end
@@ -66,6 +67,8 @@ abstract type AbstractTrainer end
     log_file::Any=nothing
     prefix::String=""
     max_train::Int=999
+    "Number of workers to be launcher in parallel"
+    num_workers::Int=1
 end
 
 
@@ -123,6 +126,8 @@ function Builder(str::AbstractString="link.yaml")
     end
 
     state = BuilderState(; statedict...)
+    # Store the path to the builder file
+    state.builder_file_path = str
 
     # Setup cell Feature
     cf_dict = loaded[:cf]
@@ -243,18 +248,7 @@ function step!(bu::Builder)
 
     # Retrain model
     @info "Starting training for iteration $iter."
-    ensemble, train_labels, test_labels, valid_labels = _perform_training(bu)
-    savepath = joinpath(bu.state.workdir, "ensemble-gen$(iter).jld2")
-    save_as_jld2(savepath, ensemble)
-
-    # Record the labels of the structures and more information
-    jldopen(savepath, "r+") do fh
-        fh["train_labels"] = train_labels
-        fh["test_labels"] = test_labels
-        fh["valid_labels"] = valid_labels
-        fh["builder_uuid"] = builder_uuid(bu)
-        fh["cf"] = bu.cf
-    end
+    _perform_training(bu)
 
     bu.state.iteration += 1
     bu
@@ -373,35 +367,51 @@ end
 Carry out training and save the ensemble as a JLD2 archive.
 """
 function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
-    t = bu.trainer
-    ## Training new models
-    dirs =
-        [joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter = 0:bu.state.iteration]
-    @info "Training data from: $(dirs)"
-    cf = bu.cf
-    sc = EDDP.StructureContainer(dirs, threshold=t.energy_threshold)
-    fc = EDDP.FeatureContainer(sc, cf; nmax=t.nmax)
-    train, test, valid = split(fc, t.train_split...)
-    model = EDDP.ManualFluxBackPropInterface(
-        cf,
-        t.n_nodes...;
-        xt=train.xt,
-        yt=train.yt,
-        apply_xt=false,
-        embedding=bu.cf_embedding,
-    )
-    ensemble = EDDP.train_multi_threaded(
-        EDDP.reinit(model),
-        prefix="gen$(bu.state.iteration)",
-        train,
-        test;
-        nmodels=t.nmodels,
-        show_progress=t.show_progress,
-        earlystop=t.earlystop,
-        save_each_model=t.save_each_model,
-        use_test_for_ensemble=t.use_test_for_ensemble,
-    )
-    return ensemble, train.labels, test.labels, valid.labels
+
+    tra = bu.trainer
+    # Write the dataset to the disk
+    @info "Training with LocalLMTrainer"
+    @info "Preparing dataset..."
+    write_dataset(bu)
+
+    # Call multiple sub processes
+    project_path = dirname(Base.active_project())
+    builder_file = bu.state.builder_file_path
+    @assert builder_file != ""
+    cmd = `julia --project=$(project_path) -e "using EDDP;EDDP.run_trainer()" $(builder_file) --iteration $(bu.state.iteration)`
+
+    # Call multiple trainer processes
+    @info "Subprocess launch command: $cmd"
+    tasks = Task[]
+    for i in 1:tra.num_workers
+        # Run with ids
+        _cmd = deepcopy(cmd) 
+        append!(_cmd.exec, ["--id", "$i"])
+        this_task = @async begin
+            run(pipeline(_cmd, stdout="lm-process-$i-stdout", stderr="lm-process-$i-stderr"))
+        end
+        push!(tasks, this_task)
+    end
+    @info "Training processes launched, waiting..."
+
+    while !all(istaskdone.(tasks))
+        nm = num_existing_models(bu) 
+        @info "Number of trained models: $nm"
+        sleep(30)
+    end
+
+    nm = num_existing_models(bu) 
+    @info "Number of trained models: $nm"
+
+    # Create ensemble
+    nm = num_existing_models(bu) 
+    if nm >= tra.nmodels * 0.9
+        ensemble = create_ensemble(bu;save_and_clean=true)
+    else
+        throw(ErrorException("Only $nm models are found in the training directory, need $(tra.nmodels)"))
+    end
+
+    return ensemble
 end
 
 
