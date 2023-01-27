@@ -378,15 +378,19 @@ function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
     project_path = dirname(Base.active_project())
     builder_file = bu.state.builder_file_path
     @assert builder_file != ""
-    cmd = `julia --project=$(project_path) -e "using EDDP;EDDP.run_trainer()" $(builder_file) --iteration $(bu.state.iteration)`
+    cmd = Cmd([Base.julia_cmd()..., 
+             "--project=$(project_path)", 
+             "-e", 
+             "using EDDP;EDDP.run_trainer()", "$(builder_file)",
+              "--iteration $(bu.state.iteration)"]
+            )
 
     # Call multiple trainer processes
     @info "Subprocess launch command: $cmd"
     tasks = Task[]
     for i in 1:tra.num_workers
         # Run with ids
-        _cmd = deepcopy(cmd) 
-        append!(_cmd.exec, ["--id", "$i"])
+        _cmd = Cmd([cmd..., "--id", "$i"])
         this_task = @async begin
             run(pipeline(_cmd, stdout="lm-process-$i-stdout", stderr="lm-process-$i-stderr"))
         end
