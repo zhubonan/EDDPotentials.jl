@@ -7,7 +7,7 @@ using JSON
 using YAML
 using ArgParse
 
-export Builder, walk_forward_tests
+export Builder, walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss
 
 const XT_NAME = "xt"
 const YT_NAME = "yt"

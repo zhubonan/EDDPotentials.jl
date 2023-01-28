@@ -9,11 +9,10 @@ const TRAINING_DIR="training"
 function run_trainer(trainer::AbstractTrainer, builder::Builder) end
 
 """
-    dataset_name(bu::Builder)
+    dataset_name(bu::Builder, i=bu.state.iteration)
 Name for the dataset file
 """
-function dataset_name(bu::Builder)
-    i = bu.state.iteration
+function dataset_name(bu::Builder, i=bu.state.iteration)
     joinpath(bu.state.workdir, "gen-$i-dataset.jld2")
 end
 
@@ -56,20 +55,34 @@ function write_dataset(bu::Builder, fc=load_features(bu);name=dataset_name(bu))
 end
 
 """
+    load_training_dataset(bu::Builder, iter=bu.state.iteration;combined=false)
+
+Load dataset saved for training
+"""
+function load_training_dataset(bu::Builder, iter=bu.state.iteration;combined=false)
+    dataset_path = joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu, iter))
+    train, test, validation = jldopen(dataset_path) do file
+        file["train"], file["test"], file["validate"]
+    end
+    if combined
+        return train + test + validation
+    end
+    return train, test, validation
+end
+
+
+"""
     run_trainer(trainer::LocalLMTrainer, builder::Builder)
 
 Train the model and write the result to the disk as a JLD2 archive.
 """
 function run_trainer(bu::Builder, tra::LocalLMTrainer=bu.trainer;
-    dataset_path = joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu))
     )
 
     training_dir = joinpath(bu.state.workdir, "training")
     ensure_dir(training_dir)
 
-    train, test, validation = jldopen(dataset_path) do file
-        file["train"], file["test"], file["validate"]
-    end
+    train, test, validation = load_training_dataset(bu;combined=false)
 
     # Enter the main training loop
     x_train, y_train = get_fit_data(train)
@@ -188,7 +201,7 @@ end
 """
     run_trainer()
 
-Run training through commandline interface.
+Run training through a command line interface.
 """
 function run_trainer()
     s = ArgParseSettings()
