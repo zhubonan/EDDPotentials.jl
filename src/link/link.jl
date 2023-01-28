@@ -5,6 +5,9 @@ import Base
 using Parameters
 using JSON
 using YAML
+using ArgParse
+
+export Builder, walk_forward_tests
 
 const XT_NAME = "xt"
 const YT_NAME = "yt"
@@ -30,12 +33,13 @@ const FEATURESPEC_NAME = "cf"
     dft_kwargs::Any = NamedTuple()
     relax_extra_opts::Dict{Symbol,Any} = Dict()
     rss_pressure_gpa::Float64 = 0.1
+    rss_pressure_gpa_range::Vector{Float64} = Float64[]
     rss_niggli_reduce::Bool = true
     core_size::Float64 = 1.0
     ensemble_std_min::Float64 = 0.0
     ensemble_std_max::Float64 = -1.0
     "Run walk-forward test before re-training"
-    run_walk_forward::Bool = false
+    run_walk_forward::Bool = true
     "Override the project_prefix"
     project_prefix_override::String = ""
     builder_file_path::String=""
@@ -192,7 +196,11 @@ function _set_iteration!(builder::Builder)
     end
 end
 
+"""
+    link!(builder::Builder)
 
+Run automated iterative building cycles.
+"""
 function link!(builder::Builder)
     state = builder.state
     while state.iteration <= state.max_iterations
@@ -202,6 +210,38 @@ function link!(builder::Builder)
             return
         end
     end
+end
+
+"""
+    link()
+Run `link!` from command line interface.
+
+Example: 
+
+```bash
+julia -e "Using EDDP;EDDP.link()" -- --file "link.yaml" 
+```
+"""
+function link()
+    s = ArgParseSettings()
+    @add_arg_table s begin
+        "--file"
+            help="Name of the yaml file"
+            default="link.yaml"
+            arg_type=String
+        "--iter"
+            help="Override the iteration number"
+            arg_type=Int
+            default=-1
+    end
+    args = parse_args(s)
+    fname = args["file"]
+    builder = Builder(fname)
+    if args["iter"] >= 0
+        builder.state.iteration = args["iter"]
+    end
+    @info "Loading builder from $(fname)"
+    link!(builder)
 end
 
 function should_stop(bu::Builder)
@@ -284,6 +324,12 @@ function _generate_random_structures(bu::Builder, iter)
         if nstruct > 0
             @info "Generating $(nstruct) training structures for iteration $iter."
             # Generate data sets
+            if length(bu.state.rss_pressure_gpa_range) > 0
+                a, b = bu.state.rss_pressure_gpa_range
+                pressure = rand() * (b-a) + a
+            else
+                pressure = bu.state.rss_pressure_gpa
+            end
             run_rss(
                 bu.state.seedfile,
                 ensemble,
@@ -293,7 +339,7 @@ function _generate_random_structures(bu::Builder, iter)
                 ensemble_std_min=bu.state.ensemble_std_min,
                 max=nstruct,
                 outdir=outdir,
-                pressure_gpa=bu.state.rss_pressure_gpa,
+                pressure_gpa=pressure,
                 niggli_reduce_output=bu.state.rss_niggli_reduce,
             )
             # Shake the generate structures
@@ -771,7 +817,7 @@ end
 
 Run random structure searching for a configuration file for the builder.
 """
-function run_rss(str::AbstractString)
+function run_rss(str::AbstractString="link.yaml")
     builder = Builder(str)
     rss_dict = YAML.load_file(str; dicttype=Dict{Symbol,Any})[:rss]
     run_rss(builder; rss_dict...)
