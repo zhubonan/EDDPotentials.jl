@@ -156,16 +156,25 @@ end
 
 PKGS = [
     "Optim", 
+    "DataFrames",
+    "AtomsBase",
+    "Requires",
+    "PyCall",
+    "Plots",
     "DirectQhull", 
     "CatViews", 
     "Flux", "ChainRulesTestUtils", "Glob", 
-    "JLD2", "PackageCompiler", "Zygote", "DataFrames", "NNlib"
+    "JLD2", "PackageCompiler", "Zygote",  "NNlib"
 ]
 
 EXCLUDED = ["EDDP", "CellBase", "EDDPTools"]
 
 function setup_temp_project()
     dir = dirname(@__FILE__)
+    target_project = joinpath(dirname(@__FILE__), "devenv/")
+    isfile(joinpath(target_project, "Project.toml")) && rm(joinpath(target_project, "Project.toml"))
+    isfile(joinpath(target_project, "Manifest.toml")) && rm(joinpath(target_project, "Manifest.toml"))
+
     Pkg.activate(joinpath(dirname(@__FILE__), "devenv/"))
 
     # Add development packages

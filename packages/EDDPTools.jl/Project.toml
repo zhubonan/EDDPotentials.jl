@@ -10,11 +10,12 @@ DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 EDDP = "cffdf5dc-aa8e-4f15-840d-78559bc58d9d"
 Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
 Glob = "c27321d9-0574-5035-807b-f59d2c89b15c"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [compat]
-julia = "1.7"
 Flux = "0.13"
+julia = "1.7"
