@@ -242,7 +242,7 @@ function run_rss(
 
         # Check if the final energy is low enough
         # Use this with case as pathelogicial structures may prevent normal
-        # structures bening accepted. Ideally use it with `ensemble_std_min`.
+        # structures being accepted. Ideally use it with `ensemble_std_min`.
         if eng_threshold > 0
             if check_energy_threshold!(composition_engmin, vc, eng_threshold) == false
                 continue
