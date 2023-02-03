@@ -14,6 +14,7 @@ end
 
 include("utils.jl")
 
+include("test_records.jl")
 include("test_cellfeature.jl")
 include("test_embedding.jl")
 include("test_gradients.jl")

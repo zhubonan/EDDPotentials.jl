@@ -17,8 +17,14 @@ function ComputedRecord(comp_string::Union{AbstractString, Symbol}, energy)
 end
 
 energy_per_atom(c::ComputedRecord) = c.energy / sum(c.composition.counts)
+
+
+"""
+Type that represents a simplex in N-dimensional space
+"""
 struct Simplex
     coords::Matrix{Float64}
+    aug::Matrix{Float64}
     aug_inv::Matrix{Float64}
 end
 
@@ -45,15 +51,32 @@ function Base.show(io::IO, p::PhaseDiagram)
 end
 
 """
+    Simplex(coords)
+
+Construct a simplex from a matrix of the coordinates
 """
 function Simplex(coords)
     aug = vcat(coords, ones(eltype(coords), 1, size(coords, 2)))
-    Simplex(coords, inv(aug))
+    Simplex(coords, aug, inv(aug))
 end
 
+"""
+    bary_coords(s::Simplex, point::Vector)
+
+Obtain barycentric coordinates for a given point
+"""
 function bary_coords(s::Simplex, point::Vector)
     p = vcat(point, [1.0])
     s.aug_inv * p
+end
+
+bary_coords(s, p, phased::PhaseDiagram) = bary_coords(s, get_coord(p, phased))
+
+"""
+Convert barycentric coordinate to normal point
+"""
+function coords_from_bary(s::Simplex, bary::Vector)
+    s.aug[1:end-1, :] * bary
 end
 
 """
@@ -70,7 +93,7 @@ end
 
 Return the composition coordination for a given composition.
 """
-function get_coord(comp, elements)
+function get_coord(comp::Composition, elements::Vector{Symbol})
     out = zeros(length(elements)-1)
     n = sum(comp.counts)
     for j in 2:length(elements)
@@ -79,7 +102,8 @@ function get_coord(comp, elements)
     out
 end
 
-get_coord(rec::ComputedRecord, elements) = get_coord(rec.composition, elements)
+get_coord(rec::ComputedRecord, elements::Vector) = get_coord(rec.composition, elements)
+get_coord(x, phased::PhaseDiagram) = get_coord(x, phased.elements)
 
 #%
 function PhaseDiagram(records)
@@ -216,19 +240,3 @@ function get_decomposition(phased, record)
     bcoords = bary_coords(phased.simplices[i], coord)
     Dict(x=> y for (x, y) in zip(phased.min_energy_records[phased.simplex_indices[i]], bcoords))
 end
-
-records = [
-    ComputedRecord(:O, 0.),
-    ComputedRecord(:H2O, -1.),
-    ComputedRecord(:H, 0.),
-]
-
-phased = PhaseDiagram(records)
-    
-    # Compute the distance to the surface defined by the simplex along the last dimension
-
-#%%
-
-get_e_above_hull(phased, ComputedRecord(Composition(:H2O), 1))
-get_e_above_hull(phased, ComputedRecord(Composition(:H), 1))
-get_e_above_hull(phased, ComputedRecord(Composition(:O), 0))
