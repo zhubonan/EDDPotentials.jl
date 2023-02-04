@@ -67,12 +67,17 @@ defaults to the current directory.
 Then can be used to run further calculations through phonopy command line interface. 
 
 """
-function run_phonon(calc;
-                    out_dir=".", phonon_save_name="phonopy_params.yaml", 
-                    force_set_filename="FORCE_SETS", 
-                    supercell_matrix, distance=0.01, kwargs...)
+function run_phonon(
+    calc;
+    out_dir=".",
+    phonon_save_name="phonopy_params.yaml",
+    force_set_filename="FORCE_SETS",
+    supercell_matrix,
+    distance=0.01,
+    kwargs...,
+)
     phonon = get_phonopy(get_cell(calc); supercell_matrix, kwargs...)
-    phonon.generate_displacements(;distance=distance)
+    phonon.generate_displacements(; distance=distance)
     scells = phonon.supercells_with_displacements
     cf = calc.cf
     model = calc.nninterface
@@ -81,8 +86,8 @@ function run_phonon(calc;
     if any(pforces .> 1e-4)
         @warn "Residual forces in the input structure is too large: $(maximum(pforces))!"
     end
-    
-    
+
+
     @info "Computing forces for supercell displacements"
     forces = get_phonopy_forces(scells, cf, model)
     phonon.forces = forces
@@ -105,5 +110,6 @@ end
 
 end
 
-using .PhonopyInterface: get_phonopy_forces, phonopy2cell, cell2phonopy, get_phonopy, run_phonon
+using .PhonopyInterface:
+    get_phonopy_forces, phonopy2cell, cell2phonopy, get_phonopy, run_phonon
 export get_phonopy_forces, phonopy2cell, cell2phonopy, get_phonopy, run_phonon

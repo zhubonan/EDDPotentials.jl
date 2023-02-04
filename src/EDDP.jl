@@ -16,7 +16,6 @@ disable_timer!(to)
 
 # External
 include("nnls.jl")
-include("records.jl")
 include("feature.jl")
 include("embedding.jl")
 include("embedding_rules.jl")
@@ -30,7 +29,7 @@ include("training.jl")
 include("calculator.jl")
 include("tools.jl")
 include("opt.jl")
-include("iterative_build.jl")
+include("records.jl")
 
 include("link/link.jl")
 include("link/trainer.jl")

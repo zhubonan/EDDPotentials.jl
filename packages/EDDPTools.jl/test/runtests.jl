@@ -49,3 +49,7 @@ using Test
     b.run(steps=100)
     @test maximum(atoms.get_forces()) < 1
 end
+
+
+include("test_hull_2d.jl")
+include("test_hull_3d.jl")
