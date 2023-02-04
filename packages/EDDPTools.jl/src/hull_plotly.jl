@@ -105,3 +105,45 @@ function make_ternary_plot(plot_data)
     )
     PlotlyJS.plot(traces, layout)
 end
+
+
+"""
+    make_binary_hull_plotly(ps::EDDP.PhaseDiagram)
+
+Generate binary convex hull plot.
+"""
+make_binary_hull_plotly(ps::EDDP.PhaseDiagram) =
+    make_binary_hull_plotly(EDDP.get_2d_plot_data(ps))
+
+"""
+    make_binary_hull_plotly(data)
+
+Generate binary convex hull plot.
+
+- `data`: A `NamedTuple` return by `EDDP.get_2d_plot_data`.
+"""
+function make_binary_hull_plotly(data)
+    trace1 = PlotlyJS.scatter(
+        mode="markers",
+        x=data.x,
+        y=data.y,
+        customdata=[zip(data.e_above_hull, data.record_ids)...],
+        hovertemplate="Unstable Candidate<br>Distance to hull: %{customdata[0]:.5f} eV<br>Record-id: %{customdata[1]}",
+        name="Candidate",
+    )
+    trace2 = PlotlyJS.scatter(
+        mode="lines+markers",
+        name="Hull",
+        x=data.stable_x,
+        y=data.stable_y,
+        customdata=[zip(data.stable_formula, data.stable_entry_id)...],
+        hovertemplate="Stable Candidate<br>Formula: %{customdata[0]}<br>Record-id: %{customdata[1]}",
+    )
+    comp_label = "$(data.elements[2])x$(data.elements[1])1-x"
+    layout = Layout(
+        title="Binary Hull of $(data.elements[1])-$(data.elements[2])",
+        xaxis_title=comp_label,
+        yaxis_title="Formation energy (eV / atom)",
+    )
+    PlotlyJS.plot([trace1, trace2], layout)
+end

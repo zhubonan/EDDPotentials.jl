@@ -13,6 +13,6 @@ using Plots
 
 
     phased = PhaseDiagram(records)
-    p = EDDPTools.plot_2d_hull(phased)
+    p = EDDPTools.make_binary_hull_plot(phased)
     @test isa(p, Plots.Plot)
 end

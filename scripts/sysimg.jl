@@ -161,6 +161,7 @@ PKGS = [
     "Requires",
     "PyCall",
     "Plots",
+    "PlotlyJS",
     "DirectQhull", 
     "CatViews", 
     "Flux", "ChainRulesTestUtils", "Glob", 

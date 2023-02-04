@@ -4,7 +4,7 @@ Function for running training as a separate process
 
 using ArgParse
 
-const TRAINING_DIR="training"
+const TRAINING_DIR = "training"
 
 function run_trainer(trainer::AbstractTrainer, builder::Builder) end
 
@@ -23,7 +23,10 @@ Return the number of existing models in the training directory.
 """
 function num_existing_models(bu::Builder, tra::LocalLMTrainer=bu.trainer)
     training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
-    count(x -> endswith(x, ".jld2") && startswith(x, tra.prefix * "model"), readdir(training_dir))
+    count(
+        x -> endswith(x, ".jld2") && startswith(x, tra.prefix * "model"),
+        readdir(training_dir),
+    )
 end
 
 
@@ -33,7 +36,7 @@ end
 
 Write the dataset to the disk. These are large JLD2 archive containing the data for training, testing and validation
 """
-function write_dataset(bu::Builder, fc=load_features(bu);name=dataset_name(bu))
+function write_dataset(bu::Builder, fc=load_features(bu); name=dataset_name(bu))
     # Save the dataset 
     training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
     name = joinpath(training_dir, name)
@@ -46,9 +49,9 @@ function write_dataset(bu::Builder, fc=load_features(bu);name=dataset_name(bu))
         file["validate"] = valid
     end
     # Write the labels
-    labels = Dict{String, Vector{String}}()
-    labels["train"] = train.labels 
-    labels["test"] = test.labels 
+    labels = Dict{String,Vector{String}}()
+    labels["train"] = train.labels
+    labels["test"] = test.labels
     labels["validate"] = valid.labels
     YAML.write_file(splitext(name)[1] * ".yaml", labels)
     return
@@ -59,7 +62,7 @@ end
 
 Load dataset saved for training
 """
-function load_training_dataset(bu::Builder, iter=bu.state.iteration;combined=false)
+function load_training_dataset(bu::Builder, iter=bu.state.iteration; combined=false)
     dataset_path = joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu, iter))
     train, test, validation = jldopen(dataset_path) do file
         file["train"], file["test"], file["validate"]
@@ -76,13 +79,12 @@ end
 
 Train the model and write the result to the disk as a JLD2 archive.
 """
-function run_trainer(bu::Builder, tra::LocalLMTrainer=bu.trainer;
-    )
+function run_trainer(bu::Builder, tra::LocalLMTrainer=bu.trainer;)
 
     training_dir = joinpath(bu.state.workdir, "training")
     ensure_dir(training_dir)
 
-    train, test, validation = load_training_dataset(bu;combined=false)
+    train, test, validation = load_training_dataset(bu; combined=false)
 
     # Enter the main training loop
     x_train, y_train = get_fit_data(train)
@@ -90,7 +92,7 @@ function run_trainer(bu::Builder, tra::LocalLMTrainer=bu.trainer;
 
     i_trained = 0
     while num_existing_models(bu) < tra.nmodels || i_trained > tra.max_train
-        
+
         @info "Model initialized"
         # Initialise the model
         model = EDDP.ManualFluxBackPropInterface(
@@ -104,14 +106,19 @@ function run_trainer(bu::Builder, tra::LocalLMTrainer=bu.trainer;
 
         @info "Starting training"
         # Train one model and save it...
-        train_lm!(model, x_train, y_train;x_test, y_test,
-        maxIter=tra.max_iter,
-        earlystop=tra.earlystop,
-        show_progress=tra.show_progress,
-        p=tra.p,
-        keep_best=tra.keep_best,
-        tb_logger_dir=tra.tb_logger_dir,
-        log_file=tra.log_file,
+        train_lm!(
+            model,
+            x_train,
+            y_train;
+            x_test,
+            y_test,
+            maxIter=tra.max_iter,
+            earlystop=tra.earlystop,
+            show_progress=tra.show_progress,
+            p=tra.p,
+            keep_best=tra.keep_best,
+            tb_logger_dir=tra.tb_logger_dir,
+            log_file=tra.log_file,
         )
 
         # Display training results
@@ -162,16 +169,18 @@ end
 Create ensemble from resulted models. Optionally save the created ensemble model and clear
 the transient data.
 """
-function create_ensemble(bu::Builder, tra::LocalLMTrainer=bu.trainer;
+function create_ensemble(
+    bu::Builder,
+    tra::LocalLMTrainer=bu.trainer;
     save_and_clean=false,
-    dataset_path = joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu)),
+    dataset_path=joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu)),
     use_validation=false,
-    pattern = joinpath(bu.state.workdir, TRAINING_DIR, tra.prefix * "model-*.jld2"),
+    pattern=joinpath(bu.state.workdir, TRAINING_DIR, tra.prefix * "model-*.jld2"),
 )
     names = glob(pattern)
     @assert !isempty(names) "No model found at $pattern"
     # Load the models
-    models = load_from_jld2.(names, Ref(ManualFluxBackPropInterface)) 
+    models = load_from_jld2.(names, Ref(ManualFluxBackPropInterface))
     train, test, validation = jldopen(dataset_path) do file
         file["train"], file["test"], file["validate"]
     end
@@ -207,29 +216,29 @@ function run_trainer()
     s = ArgParseSettings()
     @add_arg_table s begin
         "--prefix"
-            help = "Prefix used for the trained models."        
-            default = ""
+        help = "Prefix used for the trained models."
+        default = ""
         "--iteration"
-            help = "Override the iteration setting of the builder."
-            default = -1
-            arg_type = Int
+        help = "Override the iteration setting of the builder."
+        default = -1
+        arg_type = Int
         "--id"
-            help = "ID of the process"
-            default = ""
-            arg_type = String
+        help = "ID of the process"
+        default = ""
+        arg_type = String
         "builder"
-            help = "Path to the builder file."
+        help = "Path to the builder file."
     end
     args = parse_args(s)
     builder = Builder(args["builder"])
-    if args["iteration"] >= 0 
+    if args["iteration"] >= 0
         builder.state.iteration = args["iteration"]
     end
     if args["prefix"] != ""
         builder.trainer.prefix = args["prefix"]
     end
     if args["id"] != "" && builder.trainer.log_file !== nothing
-        builder.trainer.log_file = builder.trainer.log_file  * "-" * args["id"]
+        builder.trainer.log_file = builder.trainer.log_file * "-" * args["id"]
     end
     run_trainer(builder)
 end

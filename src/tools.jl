@@ -122,7 +122,7 @@ Relax the structure of the calculator.
 function relax!(
     calc::NNCalc;
     relax_cell=true,
-    pressure_gpa=0.,
+    pressure_gpa=0.0,
     show_trace=false,
     method=TwoPointSteepestDescent(),
     out_label="eddp-output",
@@ -448,10 +448,19 @@ end
 
 Relax many structures and place the relaxed structures in the output directory
 """
-function relax_structures(files, outdir, cf::CellFeature, ensemble::AbstractNNInterface;
+function relax_structures(
+    files,
+    outdir,
+    cf::CellFeature,
+    ensemble::AbstractNNInterface;
     nmax=500,
     core_size=1.0,
-    relax_cell=true, pressure_gpa=0., show_trace=false, method=TwoPointSteepestDescent(), kwargs...)
+    relax_cell=true,
+    pressure_gpa=0.0,
+    show_trace=false,
+    method=TwoPointSteepestDescent(),
+    kwargs...,
+)
     Threads.@threads for fname in files
         # Deal with different types of inputs
         if endswith(fname, ".res")
@@ -461,9 +470,17 @@ function relax_structures(files, outdir, cf::CellFeature, ensemble::AbstractNNIn
             cell = read_cell(fname)
             label = stem(fname)
         end
-        calc = EDDP.NNCalc(cell, cf, deepcopy(ensemble); nmax, core=CoreReplusion(core_size))
-        vc, _ = relax!(calc; relax_cell, pressure_gpa, show_trace, method, out_label=label,
-                        kwargs...)
+        calc =
+            EDDP.NNCalc(cell, cf, deepcopy(ensemble); nmax, core=CoreReplusion(core_size))
+        vc, _ = relax!(
+            calc;
+            relax_cell,
+            pressure_gpa,
+            show_trace,
+            method,
+            out_label=label,
+            kwargs...,
+        )
         outname = joinpath(outdir, stem(fname) * ".res")
         write_res(outname, get_cell(vc))
     end

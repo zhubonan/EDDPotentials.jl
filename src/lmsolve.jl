@@ -139,7 +139,7 @@ function levenberg_marquardt(
     # and an alias for the jacobian
     J = @timeit to "jacobian" jacobian(df)
     J2 = copy(J)
-    
+
     dir_deriv = Array{T}(undef, m)
     v = Array{T}(undef, n)
 
@@ -156,7 +156,7 @@ function levenberg_marquardt(
         # jacobian! will check if x is new or not, so it is only actually
         # evaluated if x was updated last iteration.
         @timeit to "jacobian" jacobian!(df, x) # has alias J
-       
+
 
         # Page 170 least square data fitting and applications
         # we want to solve:
@@ -392,11 +392,11 @@ function ATWA!(out, A, W)
     fill(out, 0)
     @assert size(out) == (n, n)
     @assert size(W, 1) == m
-    for b in 1:n
+    for b = 1:n
         @info b
-        for a in 1:n 
+        for a = 1:n
             tmp = zero(eltype(A))
-            for i in 1:m 
+            for i = 1:m
                 tmp += A[i, a] * W[i] * A[i, b]
             end
             out[a, b] = tmp

@@ -7,7 +7,8 @@ using JSON
 using YAML
 using ArgParse
 
-export Builder, walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss
+export Builder,
+    walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss
 
 const XT_NAME = "xt"
 const YT_NAME = "yt"
@@ -42,7 +43,7 @@ const FEATURESPEC_NAME = "cf"
     run_walk_forward::Bool = true
     "Override the project_prefix"
     project_prefix_override::String = ""
-    builder_file_path::String=""
+    builder_file_path::String = ""
 end
 
 abstract type AbstractTrainer end
@@ -65,14 +66,14 @@ abstract type AbstractTrainer end
     train_split::NTuple{3,Float64} = (0.8, 0.1, 0.1)
     use_test_for_ensemble::Bool = true
     save_each_model::Bool = true
-    p::Float64=1.25
-    keep_best::Bool=true
-    tb_logger_dir::Any=nothing
-    log_file::Any=nothing
-    prefix::String=""
-    max_train::Int=999
+    p::Float64 = 1.25
+    keep_best::Bool = true
+    tb_logger_dir::Any = nothing
+    log_file::Any = nothing
+    prefix::String = ""
+    max_train::Int = 999
     "Number of workers to be launcher in parallel"
-    num_workers::Int=1
+    num_workers::Int = 1
 end
 
 
@@ -226,13 +227,13 @@ function link()
     s = ArgParseSettings()
     @add_arg_table s begin
         "--file"
-            help="Name of the yaml file"
-            default="link.yaml"
-            arg_type=String
+        help = "Name of the yaml file"
+        default = "link.yaml"
+        arg_type = String
         "--iter"
-            help="Override the iteration number"
-            arg_type=Int
-            default=-1
+        help = "Override the iteration number"
+        arg_type = Int
+        default = -1
     end
     args = parse_args(s)
     fname = args["file"]
@@ -319,14 +320,14 @@ function _generate_random_structures(bu::Builder, iter)
     else
         # Subsequent cycles - generate from the seed and perform relaxation
         # Read ensemble file
-        ensemble = load_ensemble(bu, iter-1)
+        ensemble = load_ensemble(bu, iter - 1)
         nstruct = bu.state.per_generation - ndata
         if nstruct > 0
             @info "Generating $(nstruct) training structures for iteration $iter."
             # Generate data sets
             if length(bu.state.rss_pressure_gpa_range) > 0
                 a, b = bu.state.rss_pressure_gpa_range
-                pressure = rand() * (b-a) + a
+                pressure = rand() * (b - a) + a
             else
                 pressure = bu.state.rss_pressure_gpa
             end
@@ -422,17 +423,20 @@ function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
     project_path = dirname(Base.active_project())
     builder_file = bu.state.builder_file_path
     @assert builder_file != ""
-    cmd = Cmd([Base.julia_cmd()..., 
-             "--project=$(project_path)", 
-             "-e", 
-             "using EDDP;EDDP.run_trainer()", "$(builder_file)",
-              "--iteration", "$(bu.state.iteration)"]
-            )
+    cmd = Cmd([
+        Base.julia_cmd()...,
+        "--project=$(project_path)",
+        "-e",
+        "using EDDP;EDDP.run_trainer()",
+        "$(builder_file)",
+        "--iteration",
+        "$(bu.state.iteration)",
+    ])
 
     # Call multiple trainer processes
     @info "Subprocess launch command: $cmd"
     tasks = Task[]
-    for i in 1:tra.num_workers
+    for i = 1:tra.num_workers
         # Run with ids
         _cmd = Cmd([cmd..., "--id", "$i"])
         this_task = @async begin
@@ -442,9 +446,9 @@ function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
     end
     @info "Training processes launched, waiting..."
 
-    last_nm = num_existing_models(bu) 
+    last_nm = num_existing_models(bu)
     while !all(istaskdone.(tasks))
-        nm = num_existing_models(bu) 
+        nm = num_existing_models(bu)
         # Print progress if the number of models have changed
         if nm != last_nm
             @info "Number of trained models: $nm"
@@ -453,15 +457,19 @@ function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
         sleep(30)
     end
 
-    nm = num_existing_models(bu) 
+    nm = num_existing_models(bu)
     @info "Number of trained models: $nm"
 
     # Create ensemble
-    nm = num_existing_models(bu) 
+    nm = num_existing_models(bu)
     if nm >= tra.nmodels * 0.9
-        ensemble = create_ensemble(bu;save_and_clean=true)
+        ensemble = create_ensemble(bu; save_and_clean=true)
     else
-        throw(ErrorException("Only $nm models are found in the training directory, need $(tra.nmodels)"))
+        throw(
+            ErrorException(
+                "Only $nm models are found in the training directory, need $(tra.nmodels)",
+            ),
+        )
     end
 
     return ensemble

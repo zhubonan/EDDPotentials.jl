@@ -44,7 +44,7 @@ end
 """
 Generate p/q as geometry series
 """
-function genp(p::Union{UnitRange, StepRange})
+function genp(p::Union{UnitRange,StepRange})
     genp(p[1], p[end], length(p))
 end
 
@@ -631,7 +631,7 @@ function Base.:+(a::CellFeature, b::CellFeature)
     CellFeature(elements, two_body, three_body)
 end
 
-function Base.:(==)(A::CellFeature, B::CellFeature) 
+function Base.:(==)(A::CellFeature, B::CellFeature)
     for name in fieldnames(CellFeature)
         if getproperty(A, name) != getproperty(B, name)
             return false
@@ -672,7 +672,7 @@ function CellFeature(
     g2=gfr,
     f3=fr,
     g3=gfr,
-    geometry_sequence=false
+    geometry_sequence=false,
 )
 
     # Apply geomtry sequence for the powers

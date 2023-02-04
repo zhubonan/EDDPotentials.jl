@@ -198,7 +198,7 @@ function (ce::CellEmbedding)(mat::AbstractMatrix)
     _apply_embedding_cell(n1bd, n2bd, n3bd, ce.two_body.weight, ce.three_body.weight, mat)
 end
 
-function _apply_embedding_cell(n1bd, n2bd, n3bd,  w2, w3, mat::AbstractMatrix)
+function _apply_embedding_cell(n1bd, n2bd, n3bd, w2, w3, mat::AbstractMatrix)
     m2 = mat[n1bd+1:n2bd+n1bd, :]
     m3 = mat[n1bd+n2bd+1:n2bd+n1bd+n3bd, :]
     e2 = _apply_embedding_batch(w2, m2)

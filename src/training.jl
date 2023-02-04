@@ -159,7 +159,8 @@ function train_lm!(
             elapsed = tnow - time_start
             loop = tnow - last_time
             last_time = tnow
-            logline = @sprintf "Iter: %d %3.3f %3.3f RMSE Train %10.5f eV | Test %10.5f eV\n" iter_count loop elapsed rmse_train rmse_test
+            logline =
+                @sprintf "Iter: %d %3.3f %3.3f RMSE Train %10.5f eV | Test %10.5f eV\n" iter_count loop elapsed rmse_train rmse_test
             show_progress && print(logline)
             if log_file !== nothing
                 open(log_file, "a") do file
@@ -167,7 +168,7 @@ function train_lm!(
                 end
             end
         end
-         
+
         flush(stdout)
         push!(rec, (rmse_train, rmse_test))
 
