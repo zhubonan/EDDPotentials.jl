@@ -13,12 +13,20 @@ and hence enables one to carry out crystal structure prediction with much reduce
 
 ## Features
 
-- Generating EDDP feature vectors.
+- Generating EDDP feature vectors (local descriptors).
 - Train EDDP ensemble models.
 - Perform geometry optimization using trained models. 
 - Interface to other package for property calculations.
 - Workflow script for automated potential building and crystal structure prediction.
 - Plot and data analysis for the training dataset and the potentials.
+
+## Related packages
+
+- [airss](https://www.mtg.msm.cam.ac.uk/Codes/AIRSS) - *ab initio* random structure (AIRSS) is used for building random structure through the `buildcell` program included in the bundle.
+- [CASTEP](http://www.castep.org) - A plane-wave DFT code used for efficient generation of  training datasets. 
+- [eddp](https://www.mtg.msm.cam.ac.uk/Codes/EDDP) - The Fortran EDDP code. EDDP.jl provides limited interoperability with the eddp fortran package. While it is not possible to use the model trained by one with the other, the training datasets are compatible as both use the AIRSS-style SHELX format.
+- [disp](https://zhubonan.github.io/disp) - Distributed structure prediction (DISP) is used to schedule and run data generation workloads on (multiple) remote computing clusters. 
+
 
 ## Documentations
 
