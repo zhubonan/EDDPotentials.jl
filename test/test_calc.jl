@@ -9,9 +9,7 @@ include("utils.jl")
 @testset "Calc" begin
     cell = _h2_cell()
 
-    cf = EDDP.CellFeature(
-        unique(species(cell)), p2=[2], q3=[2, 3], p3=[2, 3],
-    )
+    cf = EDDP.CellFeature(unique(species(cell)), p2=[2], q3=[2, 3], p3=[2, 3])
 
     function _test_forces_fd(calc, amp=1e-7, atol=1e-5)
         ftmp = copy(EDDP.get_forces(calc))
@@ -193,13 +191,7 @@ end
 
 @testset "Relax" begin
     cell = _h2_cell(10, 1.5)
-    cf = EDDP.CellFeature(
-            unique(species(cell));
-            rcut2=3.5,
-            p2=[6, 12],
-            p3=[],
-            q3=[],
-        )
+    cf = EDDP.CellFeature(unique(species(cell)); rcut2=3.5, p2=[6, 12], p3=[], q3=[])
 
     nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
     # Attractive potential with -5f(x)^6 + f(x)^12
@@ -230,12 +222,7 @@ end
 @testset "Two-pass" begin
     cell = _h2_cell()
 
-    cf = EDDP.CellFeature(
-            unique(species(cell)),
-            p2=[2, 4],
-            q3=[3, 4],
-            p3=[3, 4],
-        )
+    cf = EDDP.CellFeature(unique(species(cell)), p2=[2, 4], q3=[3, 4], p3=[3, 4])
 
     nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
     calc = EDDP.NNCalc(cell, cf, nnitf;)

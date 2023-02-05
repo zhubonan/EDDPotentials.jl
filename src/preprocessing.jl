@@ -285,7 +285,7 @@ function FeatureContainer(sc::StructureContainer; cf_kwargs=NamedTuple(), kwargs
     symbols = reduce(vcat, unique.(species.(sc.structures)))
     FeatureContainer(
         sc::StructureContainer,
-        CellFeature(unique(symbols);cf_kwargs...);
+        CellFeature(unique(symbols); cf_kwargs...);
         kwargs...,
     )
 end

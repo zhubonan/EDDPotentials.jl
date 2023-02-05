@@ -1,5 +1,4 @@
-using EDDP:
-    TwoBodyFeature, ThreeBodyFeature, CellFeature, withgradient, nfeatures
+using EDDP: TwoBodyFeature, ThreeBodyFeature, CellFeature, withgradient, nfeatures
 using Test
 
 include("utils.jl")

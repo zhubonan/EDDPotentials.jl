@@ -25,12 +25,7 @@ end
 
 
 function _generate_cf(cell::Cell)
-    EDDP.CellFeature(
-            unique(species(cell));
-            p2=[6, 12],
-            q3=[2, 3],
-            p3=[2, 3],
-        )
+    EDDP.CellFeature(unique(species(cell)); p2=[6, 12], q3=[2, 3], p3=[2, 3])
 end
 
 
