@@ -23,6 +23,8 @@ export nnls,
     NNLSSolver
 
 """
+    construct_householder!(u::AbstractVector{T}, up::T)::T where {T}
+
 CONSTRUCTION AND/OR APPLICATION OF A SINGLE
 HOUSEHOLDER TRANSFORMATION..     Q = I + U*(U**T)/B
 The original version of this code was developed by
@@ -55,6 +57,8 @@ function construct_householder!(u::AbstractVector{T}, up::T)::T where {T}
 end
 
 """
+    apply_householder!(u::AbstractVector{T}, up::T, c::AbstractVector{T}) where {T}
+
 CONSTRUCTION AND/OR APPLICATION OF A SINGLE
 HOUSEHOLDER TRANSFORMATION..     Q = I + U*(U**T)/B
 The original version of this code was developed by
@@ -89,6 +93,8 @@ function apply_householder!(u::AbstractVector{T}, up::T, c::AbstractVector{T}) w
 end
 
 """
+    orthogonal_rotmat(a::T, b::T)::Tuple{T,T,T} where {T}
+
    COMPUTE ORTHOGONAL ROTATION MATRIX..
 The original version of this code was developed by
 Charles L. Lawson and Richard J. Hanson at Jet Propulsion Laboratory
@@ -123,6 +129,8 @@ function orthogonal_rotmat(a::T, b::T)::Tuple{T,T,T} where {T}
 end
 
 """
+    solve_triangular_system!(zz, A, idx, nsetp, jj)
+
 The original version of this code was developed by
 Charles L. Lawson and Richard J. Hanson at Jet Propulsion Laboratory
 1973 JUN 15, and published in the book
@@ -206,6 +214,8 @@ end
 
 
 """
+    UnsafeVectorView
+
 Views in Julia still allocate some memory (since they need to keep
 a reference to the original array). This type allocates no memory
 and does no bounds checking. Use it with caution.
@@ -226,6 +236,8 @@ Base.length(v::UnsafeVectorView) = v.len
 Base.IndexStyle(::Type{V}) where {V<:UnsafeVectorView} = Base.IndexLinear()
 
 """
+    fastview(parent::Array{T}, start_ind::Integer, len::Integer) where {T}
+
 UnsafeVectorView only works for isbitstype types. For other types, we're already
 allocating lots of memory elsewhere, so creating a new View is fine.
 This function looks type-unstable, but the isbitstype(T) test can be evaluated
@@ -240,6 +252,8 @@ function fastview(parent::Array{T}, start_ind::Integer, len::Integer) where {T}
 end
 
 """
+    fastview(parent::AbstractArray, start_ind::Integer, len::Integer) =
+
 Fallback for non-contiguous arrays, for which UnsafeVectorView does not make
 sense.
 """
@@ -274,6 +288,8 @@ end
 
 
 """
+    solve!(work::NNLSWorkspace{T,TI}, max_iter::Integer=(3 * size(work.QA, 2)))
+
 Algorithm NNLS: NONNEGATIVE LEAST SQUARES
 The original version of this code was developed by
 Charles L. Lawson and Richard J. Hanson at Jet Propulsion Laboratory
@@ -579,6 +595,8 @@ const AllColsSubArray{T} =
     SubArray{T,2,Array{T,2},Tuple{UnitRange{Int},Base.Slice{Base.OneTo{Int}}},false}
 
 """
+    QP{T}
+
 Structure describing the QP:
 Minimize ``\\frac{1}{2} z' Q z + c' z``
 Subject to ``G z \\leq g``
@@ -672,6 +690,7 @@ end
 
 """
     load!(work::QPWorkspace, Q, c, G, g)
+
 Load problem data for the QP
 Minimize ``\\frac{1}{2} z' Q z + c' z``
 Subject to ``G z \\leq g``
@@ -697,6 +716,7 @@ checkunsolved(work::QPWorkspace) =
 
 """
     z, λ = solve!(work::QPWorkspace)
+
 Solve the QP that was loaded into `work` using `load!`. Returns the primal
 solution ``z`` and the dual solution ``λ``.
 """

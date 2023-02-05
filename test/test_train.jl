@@ -80,7 +80,7 @@ include("utils.jl")
         path = joinpath(datadir, "training/*.res")
         path = relpath(path, pwd())
         sc = EDDP.StructureContainer([path])
-        cf = EDDP.CellFeature(EDDP.FeatureOptions(elements=[:B]))
+        cf = EDDP.CellFeature([:B])
         fc = EDDP.FeatureContainer(sc, cf)
 
         # This gives fix examples

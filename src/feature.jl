@@ -138,13 +138,15 @@ TwoBodyFeature(f, g, p, sij_idx, rcut::Real) =
 TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, p, sij_idx, rcut)
 
 """
+    (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart=1)
+
 Accumulate an existing matrix of the feature vectors
 
 Args:
-    - out: Output matrix
-    - rji: distance between two atoms
-    - iat: starting index of the vector to be updated
-    - istart: starting index of the vector to be updated
+- out: Output matrix
+- rji: distance between two atoms
+- iat: starting index of the vector to be updated
+- istart: starting index of the vector to be updated
 """
 function (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart=1)
     val = f.f(rij, f.rcut)
@@ -609,9 +611,9 @@ end
 
 
 """
-   CellFeature{T, G} where {T<:TwoBodyFeature, G<:ThreeBodyFeature}
+    CellFeature
 
-Collection of Feature specifications and cell
+Collection of Feature specifications and cell.
 """
 mutable struct CellFeature{T,G}
     elements::Vector{Symbol}
@@ -631,6 +633,11 @@ function Base.:+(a::CellFeature, b::CellFeature)
     CellFeature(elements, two_body, three_body)
 end
 
+"""
+    ==(a::CellFeature, b::CellFeature)
+
+Check equality between two `CellFeature` objects.
+"""
 function Base.:(==)(A::CellFeature, B::CellFeature)
     for name in fieldnames(CellFeature)
         if getproperty(A, name) != getproperty(B, name)
@@ -641,25 +648,26 @@ function Base.:(==)(A::CellFeature, B::CellFeature)
 end
 
 Base.show(io::IO, x::CellFeature) = Base.show(io, MIME("text/plain"), x)
-"""
-Options for constructing CellFeature
-"""
-@with_kw struct FeatureOptions
-    elements::Vector{Symbol}
-    p2::Vector = [2, 4, 6, 8]
-    p3::Vector = [2, 4, 6, 8]
-    q3::Vector = [2, 4, 6, 8]
-    rcut2::Float64 = 4.0
-    rcut3::Float64 = 4.0
-    f2 = fr
-    f3 = fr
-    g2 = gfr
-    g3 = gfr
-end
 
 
 """
-Construct feature specifications
+    CellFeature(elements;kwargs...)
+
+Construct a `CellFeature` instance.
+
+# Args
+- `elements`: A vector of the elements to be included in the features.
+- `p2`: A sequence of the two-body polynomial powers (``p``).
+- `p3`: A sequence of the three-body polynomial powers (``p``).
+- `q3`: A sequence of the three-body polynomial powers (``q``).
+- `rcut2`: Cut off distance for two-body features.
+- `rcut3`: Cut off distance for three-body features.
+- `f2`: Distance function for two-body interactions.
+- `f3`: Distance function for three-body interactions.
+- `g2`: Gradient function for two-body interactions.
+- `g3`: Gradient function for three-body interactions.
+- `geometry_sequence`: Wether to covnert the `p2`, `p3`, `q3` as geometry sequence.
+
 """
 function CellFeature(
     elements;
@@ -769,17 +777,6 @@ function feature_names(cf::CellFeature; kwargs...)
     feature_names(cf.two_body..., cf.three_body...; kwargs...)
 end
 
-"""
-    CellFeature(opts::FeatureOptions;kwargs...)
-
-Obtain a CellFeature from FeatureOptions
-"""
-function CellFeature(opts::FeatureOptions; kwargs...)
-    new_opts = FeatureOptions(opts; kwargs...)
-    @unpack p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3 = new_opts
-    CellFeature(opts.elements; p2, p3, q3, rcut2, rcut3, f2, f3, g2, g3)
-end
-
 function Base.show(io::IO, z::MIME"text/plain", cf::CellFeature)
     println(io, "$(typeof(cf))")
     println(io, "  Elements:")
@@ -794,12 +791,18 @@ function Base.show(io::IO, z::MIME"text/plain", cf::CellFeature)
     end
 end
 
+"""
+    features(c::CellFeature)
 
+Return the total number of features elements in a `CellFeature` object.
+"""
 function nfeatures(c::CellFeature)
     length(c.elements) + sum(nfeatures, c.two_body) + sum(nfeatures, c.three_body)
 end
 
 """
+    nbodyfeatures(c::CellFeature, nbody)
+
 Return the number of N-body features
 """
 function nbodyfeatures(c::CellFeature, nbody)
@@ -813,6 +816,11 @@ function nbodyfeatures(c::CellFeature, nbody)
     return 0
 end
 
+"""
+    feature_vector(cf::CellFeature, cell::Cell; nmax=500, skin=1.0)
+
+Return a matrix of vectors describing the environment of each atom.
+"""
 function feature_vector(cf::CellFeature, cell::Cell; nmax=500, skin=1.0)
     # Infer rmax
     rcut = suggest_rcut(cf; offset=skin)
@@ -853,12 +861,19 @@ function one_body_vectors!(v::AbstractMatrix, cell::Cell, cf::CellFeature; offse
     v
 end
 
+"""
+    feature_size(cf::CellFeature)
+
+Return size of the feature vector for each body-order of a `CellFeature` object.
+"""
 function feature_size(cf::CellFeature)
     (length(cf.elements), sum(nfeatures, cf.two_body), sum(nfeatures, cf.three_body))
 end
 
 """
-Get a suggested rcut for NN list for a CellFeature
+    suggest_rcut(cf::CellFeature; offset=1.0)
+
+Get a suggested cut off radius for NN list for a CellFeature.
 """
 function suggest_rcut(cf::CellFeature; offset=1.0)
     r3 = maximum(x.rcut for x in cf.two_body)
@@ -867,16 +882,24 @@ function suggest_rcut(cf::CellFeature; offset=1.0)
 end
 
 """
-Get a suggested rcut for NN list for a CellFeature
+    suggest_rcut(features...; offset=1.0)
+
+Get a suggested rcut for a collection of features.
 """
 function suggest_rcut(features...; offset=1.0)
     maximum(x.rcut for x in features) + offset
 end
-"""
-    compute_fv_gv!(fvecs, gvecs, features::Vector{ThreeBodyFeature}, cell::Cell;nl=NeighbourList(cell, features[1].rcut))
 
-Compute the feature vector for a given set of two and three body interactions, compute gradients as well.
-Optimised version with reduced computational cost....
+
+"""
+    feature_vector!(fvecs, gvecs, features2, features3, cell;kwargs...)
+
+Args:
+
+- `nl`: If passed, using it as an existing `NeighbourList`.
+
+Compute the feature vector for a given set of two and three body interactions, 
+This is an optimised version for feature generation, but does not compute the gradients.
 
 Returns the feature vector and the core repulsion energy if any.
 """

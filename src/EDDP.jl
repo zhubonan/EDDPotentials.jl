@@ -15,7 +15,7 @@ disable_timer!(to)
 
 
 # External
-include("nnls.jl")
+include("nnls/nnls.jl")
 include("feature.jl")
 include("embedding.jl")
 include("embedding_rules.jl")

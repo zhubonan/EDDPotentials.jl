@@ -281,24 +281,14 @@ function FeatureContainer(
     FeatureContainer(fvecs, feature, H, labels, metadata, false, nothing, nothing)
 end
 
-function FeatureContainer(
-    sc::StructureContainer,
-    feature::FeatureOptions;
-    nmax=500,
-    kwargs...,
-)
-    FeatureContainer(sc::StructureContainer, CellFeature(feature); nmax, kwargs...)
-end
-
-function FeatureContainer(sc::StructureContainer; kwargs...)
+function FeatureContainer(sc::StructureContainer; cf_kwargs=NamedTuple(), kwargs...)
     symbols = reduce(vcat, unique.(species.(sc.structures)))
     FeatureContainer(
         sc::StructureContainer,
-        FeatureOptions(elements=unique(symbols));
+        CellFeature(unique(symbols);cf_kwargs...);
         kwargs...,
     )
 end
-
 
 Base.IndexStyle(T::StructureContainer) = IndexLinear()
 Base.IndexStyle(T::FeatureContainer) = IndexLinear()

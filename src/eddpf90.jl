@@ -7,7 +7,7 @@ using Printf
 """
 Write the feature vectors
 """
-function write_features(fc::FeatureContainer, outfile)
+function write_eddpf90_features(fc::FeatureContainer, outfile)
     ntot = length(fc)
     cf = fc.feature
     # flock's feature format is per-composition case
@@ -50,7 +50,7 @@ function write_features(fc::FeatureContainer, outfile)
     end
 end
 
-function write_features(
+function write_eddpf90_features(
     io::IO,
     nfeats,
     fsize_eddp,

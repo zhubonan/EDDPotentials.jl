@@ -12,7 +12,7 @@ struct ComputedRecord
     energy::Float64
     record_id::String
     reduced_composition::Composition
-    function ComputedRecord(comp, energy, record_id)
+    function ComputedRecord(comp::Composition, energy, record_id="")
         new(comp, energy, record_id, reduce_composition(comp))
     end
 end

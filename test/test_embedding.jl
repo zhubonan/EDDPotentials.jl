@@ -1,5 +1,5 @@
 using EDDP:
-    TwoBodyFeature, ThreeBodyFeature, CellFeature, FeatureOptions, withgradient, nfeatures
+    TwoBodyFeature, ThreeBodyFeature, CellFeature, withgradient, nfeatures
 using Test
 using Flux
 

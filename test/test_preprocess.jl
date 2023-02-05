@@ -32,8 +32,7 @@ include("utils.jl")
 
     sc_train, sc_test = EDDP.train_test_split(sc, ratio_test=0.5)
     @test length(sc_train) == 6
-    fc = EDDP.FeatureContainer(sc, EDDP.FeatureOptions(elements=[:B]))
-    # Default FeatureOPtions
+    # Default
     fc = EDDP.FeatureContainer(sc)
     @test length(fc) == 11
     fc_train, fc_test = EDDP.train_test_split(fc, ratio_test=0.5)

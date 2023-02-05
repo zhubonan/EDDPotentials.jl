@@ -1,5 +1,5 @@
 using EDDP:
-    TwoBodyFeature, ThreeBodyFeature, CellFeature, FeatureOptions, withgradient, nfeatures
+    TwoBodyFeature, ThreeBodyFeature, CellFeature, withgradient, nfeatures
 using Test
 
 include("utils.jl")
@@ -21,10 +21,8 @@ include("utils.jl")
     @test cf.three_body[1] == ttb
 
     # Constructor
-    opts = FeatureOptions(elements=[:O, :B])
-    cf2 = CellFeature(opts)
+    cf2 = CellFeature([:O, :B])
     @test cf2.elements == [:B, :O]
-    @test cf2.two_body[1].p == opts.p2
     @test length(cf2.two_body) == 4
     @test length(cf2.three_body) == 6
 
