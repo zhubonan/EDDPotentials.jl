@@ -2,7 +2,7 @@ using Documenter
 using EDDP
 
 makedocs(
-    sitename="EDDP",
+    sitename="EDDP.jl",
     format=Documenter.HTML(),
     modules=[EDDP],
     pages=[
