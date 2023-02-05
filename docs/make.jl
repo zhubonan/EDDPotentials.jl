@@ -17,8 +17,8 @@ makedocs(
 # Documenter can also automatically deploy documentation to gh-pages.
 # See "Hosting Documentation" and deploydocs() in the Documenter manual
 # for more information.
-if get("ENV", "CI", "") == "true"
+if get(ENV, "CI", "") == "true"
     deploydocs(
-        repo = "github.com/zhubonan/EDDP.jl"
+        repo = "github.com/zhubonan/EDDP.jl",
     )
 end
