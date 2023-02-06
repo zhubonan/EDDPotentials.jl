@@ -30,6 +30,7 @@ include("calculator.jl")
 include("tools.jl")
 include("opt.jl")
 include("records.jl")
+include("minsep.jl")
 
 include("link/link.jl")
 include("link/trainer.jl")

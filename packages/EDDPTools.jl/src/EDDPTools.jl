@@ -15,11 +15,11 @@ function __init__()
     end
     @require Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80" begin
         @info "Loading plotting stuff: Plots"
-        include("hull_plots.jl")
+        include("plotting_plots.jl")
     end
     @require PlotlyJS = "f0f68f2c-4968-5e81-91da-67840de0976a" begin
         @info "Loading plotting stuff: PlotlyJS"
-        include("hull_plotly.jl")
+        include("plotting_plotly.jl")
     end
 end
 
