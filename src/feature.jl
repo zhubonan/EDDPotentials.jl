@@ -119,7 +119,7 @@ fr(r::T, rcut) where {T} = r <= rcut ? 2 * (1 - r / rcut) : zero(T)
 
 
 @doc raw"""
-    gr(r, rcut)
+    gfr(r, rcut)
 
 Gradient of the Equation 7 in Pickard 2022 describing interactions with well-behaved cut offs:
 
