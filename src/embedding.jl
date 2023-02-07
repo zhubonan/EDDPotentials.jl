@@ -126,13 +126,15 @@ struct CellEmbedding{C,T}
     cf::C
     two_body::BodyEmbedding{T}
     three_body::BodyEmbedding{T}
+    n::Int
+    m::Int
 end
 
 Flux.@functor CellEmbedding
 Flux.trainable(ce::CellEmbedding) = (two_body=ce.two_body, three_body=ce.three_body)
 
 function CellEmbedding(cf::CellFeature, n::Int, m::Int=n)
-    CellEmbedding(cf, BodyEmbedding(cf.two_body, n), BodyEmbedding(cf.three_body, m))
+    CellEmbedding(cf, BodyEmbedding(cf.two_body, n), BodyEmbedding(cf.three_body, m), n, m)
 end
 
 length_after(e::CellEmbedding) =

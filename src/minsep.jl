@@ -10,7 +10,7 @@ using CellBase
 Separation between two species
 """
 mutable struct SepecieSeparation
-    pair::Pair{Symbol, Symbol}
+    pair::Pair{Symbol,Symbol}
     minsep::Float64
     meansep::Float64
     count::Int
@@ -19,12 +19,12 @@ end
 """
 Return a vector of pairs of unique species in the cell
 """
-function get_specie_pairs(symbols;permute=false)
+function get_specie_pairs(symbols; permute=false)
     usymbols = unique(symbols)
     sort!(usymbols)
-    pairs = Pair{Symbol, Symbol}[]
-    for i in 1:length(usymbols)
-        for j in i:length(usymbols)
+    pairs = Pair{Symbol,Symbol}[]
+    for i = 1:length(usymbols)
+        for j = i:length(usymbols)
             pair1 = usymbols[i] => usymbols[j]
             push!(pairs, pair1)
             if i != j && permute
@@ -42,20 +42,20 @@ end
 Compute the specie-wise minimum and mean separations and return a dictionary covering
 all species pairs.
 """
-function compute_specie_separations(cell::Cell;rcut=6.0, nmax=2000)
+function compute_specie_separations(cell::Cell; rcut=6.0, nmax=2000)
     nl = NeighbourList(cell, rcut, nmax)
     symbols = species(cell)
     usymbols = unique(symbols)
     sort!(usymbols)
-    seps = Dict{Pair{Symbol, Symbol}, SepecieSeparation}()
-    for pair in get_specie_pairs(species(cell);permute=false)
-        val = SepecieSeparation(pair, 999., 0, 0)
+    seps = Dict{Pair{Symbol,Symbol},SepecieSeparation}()
+    for pair in get_specie_pairs(species(cell); permute=false)
+        val = SepecieSeparation(pair, 999.0, 0, 0)
         seps[pair] = val
-        seps[pair.second => pair.first] = val
+        seps[pair.second=>pair.first] = val
     end
 
-    for i in 1:natoms(cell)
-        for (j, _, dist) in  eachneighbour(nl, i)
+    for i = 1:natoms(cell)
+        for (j, _, dist) in eachneighbour(nl, i)
             pair = symbols[i] => symbols[j]
             obj = seps[pair]
             if obj.minsep > dist
@@ -76,10 +76,12 @@ Gather species-wise distances stats from a sequence of computed values.
 """
 function gather_minsep_stats(minsep_res)
     # Gather all pairs that have occured
-    all_pairs = Set{Pair{Symbol, Symbol}}()
-    map( x -> push!.(Ref(all_pairs), keys(x)), minsep_res);
-    minsep_stats = Dict{Pair{Symbol, Symbol}, Vector{Float64}}(key => Float64[] for key in all_pairs)
-    meansep_stats = Dict{Pair{Symbol, Symbol}, Vector{Float64}}(key => Float64[] for key in all_pairs)
+    all_pairs = Set{Pair{Symbol,Symbol}}()
+    map(x -> push!.(Ref(all_pairs), keys(x)), minsep_res)
+    minsep_stats =
+        Dict{Pair{Symbol,Symbol},Vector{Float64}}(key => Float64[] for key in all_pairs)
+    meansep_stats =
+        Dict{Pair{Symbol,Symbol},Vector{Float64}}(key => Float64[] for key in all_pairs)
 
     for pair in all_pairs
         minsep = minsep_stats[pair]
@@ -99,4 +101,5 @@ end
 
 Gather species-wise MINSEP stats from a set of cell files.
 """
-gather_minsep_stats(c::Vector{T};kwargs...) where {T<:Cell} = gather_minsep_stats([compute_specie_separations(x;kwargs...) for x in c])
+gather_minsep_stats(c::Vector{T}; kwargs...) where {T<:Cell} =
+    gather_minsep_stats([compute_specie_separations(x; kwargs...) for x in c])

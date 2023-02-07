@@ -2,34 +2,7 @@ using EDDP
 using EDDP: ComputedRecord, PhaseDiagram, get_e_above_hull
 using CellBase
 using LaTeXStrings
-using PlotlyJS
-
-
-"""
-Return the ternary coordinates for all stable and non stable phases 
-"""
-function get_ternary_hulldata(phased)
-    hullbc = phased.qhull_input[1:end-1, 1:end-1]
-    hulla = [(1.0 .- sum.(eachcol(hullbc)))...;;]
-    hullabc = vcat(hulla, hullbc)
-
-    # Divide into stable and unstable ones 
-    stable_mask =
-        map(x -> phased.min_energy_records[x] in phased.stable_records, 1:size(hulla, 2))
-    unstable_mask = map(!, stable_mask)
-
-    labels = map(x -> formula(x.composition), phased.min_energy_records)
-    ehull = [phased.min_energy_e_above_hull[x] for x in phased.min_energy_records]
-    (
-        abc_stable=hullabc[:, stable_mask],
-        labels_stable=labels[stable_mask],
-        e_above_hull_stable=ehull[stable_mask],
-        abc_unstable=hullabc[:, unstable_mask],
-        labels_unstable=labels[unstable_mask],
-        e_above_hull_unstable=ehull[unstable_mask],
-        elements=phased.elements,
-    )
-end
+import PlotlyJS
 
 """
     make_ternary_plot(plot_data)
@@ -37,7 +10,7 @@ end
 Compose ternary diagram from a PhaseDiagram.
 """
 function make_ternary_plot(phased::PhaseDiagram)
-    make_ternary_plot(get_ternary_hulldata(phased))
+    make_ternary_plot(EDDP.get_ternary_hulldata(phased))
 end
 
 function make_ternary_plot(plot_data)
@@ -52,7 +25,7 @@ function make_ternary_plot(plot_data)
     e_above_hull_unstable = plot_data.e_above_hull_unstable
 
     function make_ax(title, tickangle)
-        attr(
+        PlotlyJS.attr(
             title=title,
             titlefont_size=20,
             tickangle=tickangle,
@@ -65,7 +38,7 @@ function make_ternary_plot(plot_data)
     end
 
     has_unstable = length(labels_unstable) > 0
-    t_stable = scatterternary(
+    t_stable = PlotlyJS.scatterternary(
         name="Stable",
         mode="markers",
         a=abc_stable[1, :],
@@ -93,8 +66,8 @@ function make_ternary_plot(plot_data)
 
 
 
-    layout = Layout(
-        ternary=attr(
+    layout = PlotlyJS.Layout(
+        ternary=PlotlyJS.attr(
             sum=1,
             aaxis=make_ax("$(elements[1])", 0),
             baxis=make_ax("$(elements[2])", 45),
@@ -140,7 +113,7 @@ function make_binary_hull_plotly(data)
         hovertemplate="Stable Candidate<br>Formula: %{customdata[0]}<br>Record-id: %{customdata[1]}",
     )
     comp_label = "$(data.elements[2])x$(data.elements[1])1-x"
-    layout = Layout(
+    layout = PlotlyJS.Layout(
         title="Binary Hull of $(data.elements[1])-$(data.elements[2])",
         xaxis_title=comp_label,
         yaxis_title="Formation energy (eV / atom)",

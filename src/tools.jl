@@ -185,7 +185,7 @@ Perform random structure searching using the seed file.
 
 - `init_structure_transform`: A function that transforms the initial structure. If `nothing` is returned, skip this generated structure.
 """
-function run_rss(
+function _run_rss(
     seedfile::AbstractString,
     ensemble::AbstractNNInterface,
     cf::CellFeature;
@@ -241,7 +241,7 @@ function run_rss(
         end
 
         # Check if the final energy is low enough
-        # Use this with case as pathelogicial structures may prevent normal
+        # Use this with case as pathological structures may prevent normal
         # structures being accepted. Ideally use it with `ensemble_std_min`.
         if eng_threshold > 0
             if check_energy_threshold!(composition_engmin, vc, eng_threshold) == false

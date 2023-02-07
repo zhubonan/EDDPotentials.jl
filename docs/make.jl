@@ -18,7 +18,5 @@ makedocs(
 # See "Hosting Documentation" and deploydocs() in the Documenter manual
 # for more information.
 if get(ENV, "CI", "") == "true"
-    deploydocs(
-        repo = "github.com/zhubonan/EDDP.jl",
-    )
+    deploydocs(repo="github.com/zhubonan/EDDP.jl")
 end

@@ -356,3 +356,32 @@ function get_2d_plot_data(phased::PhaseDiagram; threshold=0.5)
         record_ids=map(x -> x.record_id, phased.records[mask]),
     )
 end
+
+
+"""
+    get_ternary_hulldata(phased::PhaseDiagram)
+
+Return the ternary coordinates for all stable and non stable phases 
+"""
+function get_ternary_hulldata(phased::PhaseDiagram)
+    hullbc = phased.qhull_input[1:end-1, 1:end-1]
+    hulla = [(1.0 .- sum.(eachcol(hullbc)))...;;]
+    hullabc = vcat(hulla, hullbc)
+
+    # Divide into stable and unstable ones 
+    stable_mask =
+        map(x -> phased.min_energy_records[x] in phased.stable_records, 1:size(hulla, 2))
+    unstable_mask = map(!, stable_mask)
+
+    labels = map(x -> formula(x.composition), phased.min_energy_records)
+    ehull = [phased.min_energy_e_above_hull[x] for x in phased.min_energy_records]
+    (
+        abc_stable=hullabc[:, stable_mask],
+        labels_stable=labels[stable_mask],
+        e_above_hull_stable=ehull[stable_mask],
+        abc_unstable=hullabc[:, unstable_mask],
+        labels_unstable=labels[unstable_mask],
+        e_above_hull_unstable=ehull[unstable_mask],
+        elements=phased.elements,
+    )
+end

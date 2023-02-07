@@ -8,11 +8,11 @@ using CellBase: read_res_many
 import CellBase
 
 """
-    load_res(paths;basic=false)
+    load_res_as_dataframe(paths; basic=false)
 
 Load SHELX files into a datafrmae. Paths can be a iterator of file paths or file handles.
 """
-function load_res(paths; basic=false)
+function load_res_as_dataframe(paths; basic=false)
     data = CellBase.Cell{Float64}[]
     for path in paths
         append!(data, read_res_many(path))

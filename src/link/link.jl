@@ -31,8 +31,7 @@ const FEATURESPEC_NAME = "cf"
     mpinp::Int = 2
     n_initial::Int = 1000
     dft_mode::String = "castep"
-    dft_kwargs::Any = NamedTuple()
-    relax_extra_opts::Dict{Symbol,Any} = Dict()
+    dft_kwargs::Dict{Symbol,Any} = Dict{Symbol,Any}()
     rss_pressure_gpa::Float64 = 0.1
     rss_pressure_gpa_range::Vector{Float64} = Float64[]
     rss_niggli_reduce::Bool = true
@@ -62,8 +61,8 @@ abstract type AbstractTrainer end
     store_training_data::Bool = true
     rmse_threshold::Float64 = 0.5
     training_mode::String = "manual_backprop"
-    training_kwargs::NamedTuple = NamedTuple()
-    train_split::NTuple{3,Float64} = (0.8, 0.1, 0.1)
+    training_kwargs::Dict{Symbol,Any} = Dict{Symbol,Any}()
+    train_split::Vector{Float64} = [0.8, 0.1, 0.1]
     use_test_for_ensemble::Bool = true
     save_each_model::Bool = true
     p::Float64 = 1.25
@@ -76,19 +75,169 @@ abstract type AbstractTrainer end
     num_workers::Int = 1
 end
 
+@with_kw mutable struct RssSetting
+    packed::Bool = true
+    seedfile::String = "null"
+    ensemble_id::Int = -1
+    max::Int = 1000
+    subfolder_name::String = "search"
+    show_progress::Bool = true
+    ensemble_std_max::Float64 = -1.0
+    ensemble_std_min::Float64 = -1.0
+    eng_threshold::Float64 = -1.0
+    niggli_reduce_output::Bool = true
+    max_err::Int = 10
+end
+
 
 struct Builder{M<:AbstractTrainer}
     state::BuilderState
     cf::CellFeature
     trainer::M
     cf_embedding::Any
+    rss::RssSetting
     # Set the iteration states
-    function Builder(state, cf, trainer, cf_embedding=nothing)
-        builder = new{typeof(trainer)}(state, cf, trainer, cf_embedding)
+    function Builder(state, cf, trainer, cf_embedding=nothing, rss=RssSetting())
+        builder = new{typeof(trainer)}(state, cf, trainer, cf_embedding, rss)
         _set_iteration!(builder)
+        rss.ensemble_id = builder.state.iteration
+        rss.seedfile = splitext(builder.state.seedfile)[1] * "-SAMPLING.cell"
         builder_uuid(builder)
         builder
     end
+end
+
+"""
+    _todict(builder)
+
+Construct a dictionary for a builder - used for serialization through YAML
+"""
+function _todict(state::T) where {T<:Union{BuilderState,LocalLMTrainer,RssSetting}}
+    out = Dict{Symbol,Any}()
+    for name in fieldnames(T)
+        val = getproperty(state, name)
+        # Convert NamedTuple into dictionary
+        if isa(val, NamedTuple)
+            out[name] = Dict(pairs(val)...)
+        else
+            out[name] = val
+        end
+    end
+    out
+end
+
+
+function _todict(cf::CellFeature)
+    out = Dict{Symbol,Any}()
+    out[:elements] = map(string, cf.elements)
+    if cf.constructor_kwargs == nothing
+        throw(
+            ErrorException(
+                "CellFeature with out recorded constructed keyword arguments cannot be converted!",
+            ),
+        )
+    end
+    for (key, value) in pairs(cf.constructor_kwargs)
+        out[key] = value
+    end
+    return out
+end
+
+function _todict(bu::Builder)
+    out = Dict{Symbol,Any}()
+    out[:cf] = _todict(bu.cf)
+    out[:state] = _todict(bu.state)
+    out[:trainer] = _todict(bu.trainer)
+    out[:trainer][:type] = TRAINER_NAME[typeof(bu.trainer)]
+    out[:rss] = _todict(bu.rss)
+end
+
+
+"""
+    _fromdict(T::DataType, dict::Dict)
+
+Load from a diction of field names.
+"""
+function _fromdict(
+    T::Type{N},
+    dict::Dict,
+) where {N<:Union{BuilderState,LocalLMTrainer,RssSetting}}
+    new_dict = deepcopy(dict)
+    # Manual type conversion
+    for key in keys(dict)
+        # Reconstruct NamedTuple from dictionary
+        if fieldtype(T, key) <: NamedTuple
+            new_dict[key] = NamedTuple(dict[key])
+        end
+    end
+    T(; dict...)
+end
+
+function _fromdict(::Type{<:CellFeature}, dict)
+    _dict = deepcopy(dict)
+    elements = pop!(_dict, :elements)
+    CellFeature(elements; _dict...)
+end
+
+function _todict(builder::Builder)
+    outdict = Dict{Symbol,Any}()
+    outdict[:rss] = _todict(builder.rss)
+    outdict[:trainer] = _todict(builder.trainer)
+    outdict[:cf] = _todict(builder.cf)
+    outdict[:trainer][:type] = TRAINER_NAME[typeof(builder.trainer)]
+
+    outdict[:state] = _todict(builder.state)
+    if builder.cf_embedding !== nothing
+        outdict[:cf_embedding] =
+            Dict{Symbol,Any}(:n => builder.cf_embedding.n, :m => builder.cf_embedding.m)
+    end
+    outdict
+end
+
+function _fromdict(::Type{Builder}, dict)
+
+    # Adjust the workdir to be that relative to the yaml file
+    statedict = dict[:state]
+
+    state = _fromdict(BuilderState, statedict)
+
+    # Setup cell Feature
+    cf_dict = dict[:cf]
+    cf = _fromdict(CellFeature, cf_dict)
+
+    # Setup trainer
+    trainer_dict = deepcopy(get(dict, :trainer, Dict{Symbol,Any}()))
+    trainer_name = pop!(trainer_dict, :type)
+    if trainer_name == "locallm"
+        trainer = _fromdict(LocalLMTrainer, trainer_dict)
+    else
+        throw(ErrorException("trainer type $(trainer) is not known"))
+    end
+
+    # Setup embedding
+    if :cf_embedding in keys(dict)
+        n = dict[:cf_embedding][:n]
+        m = get(dict[:cf_embedding], :m, n)
+        embedding = CellEmbedding(cf, n, m)
+    else
+        embedding = nothing
+    end
+
+    if :rss in keys(dict)
+        rss = _fromdict(RssSetting, dict[:rss])
+        Builder(state, cf, trainer, embedding, rss)
+    else
+        Builder(state, cf, trainer, embedding)
+    end
+end
+
+"""
+    save_builder(fname::AbstractString, builder)
+
+Save a `Builder` to a file.
+"""
+function save_builder(fname::AbstractString, builder::Builder)
+    YAML.write_file(fname, _todict(builder))
 end
 
 
@@ -120,43 +269,21 @@ function Builder(str::AbstractString="link.yaml")
     @info "Loading from file $(str)"
 
     loaded = YAML.load_file(str; dicttype=Dict{Symbol,Any})
+    builder = _fromdict(Builder, loaded)
     # Adjust the workdir to be that relative to the yaml file
     paths = splitpath(str)
     statedict = loaded[:state]
     if length(paths) > 1
         parents = paths[1:end-1]
         @assert !startswith(statedict[:workdir], "/") ":workdir should be a relative path"
-        statedict[:workdir] = joinpath(parents..., statedict[:workdir])
+        builder.state.workdir = joinpath(parents..., statedict[:workdir])
         @info "Setting workdir to $(statedict[:workdir])"
     end
 
-    state = BuilderState(; statedict...)
     # Store the path to the builder file
-    state.builder_file_path = str
+    builder.state.builder_file_path = str
 
-    # Setup cell Feature
-    cf_dict = loaded[:cf]
-    elements = pop!(cf_dict, :elements)
-    cf = CellFeature(elements; cf_dict...)
-
-    # Setup trainer
-    trainer = pop!(loaded[:trainer], :type)
-    if trainer == "locallm"
-        trainer = LocalLMTrainer(; loaded[:trainer]...)
-    else
-        throw(ErrorException("trainer type $(trainer) is not known"))
-    end
-
-    # Setup embedding
-    if :cf_embedding in keys(loaded)
-        n = loaded[:cf_embedding][:n]
-        m = get(loaded[:cf_embedding], :m, n)
-        embedding = CellEmbedding(cf, n, m)
-    else
-        embedding = nothing
-    end
-
-    Builder(state, cf, trainer, embedding)
+    builder
 end
 
 function Base.show(io::IO, m::MIME"text/plain", bu::Builder)
@@ -331,7 +458,7 @@ function _generate_random_structures(bu::Builder, iter)
             else
                 pressure = bu.state.rss_pressure_gpa
             end
-            run_rss(
+            _run_rss(
                 bu.state.seedfile,
                 ensemble,
                 bu.cf;
@@ -788,34 +915,28 @@ load_features(bu::Builder, iteration; kwargs...) =
     load_features(bu, iteration...; kwargs...)
 
 """
-    run_rss(builder, seed_file, ensemble_id=builder.state.iteration;kwargs...)
+    run_rss(builder::Builder;kwargs...)
 
 Run random structures search using trained ensembel model. The output files are in the 
 `search` subfolder by default.
 """
-function run_rss(
-    builder::Builder;
-    seed_file,
-    ensemble_id=builder.state.iteration,
-    max=1000,
-    subfolder_name="search",
-    ensemble_std_max=0.2,
-    packed=true,
-    show_progress=true,
-    kwargs...,
-)
-    ensemble = load_ensemble(builder, ensemble_id)
-    searchdir = joinpath(builder.state.workdir, subfolder_name)
+function run_rss(builder::Builder; kwargs...)
+    rs = builder.rss
+    ensemble = load_ensemble(builder, rs.ensemble_id)
+    searchdir = joinpath(builder.state.workdir, rs.subfolder_name)
     ensure_dir(searchdir)
-    run_rss(
-        seed_file,
+    _run_rss(
+        rs.seedfile,
         ensemble,
         builder.cf;
-        show_progress,
-        max,
+        show_progress=rs.show_progress,
+        max=rs.max,
         outdir=searchdir,
-        ensemble_std_max,
-        packed,
+        ensemble_std_max=rs.ensemble_std_max,
+        ensemble_std_min=rs.ensemble_std_min,
+        packed=rs.packed,
+        niggli_reduce_output=rs.niggli_reduce_output,
+        max_err=rs.max_err,
         kwargs...,
     )
 end
@@ -830,3 +951,6 @@ function run_rss(str::AbstractString="link.yaml")
     rss_dict = YAML.load_file(str; dicttype=Dict{Symbol,Any})[:rss]
     run_rss(builder; rss_dict...)
 end
+
+# Map for trainer names
+TRAINER_NAME = Dict(LocalLMTrainer => "locallm")

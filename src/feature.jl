@@ -615,10 +615,15 @@ end
 
 Collection of Feature specifications and cell.
 """
-mutable struct CellFeature{T,G}
+mutable struct CellFeature{T,G,V}
     elements::Vector{Symbol}
     two_body::T
     three_body::G
+    constructor_kwargs::V
+end
+
+function CellFeature(elements, two_body, three_body)
+    CellFeature(elements, two_body, three_body, nothing)
 end
 
 """
@@ -682,6 +687,7 @@ function CellFeature(
     g3=gfr,
     geometry_sequence=false,
 )
+    cf_kwargs = (; p2, p3, q3, rcut2, rcut3, geometry_sequence)
 
     # Apply geomtry sequence for the powers
     if geometry_sequence
@@ -729,7 +735,7 @@ function CellFeature(
             end
         end
     end
-    CellFeature(elements, Tuple(two_body_features), Tuple(three_body_features))
+    CellFeature(elements, Tuple(two_body_features), Tuple(three_body_features), cf_kwargs)
 end
 
 """
