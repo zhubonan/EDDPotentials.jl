@@ -96,15 +96,23 @@ struct Builder{M<:AbstractTrainer}
     trainer::M
     cf_embedding::Any
     rss::RssSetting
-    # Set the iteration states
-    function Builder(state, cf, trainer, cf_embedding=nothing, rss=RssSetting())
-        builder = new{typeof(trainer)}(state, cf, trainer, cf_embedding, rss)
-        _set_iteration!(builder)
+end
+
+function Builder(
+    state::BuilderState,
+    cf::CellFeature,
+    trainer;
+    cf_embedding=nothing,
+    rss=RssSetting(),
+)
+    builder = Builder{typeof(trainer)}(state, cf, trainer, cf_embedding, rss)
+    _set_iteration!(builder)
+    if rss.seedfile == "null"
         rss.ensemble_id = builder.state.iteration
         rss.seedfile = splitext(builder.state.seedfile)[1] * "-SAMPLING.cell"
-        builder_uuid(builder)
-        builder
     end
+    builder_uuid(builder)
+    builder
 end
 
 """
@@ -142,16 +150,6 @@ function _todict(cf::CellFeature)
     end
     return out
 end
-
-function _todict(bu::Builder)
-    out = Dict{Symbol,Any}()
-    out[:cf] = _todict(bu.cf)
-    out[:state] = _todict(bu.state)
-    out[:trainer] = _todict(bu.trainer)
-    out[:trainer][:type] = TRAINER_NAME[typeof(bu.trainer)]
-    out[:rss] = _todict(bu.rss)
-end
-
 
 """
     _fromdict(T::DataType, dict::Dict)
@@ -224,10 +222,11 @@ function _fromdict(::Type{Builder}, dict)
     end
 
     if :rss in keys(dict)
+        @show dict[:rss]
         rss = _fromdict(RssSetting, dict[:rss])
-        Builder(state, cf, trainer, embedding, rss)
+        Builder(state, cf, trainer; cf_embedding=embedding, rss=rss)
     else
-        Builder(state, cf, trainer, embedding)
+        Builder(state, cf, trainer; cf_embedding=embedding)
     end
 end
 
@@ -270,6 +269,7 @@ function Builder(str::AbstractString="link.yaml")
 
     loaded = YAML.load_file(str; dicttype=Dict{Symbol,Any})
     builder = _fromdict(Builder, loaded)
+
     # Adjust the workdir to be that relative to the yaml file
     paths = splitpath(str)
     statedict = loaded[:state]
@@ -946,10 +946,9 @@ end
 
 Run random structure searching for a configuration file for the builder.
 """
-function run_rss(str::AbstractString="link.yaml")
+function run_rss(str::AbstractString="link.yaml"; kwargs...)
     builder = Builder(str)
-    rss_dict = YAML.load_file(str; dicttype=Dict{Symbol,Any})[:rss]
-    run_rss(builder; rss_dict...)
+    run_rss(builder; kwargs...)
 end
 
 # Map for trainer names
