@@ -13,6 +13,8 @@ using CellBase
 using StatsBase
 
 """
+    ShelxTITL
+
 Information from the TITL line of an AIRSS style SHELX file
 """
 struct ShelxTITL
@@ -56,6 +58,8 @@ end
 
 
 """
+    ShelxRecord
+
 Representation for A SHELX record
 """
 struct ShelxRecord
@@ -90,20 +94,22 @@ Read all SHELX records from a IO stream.
 """
 function read_shelx_record(io::IO, fname::AbstractString)
 
-    records = Any[]
+    records = ShelxRecord[]
     local titl
     offset = 0
     symbols = Symbol[]
     capture = false
-
+    last_pos = position(io)
     for line in eachline(io)
         if startswith(line, "TITL")
             titl = ShelxTITL(line)
-            offset = position(io)
+            offset = last_pos
+            last_pos = position(io)
             continue
         end
         if startswith(line, "SFAC")
             capture = true
+            last_pos = position(io)
             continue
         end
 
@@ -120,12 +126,35 @@ function read_shelx_record(io::IO, fname::AbstractString)
             )
             empty!(symbols)
             capture = false
+            last_pos = position(io)
             continue
         end
 
         if capture
             push!(symbols, Symbol(split(line)[1]))
         end
+        last_pos = position(io)
     end
     records
+end
+
+"""
+    extract_res(entries::Vector{ShelxRecord}, needle;outdir=".")
+
+Extract a SHELX entry from a haystack. Return the selected entries.
+"""
+function extract_res(entries::Vector{ShelxRecord}, needle; outdir=".")
+    selected = filter(x -> contains(x.titl.label, needle), entries)
+    fnames = unique([x.fname for x in selected])
+    ioset = Dict(name => open(name) for name in fnames)
+    for entry in selected
+        label = entry.titl.label
+        outfile = joinpath(outdir, label * ".res")
+        open(outfile, "w") do fh
+            stream = ioset[entry.fname]
+            seek(stream, entry.offset)
+            write(fh, read(stream, entry.length))
+        end
+    end
+    selected
 end
