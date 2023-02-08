@@ -82,7 +82,7 @@ end
     max::Int = 1000
     subfolder_name::String = "search"
     show_progress::Bool = true
-    ensemble_std_max::Float64 = -1.0
+    ensemble_std_max::Float64 = 0.2
     ensemble_std_min::Float64 = -1.0
     eng_threshold::Float64 = -1.0
     niggli_reduce_output::Bool = true
