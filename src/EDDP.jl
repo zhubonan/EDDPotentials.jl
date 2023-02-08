@@ -35,6 +35,7 @@ include("minsep.jl")
 include("link/link.jl")
 include("link/trainer.jl")
 include("plotting/recipes.jl")
+include("lazy_res.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export distance_between, distance_squared_between, displace!, clip, Cell, supercell
