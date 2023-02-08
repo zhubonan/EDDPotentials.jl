@@ -1,3 +1,4 @@
+![](docs/src/assets/logo_small.png)
 # EDDP.jl
 
 An alternative [Julia](https://julialang.org/) implementation of the ephemeral data derived potentials ([EDDPs](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.106.014102)).
