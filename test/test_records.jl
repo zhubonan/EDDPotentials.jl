@@ -1,8 +1,13 @@
 using EDDP
 using EDDP: ComputedRecord, get_e_above_hull, PhaseDiagram
+using CellBase
 using Test
 @testset "Records" begin
-    records = [ComputedRecord(:O, 0.0), ComputedRecord(:H2O, -1.0), ComputedRecord(:H, 0.0)]
+    records = ComputedRecord[
+        ComputedRecord(:O, 0.0),
+        ComputedRecord(:H2O, -1.0),
+        ComputedRecord(:H, 0.0),
+    ]
 
     phased = PhaseDiagram(records)
 

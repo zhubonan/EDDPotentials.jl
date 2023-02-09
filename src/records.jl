@@ -7,7 +7,16 @@ using DirectQhull
 using CellBase
 using LinearAlgebra
 
-struct ComputedRecord
+"""
+Abstract record that can be used to construct a phase diagram
+"""
+abstract type AbstractRecord end
+function record_energy end
+function record_comp end
+function record_reduced_comp end
+function record_id end
+
+struct ComputedRecord <: AbstractRecord
     composition::Composition
     energy::Float64
     record_id::String
@@ -17,12 +26,18 @@ struct ComputedRecord
     end
 end
 
+record_energy(c::ComputedRecord) = c.energy
+record_comp(c::ComputedRecord) = c.composition
+record_reduced_comp(c::ComputedRecord) = c.reduced_composition
+record_id(c::ComputedRecord) = c.record_id
+
+
 function ComputedRecord(comp_string::Union{AbstractString,Symbol}, args...)
     comp = Composition(comp_string)
     ComputedRecord(comp, args...)
 end
 
-energy_per_atom(c::ComputedRecord) = c.energy / sum(c.composition.counts)
+energy_per_atom(c::AbstractRecord) = record_energy(c) / natoms(record_comp(c))
 
 
 """
@@ -36,16 +51,16 @@ end
 
 
 
-struct PhaseDiagram
-    records::Vector{ComputedRecord}
+struct PhaseDiagram{T}
+    records::Vector{T}
     formation_energies::Vector{Float64}
-    min_energy_records::Vector{ComputedRecord}
-    min_energy_simplex::Base.IdDict{ComputedRecord,Int}
-    min_energy_e_above_hull::Base.IdDict{ComputedRecord,Float64}
+    min_energy_records::Vector{T}
+    min_energy_simplex::Base.IdDict{T,Int}
+    min_energy_e_above_hull::Base.IdDict{T,Float64}
     qhull_input::Matrix{Float64}
     simplices::Vector{Simplex}
     simplex_indices::Vector{Vector{UInt32}}
-    stable_records::Vector{ComputedRecord}
+    stable_records::Vector{T}
     elements::Vector{Symbol}
 end
 
@@ -55,10 +70,8 @@ function Base.show(io::IO, p::PhaseDiagram)
     elem = join(p.elements, "-")
     println(io, "PhaseDiagram of $(elem):")
     println(io, "Total number of records: $(length(p.records))")
-    stable_comps = join(
-        [formula(reduce_composition(rec.composition)) for rec in p.stable_records],
-        ", ",
-    )
+    stable_comps =
+        join([formula(record_reduced_comp(rec)) for rec in p.stable_records], ", ")
     println(io, "Stable compositions: $(stable_comps)")
 end
 
@@ -114,23 +127,31 @@ function get_coord(comp::Composition, elements::Vector{Symbol})
     out
 end
 
-
+"""
+    _formation_energies(records, elemental_forms)
+Return the formation energy per atom.
+"""
 function _formation_energies(records, elemental_forms)
     formation_energies = zeros(length(records))
     for (i, record) in enumerate(records)
         ref = 0.0
-        comp = record.composition
+        comp = record_comp(record)
         for (elem, eng) in pairs(elemental_forms)
             ref += comp[elem] * eng
         end
-        form = (record.energy - ref) / sum(comp.counts)
+        form = (record_energy(record) - ref) / natoms(comp)
         formation_energies[i] = form
     end
     formation_energies
 end
 
+"""
+    get_composition_coord(comp, elements)
+
+Return the composition coordinates
+"""
 function get_composition_coord(comp, elements)
-    n = sum(comp.counts)
+    n = natoms(comp)
     out = zeros(Float64, length(elements) - 1)
     for j = 1:length(elements)-1
         out[j] = comp[elements[j+1]] / n
@@ -138,23 +159,26 @@ function get_composition_coord(comp, elements)
     out
 end
 
+get_composition_coord(record::AbstractRecord, elements) =
+    get_composition_coord(record_comp(record), elements)
 
-get_coord(rec::ComputedRecord, elements::Vector) = get_coord(rec.composition, elements)
+
+get_coord(rec::AbstractRecord, elements::Vector) = get_coord(record_comp(rec), elements)
 get_coord(x, phased::PhaseDiagram) = get_coord(x, phased.elements)
 
 #%
-function PhaseDiagram(records)
-    elements = unique(Base.Iterators.flatten(keys(x.composition) for x in records))
+function PhaseDiagram(records::Vector{T}) where {T}
+    elements = unique(Base.Iterators.flatten(keys(record_comp(x)) for x in records))
     sort!(elements)
     relements = elements[2:end]
     # Number of elements
     delems = length(elements)
 
     # Get the atomic fractions
-    record_by_comp = Dict{Symbol,Vector{ComputedRecord}}()
+    record_by_comp = Dict{Symbol,Vector{T}}()
     for record in records
-        reduced_formula = CellBase.formula(reduce_composition(record.composition))
-        this_formula = get(record_by_comp, reduced_formula, ComputedRecord[])
+        reduced_formula = CellBase.formula(reduce_composition(record_comp(record)))
+        this_formula = get(record_by_comp, reduced_formula, T[])
         push!(this_formula, record)
         if length(this_formula) == 1
             record_by_comp[reduced_formula] = this_formula
@@ -162,7 +186,7 @@ function PhaseDiagram(records)
     end
 
     # Minimum energy records
-    min_eng_records_dict = Dict{Symbol,ComputedRecord}()
+    min_eng_records_dict = Dict{Symbol,T}()
     for (formula, records) in pairs(record_by_comp)
         engs = map(energy_per_atom, records)
         min_eng_records_dict[formula] = records[argmin(engs)]
@@ -196,8 +220,8 @@ function PhaseDiagram(records)
     i = 1
     for record in min_eng_records
         eform = formation_energies[findfirst(x -> x == record, records)]
-        comp = record.composition
-        n = sum(comp.counts)
+        comp = record_comp(record)
+        n = natoms(comp)
         for (j, elem) in enumerate(relements)
             qhull_points[j, i] = comp[elem] / n
         end
@@ -217,8 +241,9 @@ function PhaseDiagram(records)
     # Now search for simplex not including the fake point we have introduced
     iextra = size(qhull_points, 2)
     # Find the valid simplices - e.g. the ones not including the extra point that we put in
-    valid_simplices =
-        [col for col in eachcol(hull.simplices) if !any(x -> x == iextra, col)]
+    valid_simplices = Vector{UInt32}[
+        col for col in eachcol(hull.simplices) if !any(x -> x == iextra, col)
+    ]
 
     # stable entries - those are the ones 
     stable_records_idx = filter(x -> x != iextra, hull.vertices)
@@ -231,8 +256,8 @@ function PhaseDiagram(records)
     simp = [Simplex(qhull_points[1:end-1, pidx]) for pidx in valid_simplices]
 
     # Compute which simplex the point belongs to
-    simplex_idx = Base.IdDict{ComputedRecord,Int}()
-    e_above_hull = Base.IdDict{ComputedRecord,Float64}()
+    simplex_idx = Base.IdDict{T,Int}()
+    e_above_hull = Base.IdDict{T,Float64}()
     for (irec, rec) in enumerate(min_eng_records)
         for (j, s) in enumerate(simp)
             coord = qhull_points[1:end-1, irec]
@@ -277,7 +302,7 @@ end
 function get_e_above_hull(phased, record)
     # Test if it is an energy that has been seen
     for known in phased.min_energy_records
-        if record.reduced_composition == known.reduced_composition
+        if record_reduced_comp(record) == record_reduced_comp(known)
             return energy_per_atom(record) - energy_per_atom(known) +
                    phased.min_energy_e_above_hull[known]
         end
@@ -292,6 +317,11 @@ function get_e_above_hull(phased, record)
     return energy_per_atom(record) - ehull
 end
 
+"""
+    get_decomposition(phased, record)
+
+Return the decomposition of a record
+"""
 function get_decomposition(phased, record)
     coord = get_coord(record, phased.elements)
     i = find_simplex(phased, record)
@@ -326,14 +356,13 @@ function get_2d_plot_data(phased::PhaseDiagram; threshold=0.5)
     mask = hulls .< threshold
 
     x = [
-        get_composition_coord(record.composition, phased.elements)[1] for
-        record in phased.records[mask]
+        get_composition_coord(record, phased.elements)[1] for record in phased.records[mask]
     ]
     y = phased.formation_energies[mask]
 
     stable_idx = findall(x -> x in phased.stable_records, phased.records)
     stable_x = [
-        get_composition_coord(record.composition, phased.elements)[1] for
+        get_composition_coord(record, phased.elements)[1] for
         record in phased.records[stable_idx]
     ]
     stable_y = phased.formation_energies[stable_idx]
@@ -341,8 +370,8 @@ function get_2d_plot_data(phased::PhaseDiagram; threshold=0.5)
     sort!(stable_x)
 
     stable_formula =
-        [record.reduced_composition |> formula for record in phased.stable_records]
-    stable_entry_id = [record.record_id for record in phased.stable_records]
+        [record_reduced_comp(record) |> formula for record in phased.stable_records]
+    stable_entry_id = [record_id(record) for record in phased.stable_records]
 
     (;
         x,
@@ -353,7 +382,7 @@ function get_2d_plot_data(phased::PhaseDiagram; threshold=0.5)
         stable_entry_id,
         elements=phased.elements,
         e_above_hull=hulls,
-        record_ids=map(x -> x.record_id, phased.records[mask]),
+        record_ids=map(x -> record_id(x), phased.records[mask]),
     )
 end
 
@@ -373,7 +402,7 @@ function get_ternary_hulldata(phased::PhaseDiagram)
         map(x -> phased.min_energy_records[x] in phased.stable_records, 1:size(hulla, 2))
     unstable_mask = map(!, stable_mask)
 
-    labels = map(x -> formula(x.composition), phased.min_energy_records)
+    labels = map(x -> formula(record_comp(x)), phased.min_energy_records)
     ehull = [phased.min_energy_e_above_hull[x] for x in phased.min_energy_records]
     (
         abc_stable=hullabc[:, stable_mask],

@@ -2,22 +2,19 @@
 Code for analysing data
 =#
 
+
 using DataFrames
 using CellBase
+using EDDP: read_shelx_record, extract_res
 using CellBase: read_res_many
 import CellBase
 
 """
-    load_res_as_dataframe(paths; basic=false)
-
-Load SHELX files into a datafrmae. Paths can be a iterator of file paths or file handles.
+    as_dataframe(records; basic=false)
+Construct a `DataFrame` from a vector for ShelxRecord objects.
 """
-function load_res_as_dataframe(paths; basic=false)
-    data = CellBase.Cell{Float64}[]
-    for path in paths
-        append!(data, read_res_many(path))
-    end
-    frame = DataFrame(:cell => data)
+function as_dataframe(records; basic=false)
+    frame = DataFrame(:record => records)
 
     # Move information stored in metadata as columns
     for col in [
@@ -33,20 +30,25 @@ function load_res_as_dataframe(paths; basic=false)
         :flag2,
         :flag3,
     ]
-        frame[!, col] = map(x -> x.metadata[col], frame.cell)
+        frame[!, col] = map(x -> getproperty(x.titl, col), frame.record)
     end
-    frame[!, :_volume] = frame[!, :volume]
-    frame[!, :_natoms] = frame[!, :natoms]
-    frame[!, :volume] = map(volume, frame.cell)
-    frame[!, :natoms] = map(natoms, frame.cell)
 
     # Composition
-    frame[!, :composition] = Composition.(frame.cell)
-    frame[!, :formula] = formula.(frame.composition)
+    frame[!, :composition] = map(x -> x.comp, frame.record)
+    frame[!, :formula] = map(x -> formula(x.comp), frame.record)
     if basic
         return frame
     end
     _enrich_properties(frame)
+end
+
+"""
+    load_res_as_dataframe(files; basic=false)
+Construct a `DataFrame` from a list of (packed) SHELX files.
+"""
+function load_res_as_dataframe(files; basic=false)
+    records = read_shelx_record(files)
+    as_dataframe(records; basic)
 end
 
 """
@@ -57,8 +59,8 @@ Enrich the properties of the dataframe.
 """
 function _enrich_properties(frame)
     frame[!, :nform] = map(CellBase.nform, frame.composition)
-    frame[!, :reduced_composition] = map(CellBase.reduce_composition, frame.composition)
-    frame[!, :reduced_formula] = map(CellBase.formula, frame.reduced_composition)
+    frame[!, :reduced_composition] = map(x -> x.reduced_comp, frame.record)
+    frame[!, :reduced_formula] = map(x -> formula(x.reduced_comp), frame.record)
 
     # Per atom/formula unit quantities
     frame[!, :enthalpy_per_atom] = frame.enthalpy ./ frame.natoms
@@ -123,7 +125,11 @@ function evdist(df, i, j)
 end
 
 # Gather the structures to refine
+"""
+    select_refine(frame; dist_func=evdist, dist_cutoff=0.001, top_n=10)
 
+Select records to be used for refinement. 
+"""
 function select_refine(frame; dist_func=evdist, dist_cutoff=0.001, top_n=10)
     labels = String[]
     for (name, group) in pairs(groupby(frame, :reduced_formula))
@@ -139,13 +145,15 @@ function select_refine(frame; dist_func=evdist, dist_cutoff=0.001, top_n=10)
 end
 
 """
-    write_res(outdir, df::DataFrame)
+    write_res(outdir::AbstractString, df::DataFrame)
 
 Write rows of a `DataFrame` as SHELX files into a target path.
+The resulting files will be named as `<record.titl.label>.res`.
+
+Note: 
+This can results in undefined behaviour if non-identical records
+share the same *label*.
 """
-function CellBase.write_res(outdir, df::DataFrame)
-    for row in eachrow(df)
-        cell = row.cell
-        write_res(joinpath(outdir, row.label * ".res"), cell)
-    end
+function CellBase.write_res(outdir::AbstractString, df::DataFrame)
+    extract_res(df.record; outdir)
 end

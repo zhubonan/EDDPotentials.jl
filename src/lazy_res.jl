@@ -10,6 +10,7 @@ For even faster loading, the composition string should be encoded inside the REM
 =#
 
 using CellBase
+import CellBase
 using StatsBase
 
 """
@@ -62,13 +63,22 @@ end
 
 Representation for A SHELX record
 """
-struct ShelxRecord
+struct ShelxRecord <: AbstractRecord
     fname::String
     offset::Int
     length::Int
     titl::ShelxTITL
     comp::Composition
+    reduced_comp::Composition
+    function ShelxRecord(fname, offset, length, titl, comp)
+        new(fname, offset, length, titl, comp, reduce_composition(comp))
+    end
 end
+
+record_energy(s::ShelxRecord) = s.titl.enthalpy
+record_comp(s::ShelxRecord) = s.comp
+record_reduced_comp(s::ShelxRecord) = s.reduced_comp
+record_id(s::ShelxRecord) = s.titl.label
 
 
 """
@@ -142,8 +152,18 @@ end
     extract_res(entries::Vector{ShelxRecord}, needle;outdir=".")
 
 Extract a SHELX entry from a haystack. Return the selected entries.
+
+Args:
+- `needle`: `String` or `Regex` for selecting records based on their labels.
+
+Note: 
+This can results in undefined behaviour if non-identical records
+share the same *label*.
 """
-function extract_res(entries::Vector{ShelxRecord}, needle; outdir=".")
+function extract_res(entries::Vector{ShelxRecord}, needle=""; outdir=".")
+    if needle == ""
+        selected = entries
+    end
     selected = filter(x -> contains(x.titl.label, needle), entries)
     fnames = unique([x.fname for x in selected])
     ioset = Dict(name => open(name) for name in fnames)
@@ -156,5 +176,16 @@ function extract_res(entries::Vector{ShelxRecord}, needle; outdir=".")
             write(fh, read(stream, entry.length))
         end
     end
+    # Close the file handles
+    map(close, values(ioset))
     selected
+end
+
+
+function CellBase.read_res(record::ShelxRecord)
+    open(record.fname) do fhandle
+        seek(fhandle, record.offset)
+        data = String(read(fhandle, record.length))
+        read_res(split(data, "\n"))
+    end
 end
