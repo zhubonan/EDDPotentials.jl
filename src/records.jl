@@ -175,9 +175,20 @@ get_coord(rec::AbstractRecord, elements::Vector) = get_coord(record_comp(rec), e
 get_coord(x, phased::PhaseDiagram) = get_coord(x, phased.elements)
 
 #%
-function PhaseDiagram(records::Vector{T}) where {T}
-    elements = unique(Base.Iterators.flatten(keys(record_comp(x)) for x in records))
-    sort!(elements)
+"""
+    PhaseDiagram(records::Vector{T}) 
+Construct a `PhaseDiagram` from a vector of `AbstractRecord`.
+Args:
+- `elements`: A vector of symbols for enforcing a specific ordering of the elements.
+"""
+function PhaseDiagram(
+    records::Vector{T},
+    elements=sort(unique(Base.Iterators.flatten(keys(record_comp(x)) for x in records))),
+) where {T<:AbstractRecord}
+    _elements = unique(Base.Iterators.flatten(keys(record_comp(x)) for x in records))
+
+    @assert sort(elements) == sort(_elements) "Explicitly supplied elements that does match with those among the records."
+
     relements = elements[2:end]
     # Number of elements
     delems = length(elements)
