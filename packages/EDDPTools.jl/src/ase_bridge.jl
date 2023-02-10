@@ -5,7 +5,7 @@ using EDDP
 using Flux
 using CellBase
 
-export get_ase_atoms_and_calculator, atoms_from_cell
+export get_ase_atoms_and_calculator, atoms_from_cell, view_ase
 
 function __init__()
     py"""
@@ -71,6 +71,7 @@ function __init__()
     np = py"np"
     global ase
     global EDDPCalc
+    global visualize
     @pydef mutable struct EDDPCalc <: py"EDDPCalcBase"
 
         function set_eddp_calc(self, eddp_calc)
@@ -93,6 +94,7 @@ function __init__()
     end
 
     ase = pyimport("ase")
+    visualize = pyimport("ase.visualize")
 end
 
 
@@ -122,8 +124,27 @@ function get_ase_atoms_and_calculator(calc::EDDP.AbstractCalc)
     atoms, ase_calc
 end
 
+"""
+    view_ase(cell::Cell; kwargs...)
+View a `Cell` using `ase.visualize.view`.
+"""
+function view_ase(cell::Cell; kwargs...)
+    atoms = atoms_from_cell(cell)
+    visualize.view(atoms; kwargs...)
+end
+
+"""
+    view_ase(cell::Vector; kwargs...)
+View a series of `Cell` using `ase.visualize.view`.
+"""
+function view_ase(cell::Vector; kwargs...)
+    atoms_list = atoms_from_cell.(cell)
+    visualize.view(atoms_list; kwargs...)
+end
+
 end
 
 using .ASEInterface
 
 export get_ase_atoms_and_calculator, atoms_from_cell
+export view_ase

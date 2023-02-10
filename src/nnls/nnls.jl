@@ -9,18 +9,18 @@ module NNLS
 using LinearAlgebra
 using StatsBase: mean
 
-export nnls,
-    solve!,
-    NNLSWorkspace,
-    QPWorkspace,
-    QP,
-    primal_infeasibility,
-    dual_infeasibility,
-    stationarity_violation,
-    slackness_violation,
-    check_optimality_conditions,
-    load!,
-    NNLSSolver
+# export nnls,
+#     solve!,
+#     NNLSWorkspace,
+#     QPWorkspace,
+#     QP,
+#     primal_infeasibility,
+#     dual_infeasibility,
+#     stationarity_violation,
+#     slackness_violation,
+#     check_optimality_conditions,
+#     load!,
+#     NNLSSolver
 
 """
     construct_householder!(u::AbstractVector{T}, up::T)::T where {T}

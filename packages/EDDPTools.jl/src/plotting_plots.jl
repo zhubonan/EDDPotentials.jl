@@ -12,6 +12,8 @@ import Plots
 using LaTeXStrings
 using Glob
 
+export make_binary_hull_plot, plot_minsep_distribution
+
 
 
 """

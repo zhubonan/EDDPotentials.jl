@@ -7,7 +7,7 @@ using Dates
 using JLD2
 using Glob
 using Printf
-using .NNLS
+using .NNLS: nnls
 using NLSolversBase
 using ProgressMeter
 using Parameters

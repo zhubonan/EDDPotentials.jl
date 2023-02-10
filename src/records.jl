@@ -59,7 +59,7 @@ struct PhaseDiagram{T}
     min_energy_e_above_hull::Base.IdDict{T,Float64}
     qhull_input::Matrix{Float64}
     simplices::Vector{Simplex}
-    simplex_indices::Vector{Vector{UInt32}}
+    simplex_indices::Vector{Vector{Int}}
     stable_records::Vector{T}
     elements::Vector{Symbol}
 end
@@ -241,8 +241,8 @@ function PhaseDiagram(records::Vector{T}) where {T}
     # Now search for simplex not including the fake point we have introduced
     iextra = size(qhull_points, 2)
     # Find the valid simplices - e.g. the ones not including the extra point that we put in
-    valid_simplices = Vector{UInt32}[
-        col for col in eachcol(hull.simplices) if !any(x -> x == iextra, col)
+    valid_simplices = Vector{Int}[
+        convert.(Int, col) for col in eachcol(hull.simplices) if !any(x -> x == iextra, col)
     ]
 
     # stable entries - those are the ones 
@@ -253,7 +253,27 @@ function PhaseDiagram(records::Vector{T}) where {T}
     # Now compute the distance to hull for each entry
     # This can be done by first computing the distance to hull of the lowest energy entry of 
     # each composition, then add the energy differences (per-atom) for the lowest energy entry
-    simp = [Simplex(qhull_points[1:end-1, pidx]) for pidx in valid_simplices]
+
+    # Because we are trying to get the simplex "projected" onto the composition dimensions, it is
+    # possible for the projection to collapse into a lower dimension one, for example, into a straight
+    # line on a 2D ternary plot. In such cases the Simplex will be discarded...
+    simp = Simplex[]
+    valid_simplex_idx = Int[]
+    for (i, pidx) in enumerate(valid_simplices)
+        local sim
+        try
+            sim = Simplex(qhull_points[1:end-1, pidx])
+        catch err
+            if isa(err, LinearAlgebra.SingularException)
+                continue
+            end
+            throw(err)
+        end
+        push!(simp, sim)
+        push!(valid_simplex_idx, i)
+    end
+    # Reduce the set of valid simplices
+    valid_simplices = valid_simplices[valid_simplex_idx]
 
     # Compute which simplex the point belongs to
     simplex_idx = Base.IdDict{T,Int}()
@@ -402,15 +422,21 @@ function get_ternary_hulldata(phased::PhaseDiagram)
         map(x -> phased.min_energy_records[x] in phased.stable_records, 1:size(hulla, 2))
     unstable_mask = map(!, stable_mask)
 
-    labels = map(x -> formula(record_comp(x)), phased.min_energy_records)
+    reduced_formula =
+        map(x -> formula(reduce_composition(record_comp(x))), phased.min_energy_records)
+    labels = map(x -> record_id(x), phased.min_energy_records)
     ehull = [phased.min_energy_e_above_hull[x] for x in phased.min_energy_records]
+    min_energy_record_idx = [
+        findfirst(x -> x == record, phased.records) for record in phased.min_energy_records
+    ]
     (
-        abc_stable=hullabc[:, stable_mask],
-        labels_stable=labels[stable_mask],
-        e_above_hull_stable=ehull[stable_mask],
-        abc_unstable=hullabc[:, unstable_mask],
-        labels_unstable=labels[unstable_mask],
-        e_above_hull_unstable=ehull[unstable_mask],
+        abc=hullabc,
+        labels=labels,
+        stable_mask=stable_mask,
+        unstable_mask=unstable_mask,
+        reduced_formula=reduced_formula,
+        formation_energies=phased.formation_energies[min_energy_record_idx],
+        e_above_hull=ehull,
         elements=phased.elements,
     )
 end

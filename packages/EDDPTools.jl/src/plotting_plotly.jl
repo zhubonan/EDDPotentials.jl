@@ -4,6 +4,9 @@ using CellBase
 using LaTeXStrings
 import PlotlyJS
 
+export make_binary_hull_plotly, make_ternary_plot
+
+
 """
     make_ternary_plot(plot_data)
 
@@ -15,14 +18,15 @@ end
 
 function make_ternary_plot(plot_data)
 
+    stable_mask = plot_data.stable_mask
+    unstable_mask = plot_data.unstable_mask
+    abc_stable = plot_data.abc[:, stable_mask]
+    abc_unstable = plot_data.abc[:, unstable_mask]
+    reduced_formula = plot_data.reduced_formula
+    formation_energies = plot_data.formation_energies
+    labels = plot_data.labels
     elements = plot_data.elements
-    abc_stable = plot_data.abc_stable
-    labels_stable = plot_data.labels_stable
-    e_above_hull_stable = plot_data.e_above_hull_stable
-
-    abc_unstable = plot_data.abc_unstable
-    labels_unstable = plot_data.labels_unstable
-    e_above_hull_unstable = plot_data.e_above_hull_unstable
+    e_above_hull = plot_data.e_above_hull
 
     function make_ax(title, tickangle)
         PlotlyJS.attr(
@@ -37,29 +41,41 @@ function make_ternary_plot(plot_data)
         )
     end
 
-    has_unstable = length(labels_unstable) > 0
+    has_unstable = sum(unstable_mask) > 0
     t_stable = PlotlyJS.scatterternary(
         name="Stable",
         mode="markers",
         a=abc_stable[1, :],
         b=abc_stable[2, :],
         c=abc_stable[3, :],
-        customdata=collect(zip(labels_stable)),
-        e_above_hull=e_above_hull_stable,
-        marker=attr(symbol="diamond", color="#60dbf1", size=14, line_width=2),
-        hovertemplate="Composition: %{customdata[0]}<br><extra></extra>",
+        customdata=collect(
+            zip(
+                reduced_formula[stable_mask],
+                labels[stable_mask],
+                formation_energies[stable_mask],
+            ),
+        ),
+        marker=PlotlyJS.attr(symbol="diamond", color="#60dbf1", size=14, line_width=2),
+        hovertemplate="Composition: %{customdata[0]}<br>Label: %{customdata[1]}<br>Formation energy: %{customdata[2]:.5f} eV/atom<br><extra></extra>",
     )
     traces = [t_stable]
     if has_unstable
-        t_unstable = scatterternary(
+        t_unstable = PlotlyJS.scatterternary(
             name="Unstable",
             mode="markers",
             a=abc_unstable[1, :],
             b=abc_unstable[2, :],
             c=abc_unstable[3, :],
-            customdata=collect(zip(labels_unstable, e_above_hull_unstable)),
-            hovertemplate="Composition: %{customdata[0]}<br>e_above_hull: %{customdata[1]:.5f}eV/atom<br><extra></extra>",
-            marker=attr(symbol="circle", color="#DB7365", size=8, line_width=0),
+            customdata=collect(
+                zip(
+                    reduced_formula[unstable_mask],
+                    labels[unstable_mask],
+                    e_above_hull[unstable_mask],
+                    formation_energies[unstable_mask],
+                ),
+            ),
+            hovertemplate="Composition: %{customdata[0]}<br>Label: %{customdata[1]}<br>e_above_hull: %{customdata[2]:.5f} eV/atom<br>Formation energy: %{customdata[3]:.5f} eV/atom<extra></extra>",
+            marker=PlotlyJS.attr(symbol="circle", color="#DB7365", size=8, line_width=0),
         )
         push!(traces, t_unstable)
     end
