@@ -5,15 +5,17 @@ Code for analysing data
 
 using DataFrames
 using CellBase
-using EDDP: read_shelx_record, extract_res
+using EDDP: read_shelx_record, extract_res, ShelxRecord
 using CellBase: read_res_many
 import CellBase
+
+export as_dataframe
 
 """
     as_dataframe(records; basic=false)
 Construct a `DataFrame` from a vector for ShelxRecord objects.
 """
-function as_dataframe(records; basic=false)
+function as_dataframe(records::Vector{ShelxRecord}; basic=false)
     frame = DataFrame(:record => records)
 
     # Move information stored in metadata as columns
@@ -43,10 +45,10 @@ function as_dataframe(records; basic=false)
 end
 
 """
-    load_res_as_dataframe(files; basic=false)
+    as_dataframe(files; basic=false)
 Construct a `DataFrame` from a list of (packed) SHELX files.
 """
-function load_res_as_dataframe(files; basic=false)
+function as_dataframe(files; basic=false)
     records = read_shelx_record(files)
     as_dataframe(records; basic)
 end

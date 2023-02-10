@@ -64,7 +64,8 @@ export get_enthalpy, get_pressure
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer, FeatureContainer, load_from_jld2
 export BuilderState, LocalLMTrainer, link!
-export Builder, walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss
+export Builder,
+    walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss
 export rmse_per_atom, mae_per_atom, max_ae_per_atom
 export nfeatures
 export TrainingResults

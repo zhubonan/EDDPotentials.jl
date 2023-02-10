@@ -86,7 +86,7 @@ record_id(s::ShelxRecord) = s.titl.label
 
 Read all SHELX records from a list of (packed) files.
 """
-function read_shelx_record(fnames)
+function read_shelx_record(fnames::Vector)
     output = ShelxRecord[]
     for name in fnames
         tmp = open(name) do handle
@@ -96,6 +96,8 @@ function read_shelx_record(fnames)
     end
     output
 end
+
+read_shelx_record(fname::AbstractString="*.res") = read_shelx_record(glob(fname))
 
 """
     read_shelx_record(io::IO, fname::AbstractString)
@@ -155,21 +157,31 @@ Extract a SHELX entry from a haystack. Return the selected entries.
 
 Args:
 - `needle`: `String` or `Regex` for selecting records based on their labels.
+- `save`: If set to `true` (default), write the files out.
+- `outdir`: Which output directory to use when writing out individual SHELX files.
 
 Note: 
 This can results in undefined behaviour if non-identical records
 share the same *label*.
 """
-function extract_res(entries::Vector{ShelxRecord}, needle=""; outdir=".")
+function extract_res(entries::Vector{ShelxRecord}, needle=""; outdir=".", save=true)
     if needle == ""
         selected = entries
     end
     selected = filter(x -> contains(x.titl.label, needle), entries)
+    if !save
+        return selected
+    end
+
     fnames = unique([x.fname for x in selected])
     ioset = Dict(name => open(name) for name in fnames)
     for entry in selected
         label = entry.titl.label
         outfile = joinpath(outdir, label * ".res")
+        if isfile(outfile)
+            @warn "Skipping existing file $(outfile)..."
+            continue
+        end
         open(outfile, "w") do fh
             stream = ioset[entry.fname]
             seek(stream, entry.offset)
@@ -182,10 +194,34 @@ function extract_res(entries::Vector{ShelxRecord}, needle=""; outdir=".")
 end
 
 
+"""
+    CellBase.read_res(record::ShelxRecord)
+Read the underlying record into a `Cell` object.
+"""
 function CellBase.read_res(record::ShelxRecord)
     open(record.fname) do fhandle
         seek(fhandle, record.offset)
         data = String(read(fhandle, record.length))
         read_res(split(data, "\n"))
     end
+end
+
+
+"""
+    CellBase.read_res_many(records::Vector{ShelxRecord})
+Read multiple records.
+"""
+function CellBase.read_res_many(records::Vector{ShelxRecord})
+    fnames = unique(x.fname for x in records)
+    ioset = Dict(name => open(name) for name in fnames)
+    out = Cell{Float64}[]
+    for entry in records
+        stream = ioset[entry.fname]
+        seek(stream, entry.offset)
+        data = String(read(stream, entry.length))
+        push!(out, read_res(split(data, "\n")))
+    end
+    # Close the file handles
+    map(close, values(ioset))
+    out
 end

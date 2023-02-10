@@ -2,8 +2,10 @@ module ASEInterface
 
 using PyCall
 using EDDP
+using EDDP: ShelxRecord
 using Flux
 using CellBase
+using CellBase: read_res, read_res_many
 
 export get_ase_atoms_and_calculator, atoms_from_cell, view_ase
 
@@ -141,6 +143,9 @@ function view_ase(cell::Vector; kwargs...)
     atoms_list = atoms_from_cell.(cell)
     visualize.view(atoms_list; kwargs...)
 end
+
+view_ase(rec::ShelxRecord) = view_ase(read_res(rec))
+view_ase(rec::Vector{ShelxRecord}) = view_ase(read_res_many(rec))
 
 end
 

@@ -33,6 +33,19 @@ end
 
 Base.length(v::StructureContainer) = length(v.H)
 
+function StructureContainer(
+    structures::Vector{T},
+    engs,
+    labels=["structure_$(i)" for i = 1:length(structures)];
+    threshold=10.0,
+    select_func=minimum,
+) where {T<:Cell}
+    H = engs
+    Ha = H ./ natoms.(structures)
+    mask = _select_per_atom_threshold(structures, Ha; select_func, threshold)
+    StructureContainer(labels[mask], H[mask], structures[mask])
+end
+
 """
     StructureContainer(paths::Vector)
 
@@ -65,18 +78,8 @@ function StructureContainer(paths::Vector; threshold=10.0, select_func=minimum)
     StructureContainer(actual_labels[mask], H[mask], structures[mask])
 end
 
-function StructureContainer(
-    structures::Vector{T},
-    engs,
-    labels=["structure_$(i)" for i = 1:length(structures)];
-    threshold=10.0,
-    select_func=minimum,
-) where {T<:Cell}
-    H = engs
-    Ha = H ./ natoms.(structures)
-    mask = _select_per_atom_threshold(structures, Ha; select_func, threshold)
-    StructureContainer(labels[mask], H[mask], structures[mask])
-end
+StructureContainer(path::AbstractString; kwargs...) =
+    StructureContainer(glob(path); kwargs...)
 
 
 """
