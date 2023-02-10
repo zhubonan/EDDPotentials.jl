@@ -15,7 +15,7 @@ export as_dataframe
     as_dataframe(records; basic=false)
 Construct a `DataFrame` from a vector for ShelxRecord objects.
 """
-function as_dataframe(records::Vector{ShelxRecord}; basic=false)
+function as_dataframe(records::Vector{ShelxRecord}; basic=false, sort_enthalpy=true)
     frame = DataFrame(:record => records)
 
     # Move information stored in metadata as columns
@@ -41,7 +41,12 @@ function as_dataframe(records::Vector{ShelxRecord}; basic=false)
     if basic
         return frame
     end
+    # Sorting
     _enrich_properties(frame)
+    if sort_enthalpy
+        sort!(frame, [:enthalpy_per_atom])
+    end
+    frame
 end
 
 """
@@ -70,19 +75,7 @@ function _enrich_properties(frame)
 
     frame[!, :volume_per_atom] = frame.volume ./ frame.natoms
     frame[!, :volume_per_form] = frame.volume ./ frame.nform
-    columns = names(frame)
-    # Swap the order of total enthalpy and enthalpy per formula
-    for i in axes(columns, 1)
-        if columns[i] == "enthalpy"
-            columns[i] = "enthalpy_per_form"
-            continue
-        end
-        if columns[i] == "enthalpy_per_form"
-            columns[i] = "enthalpy"
-            continue
-        end
-    end
-    select(frame, columns)
+    frame
 end
 
 

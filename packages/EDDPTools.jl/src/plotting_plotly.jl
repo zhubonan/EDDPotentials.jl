@@ -116,8 +116,8 @@ function make_binary_hull_plotly(data)
         mode="markers",
         x=data.x,
         y=data.y,
-        customdata=[zip(data.e_above_hull, data.record_ids)...],
-        hovertemplate="Unstable Candidate<br>Distance to hull: %{customdata[0]:.5f} eV<br>Record-id: %{customdata[1]}",
+        customdata=[zip(data.e_above_hull, data.record_ids, data.record_formula)...],
+        hovertemplate="Unstable Candidate<br>Distance to hull: %{customdata[0]:.5f} eV<br>Record-id: %{customdata[1]}<br>Composition: %{customdata[2]}",
         name="Candidate",
     )
     trace2 = PlotlyJS.scatter(

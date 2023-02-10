@@ -75,6 +75,8 @@ function Base.show(io::IO, p::PhaseDiagram)
     println(io, "Stable compositions: $(stable_comps)")
 end
 
+struct SimplexError <: Exception end
+
 """
     Simplex(coords)
 
@@ -82,7 +84,13 @@ Construct a simplex from a matrix of the coordinates
 """
 function Simplex(coords)
     aug = vcat(coords, ones(eltype(coords), 1, size(coords, 2)))
-    Simplex(coords, aug, inv(aug))
+    local aug_inv
+    try
+        aug_inv = inv(aug)
+    catch error
+        throw(SimplexError())
+    end
+    Simplex(coords, aug, aug_inv)
 end
 
 """
@@ -241,12 +249,14 @@ function PhaseDiagram(records::Vector{T}) where {T}
     # Now search for simplex not including the fake point we have introduced
     iextra = size(qhull_points, 2)
     # Find the valid simplices - e.g. the ones not including the extra point that we put in
+    # and the formation energy with respect to the elementals should be negative 
     valid_simplices = Vector{Int}[
-        convert.(Int, col) for col in eachcol(hull.simplices) if !any(x -> x == iextra, col)
+        convert.(Int, col) for col in eachcol(hull.simplices) if
+        !any(x -> x == iextra, col) && all(qhull_points[end, i] <= 0.0 for i in col)
     ]
 
-    # stable entries - those are the ones 
-    stable_records_idx = filter(x -> x != iextra, hull.vertices)
+    # Record the indices of the stable records - they are the vertices of the valid simplices
+    stable_records_idx = unique(vcat(valid_simplices...))
 
     # Vector of (reduced_composition, record)
 
@@ -264,7 +274,7 @@ function PhaseDiagram(records::Vector{T}) where {T}
         try
             sim = Simplex(qhull_points[1:end-1, pidx])
         catch err
-            if isa(err, LinearAlgebra.SingularException)
+            if isa(err, SimplexError)
                 continue
             end
             throw(err)
@@ -374,24 +384,29 @@ function get_2d_plot_data(phased::PhaseDiagram; threshold=0.5)
     @assert nelem(phased) == 2
     hulls = get_e_above_hull.(Ref(phased), phased.records)
     mask = hulls .< threshold
+    selected_records = phased.records[mask]
 
-    x = [
-        get_composition_coord(record, phased.elements)[1] for record in phased.records[mask]
-    ]
+    x = [get_composition_coord(record, phased.elements)[1] for record in selected_records]
     y = phased.formation_energies[mask]
 
-    stable_idx = findall(x -> x in phased.stable_records, phased.records)
+    stable_idx = findall(x -> x in phased.stable_records, selected_records)
     stable_x = [
-        get_composition_coord(record, phased.elements)[1] for
-        record in phased.records[stable_idx]
+        get_composition_coord(selected_records[idx], phased.elements)[1] for
+        idx in stable_idx
     ]
-    stable_y = phased.formation_energies[stable_idx]
-    stable_y = stable_y[sortperm(stable_x)]
-    sort!(stable_x)
+    stable_y = y[stable_idx]
 
     stable_formula =
-        [record_reduced_comp(record) |> formula for record in phased.stable_records]
-    stable_entry_id = [record_id(record) for record in phased.stable_records]
+        [record_reduced_comp(record) |> formula for record in selected_records[stable_idx]]
+    stable_entry_id = [record_id(selected_records[idx]) for idx in stable_idx]
+
+    reduced_formula = map(x -> record_reduced_comp(x) |> formula, selected_records)
+    # Sort the order of stable entries so the hull lines are connected
+    sort_idx = sortperm(stable_x)
+    stable_y = stable_y[sortperm(stable_x)]
+    stable_x = stable_x[sort_idx]
+    stable_formula = stable_formula[sort_idx]
+    reduced_formula = reduced_formula[sort_idx]
 
     (;
         x,
@@ -401,8 +416,9 @@ function get_2d_plot_data(phased::PhaseDiagram; threshold=0.5)
         stable_y,
         stable_entry_id,
         elements=phased.elements,
-        e_above_hull=hulls,
-        record_ids=map(x -> record_id(x), phased.records[mask]),
+        e_above_hull=hulls[mask],
+        record_ids=map(x -> record_id(x), selected_records),
+        record_formula=reduced_formula,
     )
 end
 
