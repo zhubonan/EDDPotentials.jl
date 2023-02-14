@@ -92,6 +92,11 @@ function copycell!(cell_from::Cell, cell_to::Cell)
     species(cell_to) .= species(cell_from)
 end
 
+"""
+    is_equal(cell_a, cell_b)
+
+Check if two cells are equal to each other
+"""
 function is_equal(cell_a, cell_b)
     all(cellmat(cell_a) .== cellmat(cell_b)) &&
         all(positions(cell_a) .== positions(cell_b)) &&
@@ -143,6 +148,11 @@ function _reinit_fb!(calc, mode)
     end
 end
 
+"""
+    get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
+
+Return the total energy of the calculator.
+"""
 function get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     calculate!(calc; forces, rebuild_nl)
     # Include the core energy if any
@@ -224,22 +234,15 @@ function _rebuild_on_demand(calc; rebuild_nl)
 end
 
 """
-Return standard deviation of the predicted atomic energy
-Note: must be run after a energy call!
-"""
-function get_per_atom_energy_std(calc::NNCalc{T,N,M,X}) where {T,N,M,X<:EnsembleNNInterface}
-    per_atom = reduce(vcat, forward!.(calc.nninterface.models, Ref(calc.v)))
-    dropdims(std(per_atom, dims=1), dims=1)
-end
-
-"""
 Return standard deviation of the predicted total energy
 Note: must be run after a energy call!
 """
 function get_energy_std(calc::NNCalc{T,N,M,X}) where {T,N,M,X<:EnsembleNNInterface}
+    get_energy(calc)
     per_atom = reduce(vcat, forward!.(calc.nninterface.models, Ref(calc.v)))
     std(sum(per_atom, dims=2))
 end
+
 
 function _calculate!(calc, rebuild, forces=true)
     # Compute feature vector and the gradients
@@ -416,10 +419,13 @@ struct VariableCellCalc{T,C} <: AbstractCalc
     external_pressure::Matrix{T}
 end
 
+
 _need_calc(calc::VariableCellCalc, forces) = _need_calc(calc.calc, forces)
 get_cell(c::VariableCellCalc) = get_cell(c.calc)
 get_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) =
     get_energy(c.calc; rebuild_nl, kwargs...)
+
+get_energy_std(vc::VariableCellCalc) = get_energy_std(vc.calc)
 
 function VariableCellCalc(calc::NNCalc{T}; external_pressure=zeros(T, 3, 3)) where {T}
     latt = copy(cellmat(get_cell(calc)))
@@ -594,4 +600,19 @@ Return the total pressure with the external pressure subtracted.
 function get_pressure(calc::AbstractCalc)
     stress = get_stress(calc)
     return (stress[1, 1] + stress[2, 2] + stress[3, 3]) / 3
+end
+
+
+## Add Convenience methods
+for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enthalpy]
+    @eval begin
+        function $func(cell::Cell, cf::CellFeature, itf::AbstractNNInterface; kwargs...)
+            $func(VariableCellCalc(NNCalc(cell, cf, itf)); kwargs...)
+        end
+        @doc """
+            $($func)(cell::Cell, cf::CellFeature, itf::AbstractNNInterface;kwargs...)
+
+        Convenient method for calling $(EDDP.$func) with a Calculator constructed ad-hoc.
+        """ $func(cell::Cell, cf::CellFeature, itf::AbstractNNInterface; kwargs...)
+    end
 end

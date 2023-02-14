@@ -1,6 +1,7 @@
 module EDDP
+using Reexport
 
-using CellBase
+@reexport using CellBase
 using CellBase: read_castep
 import CellBase
 using StatsBase: mean

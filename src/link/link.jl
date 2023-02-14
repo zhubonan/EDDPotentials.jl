@@ -84,6 +84,7 @@ end
     eng_threshold::Float64 = -1.0
     niggli_reduce_output::Bool = true
     max_err::Int = 10
+    pressure_gpa::Float64 = 0.01
 end
 
 
@@ -859,11 +860,24 @@ function walk_forward_tests(
     trs
 end
 
+function _latest_ensemble_iteration(bu::Builder)
+    gen = -1
+    for i = 0:bu.state.max_iterations
+        if has_ensemble(bu, i)
+            gen = i
+        end
+    end
+    if gen < 0
+        throw(ErrorException("No valid ensemble found!"))
+    end
+    gen
+end
+
 function has_ensemble(bu::Builder, iteration=bu.state.iteration)
     isfile(joinpath(bu.state.workdir, "$(bu.trainer.prefix)ensemble-gen$(iteration).jld2"))
 end
 
-function load_ensemble(bu::Builder, iteration=bu.state.iteration)
+function load_ensemble(bu::Builder, iteration=_latest_ensemble_iteration(bu))
     EDDP.load_from_jld2(ensemble_name(bu, iteration), EDDP.EnsembleNNInterface)
 end
 
@@ -950,3 +964,23 @@ end
 
 # Map for trainer names
 TRAINER_NAME = Dict(LocalLMTrainer => "locallm")
+
+
+for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enthalpy]
+    @eval begin
+        function $func(
+            cell::Cell,
+            builder::Builder,
+            gen::Int=_latest_ensemble_iteration(builder);
+            kwargs...,
+        )
+            ensemble = load_ensemble(builder, gen)
+            $func(VariableCellCalc(NNCalc(cell, builder.cf, ensemble)); kwargs...)
+        end
+        @doc """
+            $($func)(cell::Cell, builder::Builder, gen::Int=_latest_ensemble_iteration(builder);kwargs...)
+
+        Convenient method for calling $(EDDP.$func) using a Builder object.
+        """ $func(cell::Cell, builder::Builder, gen::Int)
+    end
+end

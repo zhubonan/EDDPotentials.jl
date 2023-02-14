@@ -88,7 +88,7 @@ function plot_minsep_distribution(
     pkwargs...,
 )
     data = _get_minsep_distribution_data(workdir, gen)
-    plot_minsep_distribution(data, pair; xmax, pkwargs...), data
+    plot_minsep_distribution(data, gen, pair; xmax, pkwargs...), data
 end
 
 
