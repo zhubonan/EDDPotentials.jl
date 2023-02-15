@@ -118,10 +118,8 @@ include("utils.jl")
         nnitf = EDDP.EnsembleNNInterface(Tuple(nnitfs), repeat([0.2], 5))
         calc = EDDP.NNCalc(cell, cf, nnitf; core=nothing)
         eng = get_energy(calc)
-        std_per_atom = EDDP.get_per_atom_energy_std(calc)
         std_tot = EDDP.get_energy_std(calc)
         @test eng != 0.0
-        @test size(std_per_atom) == (length(cell),)
         @test std_tot != 0.0
 
         _test_forces_fd(calc)

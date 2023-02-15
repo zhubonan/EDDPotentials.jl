@@ -616,3 +616,8 @@ for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enth
         """ $func(cell::Cell, cf::CellFeature, itf::AbstractNNInterface; kwargs...)
     end
 end
+
+get_energy_per_atom(cell::Cell, args...;kwargs...) = get_energy(cell, args...;kwargs...) / length(cell)
+get_energy_per_atom(calc::AbstractCalc, args...;kwargs...) = get_energy(calc, args...;kwargs...) / length(get_cell(calc))
+get_energy_std_per_atom(cell::Cell, args...;kwargs...) = get_energy_std(cell, args...;kwargs...) / length(cell)
+get_energy_std_per_atom(calc::AbstractCalc, args...;kwargs...) = get_energy_std(calc, args...;kwargs...) / length(get_cell(calc))
