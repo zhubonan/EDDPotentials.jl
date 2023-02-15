@@ -220,7 +220,6 @@ function _fromdict(::Type{Builder}, dict)
     end
 
     if :rss in keys(dict)
-        @show dict[:rss]
         rss = _fromdict(RssSetting, dict[:rss])
         Builder(state, cf, trainer; cf_embedding=embedding, rss=rss)
     else
