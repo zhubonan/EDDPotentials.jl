@@ -230,11 +230,11 @@ function _run_rss(
         # This prunes structure that we are too confident, e.g. nothing to learn from
         if ensemble_std_min > 0.0 || ensemble_std_max > 0.0
             estd = get_energy_std(vc.calc) / length(get_cell(vc))
-            if estd < ensemble_std_min
-                @info "Ensemble standard deviation $(estd) is too small ($(ensemble_std_max))!"
+            if ensemble_std_min > 0.0 && estd < ensemble_std_min
+                @info "Ensemble standard deviation $(estd) is too small ($(ensemble_std_min))!"
                 continue
             end
-            if estd > ensemble_std_max
+            if ensemble_std_max > 0.0 && estd > ensemble_std_max
                 @info "Ensemble standard deviation $(estd) is too large ($(ensemble_std_max))!"
                 continue
             end

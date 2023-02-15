@@ -56,11 +56,13 @@ export distance_matrix, laplacian_matrix, nmodules, find_modules
 export get_cell,
     get_forces,
     get_energy,
+    get_energy_per_atom,
     get_stress,
     CellFeature,
     NNCalc,
     VariableCellCalc,
-    get_energy_std
+    get_energy_std,
+    get_energy_std_per_atom
 export get_enthalpy, get_pressure
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer, FeatureContainer, load_from_jld2
