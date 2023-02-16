@@ -134,7 +134,7 @@ g(r)= \begin{cases}
 gfr(r::T, rcut) where {T} = r <= rcut ? -2 / rcut : zero(T)
 
 TwoBodyFeature(f, g, p, sij_idx, rcut::Real) =
-    TwoBodyFeature(f, g, SVector{length(p)}(p), tuple(sij_idx...), rcut, length(p))
+    TwoBodyFeature(f, g, collect(Float64, p), tuple(sij_idx[1], sij_idx[2]), rcut, length(p))
 TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, p, sij_idx, rcut)
 
 """
@@ -226,9 +226,9 @@ end
 ThreeBodyFeature(f, g, p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(
     f,
     g,
-    SVector{length(p)}(p),
-    SVector{length(q)}(q),
-    tuple(sijk_idx...),
+    collect(Float64, p),
+    collect(Float64, q),
+    tuple(sijk_idx[1], sijk_idx[2], sijk_idx[3]),
     rcut,
     length(p),
     length(q),
@@ -639,12 +639,13 @@ function Base.:+(a::CellFeature, b::CellFeature)
 end
 
 """
-    ==(a::CellFeature, b::CellFeature)
+    ==(A::T, B::T) where {T<:Union{AbstractNBodyFeature, CellFeature}}
 
-Check equality between two `CellFeature` objects.
+Check equality between two `CellFeature` / `AbstractNBodyFeature` objects.
 """
-function Base.:(==)(A::CellFeature, B::CellFeature)
-    for name in fieldnames(CellFeature)
+function Base.:(==)(A::T, B::T) where {T<:Union{AbstractNBodyFeature, CellFeature}}
+    for name in fieldnames(T)
+        # Compare array equivalence
         if getproperty(A, name) != getproperty(B, name)
             return false
         end

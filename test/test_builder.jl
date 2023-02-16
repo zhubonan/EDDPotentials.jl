@@ -1,6 +1,10 @@
 using EDDP
 using Test
 using YAML
+
+check_equal(a, b) = a == b
+check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
+
 @testset "Builder" begin
 
     @testset "Serialization" begin
@@ -10,12 +14,12 @@ using YAML
             state_dict = EDDP._todict(obj)
             obj_reconstructed = EDDP._fromdict(T, state_dict)
             for name in fieldnames(T)
-                @test getproperty(obj, name) == getproperty(obj_reconstructed, name)
+                @test check_equal(getproperty(obj, name), getproperty(obj_reconstructed, name))
             end
         end
 
         function compare_field_equality(a::T, b) where {T}
-            all(getproperty(a, name) == getproperty(b, name) for name in fieldnames(T))
+            all(check_equal(getproperty(a, name), getproperty(b, name)) for name in fieldnames(T))
         end
 
         "Test for round-trip yaml conversion"
@@ -27,7 +31,7 @@ using YAML
             end
             obj_reconstructed = EDDP._fromdict(T, state_dict)
             for name in fieldnames(T)
-                @test getproperty(obj, name) == getproperty(obj_reconstructed, name)
+                @test check_equal(getproperty(obj, name), getproperty(obj_reconstructed, name))
             end
         end
 
