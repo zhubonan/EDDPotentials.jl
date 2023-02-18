@@ -31,7 +31,7 @@ and hence enables one to carry out crystal structure prediction with much reduce
 ## Documentations
 
 ```@contents
-Pages = ["index.md", "getting_started.md", "faq.md"]
+Pages = ["index.md", "getting_started.md", "faq.md", "python_tools.md"]
 ```
 
 ```@meta

@@ -107,8 +107,15 @@ function Builder(
     _set_iteration!(builder)
     if rss.seedfile == "null"
         rss.ensemble_id = builder.state.iteration
-        rss.seedfile = splitext(builder.state.seedfile)[1] * "-SAMPLING.cell"
+        rss.seedfile = splitext(builder.state.seedfile)[1]
+        @warn "Using default ensemble id: $(rss.ensemble_id)"
+        @warn "Using seed file: $(rss.seedfile)"
     end
+    if rss.ensemble_id < 0
+        rss.ensemble_id = builder.state.iteration
+        @warn "Using default ensemble id: $(rss.ensemble_id)"
+    end
+
     builder_uuid(builder)
     builder
 end

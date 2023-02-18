@@ -1,0 +1,11 @@
+name = "EDDPCli"
+uuid = "36372aad-ce17-41ad-a837-650959989381"
+authors = ["Bonan Zhu<zhubonan@outlook.com>"]
+version = "0.1.0"
+
+[deps]
+Comonicon = "863f3e99-da2a-4334-8734-de3dacbe5542"
+EDDP = "cffdf5dc-aa8e-4f15-840d-78559bc58d9d"
+
+[compat]
+julia = "1.8"

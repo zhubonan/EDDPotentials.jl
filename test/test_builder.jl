@@ -14,12 +14,18 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
             state_dict = EDDP._todict(obj)
             obj_reconstructed = EDDP._fromdict(T, state_dict)
             for name in fieldnames(T)
-                @test check_equal(getproperty(obj, name), getproperty(obj_reconstructed, name))
+                @test check_equal(
+                    getproperty(obj, name),
+                    getproperty(obj_reconstructed, name),
+                )
             end
         end
 
         function compare_field_equality(a::T, b) where {T}
-            all(check_equal(getproperty(a, name), getproperty(b, name)) for name in fieldnames(T))
+            all(
+                check_equal(getproperty(a, name), getproperty(b, name)) for
+                name in fieldnames(T)
+            )
         end
 
         "Test for round-trip yaml conversion"
@@ -31,7 +37,10 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
             end
             obj_reconstructed = EDDP._fromdict(T, state_dict)
             for name in fieldnames(T)
-                @test check_equal(getproperty(obj, name), getproperty(obj_reconstructed, name))
+                @test check_equal(
+                    getproperty(obj, name),
+                    getproperty(obj_reconstructed, name),
+                )
             end
         end
 

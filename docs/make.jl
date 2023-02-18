@@ -11,6 +11,7 @@ makedocs(
         "Functions" => "functions.md",
         "FAQ" => "faq.md",
         "API" => "api.md",
+        "Python Tools" => "python_tools.md",
     ],
 )
 

@@ -133,8 +133,14 @@ g(r)= \begin{cases}
 """
 gfr(r::T, rcut) where {T} = r <= rcut ? -2 / rcut : zero(T)
 
-TwoBodyFeature(f, g, p, sij_idx, rcut::Real) =
-    TwoBodyFeature(f, g, collect(Float64, p), tuple(sij_idx[1], sij_idx[2]), rcut, length(p))
+TwoBodyFeature(f, g, p, sij_idx, rcut::Real) = TwoBodyFeature(
+    f,
+    g,
+    collect(Float64, p),
+    tuple(sij_idx[1], sij_idx[2]),
+    rcut,
+    length(p),
+)
 TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, p, sij_idx, rcut)
 
 """
@@ -643,7 +649,7 @@ end
 
 Check equality between two `CellFeature` / `AbstractNBodyFeature` objects.
 """
-function Base.:(==)(A::T, B::T) where {T<:Union{AbstractNBodyFeature, CellFeature}}
+function Base.:(==)(A::T, B::T) where {T<:Union{AbstractNBodyFeature,CellFeature}}
     for name in fieldnames(T)
         # Compare array equivalence
         if getproperty(A, name) != getproperty(B, name)
