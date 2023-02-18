@@ -3,7 +3,7 @@ Various tool functions for workflow managements
 =#
 
 using CellBase: rattle!, reduce, Composition
-using ProgressMeter
+using ProgressMeter: @showprogress
 import CellBase: write_res
 using Base.Threads
 using JLD2
@@ -200,6 +200,8 @@ function _run_rss(
     eng_threshold=-1.0,
     niggli_reduce_output=true,
     max_err=10,
+    pressure_gpa=0.001,
+    pressure_gpa_range=nothing,
     kwargs...,
 )
     i = 1
@@ -217,12 +219,20 @@ function _run_rss(
         pmeter = Progress(max)
     end
     while i <= max
+        # Use randomly chosen pressure
+        if pressure_gpa_range !== nothing
+            pressure_gpa =
+                rand() * (pressure_gpa_range[2] - pressure_gpa_range[1]) +
+                pressure_gpa_range[1]
+        end
+
         vc, res = build_and_relax_one(
             seedfile,
             ensemble,
             cf;
             max_err,
             init_structure_transform,
+            pressure_gpa,
             kwargs...,
         )
 

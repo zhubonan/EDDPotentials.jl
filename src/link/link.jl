@@ -32,6 +32,7 @@ const FEATURESPEC_NAME = "cf"
     rss_pressure_gpa::Float64 = 0.1
     rss_pressure_gpa_range::Vector{Float64} = Float64[]
     rss_niggli_reduce::Bool = true
+    rss_nprocs::Int = 1
     core_size::Float64 = 1.0
     ensemble_std_min::Float64 = 0.0
     ensemble_std_max::Float64 = -1.0
@@ -451,29 +452,90 @@ function _generate_random_structures(bu::Builder, iter)
     else
         # Subsequent cycles - generate from the seed and perform relaxation
         # Read ensemble file
-        ensemble = load_ensemble(bu, iter - 1)
         nstruct = bu.state.per_generation - ndata
         if nstruct > 0
             @info "Generating $(nstruct) training structures for iteration $iter."
-            # Generate data sets
-            if length(bu.state.rss_pressure_gpa_range) > 0
+
+            # Distribute the workloads
+            nstruct_per_proc = div(nstruct, bu.state.rss_nprocs) + 1
+            nstruct_per_proc_last = nstruct % nstruct_per_proc
+            nstructs = fill(nstruct_per_proc, bu.state.rss_nprocs)
+            nstructs[end] = nstruct_per_proc_last
+
+            # Launch external processes
+            project_path = dirname(Base.active_project())
+            cmds = [
+                Cmd([
+                    Base.julia_cmd()...,
+                    "--project=$(project_path)",
+                    "-e",
+                    "using EDDP;EDDP._run_rss_link()",
+                    "--",
+                    "--file",
+                    "$(bu.state.builder_file_path)",
+                    "--iteration",
+                    "$(bu.state.iteration)",
+                    "--num",
+                    "$(num)",
+                    "--pressure",
+                    "$(bu.state.rss_pressure_gpa)",
+                    "--outdir",
+                    "$(outdir)",
+                ]) for num in nstructs
+            ]
+            if !isempty(bu.state.rss_pressure_gpa_range)
+                # Add pressure ranges
                 a, b = bu.state.rss_pressure_gpa_range
-                pressure = rand() * (b - a) + a
-            else
-                pressure = bu.state.rss_pressure_gpa
+                for i in eachindex(cmds)
+                    cmds[i] = Cmd([cmds[i]..., "--pressure-range", "$(a),$(b)"])
+                end
             end
-            _run_rss(
-                bu.state.seedfile,
-                ensemble,
-                bu.cf;
-                core_size=bu.state.core_size,
-                ensemble_std_max=bu.state.ensemble_std_max,
-                ensemble_std_min=bu.state.ensemble_std_min,
-                max=nstruct,
-                outdir=outdir,
-                pressure_gpa=pressure,
-                niggli_reduce_output=bu.state.rss_niggli_reduce,
-            )
+
+            @info "Subprocess launch command: $(cmds[1]) for $(bu.state.rss_nprocs) process"
+            tasks = Task[]
+            for i = 1:bu.state.rss_nprocs
+                this_task = @async run(
+                    pipeline(
+                        cmds[i],
+                        stdout="rss-process=$i-stdout",
+                        stderr="rss-process-$i",
+                    ),
+                )
+                push!(tasks, this_task)
+            end
+            @info "Search process launched, waiting..."
+            last_nstruct = length(glob(joinpath(outdir, "*.res")))
+            while !all(istaskdone.(tasks))
+                nfound = length(glob(joinpath(outdir, "*.res")))
+                # Print progress if the number of models have changed
+                if nfound != last_nstruct
+                    @info "Number of relaxed structures: $(nfound)/$(bu.state.per_generation)"
+                    last_nstruct = nfound
+                end
+                sleep(5)
+            end
+
+            @assert all(fetch(x).exitcode == 0 for x in tasks) "There are tasks with non-zero exit code!"
+
+            #     # Generate data sets
+            #     if length(bu.state.rss_pressure_gpa_range) > 0
+            #         a, b = bu.state.rss_pressure_gpa_range
+            #         pressure = rand() * (b - a) + a
+            #     else
+            #         pressure = bu.state.rss_pressure_gpa
+            #     end
+            #     _run_rss(
+            #         bu.state.seedfile,
+            #         ensemble,
+            #         bu.cf;
+            #         core_size=bu.state.core_size,
+            #         ensemble_std_max=bu.state.ensemble_std_max,
+            #         ensemble_std_min=bu.state.ensemble_std_min,
+            #         max=nstruct,
+            #         outdir=outdir,
+            #         pressure_gpa=pressure,
+            #         niggli_reduce_output=bu.state.rss_niggli_reduce,
+            #     )
             # Shake the generate structures
             @info "Shaking generated structures."
             outdir = joinpath(bu.state.workdir, "gen$(iter)")
@@ -989,4 +1051,67 @@ for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enth
         Convenient method for calling $(EDDP.$func) using a Builder object.
         """ $func(cell::Cell, builder::Builder, gen::Int)
     end
+end
+
+"""
+Run the random search step as part of the `link!` iterative building protocol.
+This function is intented to be called as a separated Julia process
+"""
+function _run_rss_link()
+    s = ArgParseSettings()
+    @add_arg_table s begin
+        "--iteration"
+        help = "Iteration number the random search step is for"
+        required = true
+        arg_type = Int
+        "--file"
+        help = "Path to the YAML configuration file"
+        arg_type = String
+        default = "link.yaml"
+        "--num"
+        help = "Number of structures to generate"
+        required = true
+        arg_type = Int
+        "--outdir"
+        arg_type = String
+        required = true
+        help = "Output directory where the structures should be placed"
+        "--pressure"
+        help = "Pressure under which the structure will be relaxed (GPa)."
+        "--pressure-range"
+        help = "Range of the pressure"
+    end
+
+    args = parse_args(s)
+    fname = args["file"]
+    bu = Builder(fname)
+    bu.state.iteration = args["iteration"]
+    # Load the ensemble file of the "last" iteration
+    ensemble = load_ensemble(bu, bu.state.iteration - 1)
+
+    if args["pressure"] !== nothing
+        pressure_gpa = parse(Float64, args["pressure"])
+    else
+        pressure_gpa = 0.001
+    end
+
+    if args["pressure-range"] !== nothing
+        pressure_gpa_range = map(x -> parse(Float64, x), split(args["pressure-range"], ","))
+    else
+        pressure_gpa_range = nothing
+    end
+
+    _run_rss(
+        bu.state.seedfile,
+        ensemble,
+        bu.cf;
+        core_size=bu.state.core_size,
+        ensemble_std_max=bu.state.ensemble_std_max,
+        ensemble_std_min=bu.state.ensemble_std_min,
+        max=args["num"],
+        outdir=args["outdir"],
+        pressure_gpa,
+        pressure_gpa_range,
+        niggli_reduce_output=bu.state.rss_niggli_reduce,
+    )
 end
