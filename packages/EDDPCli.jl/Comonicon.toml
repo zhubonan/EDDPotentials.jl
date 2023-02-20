@@ -6,3 +6,4 @@ quiet = false
 optimize = 2
 
 [sysimg]
+excluded_packages = ["EDDP", "EDDPCli"]

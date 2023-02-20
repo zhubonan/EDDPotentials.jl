@@ -5,7 +5,9 @@ import Base
 using Parameters
 using JSON
 using YAML
+using TOML
 using ArgParse
+
 
 const XT_NAME = "xt"
 const YT_NAME = "yt"
@@ -32,7 +34,7 @@ const FEATURESPEC_NAME = "cf"
     rss_pressure_gpa::Float64 = 0.1
     rss_pressure_gpa_range::Vector{Float64} = Float64[]
     rss_niggli_reduce::Bool = true
-    rss_nprocs::Int = 1
+    rss_nprocs::Int = 2
     core_size::Float64 = 1.0
     ensemble_std_min::Float64 = 0.0
     ensemble_std_max::Float64 = -1.0
@@ -65,8 +67,8 @@ abstract type AbstractTrainer end
     save_each_model::Bool = true
     p::Float64 = 1.25
     keep_best::Bool = true
-    tb_logger_dir::Any = nothing
-    log_file::Any = nothing
+    tb_logger_dir::String = ""
+    log_file::String = ""
     prefix::String = ""
     max_train::Int = 999
     "Number of workers to be launcher in parallel"
@@ -241,12 +243,14 @@ end
 Save a `Builder` to a file.
 """
 function save_builder(fname::AbstractString, builder::Builder)
-    YAML.write_file(fname, _todict(builder))
+    open(fname, "w") do f
+        TOML.print(f, _make_string_keys(_todict(builder)))
+    end
 end
 
 
 """
-    Builder(str::AbstractString="link.yaml")
+    Builder(str::AbstractString="link.toml")
 
 Load the builder from a YAML file. The file contains nested key-values pairs
 similar to the constructors of the types.
@@ -269,10 +273,10 @@ cf_embedding:
 ```
 
 """
-function Builder(str::AbstractString="link.yaml")
+function Builder(str::AbstractString="link.toml")
     @info "Loading from file $(str)"
 
-    loaded = YAML.load_file(str; dicttype=Dict{Symbol,Any})
+    loaded = _load_builder_file(str)
     builder = _fromdict(Builder, loaded)
 
     # Adjust the workdir to be that relative to the yaml file
@@ -352,7 +356,7 @@ Run `link!` from command line interface.
 Example: 
 
 ```bash
-julia -e "Using EDDP;EDDP.link()" -- --file "link.yaml" 
+julia -e "Using EDDP;EDDP.link()" -- --file "link.toml" 
 ```
 """
 function link()
@@ -360,7 +364,7 @@ function link()
     @add_arg_table s begin
         "--file"
         help = "Name of the yaml file"
-        default = "link.yaml"
+        default = "link.toml"
         arg_type = String
         "--iter"
         help = "Override the iteration number"
@@ -497,7 +501,7 @@ function _generate_random_structures(bu::Builder, iter)
                 this_task = @async run(
                     pipeline(
                         cmds[i],
-                        stdout="rss-process=$i-stdout",
+                        stdout="rss-process-$i-stdout",
                         stderr="rss-process-$i",
                     ),
                 )
@@ -753,14 +757,17 @@ function run_disp_castep(
     # Start to monitor the progress
     @info "Start watching for progress"
     sleep(1)
+    last_ncomp = 0
     while true
         ncomp, nall = _disp_get_completed_jobs(project_name)
         if ncomp / nall > threshold
             @info " $(ncomp)/$(nall) calculation completed - moving on ..."
             break
-        else
+        elseif ncomp != last_ncomp
+            # Only update when there is any change
             @info "Completed calculations: $(ncomp)/$(nall) - waiting ..."
         end
+        last_ncomp = ncomp
         sleep(watch_every)
     end
     # Pulling calculations down
@@ -1003,6 +1010,13 @@ function run_rss(builder::Builder; kwargs...)
     rs = builder.rss
     ensemble = load_ensemble(builder, rs.ensemble_id)
     searchdir = joinpath(builder.state.workdir, rs.subfolder_name)
+
+    # Change the output name
+    if abs(rs.pressure_gpa) > 0.01
+        searchdir = searchdir * "-$(rs.pressure_gpa)gpa"
+    end
+
+
     ensure_dir(searchdir)
     _run_rss(
         rs.seedfile,
@@ -1016,6 +1030,7 @@ function run_rss(builder::Builder; kwargs...)
         packed=rs.packed,
         niggli_reduce_output=rs.niggli_reduce_output,
         max_err=rs.max_err,
+        pressure_gpa=rs.pressure_gpa,
         kwargs...,
     )
 end
@@ -1025,7 +1040,7 @@ end
 
 Run random structure searching for a configuration file for the builder.
 """
-function run_rss(str::AbstractString="link.yaml"; kwargs...)
+function run_rss(str::AbstractString="link.toml"; kwargs...)
     builder = Builder(str)
     run_rss(builder; kwargs...)
 end
@@ -1065,9 +1080,9 @@ function _run_rss_link()
         required = true
         arg_type = Int
         "--file"
-        help = "Path to the YAML configuration file"
+        help = "Path to the configuration file"
         arg_type = String
-        default = "link.yaml"
+        default = "link.toml"
         "--num"
         help = "Number of structures to generate"
         required = true
@@ -1115,3 +1130,63 @@ function _run_rss_link()
         niggli_reduce_output=bu.state.rss_niggli_reduce,
     )
 end
+
+"""
+    _load_builder_file(fname::AbstractString)
+
+Load Builder from a file. automatically convert YAML to TOML when needed.
+"""
+function _load_builder_file(fname::AbstractString)
+
+    if endswith(fname, ".toml")
+        _dict = TOML.parsefile(fname)
+        loaded = _make_symbol_keys(_dict)
+        return loaded
+    else
+        # Check if we have an old format YAML file if so, load it instead
+        as_yaml = splitext(fname)[1] * ".yaml"
+        if isfile(as_yaml)
+            return _load_builder_file(as_yaml)
+        end
+    end
+
+    # Read from YAML but also save the converted TOML file as well
+    if endswith(fname, ".yaml")
+        @warn "Using YAML file is deprecated"
+        loaded = YAML.load_file(fname; dicttype=Dict{Symbol,Any})
+        toml_out = splitext(fname)[1] * ".toml"
+        if !isfile(toml_out)
+            @warn "Automatic converged TOML file saved as $(toml_out)."
+            open(toml_out, "w") do f
+                TOML.print(f, YAML.load_file(fname))
+            end
+        end
+    else
+        throw(ErrorException("File must be a YAML or a TOML file"))
+    end
+
+    loaded
+end
+
+
+
+"""
+    _make_symbol_keys(dict::Dict)
+
+Swap the String keys of a dictonary into Symbol.
+"""
+function _make_symbol_keys(dict::Dict)
+    Dict{Symbol,Any}(
+        Symbol(key) => _make_symbol_keys(value) for (key, value) in pairs(dict)
+    )
+end
+
+_make_symbol_keys(x) = x
+
+function _make_string_keys(dict::Dict)
+    Dict{String,Any}(
+        string(key) => _make_string_keys(value) for (key, value) in pairs(dict)
+    )
+end
+
+_make_string_keys(x) = x

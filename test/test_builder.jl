@@ -1,6 +1,7 @@
 using EDDP
 using Test
 using YAML
+using TOML
 
 check_equal(a, b) = a == b
 check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
@@ -44,21 +45,43 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
             end
         end
 
+        "Test for round-trip toml conversion"
+        function test_to_from_toml(obj::T) where {T}
+            state_dict_ = EDDP._todict(obj)
+            state_dict = mktempdir() do temp
+                open(joinpath(temp, "test.toml"), "w") do f
+                    TOML.print(f, EDDP._make_string_keys(state_dict_))
+                end
+                EDDP._make_symbol_keys(TOML.parsefile(joinpath(temp, "test.toml")))
+            end
+            obj_reconstructed = EDDP._fromdict(T, state_dict)
+            for name in fieldnames(T)
+                @test check_equal(
+                    getproperty(obj, name),
+                    getproperty(obj_reconstructed, name),
+                )
+            end
+        end
+
+
         state = EDDP.BuilderState(seedfile="myseed.jl")
         test_to_from_dict(state)
         test_to_from_yaml(state)
+        test_to_from_toml(state)
 
         lm = EDDP.LocalLMTrainer()
         test_to_from_dict(lm)
         test_to_from_yaml(lm)
+        test_to_from_toml(lm)
 
         rss = EDDP.RssSetting()
         test_to_from_dict(rss)
         test_to_from_yaml(rss)
+        test_to_from_toml(rss)
 
         cf = EDDP.CellFeature(["H"])
         test_to_from_dict(cf)
-        test_to_from_yaml(cf)
+        test_to_from_toml(cf)
 
         # Compare round trip for the builder
         builder_dict = Dict{Symbol,Any}(
@@ -80,12 +103,13 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
         end
         compare_builder(builder, builder2)
 
-        # YAML test
+        # TOML test
         loaded_builder = mktempdir() do tempd
-            fname = joinpath(tempd, "test.yaml")
+            fname = joinpath(tempd, "test.toml")
             EDDP.save_builder(fname, builder)
             EDDP.Builder(fname)
         end
+
         # These fields should be set depends on the file path
         @test loaded_builder.state.workdir != builder.state.workdir
         loaded_builder.state.workdir = builder.state.workdir

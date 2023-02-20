@@ -2,15 +2,27 @@ module EDDPCli
 
 using Comonicon
 using EDDP: link!, Builder, _run_rss, load_ensemble, ensure_dir
+using EDDP: run_rss as run_rss_eddp
+using YAML
+using TOML
 
 # write your code here
 """
-    link
+    link(fname::String="link.toml"; iter::Int=-1)
 
-    Perform iterative building of the EDDP potential
+Perform iterative building of the EDDP potential
+
+# Args
+
+- `fname`: Name of to be used the configuration file (default: link.toml).
+
+# Options
+
+- `--iter`: Iteration number, default is to determine automatically by inspecting the working directory.
+
 """
-@cast function link(fname::String="link.yaml"; iter::Int=-1)
-    builder = Builder(fname)
+@cast function link(fname::AbstractString="link.toml"; iter::Int=-1)
+    builder = Builder(fname.content)
     if iter >= 0
         builder.state.iteration = iter
     end
@@ -21,28 +33,27 @@ end
     run_rss
 
 Perform random structure searching
+
+# Arguments
+
+- `fname`: Name of to be used the configuration file (default: link.toml).
 """
-@cast function run_rss(fname::String="link.yaml";)
+@cast function run_rss(fname::AbstractString="link.toml";)
     builder = Builder(fname)
-    ensemble = load_ensemble(builder, rs.ensemble_id)
-    searchdir = joinpath(builder.state.workdir, rs.subfolder_name)
-    ensure_dir(searchdir)
-    _run_rss(
-        rs.seedfile,
-        ensemble,
-        builder.cf;
-        show_progress=rs.show_progress,
-        max=rs.max,
-        outdir=searchdir,
-        ensemble_std_max=rs.ensemble_std_max,
-        ensemble_std_min=rs.ensemble_std_min,
-        packed=rs.packed,
-        niggli_reduce_output=rs.niggli_reduce_output,
-        max_err=rs.max_err,
-        kwargs...,
-    )
+    run_rss_eddp(builder)
 end
 
+"""
+    yaml2toml
+
+Convenient converter to generate a TOML file from a YAML file.
+"""
+@cast function yaml2toml(fname::AbstractString="link.yaml")
+    dictin = YAML.load_file(fname)
+    open(splitext(fname)[1] * ".toml", "w") do f
+        TOML.print(f, dictin)
+    end
+end
 
 
 """

@@ -32,7 +32,7 @@ julia> pyimport("ase")
 Phonon calculations requires a fully relaxed structures, so one has to relax the structure first:
 
 ```julia-repl
-julia> builder = Builder("link.yaml")  # Load the train model
+julia> builder = Builder("link.toml")  # Load the train model
 
 julia> @show builder.state.iteration  # Check if the latest iteration has been detected
 

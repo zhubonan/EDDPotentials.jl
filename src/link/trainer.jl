@@ -122,11 +122,11 @@ function run_trainer(bu::Builder, tra::LocalLMTrainer=bu.trainer;)
         )
 
         # Display training results
-        if tra.log_file !== nothing || tra.show_progress
+        if tra.log_file != "" || tra.show_progress
             rtrain = TrainingResults(model, train)
             rtest = TrainingResults(model, test)
             rvalid = TrainingResults(model, validation)
-            if tra.log_file !== nothing
+            if tra.log_file != ""
                 open(tra.log_file, "a") do file
                     println(file, "==== Training ====")
                     show(file, rtrain)
@@ -237,7 +237,7 @@ function run_trainer()
     if args["prefix"] != ""
         builder.trainer.prefix = args["prefix"]
     end
-    if args["id"] != "" && builder.trainer.log_file !== nothing
+    if args["id"] != "" && builder.trainer.log_file != ""
         builder.trainer.log_file = builder.trainer.log_file * "-" * args["id"]
     end
     run_trainer(builder)
