@@ -17,11 +17,11 @@ function dataset_name(bu::Builder, i=bu.state.iteration)
 end
 
 """
-    num_existing_models(bu::Builder, tra::LocalLMTrainer=bu.trainer)
+    num_existing_models(bu::Builder, tra::TrainingOption=bu.trainer)
 
 Return the number of existing models in the training directory.
 """
-function num_existing_models(bu::Builder, tra::LocalLMTrainer=bu.trainer)
+function num_existing_models(bu::Builder, tra::TrainingOption=bu.trainer)
     training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
     count(
         x -> endswith(x, ".jld2") && startswith(x, tra.prefix * "model"),
@@ -75,11 +75,11 @@ end
 
 
 """
-    run_trainer(trainer::LocalLMTrainer, builder::Builder)
+    run_trainer(trainer::TrainingOption, builder::Builder)
 
 Train the model and write the result to the disk as a JLD2 archive.
 """
-function run_trainer(bu::Builder, tra::LocalLMTrainer=bu.trainer;)
+function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
 
     training_dir = joinpath(bu.state.workdir, "training")
     ensure_dir(training_dir)
@@ -164,14 +164,14 @@ end
 
 
 """
-    create_ensemble(bu::Builder, tra::LocalLMTrainer=bu.trainer;save_and_clean=false, kwargs...)
+    create_ensemble(bu::Builder, tra::TrainingOption=bu.trainer;save_and_clean=false, kwargs...)
 
 Create ensemble from resulted models. Optionally save the created ensemble model and clear
 the transient data.
 """
 function create_ensemble(
     bu::Builder,
-    tra::LocalLMTrainer=bu.trainer;
+    tra::TrainingOption=bu.trainer;
     save_and_clean=false,
     dataset_path=joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu)),
     use_validation=false,

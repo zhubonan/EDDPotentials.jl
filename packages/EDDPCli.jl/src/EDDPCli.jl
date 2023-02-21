@@ -9,7 +9,7 @@ using EDDP:
     ensure_dir,
     BuilderState,
     CellFeature,
-    LocalLMTrainer,
+    TrainingOption,
     RssSetting
 using EDDP:
     run_rss as run_rss_eddp, _make_string_keys, _make_symbol_keys, _fromdict, _todict

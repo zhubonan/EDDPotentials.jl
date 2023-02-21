@@ -24,21 +24,6 @@ const YT_NAME = "yt"
 const FEATURESPEC_NAME = "cf"
 
 
-@with_kw struct TrainingOptions
-    nmodels::Int = 256
-    max_iter::Int = 300
-    "number of hidden nodes in each layer"
-    n_nodes::Vector{Int} = [8]
-    yt_name::String = YT_NAME
-    xt_name::String = XT_NAME
-    featurespec_name::String = FEATURESPEC_NAME
-    earlystop::Int = 30
-    show_progress::Bool = false
-    "Store the data used for training in the archive"
-    store_training_data::Bool = true
-    rmse_threshold::Float64 = 0.5
-end
-
 """
 Genreate a `Chain` based on a vector specifying the number of hidden nodes in each layer
 """
@@ -60,13 +45,7 @@ function generate_chain(nfeature, nnodes)
 end
 
 
-"Load CellFeature serialized in the archive"
-function load_featurespec(fname; opts=TrainingOptions())
-    featurespec = jldopen(fname) do file
-        file[opts.featurespec_name]
-    end
-    featurespec
-end
+
 
 
 """

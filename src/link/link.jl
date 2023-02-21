@@ -8,239 +8,90 @@ using YAML
 using TOML
 using ArgParse
 
-
 const XT_NAME = "xt"
 const YT_NAME = "yt"
 const FEATURESPEC_NAME = "cf"
 
-
-@with_kw mutable struct BuilderState
-    iteration::Int = 0
-    workdir::String = "."
-    seedfile::String
-    seedfile_calc::String = seedfile
-    max_iterations::Int = 5
-    per_generation::Int = 100
-    per_generation_threshold::Float64 = 0.98
-    shake_per_minima::Int = 10
-    build_timeout::Float64 = 1.0
-    shake_amp::Float64 = 0.02
-    shake_cell_amp::Float64 = 0.02
-    n_parallel::Int = 1
-    mpinp::Int = 2
-    n_initial::Int = 1000
-    dft_mode::String = "castep"
-    dft_kwargs::Dict{Symbol,Any} = Dict{Symbol,Any}()
-    rss_pressure_gpa::Float64 = 0.1
-    rss_pressure_gpa_range::Vector{Float64} = Float64[]
-    rss_niggli_reduce::Bool = true
-    rss_nprocs::Int = 2
-    rss_num_threads::Int = 1
-    core_size::Float64 = 1.0
-    ensemble_std_min::Float64 = 0.0
-    ensemble_std_max::Float64 = -1.0
-    "Run walk-forward test before re-training"
-    run_walk_forward::Bool = true
-    "Override the project_prefix"
-    project_prefix_override::String = ""
-    builder_file_path::String = ""
-end
-
-abstract type AbstractTrainer end
-
-@with_kw mutable struct LocalLMTrainer <: AbstractTrainer
-    energy_threshold::Float64 = 10.0
-    nmax::Int = 3000
-    nmodels::Int = 256
-    user_test_for_ensemble::Bool = true
-    max_iter::Int = 300
-    "number of hidden nodes in each layer"
-    n_nodes::Vector{Int} = [8]
-    earlystop::Int = 30
-    show_progress::Bool = true
-    "Store the data used for training in the archive"
-    store_training_data::Bool = true
-    rmse_threshold::Float64 = 0.5
-    training_mode::String = "manual_backprop"
-    training_kwargs::Dict{Symbol,Any} = Dict{Symbol,Any}()
-    train_split::Vector{Float64} = [0.8, 0.1, 0.1]
-    use_test_for_ensemble::Bool = true
-    save_each_model::Bool = true
-    p::Float64 = 1.25
-    keep_best::Bool = true
-    tb_logger_dir::String = ""
-    log_file::String = ""
-    prefix::String = ""
-    max_train::Int = 999
-    "Number of workers to be launcher in parallel"
-    num_workers::Int = 1
-    "The number of threads per worker"
-    num_threads_per_worker::Int = 1
-end
-
-@with_kw mutable struct RssSetting
-    packed::Bool = true
-    seedfile::String = "null"
-    ensemble_id::Int = -1
-    max::Int = 1000
-    subfolder_name::String = "search"
-    show_progress::Bool = true
-    ensemble_std_max::Float64 = 0.2
-    ensemble_std_min::Float64 = -1.0
-    eng_threshold::Float64 = -1.0
-    niggli_reduce_output::Bool = true
-    max_err::Int = 10
-    pressure_gpa::Float64 = 0.01
-end
+include("options.jl")
 
 
-struct Builder{M<:AbstractTrainer}
-    state::BuilderState
+# struct Builder{M<:AbstractTrainer}
+#     state::BuilderState
+#     cf::CellFeature
+#     trainer::M
+#     cf_embedding::Any
+#     rss::RssSetting
+# end
+
+# function Builder(
+#     state::BuilderState,
+#     cf::CellFeature,
+#     trainer;
+#     cf_embedding=nothing,
+#     rss=RssSetting(),
+# )
+#     builder = Builder{typeof(trainer)}(state, cf, trainer, cf_embedding, rss)
+#     _set_iteration!(builder)
+#     if rss.seedfile == "null"
+#         rss.ensemble_id = builder.state.iteration
+#         rss.seedfile = splitext(builder.state.seedfile)[1]
+#         @warn "Using default ensemble id: $(rss.ensemble_id)"
+#         @warn "Using seed file: $(rss.seedfile)"
+#     end
+#     if rss.ensemble_id < 0
+#         rss.ensemble_id = builder.state.iteration
+#         @warn "Using default ensemble id: $(rss.ensemble_id)"
+#     end
+
+#     builder_uuid(builder)
+#     builder
+# end
+
+
+
+"""
+The Builder stores states and options for training and using the potentials.
+"""
+mutable struct Builder
     cf::CellFeature
-    trainer::M
-    cf_embedding::Any
+    cf_embedding::Union{Nothing,CellEmbedding}
+    state::BuilderState
     rss::RssSetting
+    trainer::TrainingOption
+    cfopt::CellFeatureConfig
+    options::BuilderOption
 end
 
-function Builder(
-    state::BuilderState,
-    cf::CellFeature,
-    trainer;
-    cf_embedding=nothing,
-    rss=RssSetting(),
-)
-    builder = Builder{typeof(trainer)}(state, cf, trainer, cf_embedding, rss)
-    _set_iteration!(builder)
-    if rss.seedfile == "null"
-        rss.ensemble_id = builder.state.iteration
-        rss.seedfile = splitext(builder.state.seedfile)[1]
-        @warn "Using default ensemble id: $(rss.ensemble_id)"
-        @warn "Using seed file: $(rss.seedfile)"
+
+function Builder(options::BuilderOption)
+    cf = CellFeature(options.cf)
+    if options.cf_embedding !== nothing
+        embed = CellEmbedding(cf, options.cf_embedding.n, options.cf_embedding.m)
+    else
+        embed = nothing
     end
-    if rss.ensemble_id < 0
-        rss.ensemble_id = builder.state.iteration
-        @warn "Using default ensemble id: $(rss.ensemble_id)"
+
+    builder =
+        Builder(cf, embed, options.state, options.rss, options.trainer, options.cf, options)
+    _set_iteration!(builder)
+    if builder.rss.seedfile == "null"
+        builder.rss.ensemble_id = builder.state.iteration
+        builder.rss.seedfile = splitext(builder.state.seedfile)[1]
+        @warn "Using default ensemble id: $(builder.rss.ensemble_id)"
+        @warn "Using seed file: $(builder.rss.seedfile)"
+    end
+    if builder.rss.ensemble_id < 0
+        builder.rss.ensemble_id = builder.state.iteration
+        @warn "Using default ensemble id: $(builder.rss.ensemble_id)"
     end
 
     builder_uuid(builder)
     builder
 end
 
-"""
-    _todict(builder)
-
-Construct a dictionary for a builder - used for serialization through YAML
-"""
-function _todict(state::T) where {T<:Union{BuilderState,LocalLMTrainer,RssSetting}}
-    out = Dict{Symbol,Any}()
-    for name in fieldnames(T)
-        val = getproperty(state, name)
-        # Convert NamedTuple into dictionary
-        if isa(val, NamedTuple)
-            out[name] = Dict(pairs(val)...)
-        else
-            out[name] = val
-        end
-    end
-    out
-end
-
-
-function _todict(cf::CellFeature)
-    out = Dict{Symbol,Any}()
-    out[:elements] = map(string, cf.elements)
-    if cf.constructor_kwargs == nothing
-        throw(
-            ErrorException(
-                "CellFeature with out recorded constructed keyword arguments cannot be converted!",
-            ),
-        )
-    end
-    for (key, value) in pairs(cf.constructor_kwargs)
-        out[key] = value
-    end
-    return out
-end
 
 add_threads_env(cmd, threads) = addenv(cmd, "JULIA_NUM_THREADS" => threads)
 
-"""
-    _fromdict(T::DataType, dict::Dict)
-
-Load from a diction of field names.
-"""
-function _fromdict(
-    T::Type{N},
-    dict::Dict,
-) where {N<:Union{BuilderState,LocalLMTrainer,RssSetting}}
-    new_dict = deepcopy(dict)
-    # Manual type conversion
-    for key in keys(dict)
-        # Reconstruct NamedTuple from dictionary
-        if fieldtype(T, key) <: NamedTuple
-            new_dict[key] = NamedTuple(dict[key])
-        end
-    end
-    T(; dict...)
-end
-
-function _fromdict(::Type{<:CellFeature}, dict)
-    _dict = deepcopy(dict)
-    elements = pop!(_dict, :elements)
-    CellFeature(elements; _dict...)
-end
-
-function _todict(builder::Builder)
-    outdict = Dict{Symbol,Any}()
-    outdict[:rss] = _todict(builder.rss)
-    outdict[:trainer] = _todict(builder.trainer)
-    outdict[:cf] = _todict(builder.cf)
-    outdict[:trainer][:type] = TRAINER_NAME[typeof(builder.trainer)]
-
-    outdict[:state] = _todict(builder.state)
-    if builder.cf_embedding !== nothing
-        outdict[:cf_embedding] =
-            Dict{Symbol,Any}(:n => builder.cf_embedding.n, :m => builder.cf_embedding.m)
-    end
-    outdict
-end
-
-function _fromdict(::Type{Builder}, dict)
-
-    # Adjust the workdir to be that relative to the yaml file
-    statedict = dict[:state]
-
-    state = _fromdict(BuilderState, statedict)
-
-    # Setup cell Feature
-    cf_dict = dict[:cf]
-    cf = _fromdict(CellFeature, cf_dict)
-
-    # Setup trainer
-    trainer_dict = deepcopy(get(dict, :trainer, Dict{Symbol,Any}()))
-    trainer_name = pop!(trainer_dict, :type)
-    if trainer_name == "locallm"
-        trainer = _fromdict(LocalLMTrainer, trainer_dict)
-    else
-        throw(ErrorException("trainer type $(trainer) is not known"))
-    end
-
-    # Setup embedding
-    if :cf_embedding in keys(dict)
-        n = dict[:cf_embedding][:n]
-        m = get(dict[:cf_embedding], :m, n)
-        embedding = CellEmbedding(cf, n, m)
-    else
-        embedding = nothing
-    end
-
-    if :rss in keys(dict)
-        rss = _fromdict(RssSetting, dict[:rss])
-        Builder(state, cf, trainer; cf_embedding=embedding, rss=rss)
-    else
-        Builder(state, cf, trainer; cf_embedding=embedding)
-    end
-end
 
 """
     save_builder(fname::AbstractString, builder)
@@ -249,7 +100,7 @@ Save a `Builder` to a file.
 """
 function save_builder(fname::AbstractString, builder::Builder)
     open(fname, "w") do f
-        TOML.print(f, _make_string_keys(_todict(builder)))
+        to_toml(f, builder.options)
     end
 end
 
@@ -281,17 +132,30 @@ cf_embedding:
 function Builder(str::AbstractString="link.toml")
     @info "Loading from file $(str)"
 
-    loaded = _load_builder_file(str)
-    builder = _fromdict(Builder, loaded)
+    if endswith(str, ".toml")
+        builder_opts = from_toml(BuilderOption, str)
+    else
+        dict = YAML.load_file(str; dicttype=Dict{String,Any})
+        # Save converged TOML if requested
+        toml = splitext(str)[1] * ".toml"
+        if !isfile(toml)
+            @info "Saving converted TOML configuration at $toml."
+            open(toml, "w") do io
+                TOML.print(io, dict)
+            end
+        end
+        builder_opts = from_dict(BuilderOption, dict)
+    end
+
+    builder = Builder(builder_opts)
 
     # Adjust the workdir to be that relative to the yaml file
     paths = splitpath(str)
-    statedict = loaded[:state]
     if length(paths) > 1
         parents = paths[1:end-1]
-        @assert !startswith(statedict[:workdir], "/") ":workdir should be a relative path"
-        builder.state.workdir = joinpath(parents..., statedict[:workdir])
-        @info "Setting workdir to $(statedict[:workdir])"
+        @assert !startswith(builder.state.workdir, "/") ":workdir should be a relative path"
+        builder.state.workdir = joinpath(parents..., builder.state.workdir)
+        @info "Setting workdir to $(builder.state.workdir)"
     end
 
     # Store the path to the builder file
@@ -309,8 +173,10 @@ function Base.show(io::IO, m::MIME"text/plain", bu::Builder)
     show(io, m, bu.state)
     println("\nTrainer: ")
     show(io, m, bu.trainer)
-    println("\nCellFeature: ")
-    show(io, m, bu.cf)
+    println("\nRSS: ")
+    show(io, m, bu.rss)
+    println("\nCellFeature (one/two/tree-body): ")
+    show(io, m, feature_size(bu.cf))
     println("\nEmbedding: ")
     show(io, m, bu.cf_embedding)
 end
@@ -589,7 +455,7 @@ function _run_external(bu::Builder)
             bu.state.seedfile_calc;
             project_prefix,
             threshold=bu.state.per_generation_threshold,
-            bu.state.dft_kwargs...,
+            _make_symbol_keys(bu.state.dft_kwargs)...,
         )
         return true
     elseif bu.state.dft_mode == "pp3"
@@ -599,7 +465,7 @@ function _run_external(bu::Builder)
             _output_structure_dir(bu),
             bu.state.seedfile_calc;
             n_parallel=bu.state.n_parallel,
-            bu.state.dft_kwargs...,
+            _make_symbol_keys(bu.state.dft_kwargs)...,
         )
         return true
     elseif bu.state.dft_mode == "castep"
@@ -609,7 +475,7 @@ function _run_external(bu::Builder)
             _output_structure_dir(bu);
             mpinp=bu.state.mpinp,
             bu.state.n_parallel,
-            bu.state.dft_kwargs...,
+            _make_symbol_keys(bu.state.dft_kwargs)...,
         )
         return true
     end
@@ -619,11 +485,11 @@ end
 """
 Carry out training and save the ensemble as a JLD2 archive.
 """
-function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
+function _perform_training(bu::Builder)
 
     tra = bu.trainer
     # Write the dataset to the disk
-    @info "Training with LocalLMTrainer"
+    @info "Training with TrainingOption"
     @info "Preparing dataset..."
     write_dataset(bu)
 
@@ -1058,7 +924,7 @@ function run_rss(str::AbstractString="link.toml"; kwargs...)
 end
 
 # Map for trainer names
-TRAINER_NAME = Dict(LocalLMTrainer => "locallm")
+TRAINER_NAME = Dict(TrainingOption => "locallm")
 
 
 for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enthalpy]
@@ -1142,44 +1008,6 @@ function _run_rss_link()
         niggli_reduce_output=bu.state.rss_niggli_reduce,
     )
 end
-
-"""
-    _load_builder_file(fname::AbstractString)
-
-Load Builder from a file. automatically convert YAML to TOML when needed.
-"""
-function _load_builder_file(fname::AbstractString)
-
-    if endswith(fname, ".toml")
-        _dict = TOML.parsefile(fname)
-        loaded = _make_symbol_keys(_dict)
-        return loaded
-
-        # Check if we have an old format YAML file if so, load it instead
-        as_yaml = splitext(fname)[1] * ".yaml"
-        if isfile(as_yaml)
-            return _load_builder_file(as_yaml)
-        end
-    end
-
-    # Read from YAML but also save the converted TOML file as well
-    if endswith(fname, ".yaml")
-        @warn "Using YAML file is deprecated"
-        loaded = YAML.load_file(fname; dicttype=Dict{Symbol,Any})
-        toml_out = splitext(fname)[1] * ".toml"
-        if !isfile(toml_out)
-            @warn "Automatic converged TOML file saved as $(toml_out)."
-            open(toml_out, "w") do f
-                TOML.print(f, YAML.load_file(fname))
-            end
-        end
-    else
-        throw(ErrorException("File must be a YAML or a TOML file"))
-    end
-
-    loaded
-end
-
 
 
 """
