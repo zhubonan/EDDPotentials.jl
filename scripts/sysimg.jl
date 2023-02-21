@@ -235,8 +235,9 @@ function build(
         isdir(envpath) || mkdir(envpath)
         # Deploy the environment
         for name in ["Project.toml", "Manifest.toml"]
-            cp(joinpath(temp_project_path, name), joinpath(envpath, name))
+            cp(joinpath(temp_project_path, name), joinpath(envpath, name);force=true)
         end
+        @info "Saved environment to: $(envpath)."
     end
 end
 

@@ -95,7 +95,9 @@ function _update_pij!(pij, inv_fij, r12, features3)
         ftmp = feat.f(r12, feat.rcut)
         # 1/f(rij)
         inv_fij[i] = 1.0 / ftmp
-        pij[:, i] = ftmp .^ feat.p
+        for j = 1:length(feat.p)
+            pij[j, i] = ftmp^feat.p[j]
+        end
     end
 end
 
@@ -104,7 +106,9 @@ function _update_qjk!(qjk, inv_qji, r12, features3)
         ftmp = feat.f(r12, feat.rcut)
         # 1/f(rij)
         inv_qji[i] = 1.0 / ftmp
-        qjk[:, i] = ftmp .^ feat.q
+        for j = 1:length(feat.q)
+            qjk[j, i] = ftmp^feat.q[j]
+        end
     end
 end
 
@@ -474,6 +478,7 @@ function compute_fv!(
     ecore_buffer = [0.0 for _ = 1:nthreads()]
 
     Threads.@threads for iat = 1:nat
+        #for iat = 1:nat
         ecore = 0.0
         pij = zeros(npmax3, lfe3)
         inv_fij = zeros(lfe3)

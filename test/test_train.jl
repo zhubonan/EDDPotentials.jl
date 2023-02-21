@@ -104,8 +104,14 @@ include("utils.jl")
         out = EDDP.predict_energy(emod, fc_train[1][1])
         @test isa(out, Real)
 
-        ## Test distributed training
-        res = EDDP.train_multi_threaded(model, fc_train, fc_test; nmodels=3)
+        ## Training with multithreading - this is not optimum...
+        res = EDDP.train_multi_threaded(
+            model,
+            fc_train,
+            fc_test;
+            nmodels=3,
+            save_each_model=false,
+        )
         @test isa(res, EDDP.EnsembleNNInterface)
     end
 

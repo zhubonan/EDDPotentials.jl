@@ -133,14 +133,8 @@ g(r)= \begin{cases}
 """
 gfr(r::T, rcut) where {T} = r <= rcut ? -2 / rcut : zero(T)
 
-TwoBodyFeature(f, g, p, sij_idx, rcut::Real) = TwoBodyFeature(
-    f,
-    g,
-    collect(Float64, p),
-    tuple(sij_idx[1], sij_idx[2]),
-    rcut,
-    length(p),
-)
+TwoBodyFeature(f, g, p, sij_idx, rcut::Real) =
+    TwoBodyFeature(f, g, collect(p), tuple(sij_idx[1], sij_idx[2]), rcut, length(p))
 TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, p, sij_idx, rcut)
 
 """
@@ -232,8 +226,8 @@ end
 ThreeBodyFeature(f, g, p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(
     f,
     g,
-    collect(Float64, p),
-    collect(Float64, q),
+    collect(p),
+    collect(q),
     tuple(sijk_idx[1], sijk_idx[2], sijk_idx[3]),
     rcut,
     length(p),

@@ -35,6 +35,7 @@ const FEATURESPEC_NAME = "cf"
     rss_pressure_gpa_range::Vector{Float64} = Float64[]
     rss_niggli_reduce::Bool = true
     rss_nprocs::Int = 2
+    rss_num_threads::Int = 1
     core_size::Float64 = 1.0
     ensemble_std_min::Float64 = 0.0
     ensemble_std_max::Float64 = -1.0
@@ -73,6 +74,8 @@ abstract type AbstractTrainer end
     max_train::Int = 999
     "Number of workers to be launcher in parallel"
     num_workers::Int = 1
+    "The number of threads per worker"
+    num_threads_per_worker::Int = 1
 end
 
 @with_kw mutable struct RssSetting
@@ -158,6 +161,8 @@ function _todict(cf::CellFeature)
     end
     return out
 end
+
+add_threads_env(cmd, threads) = addenv(cmd, "JULIA_NUM_THREADS" => threads)
 
 """
     _fromdict(T::DataType, dict::Dict)
@@ -469,33 +474,39 @@ function _generate_random_structures(bu::Builder, iter)
             # Launch external processes
             project_path = dirname(Base.active_project())
             cmds = [
-                Cmd([
-                    Base.julia_cmd()...,
-                    "--project=$(project_path)",
-                    "-e",
-                    "using EDDP;EDDP._run_rss_link()",
-                    "--",
-                    "--file",
-                    "$(bu.state.builder_file_path)",
-                    "--iteration",
-                    "$(bu.state.iteration)",
-                    "--num",
-                    "$(num)",
-                    "--pressure",
-                    "$(bu.state.rss_pressure_gpa)",
-                    "--outdir",
-                    "$(outdir)",
-                ]) for num in nstructs
+                add_threads_env(
+                    Cmd([
+                        Base.julia_cmd()...,
+                        "--project=$(project_path)",
+                        "-e",
+                        "using EDDP;EDDP._run_rss_link()",
+                        "--",
+                        "--file",
+                        "$(bu.state.builder_file_path)",
+                        "--iteration",
+                        "$(bu.state.iteration)",
+                        "--num",
+                        "$(num)",
+                        "--pressure",
+                        "$(bu.state.rss_pressure_gpa)",
+                        "--outdir",
+                        "$(outdir)",
+                    ]),
+                    bu.state.rss_num_threads,
+                ) for num in nstructs
             ]
             if !isempty(bu.state.rss_pressure_gpa_range)
                 # Add pressure ranges
                 a, b = bu.state.rss_pressure_gpa_range
                 for i in eachindex(cmds)
-                    cmds[i] = Cmd([cmds[i]..., "--pressure-range", "$(a),$(b)"])
+                    cmds[i] = add_threads_env(
+                        Cmd([cmds[i]..., "--pressure-range", "$(a),$(b)"]),
+                        bu.state.rss_num_threads,
+                    )
                 end
             end
 
-            @info "Subprocess launch command: $(cmds[1]) for $(bu.state.rss_nprocs) process"
+            @info "Subprocess launch command: $(Cmd([cmds[1]...])) for $(bu.state.rss_nprocs) process"
             tasks = Task[]
             for i = 1:bu.state.rss_nprocs
                 this_task = @async run(
@@ -635,12 +646,13 @@ function _perform_training(bu::Builder{M}) where {M<:LocalLMTrainer}
     tasks = Task[]
     for i = 1:tra.num_workers
         # Run with ids
-        _cmd = Cmd([cmd..., "--id", "$i"])
+        _cmd = add_threads_env(Cmd([cmd..., "--id", "$i"]), tra.num_threads_per_worker)
         this_task = @async begin
             run(pipeline(_cmd, stdout="lm-process-$i-stdout", stderr="lm-process-$i-stderr"))
         end
         push!(tasks, this_task)
     end
+
     @info "Training processes launched, waiting..."
 
     last_nm = num_existing_models(bu)
@@ -1142,7 +1154,7 @@ function _load_builder_file(fname::AbstractString)
         _dict = TOML.parsefile(fname)
         loaded = _make_symbol_keys(_dict)
         return loaded
-    else
+
         # Check if we have an old format YAML file if so, load it instead
         as_yaml = splitext(fname)[1] * ".yaml"
         if isfile(as_yaml)

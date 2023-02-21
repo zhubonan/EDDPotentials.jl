@@ -69,7 +69,7 @@ Then can be used to run further calculations through phonopy command line interf
 """
 function run_phonon(
     calc;
-    out_dir=".",
+    out_dir="./phonon",
     phonon_save_name="phonopy_params.yaml",
     force_set_filename="FORCE_SETS",
     supercell_matrix,
@@ -97,9 +97,11 @@ function run_phonon(
     phonon_save_name = joinpath(out_dir, phonon_save_name)
     force_set_filename = joinpath(out_dir, force_set_filename)
     structure_filename = joinpath(out_dir, "input.res")
+    poscar_name = joinpath(out_dir, "POSCAR")
 
     @info "Input structure written to: $structure_filename."
     write_res(structure_filename, get_cell(calc))
+    write_poscar(poscar_name, get_cell(calc))
 
     @info "Force set file written to: $force_set_filename."
     py"write_FORCE_SETS"(phonon.dataset, force_set_filename)
