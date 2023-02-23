@@ -3,21 +3,11 @@ using StatsBase
 using Random
 using Glob
 using CellBase
+import ProgressMeter
 import CellBase: natoms, reduce, Composition
 import Base
 
 using Base.Threads
-
-"""
-Allow path to start with "/" when globbing by converting it to a relative path
-"""
-function glob_allow_abs(path)
-    if startswith(path, "/")
-        path = relpath(path)
-    end
-    return glob(path)
-end
-
 
 """
     StructureContainer{T}
@@ -143,15 +133,6 @@ function _split_vector(c, nsplit::Vararg{Int}; shuffle=true, seed=42)
 end
 
 """
-Split a vector by fractions
-"""
-function _split_vector(c, nsplit::Vararg{Real}; shuffle=true, seed=42)
-    ntot = length(c)
-    intsplit = nsplit .* ntot .|> floor .|> Int
-    _split_vector(c, intsplit...; shuffle, seed)
-end
-
-"""
     FeatureContainer{T,N}
 
 Container for holding features from structures.
@@ -267,7 +248,7 @@ function FeatureContainer(
         p = Progress(length(sc))
     end
     jj = Atomic{Int}(0)
-    l = SpinLock()
+    l = ReentrantLock()
     Threads.@threads for i = 1:length(sc)
         fvecs[i] = EDDP.feature_vector(feature, sc.structures[i]; nmax, kwargs...)
         m = metadata[i]
@@ -276,9 +257,9 @@ function FeatureContainer(
         m[:nformula] = nf
         Threads.atomic_add!(jj, 1)
         if show_progress
-            lock(l)
-            ProgressMeter.update!(p, jj[])
-            unlock(l)
+            lock(l) do
+                ProgressMeter.update!(p, jj[])
+            end
         end
     end
     FeatureContainer(fvecs, feature, H, labels, metadata, false, nothing, nothing)

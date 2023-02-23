@@ -32,6 +32,7 @@ include("nn/interface.jl")
 include("nntools.jl")
 
 # Training and data handling
+include("utils.jl")
 include("lmsolve.jl")
 include("preprocessing.jl")
 include("eddpf90.jl")

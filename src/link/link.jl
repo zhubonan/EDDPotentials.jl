@@ -74,13 +74,13 @@ function Builder(options::BuilderOption)
     builder =
         Builder(cf, embed, options.state, options.rss, options.trainer, options.cf, options)
     _set_iteration!(builder)
+    # Populate some default fields
     if builder.rss.seedfile == "null"
-        builder.rss.ensemble_id = builder.state.iteration
-        builder.rss.seedfile = splitext(builder.state.seedfile)[1]
-        @warn "Using default ensemble id: $(builder.rss.ensemble_id)"
+        builder.rss.seedfile = builder.state.seedfile
         @warn "Using seed file: $(builder.rss.seedfile)"
     end
-    if builder.rss.ensemble_id < 0
+
+    if builder.rss.ensemble_id == -1
         builder.rss.ensemble_id = builder.state.iteration
         @warn "Using default ensemble id: $(builder.rss.ensemble_id)"
     end
@@ -322,7 +322,11 @@ function _generate_random_structures(bu::Builder, iter)
         nstruct = bu.state.n_initial - ndata
         if nstruct > 0
             @info "Genearating $(nstruct) initial training structures."
-            build_random_structures(bu.state.seedfile, outdir; n=nstruct)
+            build_random_structures(
+                joinpath(bu.state.workdir, bu.state.seedfile),
+                outdir;
+                n=nstruct,
+            )
         end
     else
         # Subsequent cycles - generate from the seed and perform relaxation
@@ -398,26 +402,6 @@ function _generate_random_structures(bu::Builder, iter)
 
             @assert all(fetch(x).exitcode == 0 for x in tasks) "There are tasks with non-zero exit code!"
 
-            #     # Generate data sets
-            #     if length(bu.state.rss_pressure_gpa_range) > 0
-            #         a, b = bu.state.rss_pressure_gpa_range
-            #         pressure = rand() * (b - a) + a
-            #     else
-            #         pressure = bu.state.rss_pressure_gpa
-            #     end
-            #     _run_rss(
-            #         bu.state.seedfile,
-            #         ensemble,
-            #         bu.cf;
-            #         core_size=bu.state.core_size,
-            #         ensemble_std_max=bu.state.ensemble_std_max,
-            #         ensemble_std_min=bu.state.ensemble_std_min,
-            #         max=nstruct,
-            #         outdir=outdir,
-            #         pressure_gpa=pressure,
-            #         niggli_reduce_output=bu.state.rss_niggli_reduce,
-            #     )
-            # Shake the generate structures
             @info "Shaking generated structures."
             outdir = joinpath(bu.state.workdir, "gen$(iter)")
             shake_res(
@@ -897,7 +881,7 @@ function run_rss(builder::Builder; kwargs...)
 
     ensure_dir(searchdir)
     _run_rss(
-        rs.seedfile,
+        joinpath(builder.state.workdir, rs.seedfile),
         ensemble,
         builder.cf;
         show_progress=rs.show_progress,
@@ -947,8 +931,15 @@ for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enth
 end
 
 """
+    _run_rss_link()
+
 Run the random search step as part of the `link!` iterative building protocol.
-This function is intented to be called as a separated Julia process
+This function is intented to be called as a separated Julia process.
+
+
+!!! note 
+
+    This function is meanted to be called with commandline arguments.
 """
 function _run_rss_link()
     s = ArgParseSettings()
@@ -995,7 +986,7 @@ function _run_rss_link()
     end
 
     _run_rss(
-        bu.state.seedfile,
+        joinpath(bu.state.workdir, bu.state.seedfile),
         ensemble,
         bu.cf;
         core_size=bu.state.core_size,

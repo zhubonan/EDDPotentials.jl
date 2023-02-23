@@ -9,7 +9,7 @@ using Glob
 using Printf
 using .NNLS: nnls
 using NLSolversBase
-using ProgressMeter
+using ProgressMeter: Progress
 using Parameters
 using Printf
 using StatsBase

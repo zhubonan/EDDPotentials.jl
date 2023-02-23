@@ -399,6 +399,8 @@ function get_2d_plot_data(phased::PhaseDiagram; threshold=0.5)
 
     x = [get_composition_coord(record, phased.elements)[1] for record in selected_records]
     y = phased.formation_energies[mask]
+    reduced_formula =
+        [record_reduced_comp(record) |> formula for record in selected_records]
 
     stable_idx = findall(x -> x in phased.stable_records, selected_records)
     stable_x = [
@@ -417,7 +419,6 @@ function get_2d_plot_data(phased::PhaseDiagram; threshold=0.5)
     stable_y = stable_y[sortperm(stable_x)]
     stable_x = stable_x[sort_idx]
     stable_formula = stable_formula[sort_idx]
-    reduced_formula = reduced_formula[sort_idx]
 
     (;
         x,

@@ -5,6 +5,7 @@ Various tool functions for workflow managements
 using CellBase: rattle!, reduce, Composition
 using ProgressMeter: @showprogress
 import CellBase: write_res
+using StatsBase
 using Base.Threads
 using JLD2
 using Dates
@@ -148,10 +149,12 @@ end
 """
     build_random_structures(seedfile, outdir;n=1, show_progress=false, timeout=60)
 
-Build multiple random structures in the target folder.
+Build multiple random structures in the target folder. A glob pattern may be used for the
+`seedfile` argument.
+
 """
 function build_random_structures(
-    seedfile,
+    seedfile::AbstractString,
     outdir;
     n=1,
     show_progress=false,
@@ -162,9 +165,12 @@ function build_random_structures(
     if show_progress
         prog = Progress(n)
     end
+    seedfiles = glob_allow_abs(seedfile)
+    @assert length(seedfiles) > 0 "No valid seed found with $seedfile."
     while i < n
-        cell = build_one(seedfile; timeout)
-        label = EDDP.get_label(EDDP.stem(seedfile))
+        this_seed = sample(seedfiles)
+        cell = build_one(this_seed; timeout)
+        label = EDDP.get_label(EDDP.stem(this_seed))
         cell.metadata[:label] = label
         if outfmt == "res"
             write_res(joinpath(outdir, "$(label).res"), cell)
@@ -183,6 +189,8 @@ end
     run_rss(seedfile, ensemble, cf;max=1, outdir="./", kwargs...)
 
 Perform random structure searching using the seed file.
+Glob expression is allowed for the `seedfile` argument to select random from a list of
+seeds.
 
 - `init_structure_transform`: A function that transforms the initial structure. If `nothing` is returned, skip this generated structure.
 """
@@ -219,6 +227,9 @@ function _run_rss(
     if show_progress
         pmeter = Progress(max)
     end
+    seeds = glob_allow_abs(seedfile)
+    @assert length(seeds) > 0
+
     while i <= max
         # Use randomly chosen pressure
         if pressure_gpa_range !== nothing
@@ -226,9 +237,10 @@ function _run_rss(
                 rand() * (pressure_gpa_range[2] - pressure_gpa_range[1]) +
                 pressure_gpa_range[1]
         end
-
+        # Select the actual seeds
+        this_seed = sample(seeds)
         vc, res = build_and_relax_one(
-            seedfile,
+            this_seed,
             ensemble,
             cf;
             max_err,
@@ -261,7 +273,7 @@ function _run_rss(
         end
 
         # Update the label of the structure
-        label = EDDP.get_label(EDDP.stem(seedfile))
+        label = get_label(stem(this_seed))
         EDDP.update_metadata!(vc, label)
 
         if !packed
