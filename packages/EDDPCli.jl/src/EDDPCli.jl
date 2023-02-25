@@ -1,18 +1,8 @@
 module EDDPCli
 
 using Comonicon
-using EDDP:
-    link!,
-    Builder,
-    _run_rss,
-    load_ensemble,
-    ensure_dir,
-    BuilderState,
-    CellFeature,
-    TrainingOption,
-    RssSetting
-using EDDP:
-    run_rss as run_rss_eddp, _make_string_keys, _make_symbol_keys, _fromdict, _todict
+using EDDP: link!, Builder, BuilderOption, to_toml, from_dict
+using EDDP: run_rss as run_rss_eddp
 using YAML
 using TOML
 
@@ -100,7 +90,17 @@ using an existing project.
 
 """
 @cast function genconfig(seedfile, elements...; all_items::Bool=false)
-    out = Dict{String,Any}(
+    builder_opts = _get_builder_opt_template(seedfile, elements...)
+    to_toml(stdout, builder_opts, include_defaults=all_items)
+end
+
+"""
+    _get_builder_opt_template(seedfile, elements...)
+
+Returns a template `BuilderOption` object
+"""
+function _get_builder_opt_template(seedfile, elements...)
+    template = Dict{String,Any}(
         "cf" => Dict{String,Any}(
             "elements" => collect(elements),
             "geometry_sequence" => true,
@@ -110,6 +110,7 @@ using an existing project.
         ),
         "state" => Dict{String,Any}(
             "seedfile" => seedfile,
+            "seedfile_calc" => seedfile,
             "per_generation" => 100,
             "n_initial" => 1000,
             "shake_per_minima" => 10,
@@ -118,12 +119,7 @@ using an existing project.
         "trainer" => Dict{String,Any}("type" => "locallm", "log_file" => "train-log"),
         "rss" => Dict{String,Any}("packed" => true),
     )
-    if all_items
-        builder = _fromdict(Builder, _make_symbol_keys(out))
-        TOML.print(_make_string_keys(_todict(builder)); sorted=true)
-    else
-        TOML.print(out; sorted=true)
-    end
+    from_dict(BuilderOption, template)
 end
 
 """

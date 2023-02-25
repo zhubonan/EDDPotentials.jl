@@ -1,6 +1,14 @@
 using Test
-using EDDPCli.jl
+using EDDPCli
+using EDDP
 
-@testset "EDDPCli.jl" begin
-    @test 1 == 1
-end # EDDPCli.jl.jl tests
+@testset "EDDPCli" begin
+    opts = EDDPCli._get_builder_opt_template("test", "Si", "C")
+    @test "Si" in opts.cf.elements
+    @test "C" in opts.cf.elements
+    @test opts.state.seedfile == "test"
+
+    builder = Builder(opts)
+    @test "Si" in builder.options.cf.elements
+    @test builder.state.seedfile == "test"
+end # EDDPCli.jl tests

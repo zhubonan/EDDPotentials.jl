@@ -175,7 +175,6 @@ const DEV_PKGS = ["../../CellBase/", "../", "../packages/EDDPTools.jl/"]
 
 # Additional packages to be included in the sysimage
 const PKGS = [
-    "Revise",
     "Optim",
     "DataFrames",
     "AtomsBase",
@@ -227,6 +226,13 @@ function build(
     kwargs...,
 )
     temp_project_path = setup_temp_project()
+
+    # Load the depdencies to trigger precomplilation
+    for key in keys(Pkg.project().dependencies)
+        pname = Symbol(key)
+        @eval using $pname
+    end
+
     create_sysimage(; excluded_packages=EXCLUDED, sysimage_path, kwargs...)
     @info "System image saved to $sysimage_path"
     # Copy the 

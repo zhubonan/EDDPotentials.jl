@@ -15,39 +15,6 @@ const FEATURESPEC_NAME = "cf"
 include("options.jl")
 
 
-# struct Builder{M<:AbstractTrainer}
-#     state::BuilderState
-#     cf::CellFeature
-#     trainer::M
-#     cf_embedding::Any
-#     rss::RssSetting
-# end
-
-# function Builder(
-#     state::BuilderState,
-#     cf::CellFeature,
-#     trainer;
-#     cf_embedding=nothing,
-#     rss=RssSetting(),
-# )
-#     builder = Builder{typeof(trainer)}(state, cf, trainer, cf_embedding, rss)
-#     _set_iteration!(builder)
-#     if rss.seedfile == "null"
-#         rss.ensemble_id = builder.state.iteration
-#         rss.seedfile = splitext(builder.state.seedfile)[1]
-#         @warn "Using default ensemble id: $(rss.ensemble_id)"
-#         @warn "Using seed file: $(rss.seedfile)"
-#     end
-#     if rss.ensemble_id < 0
-#         rss.ensemble_id = builder.state.iteration
-#         @warn "Using default ensemble id: $(rss.ensemble_id)"
-#     end
-
-#     builder_uuid(builder)
-#     builder
-# end
-
-
 
 """
 The Builder stores states and options for training and using the potentials.

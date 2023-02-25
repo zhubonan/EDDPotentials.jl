@@ -7,3 +7,6 @@ optimize = 2
 
 [sysimg]
 excluded_packages = ["EDDP", "EDDPCli"]
+
+[sysimg.precompile]
+execution_file = ["test/runtests.jl"]
