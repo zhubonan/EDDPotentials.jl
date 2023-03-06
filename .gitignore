@@ -22,3 +22,4 @@ events.out*
 
 scripts/*
 !scripts/sysimg.jl
+**/deps/build.log

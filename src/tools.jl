@@ -147,28 +147,27 @@ end
 
 
 """
-    build_random_structures(seedfile, outdir;n=1, show_progress=false, timeout=60)
+    build_random_structures(seedfile, outdir;n=1, show_progress=false, timeout=60, seedfile_weights)
 
 Build multiple random structures in the target folder. A glob pattern may be used for the
 `seedfile` argument.
 
 """
 function build_random_structures(
-    seedfile::AbstractString,
+    seedfile::Union{AbstractString,Vector},
     outdir;
     n=1,
     show_progress=false,
     timeout=60,
     outfmt="res",
+    seedfile_weights=[1.0],
 )
     i = 0
     if show_progress
         prog = Progress(n)
     end
-    seedfiles = glob_allow_abs(seedfile)
-    @assert length(seedfiles) > 0 "No valid seed found with $seedfile."
     while i < n
-        this_seed = sample(seedfiles)
+        this_seed = _select_seed(seedfile, seedfile_weights)[1]
         cell = build_one(this_seed; timeout)
         label = EDDP.get_label(EDDP.stem(this_seed))
         cell.metadata[:label] = label
@@ -184,6 +183,38 @@ function build_random_structures(
     end
 end
 
+"""
+    _select_seed(names::AbstractVector, weights::AbstractVector)
+
+Select a random seed from a vector of names and expand glob pattern if needed, and the resolved paths.
+
+# Examples 
+
+Selecting seeds with pattern `Si-*.cell` with equal weightings.
+```julia
+_select_seed(["Si-*.cell"], [1.0])
+```
+
+"""
+function _select_seed(
+    names::AbstractVector,
+    weights::AbstractVector=repeat([1.0], length(names)),
+)
+    actual_names = []
+    actual_weights = []
+    for (name, w) in zip(names, weights)
+        for j in glob_allow_abs(name)
+            push!(actual_names, j)
+            push!(actual_weights, w)
+        end
+    end
+    actual_weights ./= sum(actual_weights)
+    @assert !isempty(actual_names) "No valid file found with $names"
+    sample(actual_names, Weights(actual_weights)), actual_names
+end
+
+_select_seed(names::AbstractString, weights=[1.0]) = _select_seed([names], weights)
+
 
 """
     run_rss(seedfile, ensemble, cf;max=1, outdir="./", kwargs...)
@@ -195,9 +226,10 @@ seeds.
 - `init_structure_transform`: A function that transforms the initial structure. If `nothing` is returned, skip this generated structure.
 """
 function _run_rss(
-    seedfile::AbstractString,
+    seedfile::Union{AbstractString,Vector},
     ensemble::AbstractNNInterface,
     cf::CellFeature;
+    seedfile_weights::Vector{Float64}=[1.0],
     show_progress=false,
     max=1,
     outdir="./",
@@ -217,7 +249,9 @@ function _run_rss(
 
     isdir(outdir) || mkdir(outdir)
     if packed
-        label = EDDP.get_label(EDDP.stem(seedfile))
+        # Select the first resolved seed file and use it as the name
+        name = _select_seed(seedfile, seedfile_weights)[2][1]
+        label = EDDP.get_label(EDDP.stem(name))
         # Name of the packed out file
         outfile = joinpath(outdir, "$(label).packed.res")
         mode = "a"
@@ -227,8 +261,6 @@ function _run_rss(
     if show_progress
         pmeter = Progress(max)
     end
-    seeds = glob_allow_abs(seedfile)
-    @assert length(seeds) > 0
 
     while i <= max
         # Use randomly chosen pressure
@@ -238,7 +270,8 @@ function _run_rss(
                 pressure_gpa_range[1]
         end
         # Select the actual seeds
-        this_seed = sample(seeds)
+        this_seed = _select_seed(seedfile, seedfile_weights)[1]
+        # Build the random structure and relax it
         vc, res = build_and_relax_one(
             this_seed,
             ensemble,

@@ -290,7 +290,7 @@ function _generate_random_structures(bu::Builder, iter)
         if nstruct > 0
             @info "Genearating $(nstruct) initial training structures."
             build_random_structures(
-                joinpath(bu.state.workdir, bu.state.seedfile),
+                joinpath.(bu.state.workdir, bu.state.seedfile),
                 outdir;
                 n=nstruct,
             )
@@ -845,10 +845,10 @@ function run_rss(builder::Builder; kwargs...)
         searchdir = searchdir * "-$(rs.pressure_gpa)gpa"
     end
 
-
     ensure_dir(searchdir)
+
     _run_rss(
-        joinpath(builder.state.workdir, rs.seedfile),
+        joinpath.(Ref(builder.state.workdir), rs.seedfile),
         ensemble,
         builder.cf;
         show_progress=rs.show_progress,

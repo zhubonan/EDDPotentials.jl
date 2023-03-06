@@ -4,7 +4,8 @@ using GarishPrint
 abstract type EDDPOptions end
 
 @option mutable struct BuilderState <: EDDPOptions
-    seedfile::String
+    seedfile::Union{String,Vector{String}}
+    seedfile_weights::Vector{Float64} = [1.0]
     seedfile_calc::String
     iteration::Int = 0
     workdir::String = "."
