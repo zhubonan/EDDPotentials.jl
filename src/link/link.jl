@@ -279,6 +279,7 @@ function _generate_random_structures(bu::Builder, iter)
     outdir = _input_structure_dir(bu)
     ensure_dir(outdir)
     ndata = length(glob_allow_abs(joinpath(outdir, "*.res")))
+    (;seedfile, seedfile_weights, workdir) = bu.state
     if iter == 0
         # First cycle generate from the seed without relaxation
         # Sanity check - are we definitely overfitting?
@@ -290,8 +291,9 @@ function _generate_random_structures(bu::Builder, iter)
         if nstruct > 0
             @info "Genearating $(nstruct) initial training structures."
             build_random_structures(
-                joinpath.(bu.state.workdir, bu.state.seedfile),
+                joinpath.(workdir, seedfile),
                 outdir;
+                seedfile_weights,
                 n=nstruct,
             )
         end
@@ -951,9 +953,9 @@ function _run_rss_link()
     else
         pressure_gpa_range = nothing
     end
-
+    (;seedfile, seedfile_weights) = bu.state
     _run_rss(
-        joinpath(bu.state.workdir, bu.state.seedfile),
+        joinpath.(bu.state.workdir, seedfile),
         ensemble,
         bu.cf;
         core_size=bu.state.core_size,
@@ -963,6 +965,7 @@ function _run_rss_link()
         outdir=args["outdir"],
         pressure_gpa,
         pressure_gpa_range,
+        seedfile_weights,
         niggli_reduce_output=bu.state.rss_niggli_reduce,
     )
 end
