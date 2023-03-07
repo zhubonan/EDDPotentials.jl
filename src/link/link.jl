@@ -848,9 +848,9 @@ function run_rss(builder::Builder; kwargs...)
     end
 
     ensure_dir(searchdir)
-
+    (;seedfile, seedfile_weights) = rs
     _run_rss(
-        joinpath.(Ref(builder.state.workdir), rs.seedfile),
+        joinpath.(Ref(builder.state.workdir), seedfile),
         ensemble,
         builder.cf;
         show_progress=rs.show_progress,
@@ -862,6 +862,7 @@ function run_rss(builder::Builder; kwargs...)
         niggli_reduce_output=rs.niggli_reduce_output,
         max_err=rs.max_err,
         pressure_gpa=rs.pressure_gpa,
+        seedfile_weights,
         kwargs...,
     )
 end

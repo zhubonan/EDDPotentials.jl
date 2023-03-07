@@ -71,7 +71,8 @@ end
 
 @option mutable struct RssSetting <: EDDPOptions
     packed::Bool = true
-    seedfile::String = "null"
+    seedfile::Union{String, Vector{String}} = "null"
+    seedfile_weights::Vector{Float64} = Float64[1.0]
     ensemble_id::Int = -1
     max::Int = 1000
     subfolder_name::String = "search"

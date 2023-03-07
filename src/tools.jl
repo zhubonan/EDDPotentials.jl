@@ -200,12 +200,18 @@ function _select_seed(
     names::AbstractVector,
     weights::AbstractVector=repeat([1.0], length(names)),
 )
+
     actual_names = String[]
     actual_weights = Float64[]
-    for (name, w) in zip(names, weights)
+    for (i, name) in enumerate(names)
         for j in glob_allow_abs(name)
             push!(actual_names, j)
-            push!(actual_weights, w)
+            if i <= length(weights)
+                i_ = i
+            else
+                i_ = length(weights)
+            end
+            push!(actual_weights, weights[i_])
         end
     end
     actual_weights ./= sum(actual_weights)
