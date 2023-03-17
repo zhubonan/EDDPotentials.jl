@@ -302,74 +302,13 @@ function _generate_random_structures(bu::Builder, iter)
         # Read ensemble file
         nstruct = bu.state.per_generation - ndata
         if nstruct > 0
-            @info "Generating $(nstruct) training structures for iteration $iter."
-
-            # Distribute the workloads
-            nstruct_per_proc = div(nstruct, bu.state.rss_nprocs) + 1
-            nstruct_per_proc_last = nstruct % nstruct_per_proc
-            nstructs = fill(nstruct_per_proc, bu.state.rss_nprocs)
-            nstructs[end] = nstruct_per_proc_last
-
             # Launch external processes
-            project_path = dirname(Base.active_project())
-            cmds = [
-                add_threads_env(
-                    Cmd([
-                        Base.julia_cmd()...,
-                        "--project=$(project_path)",
-                        "-e",
-                        "using EDDP;EDDP._run_rss_link()",
-                        "--",
-                        "--file",
-                        "$(bu.state.builder_file_path)",
-                        "--iteration",
-                        "$(bu.state.iteration)",
-                        "--num",
-                        "$(num)",
-                        "--pressure",
-                        "$(bu.state.rss_pressure_gpa)",
-                        "--outdir",
-                        "$(outdir)",
-                    ]),
-                    bu.state.rss_num_threads,
-                ) for num in nstructs
-            ]
-            if !isempty(bu.state.rss_pressure_gpa_range)
-                # Add pressure ranges
-                a, b = bu.state.rss_pressure_gpa_range
-                for i in eachindex(cmds)
-                    cmds[i] = add_threads_env(
-                        Cmd([cmds[i]..., "--pressure-range", "$(a),$(b)"]),
-                        bu.state.rss_num_threads,
-                    )
-                end
+            if bu.state.rss_external
+                _launch_rss_external(bu, iter, nstruct)
+            else
+                _launch_rss_internal(bu, iter, nstruct)
             end
 
-            @info "Subprocess launch command: $(Cmd([cmds[1]...])) for $(bu.state.rss_nprocs) process"
-            tasks = Task[]
-            for i = 1:bu.state.rss_nprocs
-                this_task = @async run(
-                    pipeline(
-                        cmds[i],
-                        stdout="rss-process-$i-stdout",
-                        stderr="rss-process-$i",
-                    ),
-                )
-                push!(tasks, this_task)
-            end
-            @info "Search process launched, waiting..."
-            last_nstruct = length(glob(joinpath(outdir, "*.res")))
-            while !all(istaskdone.(tasks))
-                nfound = length(glob(joinpath(outdir, "*.res")))
-                # Print progress if the number of models have changed
-                if nfound != last_nstruct
-                    @info "Number of relaxed structures: $(nfound)/$(bu.state.per_generation)"
-                    last_nstruct = nfound
-                end
-                sleep(5)
-            end
-
-            @assert all(fetch(x).exitcode == 0 for x in tasks) "There are tasks with non-zero exit code!"
 
             @info "Shaking generated structures."
             outdir = joinpath(bu.state.workdir, "gen$(iter)")
@@ -382,6 +321,107 @@ function _generate_random_structures(bu::Builder, iter)
         end
     end
 end
+
+function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
+    @info "Generating $(nstruct) training structures for iteration $iter."
+
+    # Distribute the workloads
+    nstruct_per_proc = div(nstruct, bu.state.rss_nprocs) + 1
+    nstruct_per_proc_last = nstruct % nstruct_per_proc
+    nstructs = fill(nstruct_per_proc, bu.state.rss_nprocs)
+    nstructs[end] = nstruct_per_proc_last
+
+    # Launch external processes
+    project_path = dirname(Base.active_project())
+    cmds = [
+        add_threads_env(
+            Cmd([
+                Base.julia_cmd()...,
+                "--project=$(project_path)",
+                "-e",
+                "using EDDP;EDDP._run_rss_link()",
+                "--",
+                "--file",
+                "$(bu.state.builder_file_path)",
+                "--iteration",
+                "$(bu.state.iteration)",
+                "--num",
+                "$(num)",
+                "--pressure",
+                "$(bu.state.rss_pressure_gpa)",
+                "--outdir",
+                "$(outdir)",
+            ]),
+            bu.state.rss_num_threads,
+        ) for num in nstructs
+    ]
+    # Apply random pressure range
+    if !isempty(bu.state.rss_pressure_gpa_range)
+        # Add pressure ranges
+        a, b = bu.state.rss_pressure_gpa_range
+        for i in eachindex(cmds)
+            cmds[i] = add_threads_env(
+                Cmd([cmds[i]..., "--pressure-range", "$(a),$(b)"]),
+                bu.state.rss_num_threads,
+            )
+        end
+    end
+
+    @info "Subprocess launch command: $(Cmd([cmds[1]...])) for $(bu.state.rss_nprocs) process"
+    # Launch tasks
+    tasks = Task[]
+    for i = 1:bu.state.rss_nprocs
+        this_task = @async run(
+            pipeline(
+                cmds[i],
+                stdout="rss-process-$i-stdout",
+                stderr="rss-process-$i",
+            ),
+        )
+        push!(tasks, this_task)
+    end
+
+    @info "Search process launched, waiting..."
+    last_nstruct = length(glob(joinpath(outdir, "*.res")))
+    while !all(istaskdone.(tasks))
+        nfound = length(glob(joinpath(outdir, "*.res")))
+        # Print progress if the number of models have changed
+        if nfound != last_nstruct
+            @info "Number of relaxed structures: $(nfound)/$(bu.state.per_generation)"
+            last_nstruct = nfound
+        end
+        sleep(5)
+    end
+    @assert all(fetch(x).exitcode == 0 for x in tasks) "There are tasks with non-zero exit code!"
+end
+
+function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
+    @info "Generating $(nstruct) training structures for iteration $iter."
+    ensemble = load_ensemble(bu, iter-1)
+    state = bu.state
+    outdir = joinpath(state.workdir, "gen$(iter)")
+    ensure_dir(outdir)
+
+    (;seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max) = bu.state
+    _run_rss(
+        joinpath.(Ref(state.workdir), seedfile),
+        ensemble,
+        bu.cf;
+        show_progress=true,
+        max=nstruct,
+        core_size=state.core_size,
+        outdir,
+        ensemble_std_max=ensemble_std_max,
+        ensemble_std_min=ensemble_std_min,
+        packed=false,
+        niggli_reduce_output=state.rss_niggli_reduce,
+        max_err=10,
+        pressure_gpa=state.rss_pressure_gpa,
+        pressure_gpa_range=state.rss_pressure_gpa_range,
+        seedfile_weights,
+    )
+end
+
 
 
 "Directory for input structures"

@@ -22,9 +22,10 @@ abstract type EDDPOptions end
     dft_mode::String = "castep"
     dft_kwargs::Dict{String,Any} = Dict{String,Any}()
     rss_pressure_gpa::Float64 = 0.1
-    rss_pressure_gpa_range::Vector{Float64} = Float64[]
+    rss_pressure_gpa_range::Union{Nothing, Vector{Float64}} = nothing
     rss_niggli_reduce::Bool = true
     rss_nprocs::Int = 2
+    rss_external::Bool = true
     rss_num_threads::Int = 1
     core_size::Float64 = 1.0
     ensemble_std_min::Float64 = 0.0
