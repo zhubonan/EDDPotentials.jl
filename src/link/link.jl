@@ -284,7 +284,7 @@ function _generate_random_structures(bu::Builder, iter)
         # First cycle generate from the seed without relaxation
         # Sanity check - are we definitely overfitting?
         if nfeatures(bu.cf) > bu.state.n_initial
-            @warn "The number of features $(nfeature(bu.cf)) is larger than the initial training size!"
+            @warn "The number of features $(nfeatures(bu.cf)) is larger than the initial training size!"
         end
         # Generate random structures
         nstruct = bu.state.n_initial - ndata

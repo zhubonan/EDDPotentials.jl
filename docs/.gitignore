@@ -1,2 +1,4 @@
 build/
 site/
+
+test/pp3-example/**/*.res

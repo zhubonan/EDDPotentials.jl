@@ -48,7 +48,13 @@ function genp(p::Union{UnitRange,StepRange})
     genp(p[1], p[end], length(p))
 end
 
-genp(p::AbstractVector) = genp(p...)
+function genp(p::Vector{T}) where {T}
+    if isempty(p)
+        return T[]
+    end
+    genp(p...)
+end
+
 
 """
     permequal(A, i, j)
