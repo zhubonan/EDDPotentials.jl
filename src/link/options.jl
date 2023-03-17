@@ -68,6 +68,7 @@ abstract type AbstractTrainer end
     "The number of threads per worker"
     num_threads_per_worker::Int = 1
     type::String
+    external = true
 end
 
 @option mutable struct RssSetting <: EDDPOptions

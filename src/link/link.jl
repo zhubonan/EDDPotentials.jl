@@ -474,18 +474,41 @@ function _run_external(bu::Builder)
     end
     return false
 end
+function _perform_training(bu::Builder)
+
+    # Write the dataset to the disk
+    @info "Preparing dataset..."
+    write_dataset(bu)
+
+    if bu.trainer.external
+        _perform_training_external(bu)
+    else
+        run_trainer(bu, bu.trainer)
+    end
+
+    nm = num_existing_models(bu)
+    @info "Number of trained models: $nm"
+
+    # Create ensemble
+    nm = num_existing_models(bu)
+    if nm >= bu.trainer.nmodels * 0.9
+        ensemble = create_ensemble(bu; save_and_clean=true)
+    else
+        throw(
+            ErrorException(
+                "Only $nm models are found in the training directory, need $(tra.nmodels)",
+            ),
+        )
+    end
+    return ensemble
+end
 
 """
 Carry out training and save the ensemble as a JLD2 archive.
 """
-function _perform_training(bu::Builder)
+function _perform_training_external(bu::Builder)
 
     tra = bu.trainer
-    # Write the dataset to the disk
-    @info "Training with TrainingOption"
-    @info "Preparing dataset..."
-    write_dataset(bu)
-
     # Call multiple sub processes
     project_path = dirname(Base.active_project())
     builder_file = bu.state.builder_file_path
@@ -524,23 +547,6 @@ function _perform_training(bu::Builder)
         end
         sleep(30)
     end
-
-    nm = num_existing_models(bu)
-    @info "Number of trained models: $nm"
-
-    # Create ensemble
-    nm = num_existing_models(bu)
-    if nm >= tra.nmodels * 0.9
-        ensemble = create_ensemble(bu; save_and_clean=true)
-    else
-        throw(
-            ErrorException(
-                "Only $nm models are found in the training directory, need $(tra.nmodels)",
-            ),
-        )
-    end
-
-    return ensemble
 end
 
 
