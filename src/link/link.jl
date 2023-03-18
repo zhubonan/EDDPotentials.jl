@@ -689,7 +689,7 @@ end
 
 Use `pp3` for single point calculations.
 """
-function run_pp3(file, seedfile, outpath)
+function run_pp3(file, seedfile, outname=nothing)
     if endswith(file, ".res")
         cell = CellBase.read_res(file)
         # Write as cell file
@@ -703,7 +703,8 @@ function run_pp3(file, seedfile, outpath)
     # Read enthalpy
     enthalpy = 0.0
     pressure = 0.0
-    for line in eachline(pipeline(`pp3 -n $(splitext(file)[1])`))
+    aname = relpath(splitext(file)[1])
+    for line in eachline(pipeline(`pp3 -n $(aname)`))
         if contains(line, "Enthalpy")
             enthalpy = parse(Float64, split(line)[end])
         end
@@ -715,7 +716,9 @@ function run_pp3(file, seedfile, outpath)
     cell.metadata[:enthalpy] = enthalpy
     cell.metadata[:pressure] = pressure
     cell.metadata[:label] = stem(file)
-    CellBase.write_res(outpath, cell)
+    if !isnothing(outname)
+        CellBase.write_res(outname, cell)
+    end
     cell
 end
 
