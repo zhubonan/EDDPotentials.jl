@@ -64,9 +64,6 @@ end
 
 Load from JLD2 file/JLD2 group.
 """
-function load_from_jld2(
-    f::Union{JLD2.JLDFile,JLD2.Group},
-    ::Type{LinearInterface},
-)
+function load_from_jld2(f::Union{JLD2.JLDFile,JLD2.Group}, ::Type{LinearInterface})
     LinearInterface(f["param"])
 end

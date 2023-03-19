@@ -83,16 +83,16 @@ Train the model and write the result to the disk as a JLD2 archive.
 function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
 
     training_dir = joinpath(bu.state.workdir, "training")
-    (;training_mode) = tra
+    (; training_mode) = tra
     ensure_dir(training_dir)
 
     train, test, validation = load_training_dataset(bu; combined=false)
 
     # Linear model does not need standardisation (e.g. the interface does not have this functionality)
     if training_mode == "linear"
-        reconstruct_x!(train)        
-        reconstruct_x!(test)        
-        reconstruct_x!(validation)        
+        reconstruct_x!(train)
+        reconstruct_x!(test)
+        reconstruct_x!(validation)
     end
 
     x_train, y_train = get_fit_data(train)

@@ -126,7 +126,7 @@ function compute_objectives_diff(
             backward!(itf)
             gradparam!(jtmp, itf)
             if isnothing(weights)
-                jmat[i, :] .= jtmp 
+                jmat[i, :] .= jtmp
             else
                 jmat[i, :] .= jtmp .* weights[i]
             end

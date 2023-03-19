@@ -34,4 +34,4 @@ The Lennard-Jones potentials are very "hard-sphere-like" when the particles are 
 We don't want our potential to focus on minimising the errors in this region.
 First, a filters is added with the `energy_threshold` keyword which filters away structures above a certain energy per atom (relative to the lowest energy structure).
 Second, a Boltzmann weighting is applied using the `boltzmann_kt` keyword that reduces the weight of the high-energy training structure.
-One should note that the interactions in the actual DFT calculations are unlikely to be as hard as the Lennard-Jone potentials here.
+One should note that the interactions in the actual DFT calculations are unlikely to be as hard as the Lennard-Jones potentials here.

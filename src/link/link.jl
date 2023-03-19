@@ -279,7 +279,7 @@ function _generate_random_structures(bu::Builder, iter)
     outdir = _input_structure_dir(bu)
     ensure_dir(outdir)
     ndata = length(glob_allow_abs(joinpath(outdir, "*.res")))
-    (;seedfile, seedfile_weights, workdir) = bu.state
+    (; seedfile, seedfile_weights, workdir) = bu.state
     if iter == 0
         # First cycle generate from the seed without relaxation
         # Sanity check - are we definitely overfitting?
@@ -372,11 +372,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
     tasks = Task[]
     for i = 1:bu.state.rss_nprocs
         this_task = @async run(
-            pipeline(
-                cmds[i],
-                stdout="rss-process-$i-stdout",
-                stderr="rss-process-$i",
-            ),
+            pipeline(cmds[i], stdout="rss-process-$i-stdout", stderr="rss-process-$i"),
         )
         push!(tasks, this_task)
     end
@@ -397,12 +393,12 @@ end
 
 function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
     @info "Generating $(nstruct) training structures for iteration $iter."
-    ensemble = load_ensemble(bu, iter-1)
+    ensemble = load_ensemble(bu, iter - 1)
     state = bu.state
     outdir = joinpath(state.workdir, "gen$(iter)")
     ensure_dir(outdir)
 
-    (;seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max) = bu.state
+    (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max) = bu.state
     _run_rss(
         joinpath.(Ref(state.workdir), seedfile),
         ensemble,
@@ -445,7 +441,7 @@ function _run_external(bu::Builder)
         run_disp_castep(
             _input_structure_dir(bu),
             _output_structure_dir(bu),
-            bu.state.seedfile_calc;
+            joinpath(bu.state.workdir, bu.state.seedfile_calc);
             project_prefix,
             threshold=bu.state.per_generation_threshold,
             _make_symbol_keys(bu.state.dft_kwargs)...,
@@ -456,7 +452,7 @@ function _run_external(bu::Builder)
             joinpath(bu.state.workdir, ".pp3_work"),
             _input_structure_dir(bu),
             _output_structure_dir(bu),
-            bu.state.seedfile_calc;
+            joinpath(bu.state.workdir, bu.state.seedfile_calc);
             n_parallel=bu.state.n_parallel,
             _make_symbol_keys(bu.state.dft_kwargs)...,
         )
@@ -573,7 +569,7 @@ builder_short_uuid(x) = builder_uuid(x)[1:8]
     _disp_get_completed_jobs(project_name)
 
 Get the number of completed jobs as well as the total number of jobs under a certain project.
-NOTE: this requires `disp` to be avaliable in the commandline.
+NOTE: this requires `disp` to be available in the commandline.
 """
 function _disp_get_completed_jobs(project_name)
     cmd = `disp db summary --singlepoint --project $project_name --json`
@@ -677,7 +673,8 @@ function run_pp3_many(workdir, indir, outdir, seedfile; n_parallel=1, keep=false
         end
         if !keep
             for suffix in [".cell", ".conv", "-out.cell", ".pp", ".res"]
-                rm(swapext(working_path, suffix))
+                fname = swapext(working_path, suffix)
+                isfile(fname) && rm(fname)
             end
         end
     end
@@ -700,18 +697,22 @@ function run_pp3(file, seedfile, outname=nothing)
     # Copy the seed file
     cp(swapext(seedfile, ".pp"), swapext(file, ".pp"), force=true)
     # Run pp3 relax
-    # Read enthalpy
-    enthalpy = 0.0
-    pressure = 0.0
     aname = relpath(splitext(file)[1])
-    for line in eachline(pipeline(`pp3 -n $(aname)`))
-        if contains(line, "Enthalpy")
-            enthalpy = parse(Float64, split(line)[end])
+
+    # pp3 has size limit for the seed name....
+    if length(aname) > 70
+        tempd = mktempdir()
+        enthalpy, pressure = mktempdir() do tempd
+            for suffix in ["cell", "pp"]
+                symlink(aname * ".$(suffix)", abspath(joinpath(tempd, "seed.$(suffix)")))
+            end
+            seed = joinpath(tempd, "seed")
+            _call_pp3(seed)
         end
-        if contains(line, "Pressure")
-            pressure = parse(Float64, split(line)[end])
-        end
+    else
+        enthalpy, pressure = _call_pp3(aname)
     end
+
     # Write res
     cell.metadata[:enthalpy] = enthalpy
     cell.metadata[:pressure] = pressure
@@ -721,6 +722,26 @@ function run_pp3(file, seedfile, outname=nothing)
     end
     cell
 end
+
+"""
+    _call_pp3(aname)
+
+Call pp3 to calculate the energy/pressure of a seed file.
+"""
+function _call_pp3(seedname)
+    enthalpy = 0.0
+    pressure = 0.0
+    for line in eachline(pipeline(`pp3 -n $(seedname)`))
+        if contains(line, "Enthalpy")
+            enthalpy = parse(Float64, split(line)[end])
+        end
+        if contains(line, "Pressure")
+            pressure = parse(Float64, split(line)[end])
+        end
+    end
+    enthalpy, pressure
+end
+
 
 
 """
@@ -897,7 +918,7 @@ function run_rss(builder::Builder; kwargs...)
     end
 
     ensure_dir(searchdir)
-    (;seedfile, seedfile_weights) = rs
+    (; seedfile, seedfile_weights) = rs
     _run_rss(
         joinpath.(Ref(builder.state.workdir), seedfile),
         ensemble,
@@ -1003,7 +1024,7 @@ function _run_rss_link()
     else
         pressure_gpa_range = nothing
     end
-    (;seedfile, seedfile_weights) = bu.state
+    (; seedfile, seedfile_weights) = bu.state
     _run_rss(
         joinpath.(bu.state.workdir, seedfile),
         ensemble,

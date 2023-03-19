@@ -22,7 +22,7 @@ abstract type EDDPOptions end
     dft_mode::String = "castep"
     dft_kwargs::Dict{String,Any} = Dict{String,Any}()
     rss_pressure_gpa::Float64 = 0.1
-    rss_pressure_gpa_range::Union{Nothing, Vector{Float64}} = nothing
+    rss_pressure_gpa_range::Union{Nothing,Vector{Float64}} = nothing
     rss_niggli_reduce::Bool = true
     rss_nprocs::Int = 2
     rss_external::Bool = true
@@ -70,12 +70,12 @@ abstract type AbstractTrainer end
     type::String
     external = true
     "Parameter for Boltzmann weighting, positive to activate"
-    boltzmann_kt::Float64 = -1.
+    boltzmann_kt::Float64 = -1.0
 end
 
 @option mutable struct RssSetting <: EDDPOptions
     packed::Bool = true
-    seedfile::Union{String, Vector{String}} = "null"
+    seedfile::Union{String,Vector{String}} = "null"
     seedfile_weights::Vector{Float64} = Float64[1.0]
     ensemble_id::Int = -1
     max::Int = 1000

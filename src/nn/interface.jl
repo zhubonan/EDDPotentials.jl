@@ -127,9 +127,7 @@ include("flux.jl")
 
 Load from JLD2 file/JLD2 group.
 """
-function load_from_jld2(
-    f::Union{JLD2.JLDFile,JLD2.Group}
-)
+function load_from_jld2(f::Union{JLD2.JLDFile,JLD2.Group})
     if "param" in keys(f) || "is_linear_itf" in keys(f)
         load_from_jld2(f, LinearInterface)
     elseif "chain" in keys(f) || "is_manual_flux_itf" in keys(f)
@@ -150,4 +148,3 @@ function load_from_jld2(str::AbstractString)
         load_from_jld2(f)
     end
 end
-

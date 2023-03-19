@@ -50,8 +50,8 @@ end
 
 Computes the boltzmann distribution: ``e^{\\frac{-(x - x0)}{kT}}``.
 """
-function boltzmann(x, kT, x0=0.)
-    exp(-(x-x0)/kT)
+function boltzmann(x, kT, x0=0.0)
+    exp(-(x - x0) / kT)
 end
 
 

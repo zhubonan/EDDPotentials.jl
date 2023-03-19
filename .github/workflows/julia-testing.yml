@@ -26,12 +26,26 @@ jobs:
       uses: julia-actions/setup-julia@v1
       with:
         version: '1'
-    
+ 
+    - name: Setup Miniconda
+      uses: conda-incubator/setup-miniconda@v2.2.0
+      with:
+        activate-environment: "airss"
+
+    - name: Install AIRSS
+      shell: bash -el {0}
+      run: |
+        conda activate airss
+        conda install -c bz1 airss==0.9.3
+
     - name: Setup the project environment (using latest CellBase)
       run: julia --project -e 'using Pkg; Pkg.add(url="https://github.com/zhubonan/CellBase.jl"); Pkg.instantiate()'
 
     - name: run test 
-      run: julia --project -e 'using Pkg; Pkg.test("EDDP", coverage=true)'
+      shell: bash -el {0}
+      run: |
+        conda activate airss
+        julia --project -e 'using Pkg; Pkg.test("EDDP", coverage=true)'
     - name: Upload coverage
       env: 
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
