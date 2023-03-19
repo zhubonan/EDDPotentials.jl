@@ -317,6 +317,8 @@ function clear_transient_gradients!(g::ManualFluxBackPropInterface)
     empty!(g.gchains)
 end
 
+function clear_transient_gradients!(g::AbstractNNInterface) end
+
 
 function forward!(itf::ManualFluxBackPropInterface, inp::Matrix; make_copy=false)
 
@@ -425,6 +427,7 @@ function save_as_jld2(f::Union{JLD2.JLDFile,JLD2.Group}, obj::ManualFluxBackProp
     f["chain"] = obj.chain
     f["xt"] = obj.xt
     f["yt"] = obj.yt
+    f["is_manual_flux_itf"] = true
     f["apply_xt"] = obj.apply_xt
     f
 end

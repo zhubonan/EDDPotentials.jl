@@ -69,6 +69,8 @@ abstract type AbstractTrainer end
     num_threads_per_worker::Int = 1
     type::String
     external = true
+    "Parameter for Boltzmann weighting, positive to activate"
+    boltzmann_kt::Float64 = -1.
 end
 
 @option mutable struct RssSetting <: EDDPOptions

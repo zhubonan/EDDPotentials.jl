@@ -48,3 +48,25 @@ function (itf::LinearInterface)(inp)
 end
 
 function backward!(itf::LinearInterface, args...; kwargs...) end
+
+"""
+    save_as_jld2(f, obj::LinearInterface)
+
+Save the interface into an opened JLD2 file/JLD2 group.
+"""
+function save_as_jld2(f::Union{JLD2.JLDFile,JLD2.Group}, obj::LinearInterface)
+    f["param"] = obj.param
+    f["is_linear_itf"] = true
+end
+
+"""
+    load_from_jld2(f, obj::LinearInterface)
+
+Load from JLD2 file/JLD2 group.
+"""
+function load_from_jld2(
+    f::Union{JLD2.JLDFile,JLD2.Group},
+    ::Type{LinearInterface},
+)
+    LinearInterface(f["param"])
+end

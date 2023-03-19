@@ -69,18 +69,22 @@ function compute_diff_with_forward!(f, gbuffs, model, data::AbstractVector, y)
     f
 end
 
+"""
+    setup_fj(model::AbstractNNInterface, data::AbstractVector, y)
 
-function setup_fj(model::AbstractNNInterface, data::AbstractVector, y)
+Setup the function returning the residual and the jacobian matrix.
+"""
+function setup_fj(model::AbstractNNInterface, data::AbstractVector, y, weights=nothing)
     jtmp = similar(paramvector(model))
     function fj!(fvec, jmat, param)
         setparamvector!(model, param)
         # Compute the gradients
-        compute_objectives_diff(fvec, jmat, model, data, y; jtmp)
+        compute_objectives_diff(fvec, jmat, model, data, y, weights; jtmp)
         fvec, jmat
     end
     function f!(fvec, param)
         setparamvector!(model, param)
-        compute_objectives(fvec, model, data, y)
+        compute_objectives(fvec, model, data, y, weights)
         fvec
     end
     function j!(jmat, param)
@@ -90,10 +94,14 @@ function setup_fj(model::AbstractNNInterface, data::AbstractVector, y)
 end
 
 
-function compute_objectives(f, itf, data::AbstractVector, y)
+function compute_objectives(f, itf, data::AbstractVector, y, weights=nothing)
     for (i, inp) in enumerate(data)
         out = forward!(itf, inp)
-        f[i] = sum(out) - y[i]
+        if isnothing(weights)
+            f[i] = (sum(out) - y[i])
+        else
+            f[i] = (sum(out) - y[i]) * weights[i]
+        end
     end
     f
 end
@@ -103,19 +111,25 @@ function compute_objectives_diff(
     jmat,
     itf,
     data::AbstractVector,
-    y;
+    y,
+    weights=nothing,
+    ;
     jtmp=jmat[1, :],
     ngps=10,
 )
     nt = nthreads()
     if nt > 1 && div(length(data), nt) > 10
-        _compute_objectives_diff_threaded(f, jmat, itf, data, y; jtmp, ngps)
+        _compute_objectives_diff_threaded(f, jmat, itf, data, y, weights; jtmp, ngps)
     else
         for (i, inp) in enumerate(data)
             out = forward!(itf, inp)
             backward!(itf)
             gradparam!(jtmp, itf)
-            jmat[i, :] .= jtmp
+            if isnothing(weights)
+                jmat[i, :] .= jtmp 
+            else
+                jmat[i, :] .= jtmp .* weights[i]
+            end
             isnothing(f) || (f[i] = sum(out) - y[i])
         end
     end
@@ -156,7 +170,8 @@ function _compute_objectives_diff_threaded(
     jmat,
     itf,
     data::AbstractVector,
-    y;
+    y,
+    weights=nothing;
     jtmp=jmat[1, :],
     ngps=10,
 )
@@ -170,7 +185,11 @@ function _compute_objectives_diff_threaded(
             out = forward!(itf_, inp)
             backward!(itf_)
             gradparam!(jtmp_, itf_)
-            jmat[i, :] .= jtmp_
+            if isnothing(weights)
+                jmat[i, :] .= jtmp_
+            else
+                jmat[i, :] .= jtmp_ .* weights[i]
+            end
             isnothing(f) || (f[i] = sum(out) - y[i])
         end
     end

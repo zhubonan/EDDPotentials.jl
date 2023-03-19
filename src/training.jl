@@ -45,7 +45,14 @@ function generate_chain(nfeature, nnodes)
 end
 
 
+"""
+    boltzmann(x, kT, x0=0.)
 
+Computes the boltzmann distribution: ``e^{\\frac{-(x - x0)}{kT}}``.
+"""
+function boltzmann(x, kT, x0=0.)
+    exp(-(x-x0)/kT)
+end
 
 
 """
@@ -67,6 +74,7 @@ function nnls_weights(models, x, y)
     wt
 end
 
+
 """
     create_ensemble(models::AbstractVector, x::AbstractVector, y::AbstractVector;
 
@@ -85,6 +93,7 @@ function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold
         # Models with small weights
         mask = weights .< threshold
     end
+    @assert length(tmp_models) > 0
     EnsembleNNInterface(Tuple(tmp_models), weights)
 end
 
@@ -110,6 +119,7 @@ function train_lm!(
     tb_logger_dir="",
     log_file="",
     p=1.25,
+    weights=nothing,
     args...,
 )
     rec = []
@@ -163,7 +173,7 @@ function train_lm!(
     end
 
     # Setting up the object for minimization
-    f!, j!, fj! = setup_fj(itf, x, y)
+    f!, j!, fj! = setup_fj(itf, x, y, weights)
     od2 = OnceDifferentiable(f!, j!, fj!, p0, zeros(eltype(x[1]), length(x)), inplace=true)
 
     callback = show_progress || (earlystop > 0) ? progress_tracker : nothing

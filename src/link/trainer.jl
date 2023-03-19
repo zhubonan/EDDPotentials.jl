@@ -10,10 +10,11 @@ function run_trainer(trainer::AbstractTrainer, builder::Builder) end
 
 """
     dataset_name(bu::Builder, i=bu.state.iteration)
-Name for the dataset file
+
+Full path to the dataset file.
 """
 function dataset_name(bu::Builder, i=bu.state.iteration)
-    joinpath(bu.state.workdir, "gen-$i-dataset.jld2")
+    joinpath(bu.state.workdir, TRAINING_DIR, "gen-$i-dataset.jld2")
 end
 
 """
@@ -63,7 +64,7 @@ end
 Load dataset saved for training
 """
 function load_training_dataset(bu::Builder, iter=bu.state.iteration; combined=false)
-    dataset_path = joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu, iter))
+    dataset_path = dataset_name(bu, iter)
     train, test, validation = jldopen(dataset_path) do file
         file["train"], file["test"], file["validate"]
     end
@@ -82,27 +83,50 @@ Train the model and write the result to the disk as a JLD2 archive.
 function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
 
     training_dir = joinpath(bu.state.workdir, "training")
+    (;training_mode) = tra
     ensure_dir(training_dir)
 
     train, test, validation = load_training_dataset(bu; combined=false)
 
-    # Enter the main training loop
+    # Linear model does not need standardisation (e.g. the interface does not have this functionality)
+    if training_mode == "linear"
+        reconstruct_x!(train)        
+        reconstruct_x!(test)        
+        reconstruct_x!(validation)        
+    end
+
     x_train, y_train = get_fit_data(train)
     x_test, y_test = get_fit_data(test)
+
+    if tra.boltzmann_kt > 0
+        @info "Using Boltzmann weights with kT = $(tra.boltzmann_kt)"
+        y_train_at = y_train ./ size.(x_train, 2)
+        y_train_at .-= minimum(y_train_at)
+        weights = boltzmann.(y_train_at, tra.boltzmann_kt)
+    else
+        weights = nothing
+    end
 
     i_trained = 0
     while num_existing_models(bu) < tra.nmodels || i_trained > tra.max_train
 
         @info "Model initialized"
         # Initialise the model
-        model = EDDP.ManualFluxBackPropInterface(
-            bu.cf,
-            tra.n_nodes...;
-            xt=train.xt,
-            yt=train.yt,
-            apply_xt=false,
-            embedding=bu.cf_embedding,
-        )
+        if training_mode == "manual_backprop"
+            model = EDDP.ManualFluxBackPropInterface(
+                bu.cf,
+                tra.n_nodes...;
+                xt=train.xt,
+                yt=train.yt,
+                apply_xt=false,
+                embedding=bu.cf_embedding,
+            )
+        elseif training_mode == "linear"
+            # Linear model
+            model = EDDP.LinearInterface(zeros(size(x_train[1], 1)))
+        else
+            throw(ErrorException("Unknown `training_mode`: $(training_mode)"))
+        end
 
         @info "Starting training"
         # Train one model and save it...
@@ -119,6 +143,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
             keep_best=tra.keep_best,
             tb_logger_dir=tra.tb_logger_dir,
             log_file=tra.log_file,
+            weights,
         )
 
         # Display training results
@@ -173,17 +198,24 @@ function create_ensemble(
     bu::Builder,
     tra::TrainingOption=bu.trainer;
     save_and_clean=false,
-    dataset_path=joinpath(bu.state.workdir, TRAINING_DIR, dataset_name(bu)),
+    dataset_path=dataset_name(bu),
     use_validation=false,
     pattern=joinpath(bu.state.workdir, TRAINING_DIR, tra.prefix * "model-*.jld2"),
 )
-    names = glob(pattern)
+    names = glob_allow_abs(pattern)
     @assert !isempty(names) "No model found at $pattern"
     # Load the models
-    models = load_from_jld2.(names, Ref(ManualFluxBackPropInterface))
+    models = load_from_jld2.(names)
     train, test, validation = jldopen(dataset_path) do file
         file["train"], file["test"], file["validate"]
     end
+
+    if isa(models[1], LinearInterface)
+        reconstruct_x!(train)
+        reconstruct_x!(test)
+        reconstruct_x!(validation)
+    end
+
     if use_validation
         total = train + test + validation
     else
