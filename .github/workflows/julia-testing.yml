@@ -52,3 +52,17 @@ jobs:
       run: |
         julia -e 'using Pkg;Pkg.add("Coverage")'
         julia -e 'using Coverage;Codecov.submit_local(process_folder())'
+
+    - name: run test with threading
+      shell: bash -el {0}
+      run: |
+        conda activate airss
+        julia --project -e 'using Pkg; Pkg.test("EDDP", coverage=true)'
+      env: 
+        JULIA_NUM_THREADS: 2
+    - name: Upload coverage
+      env: 
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      run: |
+        julia -e 'using Pkg;Pkg.add("Coverage")'
+        julia -e 'using Coverage;Codecov.submit_local(process_folder())'

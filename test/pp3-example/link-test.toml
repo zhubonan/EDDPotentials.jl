@@ -1,0 +1,31 @@
+[state]
+seedfile = "Al.cell"
+seedfile_calc = "Al.cell"
+dft_mode = "pp3"
+per_generation = 10
+n_initial = 10
+max_iterations = 2
+rss_external = false
+
+[cf]
+elements = ["Al"]
+rcut2 = 5.0
+rcut3 = 5.0
+p2 = [6, 18, 5]
+q3 = []
+p3 = []
+geometry_sequence = true
+
+[rss]
+max = 100
+packed = false
+
+[trainer]
+log_file = "train-log"
+type = "locallm"
+energy_threshold = 100
+nmodels = 8
+n_nodes = [2]
+external = false
+show_progress = false
+boltzmann_kt = 5

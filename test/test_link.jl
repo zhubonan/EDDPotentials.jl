@@ -44,12 +44,12 @@ if check_airss(;verbose=true)
     with_logger(logger) do 
         @testset "Link" begin
             prepare_folder() do target
-                builder = Builder(joinpath(target, "link.toml"))
+                builder = Builder(joinpath(target, "link-test.toml"))
                 @test builder.state.iteration == 0
                 EDDP.step!(builder)
                 @test builder.state.iteration == 1
-                EDDP.step!(builder)
-                @test builder.state.iteration == 2
+                EDDP.link!(builder)
+                @test builder.state.iteration == 3
 
                 # Run walk forward tests
                 EDDP.walk_forward_tests(builder)
