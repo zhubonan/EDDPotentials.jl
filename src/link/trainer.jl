@@ -40,9 +40,8 @@ Write the dataset to the disk. These are large JLD2 archive containing the data 
 function write_dataset(bu::Builder, fc=load_features(bu); name=dataset_name(bu))
     # Save the dataset 
     training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
-    name = joinpath(training_dir, name)
 
-    ensure_dir(training_dir)
+    ensure_dir(splitdir(name)[1])
     train, test, valid = split(fc, bu.trainer.train_split...)
     jldopen(name, "w") do file
         file["train"] = train

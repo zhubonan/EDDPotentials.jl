@@ -427,6 +427,7 @@ _output_structure_dir(bu::Builder) =
     joinpath(bu.state.workdir, "gen$(bu.state.iteration)-dft")
 
 
+include("external.jl")
 """
 Run external code for generating training data
 """
@@ -457,14 +458,14 @@ function _run_external(bu::Builder)
             _make_symbol_keys(bu.state.dft_kwargs)...,
         )
         return true
-    elseif bu.state.dft_mode == "castep"
-        run_crud(
-            bu.state.workdir,
+    elseif bu.state.dft_mode == "crud-queue"
+        run_crud_queue(
+            bu.options.scheduler,
+            joinpath(bu.state.workdir, bu.state.seedfile_calc),
+            joinpath(bu.state.workdir, "crud-work"),
             _input_structure_dir(bu),
             _output_structure_dir(bu);
-            mpinp=bu.state.mpinp,
-            bu.state.n_parallel,
-            _make_symbol_keys(bu.state.dft_kwargs)...,
+            perc_threshold=bu.state.per_generation_threshold
         )
         return true
     end

@@ -126,12 +126,22 @@ end
     n::Int = -1
 end
 
+@option struct SchedulerConfig <: EDDPOptions
+    script::String="job_script.sh"
+    njobs::Int=1
+    type::String="SGE" 
+    clean_workdir::Bool=false
+    submit_jobs::Bool=true
+end
+
+get_job_script_content(sch::SchedulerConfig) = read(sch.script, String)
 @option mutable struct BuilderOption <: EDDPOptions
     state::BuilderState
     cf::CellFeatureConfig
     cf_embedding::Maybe{Embedding}
     rss::RssSetting
     trainer::TrainingOption
+    scheduler::Maybe{SchedulerConfig}
 end
 
 

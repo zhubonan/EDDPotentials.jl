@@ -19,6 +19,7 @@ events.out*
 .eddp_builder
 .*.swp
 *.so
+test/pp3-example/gen*
 
 scripts/*
 !scripts/sysimg.jl

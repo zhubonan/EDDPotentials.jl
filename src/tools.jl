@@ -430,7 +430,7 @@ function get_label(seedname)
 end
 
 "Return the *stea* part of a file name"
-stem(x) = splitext(splitpath(x)[end])[1]
+stem(x::AbstractString) = splitext(splitpath(x)[end])[1]
 
 swapext(fname, new) = splitext(fname)[1] * new
 
