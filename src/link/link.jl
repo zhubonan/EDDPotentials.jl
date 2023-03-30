@@ -332,7 +332,9 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
     nstructs[end] = nstruct_per_proc_last
 
     # Launch external processes
+    state = bu.state
     project_path = dirname(Base.active_project())
+    outdir = joinpath(state.workdir, "gen$(iter)")
     cmds = [
         add_threads_env(
             Cmd([
@@ -342,35 +344,35 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
                 "using EDDP;EDDP._run_rss_link()",
                 "--",
                 "--file",
-                "$(bu.state.builder_file_path)",
+                "$(state.builder_file_path)",
                 "--iteration",
-                "$(bu.state.iteration)",
+                "$(state.iteration)",
                 "--num",
                 "$(num)",
                 "--pressure",
-                "$(bu.state.rss_pressure_gpa)",
+                "$(state.rss_pressure_gpa)",
                 "--outdir",
                 "$(outdir)",
             ]),
-            bu.state.rss_num_threads,
+            state.rss_num_threads,
         ) for num in nstructs
     ]
     # Apply random pressure range
-    if !isempty(bu.state.rss_pressure_gpa_range)
+    if !isempty(state.rss_pressure_gpa_range)
         # Add pressure ranges
-        a, b = bu.state.rss_pressure_gpa_range
+        a, b = state.rss_pressure_gpa_range
         for i in eachindex(cmds)
             cmds[i] = add_threads_env(
                 Cmd([cmds[i]..., "--pressure-range", "$(a),$(b)"]),
-                bu.state.rss_num_threads,
+                state.rss_num_threads,
             )
         end
     end
 
-    @info "Subprocess launch command: $(Cmd([cmds[1]...])) for $(bu.state.rss_nprocs) process"
+    @info "Subprocess launch command: $(Cmd([cmds[1]...])) for $(state.rss_nprocs) process"
     # Launch tasks
     tasks = Task[]
-    for i = 1:bu.state.rss_nprocs
+    for i = 1:state.rss_nprocs
         this_task = @async run(
             pipeline(cmds[i], stdout="rss-process-$i-stdout", stderr="rss-process-$i"),
         )
@@ -383,7 +385,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
         nfound = length(glob(joinpath(outdir, "*.res")))
         # Print progress if the number of models have changed
         if nfound != last_nstruct
-            @info "Number of relaxed structures: $(nfound)/$(bu.state.per_generation)"
+            @info "Number of relaxed structures: $(nfound)/$(state.per_generation)"
             last_nstruct = nfound
         end
         sleep(5)
@@ -398,7 +400,7 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
     outdir = joinpath(state.workdir, "gen$(iter)")
     ensure_dir(outdir)
 
-    (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max) = bu.state
+    (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max) = state
     _run_rss(
         joinpath.(Ref(state.workdir), seedfile),
         ensemble,

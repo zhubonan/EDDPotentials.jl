@@ -41,6 +41,7 @@ include("calculator.jl")
 include("tools.jl")
 include("opt.jl")
 include("records.jl")
+include("quickbuild.jl")
 
 # Automated building
 include("link/link.jl")

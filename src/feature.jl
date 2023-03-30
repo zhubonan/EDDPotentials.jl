@@ -83,7 +83,7 @@ TwoBodyFeature{T, M} <: AbstractNBodyFeature
 
 Type for constructing the feature vector of the two-body interactions.
 """
-struct TwoBodyFeature{T,M,P} <: AbstractNBodyFeature
+struct TwoBodyFeature{T,M,P<:Tuple} <: AbstractNBodyFeature
     "Function of distance"
     f::T
     "df(r)/r"
@@ -140,8 +140,8 @@ g(r)= \begin{cases}
 gfr(r::T, rcut) where {T} = r <= rcut ? -2 / rcut : zero(T)
 
 TwoBodyFeature(f, g, p, sij_idx, rcut::Real) =
-    TwoBodyFeature(f, g, collect(p), tuple(sij_idx[1], sij_idx[2]), rcut, length(p))
-TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, p, sij_idx, rcut)
+    TwoBodyFeature(f, g, Tuple(p), tuple(sij_idx[1], sij_idx[2]), rcut, length(p))
+TwoBodyFeature(p, sij_idx, rcut::Real) = TwoBodyFeature(fr, gfr, Tuple(p), sij_idx, rcut)
 
 """
     (f::TwoBodyFeature)(out::AbstractMatrix, rij, iat, istart=1)
@@ -212,7 +212,7 @@ nfeatures(f::TwoBodyFeature) = f.np
 
 Type for constructing the feature vector of the three-body interactions.
 """
-struct ThreeBodyFeature{T,M,P,Q} <: AbstractNBodyFeature
+struct ThreeBodyFeature{T,M,P<:Tuple,Q<:Tuple} <: AbstractNBodyFeature
     "Basis function"
     f::T
     "df(r)/r"
@@ -232,15 +232,15 @@ end
 ThreeBodyFeature(f, g, p, q, sijk_idx, rcut::Float64) = ThreeBodyFeature(
     f,
     g,
-    collect(p),
-    collect(q),
+    Tuple(p),
+    Tuple(q),
     tuple(sijk_idx[1], sijk_idx[2], sijk_idx[3]),
     rcut,
     length(p),
     length(q),
 )
 ThreeBodyFeature(p, q, sijk_idx, rcut::Float64) =
-    ThreeBodyFeature(fr, gfr, p, q, sijk_idx, rcut)
+    ThreeBodyFeature(fr, gfr, Tuple(p), Tuple(q), sijk_idx, rcut)
 
 
 function Base.show(io::IO, ::MIME"text/plain", x::ThreeBodyFeature)
@@ -713,7 +713,7 @@ function CellFeature(
             if !(any(x -> permequal(x, e1, e2), existing_comb))
                 push!(
                     two_body_features,
-                    TwoBodyFeature(f2, g2, collect(p2), (e1, e2), rcut2),
+                    TwoBodyFeature(f2, g2, Tuple(collect(p2)), (e1, e2), rcut2),
                 )
                 push!(existing_comb, (e1, e2))
             end
@@ -731,8 +731,8 @@ function CellFeature(
                         ThreeBodyFeature(
                             f3,
                             g3,
-                            collect(p3),
-                            collect(q3),
+                            Tuple(collect(p3)),
+                            Tuple(collect(q3)),
                             (e1, e2, e3),
                             rcut3,
                         ),

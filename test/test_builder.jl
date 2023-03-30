@@ -62,7 +62,7 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
         test_to_from_toml(cf)
 
 
-        opt = EDDP.BuilderOption(state, cf, nothing, rss, lm)
+        opt = EDDP.BuilderOption(state, cf, nothing, rss, lm, nothing)
         test_to_from_toml(opt)
 
         # Construct builder from opt

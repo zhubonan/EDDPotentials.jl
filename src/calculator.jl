@@ -309,7 +309,7 @@ function _calculate_two_pass!(calc)
     @timeit to "gradinp!" gradinp!(calc.gv, calc.nninterface)
     # Second pass - offset to skip the gradient of the one-body terms
     # Feature vectors should not be updated here
-    @timeit to "compute_fv_gv!" compute_fv_gv!(
+    @timeit to "compute_fv_gv!" compute_fv_gv_two_pass!(
         calc.force_buffer,
         cf.two_body,
         cf.three_body,

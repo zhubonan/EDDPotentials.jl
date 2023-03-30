@@ -476,18 +476,33 @@ function compute_fv!(
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
     ecore_buffer = [0.0 for _ = 1:nthreads()]
+    pij_buffer = [zeros(npmax3, lfe3) for _ in 1:nthreads()]
+    pik_buffer = [zeros(npmax3, lfe3) for _ in 1:nthreads()]
+    qjk_buffer = [zeros(nqmax3, lfe3) for _ in 1:nthreads()]
 
-    Threads.@threads for iat = 1:nat
+    inv_fij_buffer = [zeros(lfe3) for _ in 1:nthreads()]
+    inv_fik_buffer = [zeros(lfe3) for _ in 1:nthreads()]
+    inv_fjk_buffer = [zeros(lfe3) for _ in 1:nthreads()]
+
+    Threads.@threads :static for iat = 1:nat
         #for iat = 1:nat
         ecore = 0.0
-        pij = zeros(npmax3, lfe3)
-        inv_fij = zeros(lfe3)
+        ithread = threadid()
+        pij = pij_buffer[ithread]
+        inv_fij = inv_fij_buffer[ithread] 
 
-        pik = zeros(npmax3, lfe3)
-        inv_fik = zeros(lfe3)
+        pik = pik_buffer[ithread] 
+        inv_fik = inv_fik_buffer[ithread]
 
-        qjk = zeros(nqmax3, lfe3)
-        inv_fjk = zeros(lfe3)
+        qjk = qjk_buffer[ithread] 
+        inv_fjk = inv_fjk_buffer[ithread]
+
+        fill!(pij, 0)
+        fill!(inv_fij, 0)
+        fill!(pik, 0)
+        fill!(inv_fik, 0)
+        fill!(qjk, 0)
+        fill!(inv_fjk, 0)
 
         for (jat, jextend, rij) in CellBase.eachneighbour(nl, iat)
             rij > maxrcut && continue
@@ -596,23 +611,39 @@ function compute_fv_gv!(
     fill!.(score_buffer, 0)
     fill!.(fcore_buffer, 0)
 
-    Threads.@threads for iat = 1:nat
+    pij_buffer = [zeros(npmax3, lfe3) for _ in 1:nthreads()]
+    pik_buffer = [zeros(npmax3, lfe3) for _ in 1:nthreads()]
+    qjk_buffer = [zeros(nqmax3, lfe3) for _ in 1:nthreads()]
+
+    inv_fij_buffer = [zeros(lfe3) for _ in 1:nthreads()]
+    inv_fik_buffer = [zeros(lfe3) for _ in 1:nthreads()]
+    inv_fjk_buffer = [zeros(lfe3) for _ in 1:nthreads()]
+
+    Threads.@threads :static for iat = 1:nat
         #for iat = 1:nat
         ecore = 0.0
-        pij = zeros(npmax3, lfe3)
-        # pij_1 = zeros(npmax3, lfe3)
-        inv_fij = zeros(lfe3)
 
-        pik = zeros(npmax3, lfe3)
-        #pik_1 = zeros(npmax3, lfe3)
-        inv_fik = zeros(lfe3)
+        ithread = threadid()
+        pij = pij_buffer[ithread]
+        inv_fij = inv_fij_buffer[ithread] 
 
-        qjk = zeros(nqmax3, lfe3)
-        #qjk_1 = zeros(nqmax3, lfe3)
-        inv_fjk = zeros(lfe3)
-        score = similar_zero(fb.score)
-        fcore = similar_zero(fb.fcore)
+        pik = pik_buffer[ithread] 
+        inv_fik = inv_fik_buffer[ithread]
 
+        qjk = qjk_buffer[ithread] 
+        inv_fjk = inv_fjk_buffer[ithread]
+
+        fill!(pij, 0)
+        fill!(inv_fij, 0)
+        fill!(pik, 0)
+        fill!(inv_fik, 0)
+        fill!(qjk, 0)
+        fill!(inv_fjk, 0)
+
+        score = score_buffer[ithread]
+        fill!(score, 0)
+        fcore = fcore_buffer[ithread]
+        fill!(fcore, 0)
 
         for (jat, jextend, rij, vij) in CellBase.eachneighbourvector(nl, iat)
             rij > maxrcut && continue
@@ -701,10 +732,12 @@ function compute_fv_gv!(
                 )
             end # i,j,k pair
         end
-        ecore_buffer[threadid()] += ecore
-        score_buffer[threadid()] .+= score
-        fcore_buffer[threadid()] .+= fcore
+        ecore_buffer[ithread] += ecore
+        score_buffer[ithread] .+= score
+        fcore_buffer[ithread] .+= fcore
     end
+    # Collect results from the buffers
+
     fb.ecore[1] = sum(ecore_buffer)
     for i = 1:nthreads()
         fb.score .+= score_buffer[i]
@@ -713,7 +746,10 @@ function compute_fv_gv!(
     fb
 end
 
-function compute_fv_gv_two_pass!(
+"""
+Two-pass version of compute_fv_gv!
+"""
+function compute_fv_gv!(
     fb::ForceBuffer,
     features2,
     features3,

@@ -71,7 +71,7 @@ using Test
         chain = EDDP.generate_chain(21, [5])
         chain.layers[1].bias .= rand(5)
         chain.layers[2].bias .= rand(1)
-        inp = [rand(Float32, 21, 2), rand(Float32, 21, 2)]
+        inp = [rand(Float64, 21, 2), rand(Float64, 21, 2)]
         gd = Flux.jacobian(() -> [sum(chain(x)) for x in inp], Flux.params(chain))
         gp! = EDDP.setup_fg_backprop(chain, inp, [1.0, 1.0])
         jmat = zeros(eltype(inp[1]), 2, 116)
@@ -86,7 +86,7 @@ using Test
         chain = EDDP.generate_chain(21, [5, 10])
         chain.layers[1].bias .= rand(5)
         chain.layers[2].bias .= rand(1)
-        inp = [rand(Float32, 21, 2), rand(Float32, 21, 2)]
+        inp = [rand(Float64, 21, 2), rand(Float64, 21, 2)]
         gd = Flux.jacobian(() -> [sum(chain(x)) for x in inp], Flux.params(chain))
         gp! = EDDP.setup_fg_backprop(chain, inp, [1.0, 1.0])
         jmat = zeros(eltype(inp[1]), length(inp), 181)
