@@ -188,6 +188,35 @@ include("utils.jl")
     )
     grad = reshape(NLSolversBase.gradient!(od, s0), 3, 3)
     @test allclose(grad, -score, atol=1e-3)
+
+    # Test allocation
+    stats = @timed EDDP.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
+    alloc1 = stats.gcstats.poolalloc
+    @test alloc1 < 200
+
+    # Allocation when computing the features only
+    EDDP.compute_fv!(fb.fvec, cf.two_body, cf.three_body, cell; offset=n1bd)
+    stats = @timed EDDP.compute_fv!(fb.fvec, cf.two_body, cf.three_body, cell; offset=n1bd)
+    alloc11 = stats.gcstats.poolalloc
+    @test alloc11 < 200
+
+    supercell = CellBase.make_supercell(cell, 2,2,2)
+    fvec_super = vcat(
+        EDDP.one_body_vectors(supercell, cf),
+        EDDP.feature_vector2(cf.two_body, supercell),
+        EDDP.feature_vector3(cf.three_body, supercell),
+    )
+    fb_super = EDDP.ForceBuffer(fvec_super; ndims=3, core=nothing)
+    EDDP.compute_fv_gv!(fb_super, cf.two_body, cf.three_body, supercell; offset=n1bd)
+    stats = @timed EDDP.compute_fv_gv!(fb_super, cf.two_body, cf.three_body, supercell; offset=n1bd)
+    alloc2 = stats.gcstats.poolalloc
+    # Linear scaling for the number of allocations due to the use of threading
+    @test alloc2 / alloc1 < (length(supercell) / length(cell ) + 1)
+
+    # Allocation when computing the features only should not scale
+    stats = @timed EDDP.compute_fv!(fb_super.fvec, cf.two_body, cf.three_body, supercell; offset=n1bd)
+    alloc21 = stats.gcstats.poolalloc
+    @test alloc21 / alloc11 < (length(supercell) / length(cell ) + 1)
 end
 
 @testset "Gradients" begin
@@ -284,111 +313,3 @@ end
     grad = NLSolversBase.gradient(od, epos)
     @test allclose(grad, -eforce, atol=1e-4, rtol=1e-4)
 end
-
-#     calc = _get_calc()
-#     EDDP._reinit_fb!(calc, "one-pass")
-#     ntot = EDDP.nfeatures(calc.cf)    
-#     model = Chain(Dense(ones(1, ntot)))
-#     itf = EDDP.ManualFluxBackPropInterface(model)
-
-#     forces = copy(EDDP.get_forces(calc))
-#     stress = copy(EDDP.get_stress(calc))
-
-#     # Test the total force
-#     p0 = EDDP.get_positions(calc)
-#     od = OnceDifferentiable(x -> _fd_energy(calc, x), p0, _fd_energy(calc, p0))
-#     grad= NLSolversBase.gradient(od, p0)
-#     @test allclose(grad, -forces, atol=1e-6)
-
-#     p0 = EDDP.get_positions(calc)
-#     od = OnceDifferentiable(x -> _fd_energy(calc, x), p0, _fd_energy(calc, p0))
-#     grad= NLSolversBase.gradient(od, p0)
-#     @test allclose(grad, -forces, atol=1e-6)
-
-
-#     # Test the total stress
-#     s0 = zeros(3,3)[:]
-#     od = OnceDifferentiable(x -> _fd_strain(calc, x), s0, _fd_strain(calc, s0), inplace=false)
-#     grad= NLSolversBase.gradient(od, s0) ./ volume(get_cell(calc))
-#     grad2 = grad
-#     @test allclose(grad, -vec(stress), atol=1e-3)
-
-#     # Test wrapper
-#     # NOTE Somehow this is needed here - possible BUG?
-#     calc = _get_calc()
-# #    calc.cell.positions[6] += 0.1
-#     EDDP._reinit_fb!(calc, "one-pass")
-#     calc_bak = deepcopy(calc) 
-#     vc = EDDP.VariableCellCalc(calc)
-#     epos = EDDP.get_positions(vc)
-#     eforce = copy(EDDP.get_forces(vc))
-
-#     od = OnceDifferentiable(x -> _fd_energy_vc(vc, x), epos, _fd_energy_vc(vc, epos);inplace=false)
-#     vc_bak = deepcopy(vc) 
-#     grad= NLSolversBase.gradient(od, epos)
-#     @test allclose(grad, -eforce, atol=1e-4, rtol=1e-4)
-
-#     od = OnceDifferentiable(x -> _fd_energy_vc(vc, x), epos, _fd_energy_vc(vc, epos);inplace=false)
-#     vc_bak = deepcopy(vc) 
-#     grad= NLSolversBase.gradient(od, epos)
-#     @test allclose(grad, -eforce, atol=1e-4, rtol=1e-4)
-
-#     vc = EDDP.VariableCellCalc(calc)
-#     od = OnceDifferentiable(x -> _fd_energy_vc(vc, x), epos, _fd_energy_vc(vc, epos);inplace=false)
-#     grad= NLSolversBase.gradient(od, epos)
-#     @test allclose(grad, -eforce, atol=1e-4, rtol=1e-4)
-
-#     calc.cell.positions == calc_bak.cell.positions
-
-#     diff = 6e-6
-#     p0[6] = -diff
-#     e1 = _fd_energy(calc, p0)
-#     p0[6] = diff
-#     e2 = _fd_energy(calc, p0)
-#     f = (e2 - e1) / 2 / diff
-
-#     diff = 6e-6
-#     p0[6] = -diff
-#     e1 = _fd_energy(calc_bak, p0)
-#     p0[6] = diff
-#     e2 = _fd_energy(calc_bak, p0)
-#     f = (e2 - e1) / 2 / diff
-
-
-
-#     vc = EDDP.VariableCellCalc(calc_bak)
-#     od = OnceDifferentiable(x -> _fd_energy_vc(vc, x), epos, _fd_energy_vc(vc, epos);inplace=false)
-#     grad= NLSolversBase.gradient(od, epos)
-#     @test allclose(grad, -eforce, atol=1e-4, rtol=1e-4)
-
-# ##### Test zone ####
-
-
-#     calc = _get_calc()
-#     EDDP._reinit_fb!(calc, "one-pass")
-#     vc = EDDP.VariableCellCalc(calc)
-#     epos = EDDP.get_positions(vc)
-#     eforce = copy(EDDP.get_forces(vc))
-#     od = OnceDifferentiable(x -> _fd_energy_vc(vc, x), epos, _fd_energy_vc(vc, epos);inplace=false)
-#     grad= NLSolversBase.gradient(od, epos)
-
-# begin 
-#     diff = 6e-6
-#     epos[6] = -diff
-#     e1 = _fd_energy_vc(vc, epos)
-#     epos[6] = diff
-#     e2 = _fd_energy_vc(vc, epos)
-#     f = (e2 - e1) / 2 / diff
-# end
-
-# begin
-#     diff = -6e-6
-#     p0 = EDDP.get_positions(calc)
-#     p0[6] = -diff
-#     e1 = _fd_energy(calc, p0)
-#     @show e1
-#     p0[6] = diff
-#     e2 = _fd_energy(calc, p0)
-#     @show e2
-#     f = (e2 - e1) / 2 / diff
-# end
