@@ -3,7 +3,7 @@ seedfile = "Al.cell"
 seedfile_calc = "Al.cell"
 dft_mode = "pp3"
 per_generation = 10
-n_initial = 10
+n_initial = 50
 max_iterations = 2
 rss_external = false
 

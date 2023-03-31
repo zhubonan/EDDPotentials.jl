@@ -108,6 +108,7 @@ function run_crud_queue(
     seed = stem(seedfile)
     cp(seed * ".cell", joinpath(workdir, seed * ".cell"), force=true)
     cp(seed * ".param", joinpath(workdir, seed * ".param"), force=true)
+    good_castep = joinpath(workdir, "good_castep")
 
     nfinished = length(glob(joinpath(good_castep, "*.res")))
     perc_finished = nfinished / nstruct
@@ -119,7 +120,6 @@ function run_crud_queue(
     end
 
      # Monitor the status
-    good_castep = joinpath(workdir, "good_castep")
     while true
         nfinished = length(glob(joinpath(good_castep, "*.res")))
         perc_finished = nfinished / nstruct
