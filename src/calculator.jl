@@ -515,10 +515,6 @@ function set_positions!(vc::VariableCellCalc, new)
     set_positions!(cell, new_dgrad * pos)
 end
 
-
-"Covert eV/Å^3 to GPa"
-eVAngToGPa(x) = 160.21766208 * x
-
 """
     optimise!(calc::AbstractCalc)
 

@@ -17,7 +17,7 @@ disable_timer!(to)
 using Glob
 export glob
 
-
+include("constants.jl")
 # External
 include("nnls/nnls.jl")
 
@@ -39,6 +39,7 @@ include("eddpf90.jl")
 include("training.jl")
 include("calculator.jl")
 include("tools.jl")
+include("relax/relax.jl")
 include("opt.jl")
 include("records.jl")
 include("quickbuild.jl")

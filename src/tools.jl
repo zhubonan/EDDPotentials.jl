@@ -114,7 +114,6 @@ function build_one(seedfile; timeout=10, init_structure_transform=nothing, max_a
     return cell
 end
 
-GPaToeVAng(x) = x / 160.21766208
 
 """
     relax!(calc::NNCalc;relax_cell=true, show_trace, method, opt_kwargs...)
