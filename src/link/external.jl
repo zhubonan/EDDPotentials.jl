@@ -10,9 +10,9 @@ the results to the output folder.
 It is assumed that the files are named like `SEED-XX-XX-XX.res` and the parameters
 for calculations are stored under `<workdir>/SEED.cell` and `<workdir>/SEED.param`. 
 """
-function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
-    hopper_folder =joinpath(workdir, "hopper") 
-    gd_folder =joinpath(workdir, "good_castep") 
+function run_crud(workdir, indir, outdir; nparallel=1, mpinp=4)
+    hopper_folder = joinpath(workdir, "hopper")
+    gd_folder = joinpath(workdir, "good_castep")
     ensure_dir(hopper_folder)
     ensure_dir(outdir)
     infiles = glob(joinpath(indir, "*.res"))
@@ -22,7 +22,7 @@ function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
     end
     # Run nparallel instances of crud.pl
     @sync begin
-        for i=1:nparallel
+        for i = 1:nparallel
             @async run(`crud.pl -singlepoint -mpinp $mpinp`)
             sleep(0.01)
         end
@@ -30,10 +30,12 @@ function run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)
     # Transfer files to the target folder
     for file in infiles
         fname = stem(file) * ".res"
-        isfile(joinpath(gd_folder, fname)) && cp(joinpath(gd_folder, fname), joinpath(outdir, fname), force=true)
+        isfile(joinpath(gd_folder, fname)) &&
+            cp(joinpath(gd_folder, fname), joinpath(outdir, fname), force=true)
         # Copy CASTEP files is there is any
         fname = stem(file) * ".castep"
-        isfile(joinpath(gd_folder, fname)) && cp(joinpath(gd_folder, fname), joinpath(outdir, fname), force=true)
+        isfile(joinpath(gd_folder, fname)) &&
+            cp(joinpath(gd_folder, fname), joinpath(outdir, fname), force=true)
     end
 end
 
@@ -53,7 +55,7 @@ Submit the jobs
 """
 function submit_sge(sch::SchedulerConfig, workdir)
     # Write the job script
-    script_path =  joinpath(workdir, "job.sh")
+    script_path = joinpath(workdir, "job.sh")
     open(script_path, "w") do handle
         write(handle, get_job_script_content(sch))
     end
@@ -91,7 +93,8 @@ function run_crud_queue(
     workdir,
     input_dir,
     output_dir,
-    ;perc_threshold=0.98
+    ;
+    perc_threshold=0.98,
 )
 
     isdir(workdir) || mkdir(workdir)
@@ -119,7 +122,7 @@ function run_crud_queue(
         submit(scheduler, workdir)
     end
 
-     # Monitor the status
+    # Monitor the status
     while true
         nfinished = length(glob(joinpath(good_castep, "*.res")))
         perc_finished = nfinished / nstruct
@@ -140,4 +143,3 @@ function run_crud_queue(
 
     return true
 end
-

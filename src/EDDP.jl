@@ -17,6 +17,12 @@ disable_timer!(to)
 using Glob
 export glob
 
+
+# abstract types
+abstract type EDDPOption end
+
+# end of abstract types
+
 include("constants.jl")
 # External
 include("nnls/nnls.jl")

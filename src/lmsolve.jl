@@ -11,7 +11,7 @@ using LinearAlgebra
 import NLSolversBase: value, jacobian
 import StatsBase
 import StatsBase: coef, dof, nobs, rss, stderror, weights, residuals
-using LsqFit: Avv, OptimizationTrace, OptimizationState
+import LsqFit
 
 import Base.summary
 
@@ -64,7 +64,7 @@ function levenberg_marquardt(
     show_trace::Bool=false,
     lower::AbstractVector{T}=Array{T}(undef, 0),
     upper::AbstractVector{T}=Array{T}(undef, 0),
-    avv!::Union{Function,Nothing,Avv}=nothing,
+    avv!::Union{Function,Nothing,LsqFit.Avv}=nothing,
     callback=nothing,
     keep_best=true,
     earlystop=0,
@@ -144,10 +144,15 @@ function levenberg_marquardt(
     v = Array{T}(undef, n)
 
     # Maintain a trace of the system.
-    tr = OptimizationTrace{LevenbergMarquardt}()
+    tr = LsqFit.OptimizationTrace{LevenbergMarquardt}()
     if show_trace
         d = Dict("lambda" => lambda)
-        os = OptimizationState{LevenbergMarquardt}(iterCt, sum(abs2, value(df)), NaN, d)
+        os = LsqFit.OptimizationState{LevenbergMarquardt}(
+            iterCt,
+            sum(abs2, value(df)),
+            NaN,
+            d,
+        )
         push!(tr, os)
         println(os)
     end
@@ -299,7 +304,7 @@ function levenberg_marquardt(
         if show_trace
             g_norm = norm(J' * value(df), Inf)
             d = Dict("g(x)" => g_norm, "dx" => delta_x, "lambda" => lambda)
-            os = OptimizationState{LevenbergMarquardt}(
+            os = LsqFit.OptimizationState{LevenbergMarquardt}(
                 iterCt,
                 sum(abs2, value(df)),
                 g_norm,

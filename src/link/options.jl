@@ -1,9 +1,7 @@
 using Configurations
 using GarishPrint
 
-abstract type EDDPOptions end
-
-@option mutable struct BuilderState <: EDDPOptions
+@option mutable struct BuilderState <: EDDPOption
     seedfile::Union{String,Vector{String}}
     seedfile_weights::Vector{Float64} = [1.0]
     seedfile_calc::String
@@ -35,11 +33,12 @@ abstract type EDDPOptions end
     "Override the project_prefix"
     project_prefix_override::String = ""
     builder_file_path::String = ""
+    relax::RelaxOption = RelaxOption()
 end
 
 abstract type AbstractTrainer end
 
-@option mutable struct TrainingOption <: EDDPOptions
+@option mutable struct TrainingOption <: EDDPOption
     energy_threshold::Float64 = 10.0
     nmax::Int = 3000
     nmodels::Int = 256
@@ -73,7 +72,7 @@ abstract type AbstractTrainer end
     boltzmann_kt::Float64 = -1.0
 end
 
-@option mutable struct RssSetting <: EDDPOptions
+@option mutable struct RssSetting <: EDDPOption
     packed::Bool = true
     seedfile::Union{String,Vector{String}} = "null"
     seedfile_weights::Vector{Float64} = Float64[1.0]
@@ -87,10 +86,11 @@ end
     niggli_reduce_output::Bool = true
     max_err::Int = 10
     pressure_gpa::Float64 = 0.01
+    relax::RelaxOption = RelaxOption()
 end
 
 
-@option mutable struct CellFeatureConfig <: EDDPOptions
+@option mutable struct CellFeatureConfig <: EDDPOption
     elements::Vector{String}
     p2::Vector{Float64} = [2, 10, 5]
     p3::Vector{Float64} = [2, 10, 5]
@@ -121,21 +121,21 @@ function CellFeature(config::CellFeatureConfig)
     CellFeature(args...; kwargs...)
 end
 
-@option struct EmbeddingOption <: EDDPOptions
+@option struct EmbeddingOption <: EDDPOption
     m::Int = -1
     n::Int = -1
 end
 
-@option struct SchedulerConfig <: EDDPOptions
-    script::String="job_script.sh"
-    njobs::Int=1
-    type::String="SGE" 
-    clean_workdir::Bool=false
-    submit_jobs::Bool=true
+@option struct SchedulerConfig <: EDDPOption
+    script::String = "job_script.sh"
+    njobs::Int = 1
+    type::String = "SGE"
+    clean_workdir::Bool = false
+    submit_jobs::Bool = true
 end
 
 get_job_script_content(sch::SchedulerConfig) = read(sch.script, String)
-@option mutable struct BuilderOption <: EDDPOptions
+@option mutable struct BuilderOption <: EDDPOption
     state::BuilderState
     cf::CellFeatureConfig
     cf_embedding::Maybe{Embedding}
@@ -145,4 +145,4 @@ get_job_script_content(sch::SchedulerConfig) = read(sch.script, String)
 end
 
 
-Base.show(io::IO, mime::MIME"text/plain", x::EDDPOptions) = pprint_struct(io, x)
+Base.show(io::IO, mime::MIME"text/plain", x::EDDPOption) = pprint_struct(io, x)

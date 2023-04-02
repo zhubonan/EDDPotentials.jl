@@ -195,8 +195,15 @@ end
     # Attractive potential with -5f(x)^6 + f(x)^12
     EDDP.setparamvector!(nnitf, [0, -5, 1])
     calc = EDDP.NNCalc(cell, cf, nnitf)
+
+    # Test RelaxOption
+    opts = EDDP.RelaxOption()
+    relax = EDDP.Relax(calc, opts)
+    relax = EDDP.Relax(calc)
+
     # Perform relaxation
-    EDDP.optimise!(calc)
+    output = EDDP.multirelax!(relax)
+    output = EDDP.relax!(relax)
 
     # Expected distance
     rexp = (1 - (5 / 2 / 2^6)^(1 / 6)) * 3.5
@@ -206,15 +213,14 @@ end
     # Test recording trajectory
     cell = _h2_cell(10, 1.5)
     calc = EDDP.NNCalc(cell, cf, nnitf)
-    traj = []
-    res = EDDP.optimise!(calc, traj=traj)
-    @test res.g_converged
+    res = EDDP.relax!(calc; keep_trajectory=true)
+    @test res.converged
 
     dd = distance_between(cell[1], cell[2])
     @test dd ≈ rexp atol = 1e-6
 
-    @test length(traj) > 1
-    @test :enthalpy in keys(traj[1].metadata)
+    @test length(res.relax.trajectory) > 1
+    @test :enthalpy in keys(res.relax.trajectory[1].metadata)
 end
 
 @testset "Two-pass" begin

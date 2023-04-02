@@ -200,7 +200,7 @@ include("utils.jl")
     alloc11 = stats.gcstats.poolalloc
     @test alloc11 < 200
 
-    supercell = CellBase.make_supercell(cell, 2,2,2)
+    supercell = CellBase.make_supercell(cell, 2, 2, 2)
     fvec_super = vcat(
         EDDP.one_body_vectors(supercell, cf),
         EDDP.feature_vector2(cf.two_body, supercell),
@@ -208,15 +208,27 @@ include("utils.jl")
     )
     fb_super = EDDP.ForceBuffer(fvec_super; ndims=3, core=nothing)
     EDDP.compute_fv_gv!(fb_super, cf.two_body, cf.three_body, supercell; offset=n1bd)
-    stats = @timed EDDP.compute_fv_gv!(fb_super, cf.two_body, cf.three_body, supercell; offset=n1bd)
+    stats = @timed EDDP.compute_fv_gv!(
+        fb_super,
+        cf.two_body,
+        cf.three_body,
+        supercell;
+        offset=n1bd,
+    )
     alloc2 = stats.gcstats.poolalloc
     # Linear scaling for the number of allocations due to the use of threading
-    @test alloc2 / alloc1 < (length(supercell) / length(cell ) + 1)
+    @test alloc2 / alloc1 < (length(supercell) / length(cell) + 1)
 
     # Allocation when computing the features only should not scale
-    stats = @timed EDDP.compute_fv!(fb_super.fvec, cf.two_body, cf.three_body, supercell; offset=n1bd)
+    stats = @timed EDDP.compute_fv!(
+        fb_super.fvec,
+        cf.two_body,
+        cf.three_body,
+        supercell;
+        offset=n1bd,
+    )
     alloc21 = stats.gcstats.poolalloc
-    @test alloc21 / alloc11 < (length(supercell) / length(cell ) + 1)
+    @test alloc21 / alloc11 < (length(supercell) / length(cell) + 1)
 end
 
 @testset "Gradients" begin

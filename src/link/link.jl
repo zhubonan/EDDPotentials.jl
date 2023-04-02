@@ -417,6 +417,7 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
         pressure_gpa=state.rss_pressure_gpa,
         pressure_gpa_range=state.rss_pressure_gpa_range,
         seedfile_weights,
+        relax_option=bu.state.relax,
     )
 end
 
@@ -467,7 +468,7 @@ function _run_external(bu::Builder)
             joinpath(bu.state.workdir, "crud-work"),
             _input_structure_dir(bu),
             _output_structure_dir(bu);
-            perc_threshold=bu.state.per_generation_threshold
+            perc_threshold=bu.state.per_generation_threshold,
         )
         return true
     end
@@ -905,12 +906,12 @@ load_features(bu::Builder, iteration; kwargs...) =
     load_features(bu, iteration...; kwargs...)
 
 """
-    run_rss(builder::Builder;kwargs...)
+    run_rss(builder::Builder)
 
 Run random structures search using trained ensembel model. The output files are in the 
 `search` subfolder by default.
 """
-function run_rss(builder::Builder; kwargs...)
+function run_rss(builder::Builder)
     rs = builder.rss
     ensemble = load_ensemble(builder, rs.ensemble_id)
     searchdir = joinpath(builder.state.workdir, rs.subfolder_name)
@@ -936,7 +937,7 @@ function run_rss(builder::Builder; kwargs...)
         max_err=rs.max_err,
         pressure_gpa=rs.pressure_gpa,
         seedfile_weights,
-        kwargs...,
+        relax_option=rs.relax,
     )
 end
 
@@ -945,9 +946,9 @@ end
 
 Run random structure searching for a configuration file for the builder.
 """
-function run_rss(str::AbstractString="link.toml"; kwargs...)
+function run_rss(str::AbstractString="link.toml")
     builder = Builder(str)
-    run_rss(builder; kwargs...)
+    run_rss(builder)
 end
 
 # Map for trainer names
@@ -1041,6 +1042,7 @@ function _run_rss_link()
         pressure_gpa_range,
         seedfile_weights,
         niggli_reduce_output=bu.state.rss_niggli_reduce,
+        relax_option=bu.state.relax,
     )
 end
 

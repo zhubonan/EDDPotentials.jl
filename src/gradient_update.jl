@@ -476,25 +476,25 @@ function compute_fv!(
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
     ecore_buffer = [0.0 for _ = 1:nthreads()]
-    pij_buffer = [zeros(npmax3, lfe3) for _ in 1:nthreads()]
-    pik_buffer = [zeros(npmax3, lfe3) for _ in 1:nthreads()]
-    qjk_buffer = [zeros(nqmax3, lfe3) for _ in 1:nthreads()]
+    pij_buffer = [zeros(npmax3, lfe3) for _ = 1:nthreads()]
+    pik_buffer = [zeros(npmax3, lfe3) for _ = 1:nthreads()]
+    qjk_buffer = [zeros(nqmax3, lfe3) for _ = 1:nthreads()]
 
-    inv_fij_buffer = [zeros(lfe3) for _ in 1:nthreads()]
-    inv_fik_buffer = [zeros(lfe3) for _ in 1:nthreads()]
-    inv_fjk_buffer = [zeros(lfe3) for _ in 1:nthreads()]
+    inv_fij_buffer = [zeros(lfe3) for _ = 1:nthreads()]
+    inv_fik_buffer = [zeros(lfe3) for _ = 1:nthreads()]
+    inv_fjk_buffer = [zeros(lfe3) for _ = 1:nthreads()]
 
     Threads.@threads :static for iat = 1:nat
         #for iat = 1:nat
         ecore = 0.0
         ithread = threadid()
         pij = pij_buffer[ithread]
-        inv_fij = inv_fij_buffer[ithread] 
+        inv_fij = inv_fij_buffer[ithread]
 
-        pik = pik_buffer[ithread] 
+        pik = pik_buffer[ithread]
         inv_fik = inv_fik_buffer[ithread]
 
-        qjk = qjk_buffer[ithread] 
+        qjk = qjk_buffer[ithread]
         inv_fjk = inv_fjk_buffer[ithread]
 
         fill!(pij, 0)
@@ -611,13 +611,13 @@ function compute_fv_gv!(
     fill!.(score_buffer, 0)
     fill!.(fcore_buffer, 0)
 
-    pij_buffer = [zeros(npmax3, lfe3) for _ in 1:nthreads()]
-    pik_buffer = [zeros(npmax3, lfe3) for _ in 1:nthreads()]
-    qjk_buffer = [zeros(nqmax3, lfe3) for _ in 1:nthreads()]
+    pij_buffer = [zeros(npmax3, lfe3) for _ = 1:nthreads()]
+    pik_buffer = [zeros(npmax3, lfe3) for _ = 1:nthreads()]
+    qjk_buffer = [zeros(nqmax3, lfe3) for _ = 1:nthreads()]
 
-    inv_fij_buffer = [zeros(lfe3) for _ in 1:nthreads()]
-    inv_fik_buffer = [zeros(lfe3) for _ in 1:nthreads()]
-    inv_fjk_buffer = [zeros(lfe3) for _ in 1:nthreads()]
+    inv_fij_buffer = [zeros(lfe3) for _ = 1:nthreads()]
+    inv_fik_buffer = [zeros(lfe3) for _ = 1:nthreads()]
+    inv_fjk_buffer = [zeros(lfe3) for _ = 1:nthreads()]
 
     Threads.@threads :static for iat = 1:nat
         #for iat = 1:nat
@@ -625,12 +625,12 @@ function compute_fv_gv!(
 
         ithread = threadid()
         pij = pij_buffer[ithread]
-        inv_fij = inv_fij_buffer[ithread] 
+        inv_fij = inv_fij_buffer[ithread]
 
-        pik = pik_buffer[ithread] 
+        pik = pik_buffer[ithread]
         inv_fik = inv_fik_buffer[ithread]
 
-        qjk = qjk_buffer[ithread] 
+        qjk = qjk_buffer[ithread]
         inv_fjk = inv_fjk_buffer[ithread]
 
         fill!(pij, 0)

@@ -38,12 +38,12 @@ function set_positions!(calc::AC, positions)
 end
 
 function Base.show(io::IO, c::AbstractCalc)
-    println(io, "$(typeof(c)) for: ")
+    println(io, "$(typeof(c).name.name) for: ")
     Base.show(io, get_cell(c))
 end
 
 function Base.show(io::IO, m::MIME"text/plain", cw::AbstractCalc)
-    println(io, "$(typeof(cw)) for: ")
+    println(io, "$(typeof(cw).name.name) for: ")
     Base.show(io, m, get_cell(cw))
 end
 
@@ -514,63 +514,6 @@ function set_positions!(vc::VariableCellCalc, new)
     set_cellmat!(cell, new_dgrad * cellmat(vc.orig_lattice))
     set_positions!(cell, new_dgrad * pos)
 end
-
-"""
-    optimise!(calc::AbstractCalc)
-
-Optimise the cell using the Optim interface. Collect the trajectory if requested.
-Note that the trajectory is collected for all force evaluations and may not 
-corresponds to the actual iterations of the underlying LBFGS iterations.
-"""
-function optimise!(
-    calc::AbstractCalc;
-    show_trace=false,
-    g_abstol=1e-6,
-    f_reltol=0.0,
-    successive_f_tol=2,
-    traj=nothing,
-    method=TwoPointSteepestDescent(),
-    kwargs...,
-)
-    p0 = get_positions(calc)[:]
-
-    "Energy"
-    function fo(x, calc)
-        set_positions!(calc, reshape(x, 3, :))
-        get_energy(calc)
-    end
-
-    "Gradient"
-    function go(x, calc)
-        set_positions!(calc, reshape(x, 3, :))
-        if !isnothing(traj)
-            cell = deepcopy(get_cell(calc))
-            cell.metadata[:enthalpy] = get_energy(calc)
-            cell.arrays[:forces] = get_forces(calc)
-            push!(traj, cell)
-        end
-        forces = get_forces(calc)
-        # ∇E = -F
-        # Collect the trajectory if requested
-        forces .* -1
-    end
-    res = optimize(
-        x -> fo(x, calc),
-        x -> go(x, calc),
-        p0,
-        method,
-        Optim.Options(;
-            show_trace=show_trace,
-            g_abstol,
-            f_reltol,
-            successive_f_tol,
-            kwargs...,
-        );
-        inplace=false,
-    )
-    res
-end
-
 
 """
      check_global_minsep(nl::NeighbourList, threshold)

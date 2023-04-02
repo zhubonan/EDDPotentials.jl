@@ -14,26 +14,20 @@ function build_and_relax(
     ensemble,
     cf;
     timeout=10,
-    nmax=500,
-    pressure_gpa=0.0,
-    relax_cell=true,
-    show_trace=false,
-    method=TwoPointSteepestDescent(),
+    nmax=1000,
     core_size=1.0,
     init_structure_transform=nothing,
-    kwargs...,
+    relax_option=RelaxOption(),
 )
-
     cell = build_one(seedfile; timeout, init_structure_transform)
-
     calc = EDDP.NNCalc(cell, cf, ensemble; nmax, core=CoreReplusion(core_size))
-    vc, res = relax!(calc; relax_cell, pressure_gpa, show_trace, method, kwargs...)
-    vc, res
+    re = Relax(calc, relax_option)
+    relax!(re)
 end
 
 
 """
-    run_rss(seedfile, ensemble, cf;max=1, outdir="./", kwargs...)
+    run_rss(seedfile, ensemble, cf;max=1, outdir="./", ...)
 
 Perform random structure searching using the seed file.
 Glob expression is allowed for the `seedfile` argument to select random from a list of
@@ -59,8 +53,10 @@ function _run_rss(
     max_err=10,
     pressure_gpa=0.001,
     pressure_gpa_range=nothing,
-    kwargs...,
+    relax_option=RelaxOption(),
+    core_size=0.5,
 )
+    _relax_option = deepcopy(relax_option)
     i = 1
 
     isdir(outdir) || mkdir(outdir)
@@ -77,31 +73,35 @@ function _run_rss(
     if show_progress
         pmeter = Progress(max)
     end
-
+    _pressure_gpa = pressure_gpa
     while i <= max
         # Use randomly chosen pressure
         if pressure_gpa_range !== nothing
-            pressure_gpa =
+            _pressure_gpa =
                 rand() * (pressure_gpa_range[2] - pressure_gpa_range[1]) +
                 pressure_gpa_range[1]
         end
         # Select the actual seeds
         this_seed = _select_seed(seedfile, seedfile_weights)[1]
+        # Apply the external pressure setting
+        _relax_option.external_pressure = Float64[_pressure_gpa]
         # Build the random structure and relax it
-        vc, res = build_and_relax_one(
+        res = build_and_relax_one(
             this_seed,
             ensemble,
             cf;
             max_err,
             init_structure_transform,
-            pressure_gpa,
-            kwargs...,
+            relax_option,
+            core_size,
         )
+
+        calc = res.relax.calc
 
         # Check for ensemble error and act
         # This prunes structure that we are too confident, e.g. nothing to learn from
         if ensemble_std_min > 0.0 || ensemble_std_max > 0.0
-            estd = get_energy_std(vc.calc) / length(get_cell(vc))
+            estd = get_energy_std(calc) / length(get_cell(calc))
             if ensemble_std_min > 0.0 && estd < ensemble_std_min
                 @info "Ensemble standard deviation $(estd) is too small ($(ensemble_std_min))!"
                 continue
@@ -116,21 +116,21 @@ function _run_rss(
         # Use this with case as pathological structures may prevent normal
         # structures being accepted. Ideally use it with `ensemble_std_min`.
         if eng_threshold > 0
-            if check_energy_threshold!(composition_engmin, vc, eng_threshold) == false
+            if check_energy_threshold!(composition_engmin, calc, eng_threshold) == false
                 continue
             end
         end
 
         # Update the label of the structure
         label = get_label(stem(this_seed))
-        EDDP.update_metadata!(vc, label)
+        EDDP.update_metadata!(calc, label)
 
         if !packed
             outfile = joinpath(outdir, "$(label).res")
         end
 
         # Write output file
-        cell = get_cell(vc)
+        cell = get_cell(calc)
         # Run niggli reduction - skip the loop if failed.
         if niggli_reduce_output
             try
@@ -159,15 +159,21 @@ function build_and_relax_one(
     cf::CellFeature;
     init_structure_transform=nothing,
     max_err=10,
-    kwargs...,
+    relax_option=RelaxOption(),
+    core_size=0.5,
 )
     nerr = 1
-    local vc
     local res
     while true
         try
-            vc, res =
-                build_and_relax(seedfile, ensemble, cf; init_structure_transform, kwargs...)
+            res = build_and_relax(
+                seedfile,
+                ensemble,
+                cf;
+                init_structure_transform,
+                relax_option,
+                core_size,
+            )
         catch err
             isa(err, InterruptException) && throw(err)
             if typeof(err) <: ProcessFailedException
@@ -185,7 +191,7 @@ function build_and_relax_one(
 
         break
     end
-    vc, res
+    res
 end
 
 """
@@ -214,4 +220,3 @@ function check_energy_threshold!(composition_engmin, calc, threshold)
     end
     return true
 end
-

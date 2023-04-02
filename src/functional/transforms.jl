@@ -46,4 +46,3 @@ function rattle_cell!(cell::Cell, amp)
     positions(cell) .= cellmat(cell) * spos
     cell
 end
-

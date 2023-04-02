@@ -90,4 +90,3 @@ function lj_like_calc(cell::Cell; α=1.0, a=6, rc=3.0)
     model = EDDP.LinearInterface([0, -2, 1.0] .* α)
     EDDP.NNCalc(cell, cf, model)
 end
-

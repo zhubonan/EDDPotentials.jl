@@ -25,10 +25,10 @@ function prepare_folder(func)
     end
 end
 
-function check_airss(;verbose=false)
+function check_airss(; verbose=false)
     try
-        buildcell =  run(`buildcell`, devnull, devnull;wait=false)
-        pp3 =  run(`pp3`, devnull, devnull;wait=false)
+        buildcell = run(`buildcell`, devnull, devnull; wait=false)
+        pp3 = run(`pp3`, devnull, devnull; wait=false)
     catch error
         if verbose
             @show error
@@ -36,12 +36,12 @@ function check_airss(;verbose=false)
         end
         return false
     end
-    return true 
+    return true
 end
 
-if check_airss(;verbose=true)
+if check_airss(; verbose=true)
     logger = SimpleLogger(IOBuffer())
-    with_logger(logger) do 
+    with_logger(logger) do
         @testset "Link" begin
             prepare_folder() do target
                 builder = Builder(joinpath(target, "link-test.toml"))
@@ -64,6 +64,12 @@ if check_airss(;verbose=true)
                 @test isa(fc, FeatureContainer)
                 fc = load_features(builder, 0)
                 @test isa(fc, FeatureContainer)
+
+                # Perform rss
+                builder.rss.ensemble_id = 1
+                builder.rss.max = 1
+                run_rss(builder)
+                @test isdir(joinpath(builder.state.workdir, "search"))
             end
         end
     end

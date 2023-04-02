@@ -7,6 +7,9 @@ n_initial = 50
 max_iterations = 2
 rss_external = false
 
+    [state.relax]
+    force_threshold = 1e-3
+
 [cf]
 elements = ["Al"]
 rcut2 = 5.0
@@ -19,6 +22,9 @@ geometry_sequence = true
 [rss]
 max = 100
 packed = false
+ensemble_std_max = -1
+    [rss.relax]
+    force_threshold = 1e-3
 
 [trainer]
 log_file = "train-log"
