@@ -90,24 +90,28 @@ function _hard_core_update!(fcore, score, iat, jat, rij, vij, modvij, core)
     core.f(rij, core.rcut) * core.a
 end
 
-function _update_pij!(pij, inv_fij, r12, features3)
-    for (i, feat) in enumerate(features3)
+function _update_pij!(pij, inv_fij, r12, features3, same=false)
+    same ? l = 1 : j = length(features3)
+    for i in 1:l
+        feat = features3[i]
         ftmp = feat.f(r12, feat.rcut)
         # 1/f(rij)
-        inv_fij[i] = 1.0 / ftmp
+        @inbounds inv_fij[i] = 1.0 / ftmp
         for j = 1:length(feat.p)
-            pij[j, i] = ftmp^feat.p[j]
+            @inbounds pij[j, i] = ftmp ^ feat.p[j]
         end
     end
 end
 
-function _update_qjk!(qjk, inv_qji, r12, features3)
-    for (i, feat) in enumerate(features3)
+function _update_qjk!(qjk, inv_qji, r12, features3, same=false)
+    same ? l = 1 : j = length(features3)
+    for i in 1:l
+        feat = features3[i]
         ftmp = feat.f(r12, feat.rcut)
         # 1/f(rij)
-        inv_qji[i] = 1.0 / ftmp
+        @inbounds inv_qji[i] = 1.0 / ftmp
         for j = 1:length(feat.q)
-            qjk[j, i] = ftmp^feat.q[j]
+            @inbounds qjk[j, i] = ftmp ^ feat.q[j]
         end
     end
 end
@@ -265,8 +269,9 @@ function _update_three_body!(
     offset,
 )
     i = 1 + offset
+    lq = size(pij, 2) # lq == 1 all features have the same p,q,f so the powers are not computed separately
     for (ife, f) in enumerate(features3)
-
+        ife = max(ife, lq)
         # Not for this triplets of atoms....
         if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
             i += f.np * f.nq
@@ -297,22 +302,22 @@ function _update_three_body!(
                 gfjk = gtmp3[o] * val
 
                 # Apply chain rule to the the forces
+                t1 = modvij * gfij
+                t2 = modvik * gfik
+                t3 = modvjk * gfjk
                 @inbounds @fastmath @simd for elm = 1:length(vij)
-                    t1 = modvij[elm] * gfij
-                    t2 = modvik[elm] * gfik
-                    t3 = modvjk[elm] * gfjk
-                    gtot[elm, i, iat, iat] -= t1 + t2
-                    gtot[elm, i, iat, jat] += t1 - t3
-                    gtot[elm, i, iat, kat] += t2 + t3
+                    gtot[elm, i, iat, iat] -= t1[elm] + t2[elm]
+                    gtot[elm, i, iat, jat] += t1[elm] - t3[elm]
+                    gtot[elm, i, iat, kat] += t2[elm] + t3[elm]
                 end
 
                 # Stress
-                @inbounds @fastmath for elm2 = 1:3
+                for elm2 = 1:3
                     @simd for elm1 = 1:3
-                        stot[elm1, elm2, i, iat] += (
-                            vij[elm1] * modvij[elm2] * gfij +
-                            vik[elm1] * modvik[elm2] * gfik +
-                            vjk[elm1] * modvjk[elm2] * gfjk
+                        @fastmath @inbounds stot[elm1, elm2, i, iat] += (
+                            vij[elm1] * t1[elm2]  +
+                            vik[elm1] * t2[elm2]  +
+                            vjk[elm1] * t3[elm2]
                         )
                     end
                 end
@@ -323,6 +328,9 @@ function _update_three_body!(
     end  # 3body-feature update loop 
 end
 
+"""
+Two-pass version
+"""
 function _update_three_body!(
     fvec,
     forces,
@@ -417,8 +425,9 @@ end
 
 function _update_three_body!(fvec, iat, jat, kat, sym, pij, pik, qjk, features3, offset)
     i = 1 + offset
+    lq = size(pij,2)
     for (ife, f) in enumerate(features3)
-
+        ife = max(ife, lq)
         # Not for this triplets of atoms....
         if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
             i += f.np * f.nq
@@ -476,6 +485,15 @@ function compute_fv!(
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
     ecore_buffer = [0.0 for _ = 1:nthreads()]
+    
+    same_3b = (
+        all(bd -> bd.p == features3[1].p, features3)  && 
+        all(bd -> bd.q == features3[1].q, features3)  && 
+        all(bd -> bd.f == features3[1].f, features3) 
+    )
+    if same_3b
+        lfe3 = 1
+    end
 
     Threads.@threads for iat = 1:nat
         #for iat = 1:nat
@@ -492,7 +510,7 @@ function compute_fv!(
         for (jat, jextend, rij) in CellBase.eachneighbour(nl, iat)
             rij > maxrcut && continue
             # Compute pij
-            length(features3) !== 0 && _update_pij!(pij, inv_fij, rij, features3)
+            length(features3) !== 0 && _update_pij!(pij, inv_fij, rij, features3, same_3b)
 
             if !isnothing(core)
                 ecore += core.f(rij, core.rcut) * core.a
@@ -524,10 +542,10 @@ function compute_fv!(
                 # This is a valid pair - compute the distances
 
                 # Compute pik
-                _update_pij!(pik, inv_fik, rik, features3)
+                _update_pij!(pik, inv_fik, rik, features3, same_3b)
 
                 # Compute qjk
-                _update_qjk!(qjk, inv_fjk, rjk, features3)
+                _update_qjk!(qjk, inv_fjk, rjk, features3, same_3b)
 
                 # Starting index for three-body feature udpate
                 i = totalfe2 + offset
@@ -538,7 +556,6 @@ function compute_fv!(
     end
     sum(ecore_buffer)
 end
-
 
 
 """
@@ -567,7 +584,16 @@ function compute_fv_gv!(
     core = fb.core
 
     @assert length(gtot) > 0 "The ForceBuffer passed is not suitable for single-pass calculation!"
+
     lfe3 = length(features3)
+    same_3b = (
+        all(bd -> bd.p == features3[1].p, features3)  && 
+        all(bd -> bd.q == features3[1].q, features3)  && 
+        all(bd -> bd.f == features3[1].f, features3) 
+    )
+    if same_3b
+        lfe3 = 1
+    end
 
     nfe2 = map(nfeatures, features2)
     totalfe2 = sum(nfe2)
@@ -618,7 +644,7 @@ function compute_fv_gv!(
             rij > maxrcut && continue
             # Compute pij
             modvij = vij / rij
-            _update_pij!(pij, inv_fij, rij, features3)
+            _update_pij!(pij, inv_fij, rij, features3, same_3b)
 
             # Add hard core repulsion
             if !isnothing(core)
@@ -665,10 +691,10 @@ function compute_fv_gv!(
                 # This is a valid pair - compute the distances
 
                 # Compute pik
-                _update_pij!(pik, inv_fik, rik, features3)
+                _update_pij!(pik, inv_fik, rik, features3, same_3b)
 
                 # Compute qjk
-                _update_qjk!(qjk, inv_fjk, rjk, features3)
+                _update_qjk!(qjk, inv_fjk, rjk, features3, same_3b)
 
                 # Starting index for three-body feature udpate
                 i = totalfe2 + offset
