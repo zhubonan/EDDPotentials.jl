@@ -1,50 +1,31 @@
 ![](docs/src/assets/logo_small.png)
 # EDDP.jl
 
-An alternative [Julia](https://julialang.org/) implementation of the ephemeral data derived potentials ([EDDPs](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.106.014102)).
+[Documentation](https://zhubonan.github.io/EDDP.jl)
 
+A [Julia](https://julialang.org/) package that implements the [Ephemeral data derived potentials](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.106.014102) (EDDP).
+EDDP can be seen as a kind of Machine Learning [(Interatomic) Potentials](https://en.wikipedia.org/wiki/Interatomic_potential) (MLP). 
+Normally such potentials are aim at *accurately reproduce the results of first-principles calculations* within a certain region of the configuration space.
+Once trained, such potentials can be used to run large scale molecular dynamics simulation which are otherwise intractable with first-principles calculations. 
 
+EDDP takes a simple and physically motivated form that resembles a generalized N-body Lenard-Jones-like potential.
+While not its originally design goal, EDDP can still give sufficiently accurate forces to allow molecular dynamics simulation (which does not blow-up) and phonon properties for certain systems. 
+In comparison, other state-of-the art MLPs often requires  description of the local atomic environment and complex gaussian process/deep learning/(graph) neutron network architectures.
+The hope is being physically sounds allows EDDP to give sufficiently good representations for most of the configuration space,
+and hence enables one to carry out crystal structure prediction with much reduced computational and time resources.
 
 ## Features
 
-- Fitting and evaluation of the potentials.
-- Structure prediction, working with the AIRSS packages. 
+- Generating EDDP feature vectors (local descriptors).
+- Train EDDP ensemble models.
+- Perform geometry optimization using trained models. 
+- Interface to other package for property calculations.
+- Workflow script for automated potential building and crystal structure prediction.
+- Plot and data analysis for the training dataset and the potentials.
 
-## Todo
+## Related packages
 
-* [x] Workflow system for easy construction of the potentials
-* [x] Validation of the boron system
-* Compiler friendly types - can using Vector instead of Tuple a better choice? 
-  * [ ] For Ensemble interface
-  * [ ] For features?
-  * [ ] For qs and qs?
-* [ ] Documentations
-* [ ] Change the dispatch signature of two-body/three-body - there is no need to use type dispatch here. So we can lift the need of the input begin a Vector (e.g. using Tuple instead). This allow mix/match of features with different f(r)
-* [ ] Generalise Neutral network interfaces so different NN implementations can be used interchangeably
-* [ ] Benchmark against the Fortran [EDDP](https://www.mtg.msm.cam.ac.uk/Codes/EDDP) package
-
-## Scaling the feature vectors
-
-Scaling is performed for neuron networks, for linear fits this is not needed.
-In all cases, the one-body vectors should not be scaled as they are one-hot encoders.
-
-## Improve manual backprop 
-
-Allow any input batch size to be used.
-Current we are limited to using only the size that it defined. Can we add another layer and dispatch based on the sizes of the inputs? This would make it much more convenient and avoid allocations?
-
-## Training workflow
-
-1. Generate the initial set of random structures and compute DFT singlepoint energies
-2. Train (ensemble) model#1
-3. Generate more (M) random structures and relax them using model#1
-4. Shake the relaxed structures N times, giving M(N+1) new structures
-5. Compute the DFT singlepoint energies of the new structures
-6. Train (ensemble) model#2 using the new set of structures 
-7. Repeat 3-6 to get about 5 iterations
-
-### Tips
-
-* The random structure generation process must cover a random of volume to sample an diverse configuration space.
-* The distribution of volumes needs to be monitored in the subsequent relaxation
-* Improvement of the models (convergence) may be tracked by the out-of-sample RMSE, e.g. using model#A-1 for new structures in iteration #A.
+- [airss](https://www.mtg.msm.cam.ac.uk/Codes/AIRSS) - *ab initio* random structure (AIRSS) is used for building random structure through the `buildcell` program included in the bundle.
+- [CASTEP](http://www.castep.org) - A plane-wave DFT code used for efficient generation of  training datasets. 
+- [eddp](https://www.mtg.msm.cam.ac.uk/Codes/EDDP) - The Fortran EDDP code. EDDP.jl provides limited interoperability with the eddp fortran package. While it is not possible to use the model trained by one with the other, the training datasets are compatible as both use the AIRSS-style SHELX format.
+- [disp](https://zhubonan.github.io/disp) - Distributed structure prediction (DISP) is used to schedule and run data generation workloads on (multiple) remote computing clusters. 

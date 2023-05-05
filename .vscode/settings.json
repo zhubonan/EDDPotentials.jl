@@ -22,8 +22,6 @@
         "vtmp"
     ],
     "julia.execution.codeInREPL": true,
-    "julia.environmentPath": "/home/bonan/.julia/environments/eddp",
     "julia.additionalArgs": [
-       "-J", "/home/bonan/.julia/eddpdev.so" 
     ],
 }
