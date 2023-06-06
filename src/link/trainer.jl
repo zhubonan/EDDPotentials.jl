@@ -140,7 +140,6 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
             show_progress=tra.show_progress,
             p=tra.p,
             keep_best=tra.keep_best,
-            tb_logger_dir=tra.tb_logger_dir,
             log_file=tra.log_file,
             weights,
         )
