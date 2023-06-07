@@ -358,7 +358,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
         ) for num in nstructs
     ]
     # Apply random pressure range
-    if !isempty(state.rss_pressure_gpa_range)
+    if !isnothing(state.rss_pressure_gpa_range) && !isempty(state.rss_pressure_gpa_range)
         # Add pressure ranges
         a, b = state.rss_pressure_gpa_range
         for i in eachindex(cmds)
