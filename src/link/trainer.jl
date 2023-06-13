@@ -244,7 +244,7 @@ Run training through a command line interface.
 """
 function run_trainer()
     s = ArgParseSettings()
-    @add_arg_table s begin
+    @add_arg_table! s begin
         "--prefix"
         help = "Prefix used for the trained models."
         default = ""

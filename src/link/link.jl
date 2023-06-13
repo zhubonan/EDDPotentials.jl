@@ -199,7 +199,7 @@ julia -e "Using EDDP;EDDP.link()" -- --file "link.toml"
 """
 function link()
     s = ArgParseSettings()
-    @add_arg_table s begin
+    @add_arg_table! s begin
         "--file"
         help = "Name of the yaml file"
         default = "link.toml"
@@ -987,7 +987,7 @@ This function is intented to be called as a separated Julia process.
 """
 function _run_rss_link()
     s = ArgParseSettings()
-    @add_arg_table s begin
+    @add_arg_table! s begin
         "--iteration"
         help = "Iteration number the random search step is for"
         required = true
