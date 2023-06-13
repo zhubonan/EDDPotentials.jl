@@ -11,6 +11,8 @@ EDDP takes a simple and physically motivated form that resembles a generalized N
 Being physically motivated allow EDDP to give sufficiently good representations for most of the configuration space, allowing crystal structure prediction to be carried out with much reduced computational resources and walltime.
 In many cases, EDDP can still give sufficiently accurate forces to allow molecular dynamics simulation and phonon properties.
 
+A recent pre-print explaining more applications of the model can found here: https://arxiv.org/abs/2306.06475. 
+
 ## Features
 
 - Generating EDDP feature vectors (local descriptors).
