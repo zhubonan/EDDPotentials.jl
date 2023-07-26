@@ -11,6 +11,28 @@ function similar_zero(x)
     y
 end
 
+function _is_same_pqrcutf(features3)
+    (
+        all(bd -> bd.p == features3[1].p, features3)  && 
+        all(bd -> bd.q == features3[1].q, features3)  && 
+        all(bd -> bd.rcut == features3[1].rcut, features3)  && 
+        all(bd -> bd.f == features3[1].f, features3) 
+    )
+end
+
+"""
+Populate a Matrix with the content of the first column
+"""
+function _populate_with_first_column(arr)
+    m, n = size(arr)
+    for i in 2:n
+        for j in 1:m
+            @inbounds arr[j, i] = arr[j, 1]
+        end
+    end
+end
+
+
 
 """
     ForceBuffer{T}
@@ -90,8 +112,15 @@ function _hard_core_update!(fcore, score, iat, jat, rij, vij, modvij, core)
     core.f(rij, core.rcut) * core.a
 end
 
+"""
+Update the ``P_{ij}`` or ``P_{ik}`` term.
+
+# Args
+- `same`: if set to `true` assume all features have the same powers/reduced distances,
+so only the first one needs to be calculated.
+"""
 function _update_pij!(pij, inv_fij, r12, features3, same=false)
-    same ? l = 1 : j = length(features3)
+    same ? l = 1 : l = length(features3)
     for i in 1:l
         feat = features3[i]
         ftmp = feat.f(r12, feat.rcut)
@@ -103,8 +132,15 @@ function _update_pij!(pij, inv_fij, r12, features3, same=false)
     end
 end
 
+"""
+Update the Q_{jk} term.
+
+# Args
+- `same`: if set to `true` assume all features have the same powers/reduced distances, 
+so only the first one needs to be calculated.
+"""
 function _update_qjk!(qjk, inv_qji, r12, features3, same=false)
-    same ? l = 1 : j = length(features3)
+    same ? l = 1 : l = length(features3)
     for i in 1:l
         feat = features3[i]
         ftmp = feat.f(r12, feat.rcut)
@@ -242,7 +278,54 @@ function _update_two_body!(fvec, sym, iat, jat, rij, features2, offset)
     end
 end
 
-function _update_three_body!(
+
+"""
+Update the three body features
+
+# Args
+
+- `fvec`: The feature vector to store the features calculated
+- `iat`: Index of the centre atom
+- `jat`: Index of the first neighbour
+- `kat`: Index of the second neighbour
+- `sym`: A vector storing the symbols of each atom in the structure
+- `pij`: Powers of the reduced distance distance between atom *i* and *j*
+- `pjk`: Powers of the reduced distance distance between atom *i* and *k*
+- `qjk`: Powers of the reduced distance distance between atom *j* and *k*
+- `feature3`: A tuple of the features (specifications)
+- `offset`: A offset value for updating the feature vector
+"""
+function _update_three_body!(fvec, iat, jat, kat, sym, pij, pik, qjk, features3, offset; same=false)
+    i = 1 + offset
+    for (ife, f) in enumerate(features3)
+        # All features share the same p,q,rcut and f so powers are only calculated for once
+        if same
+            ife = 1
+        end
+        # Not for this triplets of atom symbols....
+        if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
+            i += f.np * f.nq
+            continue
+        end
+        # Proceed with with update
+        @inbounds for m = 1:f.np
+            # Cache computed value
+            ijkp = pij[m, ife] * pik[m, ife]
+            @inbounds for o = 1:f.nq  # Note that q is summed in the inner loop
+                # Feature term
+                val = ijkp * qjk[o, ife]
+                fvec[i, iat] += val
+                # Increment the feature index
+                i += 1
+            end
+        end
+    end  # 3body-feature update loop 
+end
+
+"""
+Update the three body term and the gradients
+"""
+function _update_three_body_with_gradient!(
     fvec,
     gtot,
     stot,
@@ -329,9 +412,10 @@ function _update_three_body!(
 end
 
 """
-Two-pass version
+A two-pass version for computing the forces
+NOTE: inefficient and not used!
 """
-function _update_three_body!(
+function _update_three_body_two_pass!(
     fvec,
     forces,
     stress,
@@ -423,31 +507,6 @@ function _update_three_body!(
 end
 
 
-function _update_three_body!(fvec, iat, jat, kat, sym, pij, pik, qjk, features3, offset)
-    i = 1 + offset
-    lq = size(pij,2)
-    for (ife, f) in enumerate(features3)
-        ife = max(ife, lq)
-        # Not for this triplets of atoms....
-        if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-            i += f.np * f.nq
-            continue
-        end
-
-        @inbounds for m = 1:f.np
-            # Cache computed value
-            ijkp = pij[m, ife] * pik[m, ife]
-            @inbounds for o = 1:f.nq  # Note that q is summed in the inner loop
-                # Feature term
-                val = ijkp * qjk[o, ife]
-                fvec[i, iat] += val
-                # Increment the feature index
-                i += 1
-            end
-        end
-    end  # 3body-feature update loop 
-end
-
 """
     compute_fv!(fvecs, features2, features3, cell;nl, 
 
@@ -468,7 +527,6 @@ function compute_fv!(
 )
 
     # Main quantities
-    lfe3 = length(features3)
 
     nfe2 = map(nfeatures, features2)
     totalfe2 = sum(nfe2)
@@ -486,13 +544,14 @@ function compute_fv!(
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
     ecore_buffer = [0.0 for _ = 1:nthreads()]
     
-    same_3b = (
-        all(bd -> bd.p == features3[1].p, features3)  && 
-        all(bd -> bd.q == features3[1].q, features3)  && 
-        all(bd -> bd.f == features3[1].f, features3) 
-    )
-    if same_3b
-        lfe3 = 1
+    # Check if three body feature all have the same powers
+    # if so, there is no need to recompute the powers for each feature individually
+    same_3b = _is_same_pqrcutf(features3)
+
+    # All features are the same - so powers does not need to be recalculated for each feature.
+    lfe3 :: Int = 1
+    if !same_3b
+        lfe3 = length(features3)
     end
 
     Threads.@threads for iat = 1:nat
@@ -549,7 +608,7 @@ function compute_fv!(
 
                 # Starting index for three-body feature udpate
                 i = totalfe2 + offset
-                _update_three_body!(fvec, iat, jat, kat, sym, pij, pik, qjk, features3, i)
+                _update_three_body!(fvec, iat, jat, kat, sym, pij, pik, qjk, features3, i;same=same_3b)
             end # i,j,k pair
         end
         ecore_buffer[threadid()] += ecore
@@ -586,14 +645,7 @@ function compute_fv_gv!(
     @assert length(gtot) > 0 "The ForceBuffer passed is not suitable for single-pass calculation!"
 
     lfe3 = length(features3)
-    same_3b = (
-        all(bd -> bd.p == features3[1].p, features3)  && 
-        all(bd -> bd.q == features3[1].q, features3)  && 
-        all(bd -> bd.f == features3[1].f, features3) 
-    )
-    if same_3b
-        lfe3 = 1
-    end
+    same_3b = _is_same_pqrcutf(features3)
 
     nfe2 = map(nfeatures, features2)
     totalfe2 = sum(nfe2)
@@ -699,7 +751,7 @@ function compute_fv_gv!(
                 # Starting index for three-body feature udpate
                 i = totalfe2 + offset
 
-                _update_three_body!(
+                _update_three_body_with_gradient!(
                     fvec,
                     gtot,
                     stot,
@@ -871,7 +923,7 @@ function compute_fv_gv_two_pass!(
                 # Starting index for three-body feature udpate
                 i = totalfe2 + offset
 
-                _update_three_body!(
+                _update_three_body_two_pass!(
                     nothing,
                     forces,
                     stress,
