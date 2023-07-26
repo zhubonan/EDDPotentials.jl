@@ -361,12 +361,14 @@ function _update_three_body_with_gradient!(
     modvik,
     modvjk,
     features3,
-    offset,
+    offset,;
+    same=false
 )
     i = 1 + offset
-    lq = size(pij, 2) # lq == 1 all features have the same p,q,f so the powers are not computed separately
     for (ife, f) in enumerate(features3)
-        ife = max(ife, lq)
+        if same
+            ife = 1
+        end
         # Not for this triplets of atoms....
         if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
             i += f.np * f.nq
@@ -400,6 +402,7 @@ function _update_three_body_with_gradient!(
                 t1 = modvij * gfij
                 t2 = modvik * gfik
                 t3 = modvjk * gfjk
+
                 @inbounds @fastmath @simd for elm = 1:length(vij)
                     gtot[elm, i, iat, iat] -= t1[elm] + t2[elm]
                     gtot[elm, i, iat, jat] += t1[elm] - t3[elm]
@@ -668,8 +671,12 @@ function compute_fv_gv!(
 
     @assert length(gtot) > 0 "The ForceBuffer passed is not suitable for single-pass calculation!"
 
-    lfe3 = length(features3)
+    # Check if all features are the same - so powers does not need to be recalculated for each feature.
     same_3b = _is_same_pqrcutf(features3)
+    lfe3::Int = 1
+    if !same_3b
+        lfe3 = length(features3)
+    end
 
     nfe2 = map(nfeatures, features2)
     totalfe2 = sum(nfe2)
@@ -698,7 +705,7 @@ function compute_fv_gv!(
     fill!.(score_buffer, 0)
     fill!.(fcore_buffer, 0)
 
-    Threads.@threads for iat = 1:nat
+    for iat = 1:nat
         #for iat = 1:nat
         ecore = 0.0
         pij = zeros(npmax3, lfe3)
@@ -799,7 +806,8 @@ function compute_fv_gv!(
                     modvik,
                     modvjk,
                     features3,
-                    i,
+                    i,;
+                    same=same_3b,
                 )
             end # i,j,k pair
         end
