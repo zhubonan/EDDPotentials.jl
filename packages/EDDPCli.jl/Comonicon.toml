@@ -5,8 +5,8 @@ completion = true
 quiet = false
 optimize = 2
 
-[sysimg]
-excluded_packages = ["EDDP", "EDDPCli"]
+#[sysimg]
+#excluded_packages = ["EDDP", "EDDPCli"]
 
-[sysimg.precompile]
-execution_file = ["test/runtests.jl"]
+#[sysimg.precompile]
+#execution_file = ["test/runtests.jl"]

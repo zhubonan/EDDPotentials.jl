@@ -199,7 +199,7 @@ julia -e "Using EDDP;EDDP.link()" -- --file "link.toml"
 """
 function link()
     s = ArgParseSettings()
-    @add_arg_table s begin
+    @add_arg_table! s begin
         "--file"
         help = "Name of the yaml file"
         default = "link.toml"
@@ -358,7 +358,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
         ) for num in nstructs
     ]
     # Apply random pressure range
-    if !isempty(state.rss_pressure_gpa_range)
+    if !isnothing(state.rss_pressure_gpa_range) && !isempty(state.rss_pressure_gpa_range)
         # Add pressure ranges
         a, b = state.rss_pressure_gpa_range
         for i in eachindex(cmds)
@@ -987,7 +987,7 @@ This function is intented to be called as a separated Julia process.
 """
 function _run_rss_link()
     s = ArgParseSettings()
-    @add_arg_table s begin
+    @add_arg_table! s begin
         "--iteration"
         help = "Iteration number the random search step is for"
         required = true

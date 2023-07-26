@@ -58,7 +58,6 @@ abstract type AbstractTrainer end
     save_each_model::Bool = true
     p::Float64 = 1.25
     keep_best::Bool = true
-    tb_logger_dir::String = ""
     log_file::String = ""
     prefix::String = ""
     max_train::Int = 999

@@ -140,7 +140,6 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
             show_progress=tra.show_progress,
             p=tra.p,
             keep_best=tra.keep_best,
-            tb_logger_dir=tra.tb_logger_dir,
             log_file=tra.log_file,
             weights,
         )
@@ -245,7 +244,7 @@ Run training through a command line interface.
 """
 function run_trainer()
     s = ArgParseSettings()
-    @add_arg_table s begin
+    @add_arg_table! s begin
         "--prefix"
         help = "Prefix used for the trained models."
         default = ""
