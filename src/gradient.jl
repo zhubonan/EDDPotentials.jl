@@ -13,10 +13,10 @@ end
 
 function _is_same_pqrcutf(features3)
     (
-        all(bd -> bd.p == features3[1].p, features3)  && 
-        all(bd -> bd.q == features3[1].q, features3)  && 
-        all(bd -> bd.rcut == features3[1].rcut, features3)  && 
-        all(bd -> bd.f == features3[1].f, features3) 
+        all(bd -> bd.p == features3[1].p, features3) &&
+        all(bd -> bd.q == features3[1].q, features3) &&
+        all(bd -> bd.rcut == features3[1].rcut, features3) &&
+        all(bd -> bd.f == features3[1].f, features3)
     )
 end
 
@@ -25,8 +25,8 @@ Populate a Matrix with the content of the first column
 """
 function _populate_with_first_column(arr)
     m, n = size(arr)
-    for i in 2:n
-        for j in 1:m
+    for i = 2:n
+        for j = 1:m
             @inbounds arr[j, i] = arr[j, 1]
         end
     end
@@ -121,13 +121,13 @@ so only the first one needs to be calculated.
 """
 function _update_pij!(pij, inv_fij, r12, features3, same=false)
     same ? l = 1 : l = length(features3)
-    for i in 1:l
+    for i = 1:l
         feat = features3[i]
         ftmp = feat.f(r12, feat.rcut)
         # 1/f(rij)
         @inbounds inv_fij[i] = 1.0 / ftmp
         for j = 1:length(feat.p)
-            @inbounds pij[j, i] = ftmp ^ feat.p[j]
+            @inbounds pij[j, i] = ftmp^feat.p[j]
         end
     end
 end
@@ -141,13 +141,13 @@ so only the first one needs to be calculated.
 """
 function _update_qjk!(qjk, inv_qji, r12, features3, same=false)
     same ? l = 1 : l = length(features3)
-    for i in 1:l
+    for i = 1:l
         feat = features3[i]
         ftmp = feat.f(r12, feat.rcut)
         # 1/f(rij)
         @inbounds inv_qji[i] = 1.0 / ftmp
         for j = 1:length(feat.q)
-            @inbounds qjk[j, i] = ftmp ^ feat.q[j]
+            @inbounds qjk[j, i] = ftmp^feat.q[j]
         end
     end
 end
@@ -295,7 +295,19 @@ Update the three body features
 - `feature3`: A tuple of the features (specifications)
 - `offset`: A offset value for updating the feature vector
 """
-function _update_three_body!(fvec, iat, jat, kat, sym, pij, pik, qjk, features3, offset; same=false)
+function _update_three_body!(
+    fvec,
+    iat,
+    jat,
+    kat,
+    sym,
+    pij,
+    pik,
+    qjk,
+    features3,
+    offset;
+    same=false,
+)
     i = 1 + offset
     for (ife, f) in enumerate(features3)
         # All features share the same p,q,rcut and f so powers are only calculated for once
@@ -398,8 +410,8 @@ function _update_three_body_with_gradient!(
                 for elm2 = 1:3
                     @simd for elm1 = 1:3
                         @fastmath @inbounds stot[elm1, elm2, i, iat] += (
-                            vij[elm1] * t1[elm2]  +
-                            vik[elm1] * t2[elm2]  +
+                            vij[elm1] * t1[elm2] +
+                            vik[elm1] * t2[elm2] +
                             vjk[elm1] * t3[elm2]
                         )
                     end
@@ -543,13 +555,13 @@ function compute_fv!(
 
     maxrcut = maximum(x -> x.rcut, (features3..., features2...))
     ecore_buffer = [0.0 for _ = 1:nthreads()]
-    
+
     # Check if three body feature all have the same powers
     # if so, there is no need to recompute the powers for each feature individually
     same_3b = _is_same_pqrcutf(features3)
 
     # All features are the same - so powers does not need to be recalculated for each feature.
-    lfe3 :: Int = 1
+    lfe3::Int = 1
     if !same_3b
         lfe3 = length(features3)
     end
@@ -608,7 +620,19 @@ function compute_fv!(
 
                 # Starting index for three-body feature udpate
                 i = totalfe2 + offset
-                _update_three_body!(fvec, iat, jat, kat, sym, pij, pik, qjk, features3, i;same=same_3b)
+                _update_three_body!(
+                    fvec,
+                    iat,
+                    jat,
+                    kat,
+                    sym,
+                    pij,
+                    pik,
+                    qjk,
+                    features3,
+                    i;
+                    same=same_3b,
+                )
             end # i,j,k pair
         end
         ecore_buffer[threadid()] += ecore
