@@ -69,7 +69,7 @@ mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface} 
     "Gradient of the feature vector"
     gv::Matrix{T}
     "Tuple of forces buffers"
-    force_buffer::ForceBuffer{T}
+    force_buffer::GradientWorkspace{T}
     "Forces"
     forces::Matrix{T}
     "Stress"
@@ -109,7 +109,7 @@ function NNCalc(
     cf::CellFeature,
     nn::AbstractNNInterface;
     shell_size=2.0,
-    rcut=suggest_rcut(cf; offset=shell_size),
+    rcut=suggest_rcut(cf; shell=shell_size),
     mode="one-pass",
     nmax=500,
     savevec=true,
@@ -118,7 +118,7 @@ function NNCalc(
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
 
-    fb = ForceBuffer(v; core, mode) # Buffer for force calculation 
+    fb = GradientWorkspace(v; core, mode) # Buffer for force calculation 
     NNCalc(
         cell,
         deepcopy(cell),
@@ -138,7 +138,7 @@ end
 
 function _reinit_fb!(calc, mode)
     if mode != calc.param.mode
-        fb = ForceBuffer(calc.v; calc.force_buffer.core, mode) # Buffer for force calculation 
+        fb = GradientWorkspace(calc.v; calc.force_buffer.core, mode) # Buffer for force calculation 
         calc.force_buffer = fb
         calc.forces = fb.forces
         calc.stress = fb.stress
@@ -216,7 +216,7 @@ function _rebuild_on_demand(calc; rebuild_nl)
     if rebuild_nl
         rebuild = true
     else
-        tol = (calc.nl.rcut - suggest_rcut(calc.cf; offset=0.0))^2 / 2
+        tol = (calc.nl.rcut - suggest_rcut(calc.cf; shell=0.0))^2 / 2
         rebuild = false
         for i = 1:natoms(cell)
             if distance_squared_between(pos[i], calc.last_nn_build_pos[i]) > tol

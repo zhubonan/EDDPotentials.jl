@@ -29,6 +29,7 @@ include("nnls/nnls.jl")
 include("feature.jl")
 include("embedding.jl")
 include("embedding_rules.jl")
+include("indexvector.jl")
 include("gradient.jl")
 
 # NN interface

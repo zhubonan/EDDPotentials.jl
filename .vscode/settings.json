@@ -24,4 +24,5 @@
     "julia.execution.codeInREPL": true,
     "julia.additionalArgs": [
     ],
+    "julia.environmentPath": "/home/bonan/appdir/CellTools-project/EDDP.jl/scripts",
 }

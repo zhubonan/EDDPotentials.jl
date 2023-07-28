@@ -836,7 +836,7 @@ Return a matrix of vectors describing the environment of each atom.
 """
 function feature_vector(cf::CellFeature, cell::Cell; nmax=500, skin=1.0)
     # Infer rmax
-    rcut = suggest_rcut(cf; offset=skin)
+    rcut = suggest_rcut(cf; shell=skin)
     nl = NeighbourList(cell, rcut, nmax)
     vecs = zeros(sum(feature_size(cf)), length(cell))
     n1 = feature_size(cf)[1]
@@ -884,23 +884,23 @@ function feature_size(cf::CellFeature)
 end
 
 """
-    suggest_rcut(cf::CellFeature; offset=1.0)
+    suggest_rcut(cf::CellFeature; shell=1.0)
 
 Get a suggested cut off radius for NN list for a CellFeature.
 """
-function suggest_rcut(cf::CellFeature; offset=1.0)
+function suggest_rcut(cf::CellFeature; shell=1.0)
     r3 = maximum(x.rcut for x in cf.two_body)
     r2 = maximum(x.rcut for x in cf.three_body)
-    max(r3, r2) + offset
+    max(r3, r2) + shell
 end
 
 """
-    suggest_rcut(features...; offset=1.0)
+    suggest_rcut(features...; shell=1.0)
 
 Get a suggested rcut for a collection of features.
 """
-function suggest_rcut(features...; offset=1.0)
-    maximum(x.rcut for x in features) + offset
+function suggest_rcut(features...; shell=1.0)
+    maximum(x.rcut for x in features) + shell
 end
 
 
