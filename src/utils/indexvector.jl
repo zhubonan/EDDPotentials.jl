@@ -8,6 +8,9 @@ end
 
 IndexVector(x::Int;allow_growth=false) = IndexVector(fill(-1, x), allow_growth)
 
+"""
+Obtain the index for a given integer key
+"""
 function get_index(arr::IndexVector, j)
     i = 1
     found = false

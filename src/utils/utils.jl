@@ -21,3 +21,5 @@ function _split_vector(c, nsplit::Vararg{Real}; shuffle=true, seed=42)
     intsplit = nsplit .* ntot .|> floor .|> Int
     _split_vector(c, intsplit...; shuffle, seed)
 end
+
+include("indexvector.jl")

@@ -25,19 +25,20 @@ include("constants.jl")
 # External
 include("nnls/nnls.jl")
 
+# General utility
+include("utils/utils.jl")
+
 # Feature generation
 include("feature.jl")
 include("embedding.jl")
 include("embedding_rules.jl")
-include("indexvector.jl")
-include("gradient.jl")
+include("gradient/gradient.jl")
 
 # NN interface
 include("nn/interface.jl")
 include("nntools.jl")
 
 # Training and data handling
-include("utils.jl")
 include("lmsolve.jl")
 include("preprocessing.jl")
 include("eddpf90.jl")
