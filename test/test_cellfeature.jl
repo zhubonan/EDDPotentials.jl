@@ -1,4 +1,4 @@
-using EDDP: TwoBodyFeature, ThreeBodyFeature, CellFeature, withgradient, nfeatures
+using EDDP: TwoBodyFeature, ThreeBodyFeature, CellFeature, nfeatures
 using Test
 
 include("utils.jl")
@@ -36,11 +36,6 @@ include("utils.jl")
     @test all(cf2.three_body[1](3.0, 4.0, 4.0) .== 0)
     @test any(cf2.three_body[1](3.0, 3.0, 3.0) .!= 0)
 
-    e, g = withgradient(cf2.two_body[1], 3.0)
-    @test size(g, 1) == nfeatures(cf2.two_body[1])
-    e, g = withgradient(cf2.three_body[1], 3.0, 3.0, 3.0)
-    @test size(g, 2) == nfeatures(cf2.three_body[1])
-    @test size(g, 1) == 3
 end
 
 

@@ -29,7 +29,7 @@ include("nnls/nnls.jl")
 include("utils/utils.jl")
 
 # Feature generation
-include("feature.jl")
+include("feature/feature.jl")
 include("embedding.jl")
 include("embedding_rules.jl")
 include("gradient/gradient.jl")

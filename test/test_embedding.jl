@@ -1,4 +1,4 @@
-using EDDP: TwoBodyFeature, ThreeBodyFeature, CellFeature, withgradient, nfeatures
+using EDDP: TwoBodyFeature, ThreeBodyFeature, CellFeature, nfeatures
 using Test
 using Flux
 
