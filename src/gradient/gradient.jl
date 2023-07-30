@@ -472,7 +472,7 @@ function compute_fv_gv_one!(
 
     # NeighbourList must be built with vectors for gradient computation
     do_grad = fb.do_grad
-    do_grad && (@assert nl.has_vectors)
+    @assert nl.has_vectors
 
     # Reset temporary quantities
     clear!(fb)

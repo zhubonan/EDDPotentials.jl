@@ -1,7 +1,6 @@
 #=
 Training routines
 =#
-using Distributed
 using Base.Threads
 using Dates
 using JLD2

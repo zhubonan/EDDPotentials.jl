@@ -62,10 +62,12 @@ Initialise a workspace for computing forces
 """
 function GradientWorkspace(fvec::Vector{T}, nat::Int, nn_max=min(nat, 100); 
     ndims=3, core=nothing, do_grad=true)  where {T}
+    _fvec = similar(fvec)
+    fill!(_fvec, 0)
     nf = size(fvec, 1)
     if do_grad
         GradientWorkspace(
-            fvec,
+            _fvec,
             zeros(T, ndims, nf, nn_max), # gvec
             IndexVector(nn_max), # neigh_index
             zeros(T, ndims, ndims, nf), # stotv
@@ -80,7 +82,7 @@ function GradientWorkspace(fvec::Vector{T}, nat::Int, nn_max=min(nat, 100);
         )
     else
         GradientWorkspace(
-            fvec,
+            _fvec,
             zeros(T, ndims, nf, 0), # gvec
             IndexVector(0), # neigh_index
             zeros(T, ndims, ndims, 0), # stotv
