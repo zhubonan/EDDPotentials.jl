@@ -773,7 +773,7 @@ function _force_update!(fb, gv; offset=0)
     end
     fb.tot_forces .= fb.forces
     if !isnothing(fb.hardcore.core)
-        fb.total_forces .= fb.hardcore.fcore .+ fb.forces
+        fb.total_forces .+= fb.hardcore.fcore
     end
     _substract_force_drift(fb.tot_forces)
 end
