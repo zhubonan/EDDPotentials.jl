@@ -4,8 +4,6 @@ using EDDP: get_cell, get_forces, get_stress, get_energy
 using Test
 using CellBase
 using Flux
-include("utils.jl")
-
 @testset "Calc" begin
     cell = _h2_cell()
 
@@ -221,57 +219,6 @@ end
 
     @test length(res.relax.trajectory) > 1
     @test :enthalpy in keys(res.relax.trajectory[1].metadata)
-end
-
-@testset "Two-pass" begin
-    cell = _h2_cell()
-
-    cf = EDDP.CellFeature(unique(species(cell)), p2=[2, 4], q3=[3, 4], p3=[3, 4])
-
-    nnitf = EDDP.LinearInterface(rand(EDDP.nfeatures(cf)))
-    calc = EDDP.NNCalc(cell, cf, nnitf;)
-
-    @test calc.param.mode == "one-pass"
-    @test length(calc.force_buffer.gvec) > 1
-    EDDP.calculate!(calc)
-    eng = copy(get_energy(calc))
-    v1 = copy(calc.v)
-    e1 = copy(calc.eng)
-    forces = copy(get_forces(calc))
-    stress = copy(get_stress(calc))
-
-    calc.param.forces_calculated = false
-    calc.param.energy_calculated = false
-    EDDP._reinit_fb!(calc, "two-pass")
-    EDDP.calculate!(calc)
-    @test length(calc.force_buffer.gvec) == 0
-    @test v1 == calc.v
-    @test e1 == calc.eng
-
-    eng2 = copy(get_energy(calc))
-    forces2 = copy(get_forces(calc))
-    stress2 = copy(get_stress(calc))
-
-    @test eng2 == eng
-    @test allclose(forces2, forces, atol=1e-7)
-    @test allclose(stress2, stress, atol=1e-7)
-
-
-    # Start from scratch
-    calc2 = EDDP.NNCalc(cell, cf, nnitf; mode="two-pass")
-    EDDP.calculate!(calc2)
-    @test v1 == calc2.v
-    @test e1 == calc2.eng
-
-    eng3 = copy(get_energy(calc2))
-    forces3 = copy(get_forces(calc2))
-    stress3 = copy(get_stress(calc2))
-
-    @test eng3 == eng
-    @test allclose(forces3, forces, atol=1e-7)
-    @test allclose(stress3, stress, atol=1e-7)
-    @test length(calc.force_buffer.gvec) == 0
-
 end
 
 @testset "Opt" begin

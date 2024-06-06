@@ -10,7 +10,6 @@ using EDDP:
 using Flux
 using Test
 
-include("utils.jl")
 @testset "NN Interface" begin
 
     @testset "Linear" begin

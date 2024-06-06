@@ -144,10 +144,10 @@ function levenberg_marquardt(
     v = Array{T}(undef, n)
 
     # Maintain a trace of the system.
-    tr = LsqFit.OptimizationTrace{LevenbergMarquardt}()
+    tr = OptimBase.OptimizationTrace{LevenbergMarquardt}()
     if show_trace
         d = Dict("lambda" => lambda)
-        os = LsqFit.OptimizationState{LevenbergMarquardt}(
+        os = OptimBase.OptimizationState{LevenbergMarquardt}(
             iterCt,
             sum(abs2, value(df)),
             NaN,
@@ -304,7 +304,7 @@ function levenberg_marquardt(
         if show_trace
             g_norm = norm(J' * value(df), Inf)
             d = Dict("g(x)" => g_norm, "dx" => delta_x, "lambda" => lambda)
-            os = LsqFit.OptimizationState{LevenbergMarquardt}(
+            os = OptimBase.OptimizationState{LevenbergMarquardt}(
                 iterCt,
                 sum(abs2, value(df)),
                 g_norm,

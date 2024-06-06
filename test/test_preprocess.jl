@@ -3,7 +3,6 @@ using CellBase
 using Test
 using StatsBase
 
-include("utils.jl")
 @testset "Preprocess" begin
     fpath = joinpath(datadir, "training/*.res")
     fpath = relpath(fpath, pwd())

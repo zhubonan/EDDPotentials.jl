@@ -3,7 +3,7 @@
 
 Buffer for storing forces and stress and support their calculations
 """
-struct HardcoreWorkspace{T, N}
+struct HardcoreWorkspace{T,N}
     "Hard core forces"
     fcore::Array{T,2}
     "Hard core energies"
@@ -16,13 +16,28 @@ end
 
 function HardcoreWorkspace(T::DataType, core::N, nat::Int, ndims=3) where {N}
     core === nothing ? _nat = 0 : _nat = nat
-    HardcoreWorkspace{T, N}(
+    HardcoreWorkspace{T,N}(
         zeros(T, ndims, _nat),
         zeros(T, _nat),
         zeros(T, ndims, ndims, _nat),
         core,
     )
 end
+
+"""
+    reset!(hc::HardcoreWorkspace)
+
+    Reset all the arrays in the workspace to zero.
+"""
+function reset!(hc::HardcoreWorkspace)
+    for prop in propertynames(hc)
+        if isa(getproperty(hc, prop), AbstractArray)
+            fill!(getproperty(hc, prop), 0)
+        end
+    end
+    hc
+end
+
 
 """
     GradientWorkspace{T,N}
@@ -40,9 +55,9 @@ struct GradientWorkspace{T,N}
     "Temp array for dFi/drj' with the shape (ndims, nf, nn_max, nat)"
     gvec::Array{T,4}
     "Temp array to store the index of uunique neighbours for each atom"
-    gvec_index::Array{Int, 2}
+    gvec_index::Array{Int,2}
     "Temp array to store the number of unique neighbours for each atom"
-    gvec_nn::Array{Int, 1}
+    gvec_nn::Array{Int,1}
     "Temp array for dF/dσ"
     stotv::Array{T,4}
     "Calculated forces"
@@ -50,15 +65,16 @@ struct GradientWorkspace{T,N}
     "Calculated stress"
     stress::Array{T,3}
     "Energy from features"
-    energies::Array{T, 1}
+    energies::Array{T,1}
     "Calculated total forces"
     tot_forces::Array{T,2}
     "Calculated total stress"
     tot_stress::Array{T,2}
     "Per-atom energy"
-    tot_energies::Array{T, 1}
-    hardcore::HardcoreWorkspace{T, N}
+    tot_energies::Array{T,1}
+    hardcore::HardcoreWorkspace{T,N}
     do_grad::Bool
+    one_body_offset::Int
 end
 
 
@@ -73,45 +89,57 @@ Initialise a workspace for computing forces
 - `ndims` (optional): The number of dimensions (3).
 - `core` (optional): hard core potential.
 """
-function GradientWorkspace(fvec::Matrix{T}, nn_max=nat + 1; 
-    ndims=3, core=nothing, do_grad=true)  where {T}
-    nf, nat= size(fvec)
+function GradientWorkspace(
+    fvec::Matrix{T},
+    nn_max=size(fvec, 2) + 1;
+    ndims=3,
+    core=nothing,
+    do_grad=true,
+    one_body_offset=0,
+) where {T}
+    nf, nat = size(fvec)
+    _nat = nat
+    if do_grad == false
+        _nat = 0
+    end
     GradientWorkspace(
         fvec,
-        zeros(T, ndims, nf, nn_max, nat), # gvec
-        zeros(Int, nn_max, nat), # neigh_index
-        zeros(Int, nat), # number of unique neighbours (include self)
-        zeros(T, ndims, ndims, nf, nat), # stotv
-        zeros(T, ndims, nat),  # forces
-        zeros(T, ndims, ndims, nat), # stress (per atom)
+        zeros(T, ndims, nf, nn_max, _nat), # gvec
+        zeros(Int, nn_max, _nat), # neigh_index
+        zeros(Int, _nat), # number of unique neighbours (include self)
+        zeros(T, ndims, ndims, nf, _nat), # stotv
+        zeros(T, ndims, _nat),  # forces
+        zeros(T, ndims, ndims, _nat), # stress (per atom)
         zeros(T, nat), # Per atom energy from features
-        zeros(T, ndims, nat),  # total forces
+        zeros(T, ndims, _nat),  # total forces
         zeros(T, ndims, ndims), # total stress (global)
-        zeros(T, nat), # total energies per atom
+        zeros(T, _nat), # total energies per atom
         HardcoreWorkspace(T, core, nat, ndims),
         do_grad,
+        one_body_offset,
     )
 end
 
+"""
+    reset!(fb::GradientWorkspace)
 
-# TODO: Need updating
-function clear!(fb::GradientWorkspace)
-    fill!(fb.fvec, 0)
-    fill!(fb.gvec, 0)
-    fill!(fb.stotv, 0)
-    fill!(fb.gvec_index, 0)
-    fill!(fb.gvec_nn, 0)
-    fb
-end
-
-# TODO: Need updating
+Reset all the arrays in the workspace to zero.
+"""
 function reset!(fb::GradientWorkspace)
-    clear!(fb)
-    for prop in [:fcore, :score, :ecore, :forces, :stress]
-        fill!(getproperty(fb, prop), 0)
+    reset!(fb.hardcore)
+    for prop in propertynames(fb)
+        if isa(getproperty(fb, prop), AbstractArray)
+            # Avoid overwrite the one body part of the features
+            if prop == :fvec
+                getproperty(fb, prop)[fb.one_body_offset+1:end, :] .= 0
+            else
+                fill!(getproperty(fb, prop), 0)
+            end
+        end
     end
     fb
 end
+
 
 """
     get_gvec_fj_ri(fb::GradientWorkspace)
@@ -124,7 +152,7 @@ function get_gvec_fj_ri(fb::GradientWorkspace)
     gvec = fb.gvec
     gvec_fj_ri = zeros(size(gvec, 1), size(gvec, 2), size(gvec, 4), size(gvec, 4))
     for iat in axes(gvec, 4)
-        for j in 1:fb.gvec_nn[iat]
+        for j = 1:fb.gvec_nn[iat]
             # translate neighbour local index to atom index
             jat = fb.gvec_index[j, iat]  # index of the atoms that has moved
             for a in axes(gvec, 1), b in axes(gvec, 2)

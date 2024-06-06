@@ -72,7 +72,6 @@ function _fd_strain(calc, p)
 end
 
 
-include("utils.jl")
 
 @testset "Force buffer" begin
 
@@ -195,7 +194,7 @@ include("utils.jl")
     @test alloc1 < 200
 
     # Allocation when computing the features only
-    EDDP.compute_fv!(fb.fvec, cf.two_body, cf.three_body, cell; offset=n1bd)
+    DDP.compute_fv!(fb.fvec, cf.two_body, cf.three_body, cell; offset=n1bd)
     stats = @timed EDDP.compute_fv!(fb.fvec, cf.two_body, cf.three_body, cell; offset=n1bd)
     alloc11 = stats.gcstats.poolalloc
     @test alloc11 < 200

@@ -9,10 +9,11 @@ Args:
 
 Compute the feature vector for a given set of two and three body interactions, 
 This is an optimised version for feature generation, but does not compute the gradients.
+OLD REFERENCE IMPLEMENTATION - NOT USED!
 
 Returns the feature vector and the core repulsion energy if any.
 """
-function feature_vector!(
+function feature_vector_ref!(
     fvec,
     features2::Tuple,
     features3::Tuple,

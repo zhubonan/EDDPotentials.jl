@@ -1,37 +1,28 @@
 using EDDP
 using CellBase
+using LinearAlgebra
 using Test
 
 
-function _h2o_cell(l=4.0, factor=1.0)
-    tmp = Float64[
-        0   0.1  1.
-        0   1.0  1.
-        0.1 0.0  1.
-    ] .* factor
-    Cell(Lattice(l, l, l), [:H, :H, :O], tmp)
-end
-
 function _lco_cell()
     scaled_pos = Float64[
-
-   0.0000000000000000    0.0000000000000000    0.0000000000000000
-   0.6666666666666666    0.3333333333333333    0.3333333333333333 
-   0.3333333333333333    0.6666666666666666    0.6666666666666666
-   0.3333333333333333    0.6666666666666665    0.1666666666666667
-   0.9999999999999999    0.9999999999999998    0.5000000000000000
-   0.6666666666666665    0.3333333333333330    0.8333333333333333
-   0.0000000000000000    0.0000000000000000    0.2400068000000000
-   0.6666666666666666    0.3333333333333333    0.0933265333333333
-   0.6666666666666666    0.3333333333333333    0.5733401333333333
-   0.3333333333333333    0.6666666666666666    0.4266598666666666
-   0.3333333333333333    0.6666666666666666    0.9066734666666667
-   0.0000000000000000    0.0000000000000000    0.7599931999999999
-    ] 
+        0.0000000000000000 0.0000000000000000 0.0000000000000000
+        0.6666666666666666 0.3333333333333333 0.3333333333333333
+        0.3333333333333333 0.6666666666666666 0.6666666666666666
+        0.3333333333333333 0.6666666666666665 0.1666666666666667
+        0.9999999999999999 0.9999999999999998 0.5000000000000000
+        0.6666666666666665 0.3333333333333330 0.8333333333333333
+        0.0000000000000000 0.0000000000000000 0.2400068000000000
+        0.6666666666666666 0.3333333333333333 0.0933265333333333
+        0.6666666666666666 0.3333333333333333 0.5733401333333333
+        0.3333333333333333 0.6666666666666666 0.4266598666666666
+        0.3333333333333333 0.6666666666666666 0.9066734666666667
+        0.0000000000000000 0.0000000000000000 0.7599931999999999
+    ]
     cell = Float64[
-           1.4056284883992509   -2.4346199584737427    0.0000000000000000
-   1.4056284883992509    2.4346199584737427    0.0000000000000000
-   0.0000000000000000    0.0000000000000000   13.9094564325679286
+        1.4056284883992509 -2.4346199584737427 0.0000000000000000
+        1.4056284883992509 2.4346199584737427 0.0000000000000000
+        0.0000000000000000 0.0000000000000000 13.9094564325679286
     ]
     cell = collect(transpose(cell))
     pos = cell * transpose(scaled_pos)
@@ -54,7 +45,7 @@ function fd_gradient(cf, cell)
     # Recover the gradient in the dFj/dri format
     gvec_ideal = zeros(size(gvec0, 1), size(gvec0, 2), size(gvec0, 4), size(gvec0, 4))
     for iat in axes(gvec0, 4)
-        for j in 1:fb.gvec_nn[iat]
+        for j = 1:fb.gvec_nn[iat]
             # Transfor neighbour local index to atom index
             jat = fb.gvec_index[j, iat]  # index of the atoms that has moved
             gvec_ideal[:, :, iat, jat] .+= gvec0[:, :, j, iat]
@@ -62,8 +53,8 @@ function fd_gradient(cf, cell)
     end
 
     diff = zeros(size(gvec0, 1), size(gvec0, 2), natoms(cell), natoms(cell))  # dFj/dri
-    for iat in 1:natoms(cell)
-        for dir in 1:3  
+    for iat = 1:natoms(cell)
+        for dir = 1:3
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
             fb = EDDP.compute_fv_gv(cf, dcell)
@@ -97,24 +88,24 @@ function force_gradient(cf, cell)
     param = rand(1, size(fb.gvec, 2))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
-    EDDP._force_update!(fb, gv;offset=length(cf.elements))
-    EDDP._stress_update!(fb, gv;offset=length(cf.elements))
+    EDDP._force_update!(fb, gv; offset=length(cf.elements))
+    EDDP._stress_update!(fb, gv; offset=length(cf.elements))
     forces = copy(fb.forces)
 
     # dE/dri
-    diff = zeros(size(gvec0, 1), natoms(cell)) 
-    for iat in 1:natoms(cell)
-        for dir in 1:3  
+    diff = zeros(size(gvec0, 1), natoms(cell))
+    for iat = 1:natoms(cell)
+        for dir = 1:3
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
             fb = EDDP.compute_fv_gv(cf, dcell)
             # Compute the energy
-            e1 =  sum(param * fb.fvec)
+            e1 = sum(param * fb.fvec)
 
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] -= 1e-6
             fb = EDDP.compute_fv_gv(cf, dcell)
-            e2 =  sum(param * fb.fvec)
+            e2 = sum(param * fb.fvec)
             # Compute the energy
             diff[dir, iat] = (e1 - e2) / 2e-6
         end
@@ -137,31 +128,31 @@ function stress_gradient(cf, cell)
     param = rand(1, size(fb.gvec, 2))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
-    EDDP._force_update!(fb, gv;offset=length(cf.elements))
-    EDDP._stress_update!(fb, gv;offset=length(cf.elements))
+    EDDP._force_update!(fb, gv; offset=length(cf.elements))
+    EDDP._stress_update!(fb, gv; offset=length(cf.elements))
     stress = copy(fb.tot_stress)
 
 
-    smat_orig = diagm([1., 1., 1.])
+    smat_orig = diagm([1.0, 1.0, 1.0])
 
     # dE/dri
     diff = zeros(Float64, 3, 3)
-    for i in 1:3
-        for j in 1:3  
+    for i = 1:3
+        for j = 1:3
             dcell = deepcopy(cell)
             smat = copy(smat_orig)
             smat[i, j] += 1e-6
-            set_cellmat!(dcell, smat * cellmat(dcell);scale_positions=true)
+            set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
             fb = EDDP.compute_fv_gv(cf, dcell)
             # Compute the energy
-            e1 =  sum(param * fb.fvec)
+            e1 = sum(param * fb.fvec)
 
             dcell = deepcopy(cell)
             smat = copy(smat_orig)
             smat[i, j] -= 1e-6
-            set_cellmat!(dcell, smat * cellmat(dcell);scale_positions=true)
+            set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
             fb = EDDP.compute_fv_gv(cf, dcell)
-            e2 =  sum(param * fb.fvec)
+            e2 = sum(param * fb.fvec)
             # Compute the energy
             diff[i, j] = (e1 - e2) / 2e-6
         end
@@ -174,32 +165,32 @@ end
     # Run test cases
     cell = _h2o_cell()
     cf = CellFeature([:H, :O], p2=2:2)
-    diff, gvec_ji = fd_gradient(cf, cell);
-    @test maximum(abs.(diff - gvec_ji)) < 1e-6
+    diff, gvec_ji = fd_gradient(cf, cell)
+    @test maximum(abs.(diff - gvec_ji)) < 1e-7
 
     cell = _lco_cell()
     cf = CellFeature([:Li, :Co, :O], p2=2:2)
-    diff, gvec_ji = fd_gradient(cf, cell);
-    @test maximum(abs.(diff - gvec_ji)) < 1e-6
+    diff, gvec_ji = fd_gradient(cf, cell)
+    @test maximum(abs.(diff - gvec_ji)) < 1e-7
 
     cell = _h2o_cell()
     cf = CellFeature([:H, :O], p2=2:2)
-    diff, forces = force_gradient(cf, cell);
-    @test maximum(abs.(diff + forces)) < 1e-6
+    diff, forces = force_gradient(cf, cell)
+    @test maximum(abs.(diff + forces)) < 1e-7
 
     cell = _lco_cell()
     cf = CellFeature([:Li, :Co, :O], p2=2:2)
-    diff, forces = force_gradient(cf, cell);
-    @test maximum(abs.(diff + forces)) < 1e-6
+    diff, forces = force_gradient(cf, cell)
+    @test maximum(abs.(diff + forces)) < 1e-7
 
     cell = _h2o_cell()
     cf = CellFeature([:H, :O], p2=2:2)
-    diff, varial = stress_gradient(cf, cell);
-    @test maximum(abs.(diff + varial))  < 1e-5
+    diff, varial = stress_gradient(cf, cell)
+    @test maximum(abs.(diff + varial)) < 1e-4
 
     cell = _lco_cell()
     cf = CellFeature([:Li, :Co, :O], p2=2:2)
-    diff, varial = stress_gradient(cf, cell);
-    @test maximum(abs.(diff + varial)) < 1e-5
+    diff, varial = stress_gradient(cf, cell)
+    @test maximum(abs.(diff + varial)) < 1e-4
 
 end

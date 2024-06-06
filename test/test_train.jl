@@ -6,7 +6,6 @@ using Flux
 using StatsBase
 using NLSolversBase
 
-include("utils.jl")
 @testset "Training" begin
     @testset "Tools" begin
         nf = 1000

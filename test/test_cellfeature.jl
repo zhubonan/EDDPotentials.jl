@@ -1,7 +1,6 @@
 using EDDP: TwoBodyFeature, ThreeBodyFeature, CellFeature, nfeatures
 using Test
 
-include("utils.jl")
 
 @testset "Features" begin
     # Test permequal

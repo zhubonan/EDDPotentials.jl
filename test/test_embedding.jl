@@ -5,15 +5,14 @@ using Flux
 using ChainRulesCore
 using ChainRulesTestUtils
 
-include("utils.jl")
-
 @testset "Embedding" begin
     cell = _h2o_cell()
-    nl = NeighbourList(cell, 4.0)
+    nl = NeighbourList(cell, 4.0; savevec=true)
     cf = CellFeature([:H, :O], p2=2:4, p3=2:4)
 
     fvec1 = zeros(EDDP.nfeatures(cf), length(cell))
-    EDDP.feature_vector!(fvec1, cf.two_body, cf.three_body, cell; nl, offset=2)
+    workspace = EDDP.GradientWorkspace(fvec1)
+    EDDP.compute_fv!(workspace, cf.two_body, cf.three_body, cell; nl)
 
     # Test apply two-body embedding
     b2 = EDDP.BodyEmbedding(cf.two_body, 2)
@@ -106,5 +105,4 @@ end
         features,
         check_thunked_output_tangent=true,
     )
-
 end

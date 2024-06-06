@@ -20,7 +20,7 @@ struct BodyEmbedding{T}
     flength::Int
 end
 
-Flux.@functor BodyEmbedding
+Flux.@layer BodyEmbedding
 Flux.trainable(ce::BodyEmbedding) = (weight=ce.weight,)
 
 function BodyEmbedding(T, features::Union{Vector,Tuple}, n::Int)
@@ -130,7 +130,7 @@ struct CellEmbedding{C,T}
     m::Int
 end
 
-Flux.@functor CellEmbedding
+Flux.@layer CellEmbedding
 Flux.trainable(ce::CellEmbedding) = (two_body=ce.two_body, three_body=ce.three_body)
 
 function CellEmbedding(cf::CellFeature, n::Int, m::Int=n)
@@ -148,18 +148,6 @@ function Base.show(io::IO, e::CellEmbedding)
     print(io, "CellEmbedding(", length_in, " => ", length_out)
     print(io, ")")
 end
-
-
-for T in [:CellEmbedding, :BodyEmbedding]
-    @eval function Base.show(io::IO, m::MIME"text/plain", x::$T)
-        if !get(io, :compact, false)
-            Flux._layer_show(io, x)
-        else
-            show(io, x)
-        end
-    end
-end
-
 
 function two_body_view(cf, vector)
     n1bd = feature_size(cf)[1]

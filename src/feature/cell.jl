@@ -184,10 +184,11 @@ Return a matrix of vectors describing the environment of each atom.
 function feature_vector(cf::CellFeature, cell::Cell; nmax=500, skin=1.0)
     # Infer rmax
     rcut = suggest_rcut(cf; shell=skin)
-    nl = NeighbourList(cell, rcut, nmax)
+    nl = NeighbourList(cell, rcut, nmax; savevec=true)
     vecs = zeros(sum(feature_size(cf)), length(cell))
     n1 = feature_size(cf)[1]
-    compute_fv!(vecs, cf.two_body, cf.three_body, cell; nl, offset=n1)
+    wk = get_workspace(cf.two_body, cf.three_body, nl, false; fvec=vecs)
+    compute_fv!(wk, cf.two_body, cf.three_body, cell; nl, offset=n1)
     one_body_vectors!(vecs, cell, cf)
     vecs
 end
@@ -249,4 +250,3 @@ Get a suggested rcut for a collection of features.
 function suggest_rcut(features...; shell=1.0)
     maximum(x.rcut for x in features) + shell
 end
-

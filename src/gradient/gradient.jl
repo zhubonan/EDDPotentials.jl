@@ -81,401 +81,30 @@ function _update_qjk!(qjk, inv_qji, r12, features3, same=false)
 end
 
 
-function _update_two_body!(
-    fvec::Vector,
-    gtot,
-    stot,
-    sym,
-    iat,
-    jat,
-    ineigh,
-    rij,
-    vij,
-    modvij,
-    features2,
-    offset,
-)
-    i = 1 + offset
-    # Find the index of the atom j to be used
-    self_image = iat == jat
-    symi = sym[iat]
-    symj = sym[jat]
-    for (_, f) in enumerate(features2)
-        # Skip if this rij is not for this feature
-        if !permequal(f.sij_idx, symi, symj)
-            i += f.np
-            continue
-        end
-
-        fij2 = f.f(rij, f.rcut)
-        # df(rij)/drij
-        gij = f.g(rij, f.rcut)
-        for m = 1:length(f.p)
-            val = fast_pow(fij2, f.p[m])
-            fvec[i] += val
-
-            # Compute gradients if needed
-            if do_grad
-                # Force updates df(rij)^p/drij
-                if val != 0.0
-                    gfij = f.p[m] * val / fij2 * gij
-                else
-                    gfij = zero(val)
-                end
-                # Force update 
-                #@inbounds 
-                for elm = 1:length(vij)
-                    if !self_image
-                        gtot[elm, i, 1] -= modvij[elm] * gfij
-                        gtot[elm, i, ineigh] += modvij[elm] * gfij
-                    end
-                end
-                # Stress update
-                #@inbounds 
-                for elm2 = 1:3
-                    for elm1 = 1:3
-                        stot[elm1, elm2, i] += vij[elm1] * modvij[elm2] * gfij
-                    end
-                end
-            end
-
-            i += 1
-        end
-    end
-end
-
-
-function _update_two_body!(fvec, sym, iat, jat, rij, features2, offset)
-    i = 1 + offset
-    for (_, f) in enumerate(features2)
-        # Skip if this rij is not for this feature
-        if !permequal(f.sij_idx, sym[iat], sym[jat])
-            i += f.np
-            continue
-        end
-
-        fij2 = f.f(rij, f.rcut)
-        for m = 1:length(f.p)
-            val = fast_pow(fij2, f.p[m])
-            fvec[i, iat] += valtre
-            # Force updates df(rij)^p/drij
-            i += 1
-        end
-    end
-end
-
-
 """
-Update the three body features
-
-# Args
-
-- `fvec`: The feature vector to store the features calculated
-- `iat`: Index of the centre atom
-- `jat`: Index of the first neighbour
-- `kat`: Index of the second neighbour
-- `sym`: A vector storing the symbols of each atom in the structure
-- `pij`: Powers of the reduced distance distance between atom *i* and *j*
-- `pjk`: Powers of the reduced distance distance between atom *i* and *k*
-- `qjk`: Powers of the reduced distance distance between atom *j* and *k*
-- `feature3`: A tuple of the features (specifications)
-- `offset`: A offset value for updating the feature vector
-"""
-function _update_three_body!(
-    fvec,
-    iat,
-    jat,
-    kat,
-    sym,
-    pij,
-    pik,
-    qjk,
-    features3,
-    offset;
-    same=false,
-)
-    i = 1 + offset
-    for (ife, f) in enumerate(features3)
-        # All features share the same p,q,rcut and f so powers are only calculated for once
-        if same
-            ife = 1
-        end
-        # Not for this triplets of atom symbols....
-        if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-            i += f.np * f.nq
-            continue
-        end
-        # Proceed with with update
-        #@inbounds 
-        for m = 1:f.np
-            # Cache computed value
-            ijkp = pij[m, ife] * pik[m, ife]
-            #@inbounds 
-            for o = 1:f.nq  # Note that q is summed in the inner loop
-                # Feature term
-                val = ijkp * qjk[o, ife]
-                fvec[i, iat] += val
-                # Increment the feature index
-                i += 1
-            end
-        end
-    end  # 3body-feature update loop 
-end
-
-"""
-Update the three body term and the gradients
-"""
-function _update_three_body_with_gradient!(
-    do_grad::Bool,
-    fvec,
-    gvec,
-    gvec_index,
-    stot,
-    iat,
-    jat,
-    kat,
-    sym,
-    pij,
-    pik,
-    qjk,
-    rij,
-    rik,
-    rjk,
-    inv_fij,
-    inv_fik,
-    inv_fjk,
-    vij,
-    vik,
-    vjk,
-    modvij,
-    modvik,
-    modvjk,
-    features3,
-    offset,;
-    same=false
-)
-    i = 1 + offset
-    if do_grad
-        gj = get_index(gvec_index, jat)
-        gk = get_index(gvec_index, kat)
-    end
-    for (ife, f) in enumerate(features3)
-        if same
-            ife = 1
-        end
-        # Not for this triplets of atoms....
-        if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-            i += f.np * f.nq
-            continue
-        end
-
-        # populate the buffer storing the gradients against rij, rik, rjk
-        rcut = f.rcut
-        if do_grad
-            # df(r)/dr
-            gij = f.g(rij, rcut) * inv_fij[ife]
-            gik = f.g(rik, rcut) * inv_fik[ife]
-            gjk = f.g(rjk, rcut) * inv_fjk[ife]
-            gtmp1 = f.p .* gij
-            gtmp2 = f.p .* gik
-            gtmp3 = gjk .* f.q
-        end
-
-        #@inbounds 
-        for m = 1:f.np
-            # Cache computed value
-            ijkp = pij[m, ife] * pik[m, ife]
-
-            #@inbounds 
-            for o = 1:f.nq  # Note that q is summed in the inner loop
-                # Feature term
-                val = ijkp * qjk[o, ife]
-                fvec[i] += val
-
-                # If computing gradients
-                if do_grad
-                    # dv/drij, dv/drik, dv/drjk
-                    val == 0 && continue
-                    gfij = gtmp1[m] * val
-                    gfik = gtmp2[m] * val
-                    gfjk = gtmp3[o] * val
-
-                    # Apply chain rule to the the forces
-                    t1 = modvij * gfij
-                    t2 = modvik * gfik
-                    t3 = modvjk * gfjk
-
-                    @inbounds @fastmath @simd for elm = 1:length(vij)
-                        gvec[elm, i, 1] -= t1[elm] + t2[elm]
-                        gvec[elm, i, gj] += t1[elm] - t3[elm]
-                        gvec[elm, i, gk] += t2[elm] + t3[elm]
-                    end
-
-                    # Stress
-                    for elm2 = 1:3
-                        @simd for elm1 = 1:3
-                            @fastmath @inbounds stot[elm1, elm2, i] += (
-                                vij[elm1] * t1[elm2] +
-                                vik[elm1] * t2[elm2] +
-                                vjk[elm1] * t3[elm2]
-                            )
-                        end
-                    end
-                end
-                # Increment the feature index
-                i += 1
-            end
-        end
-    end  # 3body-feature update loop 
-end
-
-
-"""
-    compute_fv!(fvecs, features2, features3, cell;nl, 
-
-Compute feature vectors only. 
-"""
-function compute_fv!(
-    fvec,
-    features2,
-    features3,
-    cell::Cell;
-    nl=NeighbourList(
-        cell,
-        maximum(x.rcut for x in (features2..., features3...));
-        savevec=false,
-    ),
-    offset=0,
-    core=nothing,
-)
-
-    # Main quantities
-
-    nfe2 = map(nfeatures, features2)
-    totalfe2 = sum(nfe2)
-
-    nat = natoms(cell)
-    sym = species(cell)
-
-    # Caches for three-body computation
-    # The goal is to avoid ^ operator as much as possible by caching results
-    npmax3 = maximum(length(x.p) for x in features3)
-    # All values of q
-    nqmax3 = maximum(length(x.q) for x in features3)
-
-
-    maxrcut = maximum(x -> x.rcut, (features3..., features2...))
-    ecore_buffer = [0.0 for _ = 1:nthreads()]
-
-    # Check if three body feature all have the same powers
-    # if so, there is no need to recompute the powers for each feature individually
-    same_3b = _is_same_pqrcutf(features3)
-
-    # All features are the same - so powers does not need to be recalculated for each feature.
-    lfe3::Int = 1
-    if !same_3b
-        lfe3 = length(features3)
-    end
-
-    Threads.@threads for iat = 1:nat
-        #for iat = 1:nat
-        ecore = 0.0
-        pij = zeros(npmax3, lfe3)
-        inv_fij = zeros(lfe3)
-
-        pik = zeros(npmax3, lfe3)
-        inv_fik = zeros(lfe3)
-
-        qjk = zeros(nqmax3, lfe3)
-        inv_fjk = zeros(lfe3)
-
-        for (jat, jextend, rij) in CellBase.eachneighbour(nl, iat)
-            rij > maxrcut && continue
-            # Compute pij
-            length(features3) !== 0 && _update_pij!(pij, inv_fij, rij, features3, same_3b)
-
-            if !isnothing(core)
-                ecore += core.f(rij, core.rcut) * core.a
-            end
-
-            # Update two body features and forces
-            _update_two_body!(fvec, sym, iat, jat, rij, features2, offset)
-
-            # Skip three body update if no three-body feature is passed
-            if length(features3) == 0
-                continue
-            end
-
-            #### Update three body features and forces
-            for (kat, kextend, rik) in CellBase.eachneighbour(nl, iat)
-                rik > maxrcut && continue
-
-                # Avoid double counting i j k is the same as i k j
-                if kextend <= jextend
-                    continue
-                end
-
-                # Compute the distance between extended j and k
-                vjk = nl.ea.positions[kextend] .- nl.ea.positions[jextend]
-                rjk = norm(vjk)
-
-                rjk > maxrcut && continue
-
-                # This is a valid pair - compute the distances
-
-                # Compute pik
-                _update_pij!(pik, inv_fik, rik, features3, same_3b)
-
-                # Compute qjk
-                _update_qjk!(qjk, inv_fjk, rjk, features3, same_3b)
-
-                # Starting index for three-body feature udpate
-                i = totalfe2 + offset
-                _update_three_body!(
-                    fvec,
-                    iat,
-                    jat,
-                    kat,
-                    sym,
-                    pij,
-                    pik,
-                    qjk,
-                    features3,
-                    i;
-                    same=same_3b,
-                )
-            end # i,j,k pair
-        end
-        ecore_buffer[threadid()] += ecore
-    end
-    sum(ecore_buffer)
-end
-
-
-"""
-    compute_fv_gv_one!(fb::GradientWorkspace, features2, features3, iat, cell, nl; offset=0)
+    compute_fv_gv_one!(workspace::GradientWorkspace, features2, features3, iat, cell, nl; offset=workspace.one_body_offset)
 
 Compute the feature vector for a given set of two and three body interactions, compute gradients as well for a single 
 atom.
 """
 function compute_fv_gv_one!(
-    fb::GradientWorkspace,
+    workspace::GradientWorkspace,
     features2,
     features3,
     iat::Int,
     cell::Cell,
     nl::NeighbourList,
     ;
-    offset=0,
+    offset=workspace.one_body_offset,
 )
 
     # NeighbourList must be built with vectors for gradient computation
-    do_grad = fb.do_grad
-    @assert nl.has_vectors
+    do_grad = workspace.do_grad
+    do_grad && (@assert nl.has_vectors)
 
     # Main quantities
-    (;fvec, gvec, gvec_index, gvec_nn, stotv, hardcore) = fb
-    (;core, fcore, score, ecore) = hardcore
+    (; fvec, gvec, gvec_index, gvec_nn, stotv, hardcore) = workspace
+    (; core, fcore, score, ecore) = hardcore
 
     # Check if all features are the same - so powers does not need to be recalculated for each feature.
     same_3b = _is_same_pqrcutf(features3)
@@ -509,24 +138,26 @@ function compute_fv_gv_one!(
     tiny_dist = 1e-14
 
 
-    # TODO information below may be cached to accelerate the computation?
-    # Compute the indexing array for the gradients - tells each element is connected to which atom
     neighbour_indices = unique(nl.orig_indices[1:nl.nneigh[iat], iat])
-    # The first element is always the centring atom
-    gvec_index[1, iat] = iat
-    # The rest are teh neighbouring atoms (can include the central atom itself)
-    # We always use the original index not the extended index
-    gvec_index[2:length(neighbour_indices)+1, iat] .= neighbour_indices
-    gvec_nn[iat] = length(neighbour_indices) + 1
+    if do_grad
+        # TODO information below may be cached to accelerate the computation?
+        # Compute the indexing array for the gradients - tells each element is connected to which atom
+        # The first element is always the centring atom
+        gvec_index[1, iat] = iat
+        # The rest are teh neighbouring atoms (can include the central atom itself)
+        # We always use the original index not the extended index
+        gvec_index[2:length(neighbour_indices)+1, iat] .= neighbour_indices
+        gvec_nn[iat] = length(neighbour_indices) + 1
+    end
 
     # Start main loop - iterate between the neighbours
 
     for (jat, jextend, rij, vij) in CellBase.eachneighbourvector(nl, iat)
-        ineigth_j = findfirst(x -> x == jat, neighbour_indices) + 1
-
         rij > maxrcut && continue
         # Check atoms are not overlapping...
         @assert rij > tiny_dist
+
+        ineigth_j = findfirst(x -> x == jat, neighbour_indices) + 1
 
         # Compute pij
         modvij = vij / rij
@@ -590,7 +221,7 @@ function compute_fv_gv_one!(
         for (kat, kextend, rik, vik) in CellBase.eachneighbourvector(nl, iat)
             rik > maxrcut && continue
             @assert rik > tiny_dist
-            
+
 
             # Avoid double counting i j k is the same as i k j
             if kextend <= jextend
@@ -688,7 +319,7 @@ function compute_fv_gv_one!(
             end  # 3body-feature update loop 
         end # i,j,k pair
     end
-    fb
+    workspace
 end
 
 "Compute the fv and gv for a given set of two and three body interactions"
@@ -706,76 +337,101 @@ function compute_fv_gv(
 )
 
     # Generate the gradient workspace
-    nn_max = maximum(x -> length(unique(x)), eachcol(nl.orig_indices)) + 1
-    fvec = zeros(offset + sum(nfeatures.(features2)) + sum(nfeatures.(features3)), natoms(cell))
-    fb = GradientWorkspace(fvec, nn_max;core)
+    workspace = get_workspace(features2, features3, nl; core, offset)
     # Update for each atom
-    for iat in 1:natoms(cell)
-        compute_fv_gv_one!(fb, features2, features3, iat, cell, nl; offset=offset)
+    for iat = 1:natoms(cell)
+        compute_fv_gv_one!(workspace, features2, features3, iat, cell, nl; offset=offset)
     end
-    fb
+    workspace
 end
 
-compute_fv_gv(cf::CellFeature, cell::Cell; kwargs...) = compute_fv_gv(cf.two_body, cf.three_body, cell; offset=length(cf.elements), kwargs...)
-
 """
-    _force_update!(buffer::Array{T, 2}, gv, g) 
+    compute_fv!(workspace::GradientWorkspace, f2, f3, cell::Cell; offset=0, kwargs...)
 
-Propagate chain rule to obtain the forces
+Compute the feature vectors for a cell.
 """
-function _force_update_old!(fb::GradientWorkspace, nl, gv; offset=0)
-    # Zero the buffer
-    gf_at = fb.gvec
-    fill!(fb.forces, 0)
-    Threads.@threads for iat in axes(gf_at, 4)  # Atom index
-        # Only neighbouring atoms will affect each other via feature vectors
-        self_updated = false
-        for (j, _, _) in eachneighbour(nl, iat, unique=true)
-            j == iat && (self_updated = true)
-            for i = 1+offset:size(gf_at, 2)
-                for _i in axes(fb.forces, 1)  # xyz
-                    #@inbounds fb.forces[_i, iat] += gf_at[_i, i, j, iat] * gv[i, j] * -1  # F(xi) = -∇E(xi)
-                    fb.forces[_i, iat] += gf_at[_i, i, j, iat] * gv[i, j] * -1  # F(xi) = -∇E(xi)
-                end
-            end
-        end
-        if !self_updated
-            # Affect from iat itself
-            j = iat
-            for i = 1+offset:size(gf_at, 2)
-                for _i in axes(fb.forces, 1)  # xyz
-                    #@inbounds fb.forces[_i, iat] += gf_at[_i, i, j, iat] * gv[i, j] * -1  # F(xi) = -∇E(xi)
-                    fb.forces[_i, iat] += gf_at[_i, i, j, iat] * gv[i, j] * -1  # F(xi) = -∇E(xi)
-                end
-            end
-        end
+function compute_fv!(
+    workspace::GradientWorkspace,
+    f2,
+    f3,
+    cell::Cell;
+    nl,
+    offset=workspace.one_body_offset,
+    kwargs...,
+)
+    reset!(workspace)
+    for iat = 1:natoms(cell)
+        compute_fv_gv_one!(workspace, f2, f3, iat, cell, nl; offset, kwargs...)
     end
-
-    if !isnothing(fb.hardcore.core)
-        fb.forces .+= fb.hardcore.fcore
-    end
-    _substract_force_drift(fb.forces)
+    workspace.fvec
 end
 
+function get_workspace(
+    features2,
+    features3,
+    nl,
+    do_grad=true;
+    fvec=nothing,
+    core=nothing,
+    offset=0,
+)
+    # Compute the maximum number of unique neighbours for each atom
+    nn_max = maximum(x -> length(unique(x)), eachcol(nl.orig_indices)) + 1
+    # Generate the feature vector
+    if fvec === nothing
+        _fvec = zeros(
+            offset + sum(nfeatures.(features2)) + sum(nfeatures.(features3)),
+            length(nl.nneigh),
+        )
+    else
+        _fvec = fvec
+    end
+    GradientWorkspace(_fvec, nn_max; core, do_grad)
+end
 
-function _force_update!(fb, gv; offset=0)
-    gvec = fb.gvec
-    fill!(fb.forces, 0)
+get_workspace(cf::CellFeature, nl, do_grad=true; fvec=nothing) =
+    get_workspace(cf.two_body, cf.three_body, nl, do_grad; fvec)
+
+function compute_fv_gv!(
+    workspace::GradientWorkspace,
+    features2,
+    features3,
+    cell::Cell;
+    nl=NeighbourList(
+        cell,
+        maximum(x.rcut for x in (features2..., features3...));
+        savevec=true,
+    ),
+    offset=workspace.one_body_offset,
+)
+    reset!(workspace)
+    for iat = 1:natoms(cell)
+        compute_fv_gv_one!(workspace, features2, features3, iat, cell, nl; offset=offset)
+    end
+    workspace
+end
+
+compute_fv_gv(cf::CellFeature, cell::Cell; kwargs...) =
+    compute_fv_gv(cf.two_body, cf.three_body, cell; offset=length(cf.elements), kwargs...)
+
+function _force_update!(workspace, gv; offset=workspace.one_body_offset)
+    gvec = workspace.gvec
+    fill!(workspace.forces, 0)
     for iv in axes(gvec, 4)
-        for ia in 1:fb.gvec_nn[iv]  # Number of unique neighbours and self whose graidents are stored
-            iat = fb.gvec_index[ia, iv]  # Translate to the actual atom index
-            for i =1+ offset:size(gvec, 2)
-                for elm in axes(fb.forces, 1)
-                    fb.forces[elm, iat] -= gvec[elm, i, ia, iv] * gv[i, iat]
+        for ia = 1:workspace.gvec_nn[iv]  # Number of unique neighbours and self whose graidents are stored
+            iat = workspace.gvec_index[ia, iv]  # Translate to the actual atom index
+            for i = 1+offset:size(gvec, 2)
+                for elm in axes(workspace.forces, 1)
+                    workspace.forces[elm, iat] -= gvec[elm, i, ia, iv] * gv[i, iat]
                 end
             end
         end
     end
-    fb.tot_forces .= fb.forces
-    if !isnothing(fb.hardcore.core)
-        fb.total_forces .+= fb.hardcore.fcore
+    workspace.tot_forces .= workspace.forces
+    if !isnothing(workspace.hardcore.core)
+        workspace.tot_forces .+= workspace.hardcore.fcore
     end
-    _substract_force_drift(fb.tot_forces)
+    _substract_force_drift(workspace.tot_forces)
 end
 
 """
@@ -783,21 +439,20 @@ end
 
 Propagate chain rule to obtain the stress
 """
-function _stress_update!(fb::GradientWorkspace, gv; offset=0)
+function _stress_update!(workspace::GradientWorkspace, gv; offset=workspace.one_body_offset)
     # Zero the buffer
-    stotv = fb.stotv
-    fill!(fb.stress, 0)
+    stotv = workspace.stotv
+    fill!(workspace.stress, 0)
     for iat in axes(stotv, 4)
         for i = 1+offset:size(stotv, 3)
-            for a in axes(fb.stress, 1), b in axes(fb.stress, 2)
-                fb.stress[a, b, iat] -= stotv[a, b, i, iat] * gv[i, iat]
+            for a in axes(workspace.stress, 1), b in axes(workspace.stress, 2)
+                workspace.stress[a, b, iat] -= stotv[a, b, i, iat] * gv[i, iat]
             end
         end
     end
-    #fb.stress .= sum(stress_copy, dims=3)[:, :, 1]
-    fb.tot_stress .= sum(fb.stress, dims=3)
-    if !isnothing(fb.hardcore.core)
-        fb.tot_stress .+= sum(fb.hardcore.score, dims=3)
+    workspace.tot_stress .= sum(workspace.stress, dims=3)
+    if !isnothing(workspace.hardcore.core)
+        workspace.tot_stress .+= sum(workspace.hardcore.score, dims=3)
     end
 end
 
