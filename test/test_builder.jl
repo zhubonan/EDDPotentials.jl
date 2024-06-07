@@ -1,4 +1,4 @@
-using EDDP
+using EDDPotential
 using Test
 using TOML
 using Configurations
@@ -31,8 +31,8 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
         function test_to_from_toml_builder(obj)
 
             options = mktempdir() do temp
-                EDDP.save_builder(joinpath(temp, "test.toml"), builder)
-                o2 = from_toml(EDDP.BuilderOption, joinpath(temp, "test.toml"))
+                EDDPotential.save_builder(joinpath(temp, "test.toml"), builder)
+                o2 = from_toml(EDDPotential.BuilderOption, joinpath(temp, "test.toml"))
                 open(joinpath(temp, "showout"), "w") do fh
                     Base.show(fh, o2)
                 end
@@ -49,20 +49,20 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
 
 
 
-        state = EDDP.BuilderState(seedfile="seed.cell", seedfile_calc="calc.cell")
+        state = EDDPotential.BuilderState(seedfile="seed.cell", seedfile_calc="calc.cell")
         test_to_from_toml(state)
 
-        lm = EDDP.TrainingOption(type="lm")
+        lm = EDDPotential.TrainingOption(type="lm")
         test_to_from_toml(lm)
 
-        rss = EDDP.RssSetting()
+        rss = EDDPotential.RssSetting()
         test_to_from_toml(rss)
 
-        cf = EDDP.CellFeatureConfig(elements=["H"])
+        cf = EDDPotential.CellFeatureConfig(elements=["H"])
         test_to_from_toml(cf)
 
 
-        opt = EDDP.BuilderOption(state, cf, nothing, rss, lm, nothing)
+        opt = EDDPotential.BuilderOption(state, cf, nothing, rss, lm, nothing)
         test_to_from_toml(opt)
 
         # Construct builder from opt

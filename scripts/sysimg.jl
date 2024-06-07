@@ -1,5 +1,5 @@
 #=
-Compile system image for accelerated loading of EDDP related stuff
+Compile system image for accelerated loading of EDDPotential related stuff
 =#
 module SysImageBuild
 
@@ -171,7 +171,7 @@ function create_sysimage(
     return nothing
 end
 
-const DEV_PKGS = ["../../CellBase/", "../", "../packages/EDDPTools.jl/"]
+const DEV_PKGS = ["../../CellBase/", "../", "../packages/EDDPotentialTools.jl/"]
 
 # Additional packages to be included in the sysimage
 const PKGS = [
@@ -193,7 +193,7 @@ const PKGS = [
     "NNlib",
 ]
 
-const EXCLUDED = ["EDDP", "CellBase", "EDDPTools"]
+const EXCLUDED = ["EDDPotential", "CellBase", "EDDPotentialTools"]
 
 function setup_temp_project()
     dir = dirname(@__FILE__)

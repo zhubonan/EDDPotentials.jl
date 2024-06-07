@@ -5,7 +5,7 @@ using StaticArrays
 using .Molly
 import .Molly
 
-struct EDDPInter{T}
+struct EDDPotentialInter{T}
     calc::T
 end
 
@@ -28,7 +28,7 @@ function _geometry_system2calc!(calc, sys)
 end
 
 
-function Molly.forces(inter::EDDPInter, sys, neighbors=nothing)
+function Molly.forces(inter::EDDPotentialInter, sys, neighbors=nothing)
     _geometry_system2calc!(inter.calc, sys)
 
     forces = get_forces(inter.calc)
@@ -36,7 +36,7 @@ function Molly.forces(inter::EDDPInter, sys, neighbors=nothing)
     [SVector{3}(col) * sys.force_units for col in eachcol(forces)]
 end
 
-function Molly.potential_energy(inter::EDDPInter, sys, neighbours=nothing)
+function Molly.potential_energy(inter::EDDPotentialInter, sys, neighbours=nothing)
     _geometry_system2calc!(inter.calc, sys)
     get_energy(inter.calc) * sys.energy_units
 

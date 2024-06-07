@@ -6,7 +6,7 @@ quiet = false
 optimize = 2
 
 #[sysimg]
-#excluded_packages = ["EDDP", "EDDPCli"]
+#excluded_packages = ["EDDPotential", "EDDPotentialCli"]
 
 #[sysimg.precompile]
 #execution_file = ["test/runtests.jl"]

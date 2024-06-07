@@ -194,7 +194,7 @@ Run `link!` from command line interface.
 Example: 
 
 ```bash
-julia -e "Using EDDP;EDDP.link()" -- --file "link.toml" 
+julia -e "Using EDDPotential;EDDPotential.link()" -- --file "link.toml" 
 ```
 """
 function link()
@@ -341,7 +341,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
                 Base.julia_cmd()...,
                 "--project=$(project_path)",
                 "-e",
-                "using EDDP;EDDP._run_rss_link()",
+                "using EDDPotential;EDDPotential._run_rss_link()",
                 "--",
                 "--file",
                 "$(state.builder_file_path)",
@@ -517,7 +517,7 @@ function _perform_training_external(bu::Builder)
         Base.julia_cmd()...,
         "--project=$(project_path)",
         "-e",
-        "using EDDP;EDDP.run_trainer()",
+        "using EDDPotential;EDDPotential.run_trainer()",
         "$(builder_file)",
         "--iteration",
         "$(bu.state.iteration)",
@@ -828,7 +828,7 @@ function walk_forward_tests(
         @info "Loading features of generation $(iter+1) to test for generation $(iter)..."
         fc = load_features(bu, iter + 1; show_progress=fc_show_progress)
         ensemble = load_ensemble(bu, iter)
-        tr = EDDP.TrainingResults(ensemble, fc)
+        tr = EDDPotential.TrainingResults(ensemble, fc)
         push!(trs, tr)
         if print_results
             println(
@@ -858,7 +858,7 @@ function has_ensemble(bu::Builder, iteration=bu.state.iteration)
 end
 
 function load_ensemble(bu::Builder, iteration=_latest_ensemble_iteration(bu))
-    EDDP.load_from_jld2(ensemble_name(bu, iteration), EDDP.EnsembleNNInterface)
+    EDDPotential.load_from_jld2(ensemble_name(bu, iteration), EDDPotential.EnsembleNNInterface)
 end
 
 ensemble_name(bu::Builder, iteration=bu.state.iteration) =
@@ -885,7 +885,7 @@ nstructures_calculated(bu::Builder, iteration) =
 
 function load_structures(bu::Builder, iteration::Vararg{Int})
     dirs = [joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter in iteration]
-    sc = EDDP.StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
+    sc = EDDPotential.StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
     return sc
 end
 load_structures(bu::Builder) = load_structures(bu, 0:bu.state.iteration)
@@ -898,7 +898,7 @@ Loading features for specific iterations.
 """
 function load_features(bu::Builder, iteration::Vararg{Int}; show_progress=true)
     sc = load_structures(bu, iteration...;)
-    return EDDP.FeatureContainer(sc, bu.cf; nmax=bu.trainer.nmax, show_progress)
+    return EDDPotential.FeatureContainer(sc, bu.cf; nmax=bu.trainer.nmax, show_progress)
 end
 
 load_features(bu::Builder; kwargs...) = load_features(bu, 0:bu.state.iteration; kwargs...)
@@ -969,7 +969,7 @@ for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enth
         @doc """
             $($func)(cell::Cell, builder::Builder, gen::Int=_latest_ensemble_iteration(builder);kwargs...)
 
-        Convenient method for calling $(EDDP.$func) using a Builder object.
+        Convenient method for calling $(EDDPotential.$func) using a Builder object.
         """ $func(cell::Cell, builder::Builder, gen::Int)
     end
 end

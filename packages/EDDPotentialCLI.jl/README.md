@@ -1,22 +1,22 @@
-# EDDPCli.jl
+# EDDPotentialCli.jl
 
-CLI package for EDDP.jl
+CLI package for EDDPotential.jl
 
 ## Installation
 
 <p>
-EDDPCli is a &nbsp;
+EDDPotentialCli.jl is a &nbsp;
     <a href="https://julialang.org">
         <img src="https://raw.githubusercontent.com/JuliaLang/julia-logo-graphics/master/images/julia.ico" width="16em">
         Julia Language
     </a>
-    &nbsp; package. To install EDDPCli,
+    &nbsp; package. To install EDDPotentialCli,
     please <a href="https://docs.julialang.org/en/v1/manual/getting-started/">open
     Julia's interactive session (known as REPL)</a> and press <kbd>]</kbd>
     key in the REPL to use the package mode, then type the following command
 </p>
 
 ```julia
-pkg> add EDDPCli
+pkg> add EDDPotentialCli
 ```
 

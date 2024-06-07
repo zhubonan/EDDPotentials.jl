@@ -5,7 +5,7 @@ Code for analysing data
 
 using DataFrames
 using CellBase
-using EDDP: read_shelx_record, extract_res, ShelxRecord
+using EDDPotential: read_shelx_record, extract_res, ShelxRecord
 using CellBase: read_res_many
 import CellBase
 

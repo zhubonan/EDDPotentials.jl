@@ -1,4 +1,4 @@
-using EDDP
+using EDDPotential
 using CellBase
 using Test
 
@@ -7,7 +7,7 @@ using Test
     cpar = cellpar(cell)
     spos = CellBase.scaled_positions(cell)
     # Test for rattling the cell
-    EDDP.rattle_cell!(cell, 0.01)
+    EDDPotential.rattle_cell!(cell, 0.01)
     @test all(cpar .!= cellpar(cell))
     @test all(isapprox.(spos, CellBase.scaled_positions(cell), atol=1e-10))
 end

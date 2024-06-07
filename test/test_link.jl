@@ -1,4 +1,4 @@
-using EDDP
+using EDDPotential
 using Test
 using Logging
 
@@ -46,13 +46,13 @@ if check_airss(; verbose=true)
             prepare_folder() do target
                 builder = Builder(joinpath(target, "link-test.toml"))
                 @test builder.state.iteration == 0
-                EDDP.step!(builder)
+                EDDPotential.step!(builder)
                 @test builder.state.iteration == 1
-                EDDP.link!(builder)
+                EDDPotential.link!(builder)
                 @test builder.state.iteration == 3
 
                 # Run walk forward tests
-                EDDP.walk_forward_tests(builder)
+                EDDPotential.walk_forward_tests(builder)
 
                 # Load ensemble
                 load_ensemble(builder, 0)

@@ -1,8 +1,8 @@
-module EDDPCli
+module EDDPotentialCli
 
 using Comonicon
-using EDDP: link!, Builder, BuilderOption, to_toml, from_dict
-using EDDP: run_rss as run_rss_eddp
+using EDDPotential: link!, Builder, BuilderOption, to_toml, from_dict
+using EDDPotential: run_rss as run_rss_eddp
 using YAML
 using TOML
 
@@ -10,7 +10,7 @@ using TOML
 """
     link(fname::String="link.toml"; iter::Int=-1)
 
-Perform iterative building of the EDDP potential
+Perform iterative building of the EDDPotential potential
 
 # Intro
 
@@ -81,7 +81,7 @@ Generate default configuration file
 
 # Intro
 
-Generate default configuration file for building EDDP potential as well as running searching 
+Generate default configuration file for building EDDPotential potential as well as running searching 
 using an existing project.
 
 # Flags
@@ -123,8 +123,8 @@ function _get_builder_opt_template(seedfile, elements...)
 end
 
 """
-Command line interface for EDDP.jl
+Command line interface for EDDPotential.jl
 """
 @main
 
-end # EDDPCli.jl
+end # EDDPotentialCli.jl

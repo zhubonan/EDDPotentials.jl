@@ -30,11 +30,11 @@ function update_metadata!(vc::AbstractCalc, label; symprec=1e-2)
 end
 
 """
-    write_res(path, vc::VariableCellCalc;symprec=1e-2, label="EDDP")
+    write_res(path, vc::VariableCellCalc;symprec=1e-2, label="EDDPotential")
 
 Write structure in VariableCellCalc as SHELX file.
 """
-function write_res(path, vc::VariableCellCalc; symprec=1e-2, label="EDDP")
+function write_res(path, vc::VariableCellCalc; symprec=1e-2, label="EDDPotential")
     update_metadata!(vc, label; symprec)
     write_res(path, get_cell(vc))
 end
@@ -86,7 +86,7 @@ Support only single a element for now.
 function lj_like_calc(cell::Cell; α=1.0, a=6, rc=3.0)
     elem = unique(species(cell))
     @assert length(elem) == 1 "Only works for single specie Cell for now."
-    cf = EDDP.CellFeature(elem, p2=[a, 2a], p3=[], q3=[], rcut2=rc)
-    model = EDDP.LinearInterface([0, -2, 1.0] .* α)
-    EDDP.NNCalc(cell, cf, model)
+    cf = EDDPotential.CellFeature(elem, p2=[a, 2a], p3=[], q3=[], rcut2=rc)
+    model = EDDPotential.LinearInterface([0, -2, 1.0] .* α)
+    EDDPotential.NNCalc(cell, cf, model)
 end

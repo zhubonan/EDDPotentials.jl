@@ -1,7 +1,7 @@
 #=
 Common functions for helping tests
 =#
-using EDDP
+using EDDPotential
 using CellBase
 
 function _h2_cell(l=4.0, factor=1.0)
@@ -25,17 +25,17 @@ end
 
 
 function _generate_cf(cell::Cell)
-    EDDP.CellFeature(unique(species(cell)); p2=[6, 12], q3=[2, 3], p3=[2, 3])
+    EDDPotential.CellFeature(unique(species(cell)); p2=[6, 12], q3=[2, 3], p3=[2, 3])
 end
 
 
 function _get_calc()
     cell = _h2_cell()
     cf = _generate_cf(cell)
-    itf = EDDP.ManualFluxBackPropInterface(
-        Chain(Dense(rand(5, EDDP.nfeatures(cf))), Dense(rand(1, 5))),
+    itf = EDDPotential.ManualFluxBackPropInterface(
+        Chain(Dense(rand(5, EDDPotential.nfeatures(cf))), Dense(rand(1, 5))),
     )
-    calc = EDDP.NNCalc(cell, cf, itf)
+    calc = EDDPotential.NNCalc(cell, cf, itf)
     calc
 end
 

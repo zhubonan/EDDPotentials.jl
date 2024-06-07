@@ -1,5 +1,5 @@
-using EDDP
-using EDDP: ginit
+using EDDPotential
+using EDDPotential: ginit
 
 using Test
 using Flux
@@ -15,21 +15,21 @@ using NLSolversBase
         y = rand(length(data))
         yt = StatsBase.fit(StatsBase.ZScoreTransform, reshape(y, 1, length(y)), dims=2)
 
-        model = EDDP.ManualFluxBackPropInterface(
+        model = EDDPotential.ManualFluxBackPropInterface(
             Chain(Dense(rand(1, nf), rand(1), tanh)),
             yt=yt,
         )
-        EDDP.compute_objectives(f, model, data, f)
+        EDDPotential.compute_objectives(f, model, data, f)
         @test any(f != 0.0)
 
-        jmat = rand(length(data), EDDP.nparams(model))
-        EDDP.compute_objectives_diff(f, jmat, model, data, y)
+        jmat = rand(length(data), EDDPotential.nparams(model))
+        EDDPotential.compute_objectives_diff(f, jmat, model, data, y)
 
         @test any(jmat != 0.0)
 
         # Setting up and minimising
-        f!, j!, fj! = EDDP.setup_fj(model, data, y)
-        p0 = EDDP.paramvector(model)
+        f!, j!, fj! = EDDPotential.setup_fj(model, data, y)
+        p0 = EDDPotential.paramvector(model)
 
         # Manual diff
         jmat = zeros(length(y), length(p0))
@@ -52,16 +52,16 @@ using NLSolversBase
             zeros(eltype(data[1]), length(data)),
             inplace=true,
         )
-        opt_res = EDDP.levenberg_marquardt(od2, p0; show_trace=false)
+        opt_res = EDDPotential.levenberg_marquardt(od2, p0; show_trace=false)
 
         j!(jmat, opt_res.minimizer)
         @test all(isapprox.(jmat, 0.0, atol=1e-6))
 
 
         # Test with training config
-        model = EDDP.ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
+        model = EDDPotential.ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
 
-        EDDP.train_lm!(model, data, y;)
+        EDDPotential.train_lm!(model, data, y;)
         out = model(data[2])
         # Check we have successfully performed the fit
         @test sum(out) ≈ y[2] atol = 1e-5
@@ -70,48 +70,48 @@ using NLSolversBase
         nf = 1000
         data = vcat([rand(nf, 3) for _ = 1:10], [rand(nf, 2) for _ = 1:10])
         y = size.(data, 2) ./ 2
-        model = EDDP.LinearInterface(rand(1, nf))
+        model = EDDPotential.LinearInterface(rand(1, nf))
 
-        opt_res, _, _ = EDDP.train_lm!(model, data, y; earlystop=0)
+        opt_res, _, _ = EDDPotential.train_lm!(model, data, y; earlystop=0)
     end
 
     @testset "Ensemble" begin
         path = joinpath(datadir, "training/*.res")
         path = relpath(path, pwd())
-        sc = EDDP.StructureContainer([path])
-        cf = EDDP.CellFeature([:B])
-        fc = EDDP.FeatureContainer(sc, cf)
+        sc = EDDPotential.StructureContainer([path])
+        cf = EDDPotential.CellFeature([:B])
+        fc = EDDPotential.FeatureContainer(sc, cf)
 
         # This gives fix examples
         fc_train, fc_test = split(fc, 5, 5; standardize=true, apply_transform=true)
         models = []
-        model = EDDP.ManualFluxBackPropInterface(
-            Chain(Dense(ginit(5, EDDP.nfeatures(fc.feature))), Dense(ginit(1, 5))),
+        model = EDDPotential.ManualFluxBackPropInterface(
+            Chain(Dense(ginit(5, EDDPotential.nfeatures(fc.feature))), Dense(ginit(1, 5))),
             xt=fc_train.xt,
             yt=fc_train.yt,
             apply_xt=false,
         )
-        model_ = EDDP.reinit(model)
-        @test any(EDDP.paramvector(model_) .!= EDDP.paramvector(model))
+        model_ = EDDPotential.reinit(model)
+        @test any(EDDPotential.paramvector(model_) .!= EDDPotential.paramvector(model))
         for _ = 1:10
-            model_ = EDDP.reinit(model)
-            res = EDDP.train!(model_, fc_train, fc_test)
+            model_ = EDDPotential.reinit(model)
+            res = EDDPotential.train!(model_, fc_train, fc_test)
             push!(models, model_)
         end
 
-        emod = EDDP.create_ensemble(models, fc_train)
-        out = EDDP.predict_energy(emod, fc_train[1][1])
+        emod = EDDPotential.create_ensemble(models, fc_train)
+        out = EDDPotential.predict_energy(emod, fc_train[1][1])
         @test isa(out, Real)
 
         ## Training with multithreading - this is not optimum...
-        res = EDDP.train_multi_threaded(
+        res = EDDPotential.train_multi_threaded(
             model,
             fc_train,
             fc_test;
             nmodels=3,
             save_each_model=false,
         )
-        @test isa(res, EDDP.EnsembleNNInterface)
+        @test isa(res, EDDPotential.EnsembleNNInterface)
     end
 
 
@@ -123,17 +123,17 @@ using NLSolversBase
         y = rand(length(data))
         yt = StatsBase.fit(StatsBase.ZScoreTransform, reshape(y, 1, length(y)), dims=2)
 
-        model = EDDP.FluxInterface(Chain(Dense(rand(1, nf), rand(1))))
-        EDDP.compute_objectives(f, model, data, f)
+        model = EDDPotential.FluxInterface(Chain(Dense(rand(1, nf), rand(1))))
+        EDDPotential.compute_objectives(f, model, data, f)
         @test any(f != 0.0)
 
-        jmat = rand(length(data), EDDP.nparams(model))
-        EDDP.compute_objectives_diff(f, jmat, model, data, y)
+        jmat = rand(length(data), EDDPotential.nparams(model))
+        EDDPotential.compute_objectives_diff(f, jmat, model, data, y)
         @test any(jmat != 0.0)
 
         # Setting up and minimising
-        f!, j!, fj! = EDDP.setup_fj(model, data, y)
-        p0 = EDDP.paramvector(model)
+        f!, j!, fj! = EDDPotential.setup_fj(model, data, y)
+        p0 = EDDPotential.paramvector(model)
 
         # Manual finite diff
         jmat = zeros(length(y), length(p0))
@@ -156,7 +156,7 @@ using NLSolversBase
             zeros(eltype(data[1]), length(data)),
             inplace=true,
         )
-        opt_res = EDDP.levenberg_marquardt(od2, p0; show_trace=false)
+        opt_res = EDDPotential.levenberg_marquardt(od2, p0; show_trace=false)
         #@test_broken opt_res.g_converged
         @test opt_res.x_converged
     end

@@ -250,7 +250,7 @@ function FeatureContainer(
     jj = Atomic{Int}(0)
     l = ReentrantLock()
     Threads.@threads for i = 1:length(sc)
-        fvecs[i] = EDDP.feature_vector(feature, sc.structures[i]; nmax, kwargs...)
+        fvecs[i] = EDDPotential.feature_vector(feature, sc.structures[i]; nmax, kwargs...)
         m = metadata[i]
         form, nf = CellBase.formula_and_factor(sc.structures[i])
         m[:formula] = form

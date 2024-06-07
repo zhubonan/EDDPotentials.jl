@@ -1,8 +1,8 @@
 module ASEInterface
 
 using PyCall
-using EDDP
-using EDDP: ShelxRecord
+using EDDPotential
+using EDDPotential: ShelxRecord
 using Flux
 using CellBase
 using CellBase: read_res, read_res_many
@@ -16,8 +16,8 @@ function __init__()
     from typing import List
     from ase.stress import full_3x3_to_voigt_6_stress
 
-    class EDDPCalcBase(calc.FileIOCalculator):
-        '''Base class for EDDP.jl calculator'''
+    class EDDPotentialCalcBase(calc.FileIOCalculator):
+        '''Base class for EDDPotential.jl calculator'''
         implemented_properties: List[str] = ["energy", "forces", "stress"]
         def __init__(self, atoms, eddp_calc=None, restart=None,
                         ignore_bad_restart_file=calc.Calculator._deprecated,
@@ -72,9 +72,9 @@ function __init__()
 
     np = py"np"
     global ase
-    global EDDPCalc
+    global EDDPotentialCalc
     global visualize
-    @pydef mutable struct EDDPCalc <: py"EDDPCalcBase"
+    @pydef mutable struct EDDPotentialCalc <: py"EDDPotentialCalcBase"
 
         function set_eddp_calc(self, eddp_calc)
             self.eddp_calc = eddp_calc
@@ -82,16 +82,16 @@ function __init__()
 
         function sync_atoms_cell(self, atoms)
             mat = np.array(atoms.get_cell())
-            EDDP.set_cellmat!(self.eddp_calc, collect(transpose(mat)))
+            EDDPotential.set_cellmat!(self.eddp_calc, collect(transpose(mat)))
             pos = atoms.get_positions()
-            EDDP.set_positions!(self.eddp_calc, collect(transpose(pos)))
+            EDDPotential.set_positions!(self.eddp_calc, collect(transpose(pos)))
         end
 
         function run_eddp(self)
-            EDDP.calculate!(self.eddp_calc)
-            self.energy = EDDP.get_energy(self.eddp_calc)
-            self.forces = PyReverseDims(EDDP.get_forces(self.eddp_calc))
-            self.stress = PyReverseDims(EDDP.get_stress(self.eddp_calc))
+            EDDPotential.calculate!(self.eddp_calc)
+            self.energy = EDDPotential.get_energy(self.eddp_calc)
+            self.forces = PyReverseDims(EDDPotential.get_forces(self.eddp_calc))
+            self.stress = PyReverseDims(EDDPotential.get_stress(self.eddp_calc))
         end
     end
 
@@ -116,13 +116,13 @@ function atoms_from_cell(cell::Cell)
 end
 
 """
-    get_ase_atoms_and_calculator(calc::EDDP.AbstractCalc)
+    get_ase_atoms_and_calculator(calc::EDDPotential.AbstractCalc)
 
-Setup ASE atoms with calculator using EDDP
+Setup ASE atoms with calculator using EDDPotential
 """
-function get_ase_atoms_and_calculator(calc::EDDP.AbstractCalc)
+function get_ase_atoms_and_calculator(calc::EDDPotential.AbstractCalc)
     atoms = atoms_from_cell(get_cell(calc))
-    ase_calc = EDDPCalc(atoms, calc)
+    ase_calc = EDDPotentialCalc(atoms, calc)
     atoms, ase_calc
 end
 

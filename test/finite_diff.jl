@@ -4,7 +4,7 @@ Finite diff related routine
 
 using CellBase
 using Base.Iterators
-using EDDP: GradientWorkspace, compute_fv_gv_one!, nbodyfeatures, CellFeature, nfeatures
+using EDDPotential: GradientWorkspace, compute_fv_gv_one!, nbodyfeatures, CellFeature, nfeatures
 using NLSolversBase: OnceDifferentiable, jacobian!
 
 function get_testcell_h(supercell=(1, 1, 1))

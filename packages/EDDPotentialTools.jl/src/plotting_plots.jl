@@ -1,7 +1,7 @@
-using EDDP
-using EDDP: load_ensemble, load_features, load_structures, resample_mae_rmse
-using EDDP: enthalpyandvolume, relativeabsoluteerror, TrainingResults
-using EDDP:
+using EDDPotential
+using EDDPotential: load_ensemble, load_features, load_structures, resample_mae_rmse
+using EDDPotential: enthalpyandvolume, relativeabsoluteerror, TrainingResults
+using EDDPotential:
     ComputedRecord,
     PhaseDiagram,
     get_e_above_hull,
@@ -22,7 +22,7 @@ export make_binary_hull_plot, plot_minsep_distribution
 Plots 2D convex hull from a PhaseDiagram
 """
 function make_binary_hull_plot(phased; max_above_hull=0.1)
-    plot_data = EDDP.get_2d_plot_data(phased; threshold=max_above_hull)
+    plot_data = EDDPotential.get_2d_plot_data(phased; threshold=max_above_hull)
     comp_label = L"$\mathrm{%$(phased.elements[2])_x%$(phased.elements[1])_{1-x}}$"
     p = Plots.scatter(
         plot_data.x,
@@ -51,7 +51,7 @@ end
 Container for MINSEP related data for each generations
 """
 struct MinsepData
-    species_separations::Vector{Dict{Pair{Symbol,Symbol},EDDP.SepecieSeparation}}
+    species_separations::Vector{Dict{Pair{Symbol,Symbol},EDDPotential.SepecieSeparation}}
     gens::Dict{Int,Vector{Int}}
 end
 

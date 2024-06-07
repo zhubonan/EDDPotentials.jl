@@ -1,9 +1,9 @@
 using Test
-using EDDPCli
-using EDDP
+using EDDPotentialCli
+using EDDPotential
 
-@testset "EDDPCli" begin
-    opts = EDDPCli._get_builder_opt_template("test", "Si", "C")
+@testset "EDDPotentialCli" begin
+    opts = EDDPotentialCli._get_builder_opt_template("test", "Si", "C")
     @test "Si" in opts.cf.elements
     @test "C" in opts.cf.elements
     @test opts.state.seedfile == "test"
@@ -11,4 +11,4 @@ using EDDP
     builder = Builder(opts)
     @test "Si" in builder.options.cf.elements
     @test builder.state.seedfile == "test"
-end # EDDPCli.jl tests
+end # EDDPotentialCli.jl tests

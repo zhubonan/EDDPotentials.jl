@@ -1,4 +1,4 @@
-using EDDP
+using EDDPotential
 using CellBase
 using LinearAlgebra
 using Test
@@ -39,7 +39,7 @@ j is the gradient of the feature vector of the j atom as a result of the movemen
 """
 function fd_gradient(cf, cell)
 
-    fb = EDDP.compute_fv_gv(cf, cell)
+    fb = EDDPotential.compute_fv_gv(cf, cell)
     gvec0 = copy(fb.gvec) # dFi/drj order
 
     # Recover the gradient in the dFj/dri format
@@ -57,12 +57,12 @@ function fd_gradient(cf, cell)
         for dir = 1:3
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
-            fb = EDDP.compute_fv_gv(cf, dcell)
+            fb = EDDPotential.compute_fv_gv(cf, dcell)
             fv1 = copy(fb.fvec)
 
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] -= 1e-6
-            fb = EDDP.compute_fv_gv(cf, dcell)
+            fb = EDDPotential.compute_fv_gv(cf, dcell)
             fv2 = copy(fb.fvec)
             diff[dir, :, :, iat] .= (fv1 - fv2) / 2e-6
         end
@@ -82,14 +82,14 @@ Returns the gradient from finite difference and analytical computation. A random
 used for prediction.
 """
 function force_gradient(cf, cell)
-    fb = EDDP.compute_fv_gv(cf, cell)
+    fb = EDDPotential.compute_fv_gv(cf, cell)
     gvec0 = copy(fb.gvec) # dFi/drj order
     # coefficients such that param * fvec = energies
     param = rand(1, size(fb.gvec, 2))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
-    EDDP._force_update!(fb, gv; offset=length(cf.elements))
-    EDDP._stress_update!(fb, gv; offset=length(cf.elements))
+    EDDPotential._force_update!(fb, gv; offset=length(cf.elements))
+    EDDPotential._stress_update!(fb, gv; offset=length(cf.elements))
     forces = copy(fb.forces)
 
     # dE/dri
@@ -98,13 +98,13 @@ function force_gradient(cf, cell)
         for dir = 1:3
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
-            fb = EDDP.compute_fv_gv(cf, dcell)
+            fb = EDDPotential.compute_fv_gv(cf, dcell)
             # Compute the energy
             e1 = sum(param * fb.fvec)
 
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] -= 1e-6
-            fb = EDDP.compute_fv_gv(cf, dcell)
+            fb = EDDPotential.compute_fv_gv(cf, dcell)
             e2 = sum(param * fb.fvec)
             # Compute the energy
             diff[dir, iat] = (e1 - e2) / 2e-6
@@ -123,13 +123,13 @@ Returns the gradient from finite difference and analytical computation. A random
 used for prediction.
 """
 function stress_gradient(cf, cell)
-    fb = EDDP.compute_fv_gv(cf, cell)
+    fb = EDDPotential.compute_fv_gv(cf, cell)
     # coefficients such that param * fvec = energies
     param = rand(1, size(fb.gvec, 2))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
-    EDDP._force_update!(fb, gv; offset=length(cf.elements))
-    EDDP._stress_update!(fb, gv; offset=length(cf.elements))
+    EDDPotential._force_update!(fb, gv; offset=length(cf.elements))
+    EDDPotential._stress_update!(fb, gv; offset=length(cf.elements))
     stress = copy(fb.tot_stress)
 
 
@@ -143,7 +143,7 @@ function stress_gradient(cf, cell)
             smat = copy(smat_orig)
             smat[i, j] += 1e-6
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
-            fb = EDDP.compute_fv_gv(cf, dcell)
+            fb = EDDPotential.compute_fv_gv(cf, dcell)
             # Compute the energy
             e1 = sum(param * fb.fvec)
 
@@ -151,7 +151,7 @@ function stress_gradient(cf, cell)
             smat = copy(smat_orig)
             smat[i, j] -= 1e-6
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
-            fb = EDDP.compute_fv_gv(cf, dcell)
+            fb = EDDPotential.compute_fv_gv(cf, dcell)
             e2 = sum(param * fb.fvec)
             # Compute the energy
             diff[i, j] = (e1 - e2) / 2e-6

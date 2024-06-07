@@ -1,4 +1,4 @@
-module EDDP
+module EDDPotential
 
 using CellBase: read_castep
 import CellBase
@@ -17,7 +17,7 @@ export glob
 
 
 # abstract types
-abstract type EDDPOption end
+abstract type EDDPotentialOption end
 
 # end of abstract types
 

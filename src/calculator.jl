@@ -338,7 +338,7 @@ end
 Return pressure in unit of GPa.
 """
 function get_pressure_gpa(vc::AbstractCalc)
-    eVAngToGPa(tr(EDDP.get_stress(vc)) / 3.0)
+    eVAngToGPa(tr(EDDPotential.get_stress(vc)) / 3.0)
 end
 
 """
@@ -503,7 +503,7 @@ for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enth
         @doc """
             $($func)(cell::Cell, cf::CellFeature, itf::AbstractNNInterface;kwargs...)
 
-        Convenient method for calling $(EDDP.$func) with a Calculator constructed ad-hoc.
+        Convenient method for calling $(EDDPotential.$func) with a Calculator constructed ad-hoc.
         """ $func(cell::Cell, cf::CellFeature, itf::AbstractNNInterface; kwargs...)
     end
 end

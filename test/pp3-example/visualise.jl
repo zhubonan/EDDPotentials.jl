@@ -1,4 +1,4 @@
-using EDDP
+using EDDPotential
 using CellBase
 using Plots
 link_file = joinpath(@__DIR__, "link.toml")
@@ -27,7 +27,7 @@ begin
     bdir(x) = joinpath(builder.state.workdir, x)
     for (i, img) in enumerate(images)
         CellBase.write_cell(bdir("lj-pp3/lj-$(i).cell"), img)
-        outcell = EDDP.run_pp3(bdir("lj-pp3/lj-$(i).cell"), bdir("Al"), nothing)
+        outcell = EDDPotential.run_pp3(bdir("lj-pp3/lj-$(i).cell"), bdir("Al"), nothing)
         push!(pp3_out, outcell.metadata[:enthalpy])
     end
 end
@@ -62,7 +62,7 @@ function plot_lj(builder, x=LinRange(1, 5, 100))
         linewidth=5,
     )
     for iter = 0:builder.state.iteration
-        EDDP.has_ensemble(builder, iter) || break
+        EDDPotential.has_ensemble(builder, iter) || break
         ensemble = load_ensemble(builder, iter)
         calc = NNCalc(cell, builder.cf, ensemble)
         y = E.(x, Ref(calc))

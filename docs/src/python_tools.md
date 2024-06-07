@@ -40,15 +40,15 @@ julia> res = read_res("<path to SHLEX file>")  # Read in the structure file
 
 julia> calc = NNCalc(res, builder.cf, load_ensemble(builder))   # Construct a NNCalc object
 
-julia> EDDP.optimise!(calc |> VariableCellCalc)   # Optimise with variable cell shape
+julia> EDDPotential.optimise!(calc |> VariableCellCalc)   # Optimise with variable cell shape
 ```
 
 Finally, we run the finite displacement calculations:
 
 ```julia-repl
-julia> using EDDPTools
+julia> using EDDPotentialTools
 
-julia> EDDPTools.run_phonon(calc;outdir="phonon")
+julia> EDDPotentialTools.run_phonon(calc;outdir="phonon")
 ```
 
 This writes the YAML files and `FORCE_SETS` and `phonopy_params.yaml` files into a new folder called `phonon`.

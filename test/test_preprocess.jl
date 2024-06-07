@@ -1,4 +1,4 @@
-using EDDP
+using EDDPotential
 using CellBase
 using Test
 using StatsBase
@@ -6,14 +6,14 @@ using StatsBase
 @testset "Preprocess" begin
     fpath = joinpath(datadir, "training/*.res")
     fpath = relpath(fpath, pwd())
-    sc = EDDP.StructureContainer([fpath])
+    sc = EDDPotential.StructureContainer([fpath])
 
     # Test indexing
     @test isa(sc[1], Cell)
-    @test isa(sc[1:2], EDDP.StructureContainer)
+    @test isa(sc[1:2], EDDPotential.StructureContainer)
     @test length(sc) == 11
     labels = [x.metadata[:label] for x in sc.structures]
-    @test isa(sc[[labels[1], labels[2]]], EDDP.StructureContainer)
+    @test isa(sc[[labels[1], labels[2]]], EDDPotential.StructureContainer)
     @test isa(collect(sc)[1], CellBase.Cell)
 
     # test splitting
@@ -29,20 +29,20 @@ using StatsBase
     @test length(sc1) == 1
     @test length(sc2) == 2
 
-    sc_train, sc_test = EDDP.train_test_split(sc, ratio_test=0.5)
+    sc_train, sc_test = EDDPotential.train_test_split(sc, ratio_test=0.5)
     @test length(sc_train) == 6
     # Default
-    fc = EDDP.FeatureContainer(sc)
+    fc = EDDPotential.FeatureContainer(sc)
     @test length(fc) == 11
-    fc_train, fc_test = EDDP.train_test_split(fc, ratio_test=0.5)
+    fc_train, fc_test = EDDPotential.train_test_split(fc, ratio_test=0.5)
     @test length(fc_train) == 6
 
-    @test isa(fc[[labels[1], labels[2]]], EDDP.FeatureContainer)
+    @test isa(fc[[labels[1], labels[2]]], EDDPotential.FeatureContainer)
     @test isa(collect(fc)[1], Tuple)
 
     # Test standardisation
     fc1, fc2 = split(fc[1:10], 5, 3; shuffle=false, standardize=false)
-    fc11, fc12 = EDDP.standardize(fc1, fc2)
+    fc11, fc12 = EDDPotential.standardize(fc1, fc2)
     @test mean(reduce(hcat, fc11.fvecs)[2, :]) ≈ 0.0 atol = 1e-8
     @test fc11.fvecs != fc1.fvecs
     @test !isapprox(mean(reduce(hcat, fc1.fvecs)[2, :]), 0, atol=1e-8)
@@ -52,7 +52,7 @@ using StatsBase
     @test length(fc3) == length(fc1) + length(fc2)
 
     @test fc11.fvecs != fc1.fvecs
-    EDDP.standardize!(fc1, fc2)
+    EDDPotential.standardize!(fc1, fc2)
     @test fc.xt === nothing
     @test fc.yt === nothing
     @test fc1.fvecs[1] != fc.fvecs[1]
