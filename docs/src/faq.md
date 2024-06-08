@@ -2,7 +2,10 @@
 
 ## Building custom system image
 
-At the time of writing, loading Julia modules comes with high latency in addition to the the so called time-to-first-X (TTTX) delay related to time spent on compiling native code in each fresh Julia session.
+**NOTE: TTTX has been greatly improved since Julia 1.9 the notes below are mostly no longer relevant.**
+
+
+At the time of writing, loading Julia modules comes with high latency in addition to the the so called time-to-first-X (TTFX) delay related to time spent on compiling native code in each fresh Julia session.
 
 Such delays can be completely eliminated by compiling a system image using the [PackageCompiler.jl](https://github.com/JuliaLang/PackageCompiler.jl), which contain `EDDPotential.jl`, `EDDPotentialTools.jl` and all its dependencies. 
 This can be done by simply following the documentation of the PackageCompiler.jl 
@@ -29,4 +32,3 @@ true
 
 One should note that any packages compiled into the system image is essentially frozen-in - their version cannot be changed by `Pkg`.
 Hence, the system image must be rebuilt after any update of the `Manifest.toml`.
-

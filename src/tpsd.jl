@@ -1,5 +1,11 @@
 import Optim
 
+
+"""
+    TwoPointSteepestDescent 
+
+TPSD optimisation algorithm.
+"""
 struct TwoPointSteepestDescent{F} <: Optim.FirstOrderOptimizer
     α_init::F
     manifold::Optim.Manifold
@@ -16,7 +22,7 @@ mutable struct TPSDState <: Optim.AbstractOptimizerState
     is_first_cycle::Any
 end
 
-function Optim.initial_state(method::TwoPointSteepestDescent, options, d, initial_x)
+function Optim.initial_state(::TwoPointSteepestDescent, options, d, initial_x)
     x0 = similar(initial_x)
     fill!(x0, 0)
     gx = similar(initial_x)
