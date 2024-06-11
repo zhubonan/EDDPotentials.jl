@@ -113,7 +113,7 @@ function NNCalc(
     mode="one-pass",
     nmax=500,
     savevec=true,
-    core=CoreReplusion(1.0),
+    core=CoreRepulsion(1.0),
 ) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))

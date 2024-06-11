@@ -91,7 +91,7 @@ end
     @test fb.ecore[1] == 0
 
     # With increased core size
-    fb = EDDPotential.ForceBuffer(fvec; ndims=3, core=EDDPotential.CoreReplusion(3.0))
+    fb = EDDPotential.ForceBuffer(fvec; ndims=3, core=EDDPotential.CoreRepulsion(3.0))
     EDDPotential.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
 
     @test !allclose(fb.fcore, zeros(size(fb.fcore)))

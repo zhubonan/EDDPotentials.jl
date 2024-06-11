@@ -471,6 +471,23 @@ function _run_external(bu::Builder)
             perc_threshold=bu.state.per_generation_threshold,
         )
         return true
+    elseif bu.state.dft_mode == "acrud"
+        run_acrud(
+            joinpath(bu.state.workdir, "acrud-work"),
+            _input_structure_dir(bu),
+            _output_structure_dir(bu);
+            _make_symbol_keys(bu.state.dft_kwargs)...,
+        )
+        return true
+    elseif bu.state.dft_mode == "crud"
+        run_crud(
+            joinpath(bu.state.workdir, "crud-work"),
+            bu.state.seedfile_calc,
+            _input_structure_dir(bu),
+            _output_structure_dir(bu);
+            _make_symbol_keys(bu.state.dft_kwargs)...,
+        )
+        return true
     end
     return false
 end
@@ -496,7 +513,7 @@ function _perform_training(bu::Builder)
     else
         throw(
             ErrorException(
-                "Only $nm models are found in the training directory, need $(tra.nmodels)",
+                "Only $nm models are found in the training directory, need $(bu.trainer.nmodels)",
             ),
         )
     end
@@ -504,6 +521,8 @@ function _perform_training(bu::Builder)
 end
 
 """
+    _perform_training_external(bu::Builder)
+
 Carry out training and save the ensemble as a JLD2 archive.
 """
 function _perform_training_external(bu::Builder)
@@ -658,7 +677,7 @@ end
 """
     run_pp3_many(workdir, indir, outdir, seedfile; n_parallel=1, keep=false)
 
-Use PP3 for singlepoint calculation - launch many calculations in parallel.
+Use PP3 for singlepoint calculation.
 """
 function run_pp3_many(workdir, indir, outdir, seedfile; n_parallel=1, keep=false)
     files = glob_allow_abs(joinpath(indir, "*.res"))
@@ -683,6 +702,46 @@ function run_pp3_many(workdir, indir, outdir, seedfile; n_parallel=1, keep=false
         end
     end
 end
+
+"""
+    run_acrud(workdir, indir, outdir, seedfile; n_parallel=1, keep=false)
+
+Use acruid for singlepoint calculation - launch many calculations in parallel.
+"""
+function run_acrud(workdir, indir, outdir; batch_size=1, verbose=false, exec="python singlepoint.py", 
+                   keep=false)
+    files = glob_allow_abs(joinpath(indir, "*.res"))
+    ensure_dir(workdir)
+    ensure_dir(joinpath(workdir, "hopper"))
+    # Copy files to the hopper directory
+    for file in files
+        cp(file, joinpath(workdir, "hopper", splitdir(file)[end]), force=true)
+    end
+    # Run acrud command
+    project_path = dirname(Base.active_project())
+    cmd = Cmd([
+        Base.julia_cmd()...,
+        "--project=$(project_path)",
+        "-e",
+        "using EDDPotential;EDDPotential.acrud(\"$workdir\";exec=\"$exec\",batch_size=$batch_size,verbose=$verbose)",
+    ])
+    run(cmd)
+    # Copy the results to the output directory
+    verbose && @info "Copying results to $outdir"
+    for file in glob_allow_abs(joinpath(workdir, "good_castep", "*.res"))
+        verbose && @info "$file to "
+        dst = joinpath(outdir, splitdir(file)[end])
+        mv(file, dst, force=true)
+    end
+    # If not keeping the files, remove the directory in the relavent folders
+    if !keep
+        for folder in ["hopper", "good_castep", "bad_castep"]
+            run(`rm -r $workdir/$folder`)
+        end
+    end
+end
+
+
 
 
 """

@@ -1,4 +1,5 @@
 using EDDPotential
+using EDDPotential: CoreRepulsion, compute_fv_gv
 using CellBase
 using LinearAlgebra
 using Test
@@ -81,8 +82,14 @@ end
 Returns the gradient from finite difference and analytical computation. A random linear model is
 used for prediction.
 """
-function force_gradient(cf, cell)
-    fb = EDDPotential.compute_fv_gv(cf, cell)
+function force_gradient(cf, cell, core_size=0)
+
+    if core_size != 0
+        core = CoreRepulsion(core_size)
+    else
+        core = nothing
+    end
+    fb = EDDPotential.compute_fv_gv(cf, cell,core=core)
     gvec0 = copy(fb.gvec) # dFi/drj order
     # coefficients such that param * fvec = energies
     param = rand(1, size(fb.gvec, 2))
@@ -90,7 +97,7 @@ function force_gradient(cf, cell)
     # Compute forces
     EDDPotential._force_update!(fb, gv; offset=length(cf.elements))
     EDDPotential._stress_update!(fb, gv; offset=length(cf.elements))
-    forces = copy(fb.forces)
+    forces = copy(fb.tot_forces)
 
     # dE/dri
     diff = zeros(size(gvec0, 1), natoms(cell))
@@ -98,16 +105,23 @@ function force_gradient(cf, cell)
         for dir = 1:3
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
-            fb = EDDPotential.compute_fv_gv(cf, dcell)
+            fb = EDDPotential.compute_fv_gv(cf, dcell, core=core)
             # Compute the energy
             e1 = sum(param * fb.fvec)
+            if core !== nothing
+                e1 += sum(fb.hardcore.ecore)
+            end
 
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] -= 1e-6
-            fb = EDDPotential.compute_fv_gv(cf, dcell)
+            fb = EDDPotential.compute_fv_gv(cf, dcell, core=core)
             e2 = sum(param * fb.fvec)
+            if core !== nothing
+                e2 += sum(fb.hardcore.ecore)
+            end
             # Compute the energy
             diff[dir, iat] = (e1 - e2) / 2e-6
+
         end
     end
     return diff, forces
@@ -122,7 +136,13 @@ end
 Returns the gradient from finite difference and analytical computation. A random linear model is
 used for prediction.
 """
-function stress_gradient(cf, cell)
+function stress_gradient(cf, cell, core_size=0)
+
+    if core_size != 0
+        core = CoreRepulsion(core_size)
+    else
+        core = nothing
+    end
     fb = EDDPotential.compute_fv_gv(cf, cell)
     # coefficients such that param * fvec = energies
     param = rand(1, size(fb.gvec, 2))
@@ -146,6 +166,9 @@ function stress_gradient(cf, cell)
             fb = EDDPotential.compute_fv_gv(cf, dcell)
             # Compute the energy
             e1 = sum(param * fb.fvec)
+            if core !== nothing
+                e1 += sum(fb.hardcore.ecore)
+            end
 
             dcell = deepcopy(cell)
             smat = copy(smat_orig)
@@ -153,6 +176,10 @@ function stress_gradient(cf, cell)
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
             fb = EDDPotential.compute_fv_gv(cf, dcell)
             e2 = sum(param * fb.fvec)
+            if core !== nothing
+                e2 += sum(fb.hardcore.ecore)
+            end
+
             # Compute the energy
             diff[i, j] = (e1 - e2) / 2e-6
         end
@@ -193,4 +220,18 @@ end
     diff, varial = stress_gradient(cf, cell)
     @test maximum(abs.(diff + varial)) < 1e-4
 
+    @testset "With core" begin
+        cell = _lco_cell()
+        cf = CellFeature([:Li, :Co, :O], p2=2:2)
+        diff, forces = force_gradient(cf, cell, 3.0)
+        fb = compute_fv_gv(cf, cell, core=CoreRepulsion(3.0))
+        @test maximum(abs.(diff + forces)) < 1e-6
+        @test sum(fb.hardcore.ecore) >= 10.0
+
+        cell = _lco_cell()
+        cf = CellFeature([:Li, :Co, :O], p2=2:2)
+        diff, varial = stress_gradient(cf, cell, 3.0)
+        fb = compute_fv_gv(cf, cell, core=CoreRepulsion(3.0))
+        @test maximum(abs.(diff + varial)) < 1e-6
+    end
 end

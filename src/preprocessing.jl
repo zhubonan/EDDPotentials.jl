@@ -41,10 +41,11 @@ end
 
 Args:
 
-    - `energy_threshold`: structures with per-atom energy higher than this are excluded. 
+    - `threshold`: structures with per-atom enthalpy higher than this are excluded. 
       Relative to the median energy.
+    - `pressure_gpa`: Pressure under which the enthalpy is calculated. Defaults to 1.0 GPa.
 """
-function StructureContainer(paths::Vector; threshold=10.0, select_func=minimum)
+function StructureContainer(paths::Vector; threshold=10.0, pressure_gpa=1.0, select_func=minimum)
     resolved_paths = String[]
     for path in paths
         if contains(path, "*") || contains(path, "?")
@@ -60,12 +61,13 @@ function StructureContainer(paths::Vector; threshold=10.0, select_func=minimum)
         append!(tmp, vres)
         append!(actual_labels, map(x -> x.metadata[:label], vres))
     end
-    structures = typeof(tmp[1])[x for x in tmp]
 
-    H = [cell.metadata[:enthalpy] for cell in structures]
+    structures = typeof(tmp[1])[x for x in tmp]
+    H = [cell.metadata[:enthalpy] + cell.metadata[:volume] * GPaToeVAng(pressure_gpa) for cell in structures]
     Ha = H ./ natoms.(structures)
     mask = _select_per_atom_threshold(structures, Ha; select_func, threshold)
-    StructureContainer(actual_labels[mask], H[mask], structures[mask])
+    H_0Pa = [structures[i].metadata[:enthalpy] for i in mask]
+    StructureContainer(actual_labels[mask], H_0Pa, structures[mask])
 end
 
 StructureContainer(path::AbstractString; kwargs...) =
@@ -89,6 +91,8 @@ function _idx_group_by_composition(structures)
 end
 
 """
+    _select_per_atom_threshold(structures, Ha; select_func=minimum, threshold=10.0)
+
 Return index selected based on per-formula atomic energy
 """
 function _select_per_atom_threshold(structures, Ha; select_func=minimum, threshold=10.0)

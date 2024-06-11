@@ -20,7 +20,7 @@ function build_and_relax(
     relax_option=RelaxOption(),
 )
     cell = build_one(seedfile; timeout, init_structure_transform)
-    calc = EDDPotential.NNCalc(cell, cf, ensemble; nmax, core=CoreReplusion(core_size))
+    calc = EDDPotential.NNCalc(cell, cf, ensemble; nmax, core=CoreRepulsion(core_size))
     re = Relax(calc, relax_option)
     relax!(re)
 end
