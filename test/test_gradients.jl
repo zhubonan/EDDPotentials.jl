@@ -1,7 +1,7 @@
 using LinearAlgebra
 using CellBase
-using EDDPotential
-using EDDPotential: get_energy, get_cell
+using EDDPotentials
+using EDDPotentials: get_energy, get_cell
 using NLSolversBase
 using Test
 using Flux
@@ -38,14 +38,14 @@ end
 
 function _fd_features_strain(calc, s)
     alter_strain(calc, s) do x
-        EDDPotential.update_feature_vector!(calc; rebuild_nl=true, gradients=true)
+        EDDPotentials.update_feature_vector!(calc; rebuild_nl=true, gradients=true)
         copy(calc.force_buffer.fvec)
     end
 end
 
 function _fd_features(calc, s)
     alter_pos(calc, s) do _
-        EDDPotential.update_feature_vector!(calc; rebuild_nl=true, gradients=true)
+        EDDPotentials.update_feature_vector!(calc; rebuild_nl=true, gradients=true)
         copy(calc.force_buffer.fvec)
     end
 end
@@ -77,22 +77,22 @@ end
 
     cell = _h2_cell()
     cf = _generate_cf(cell)
-    n1bd = EDDPotential.feature_size(cf)[1]
+    n1bd = EDDPotentials.feature_size(cf)[1]
     fvec = vcat(
-        EDDPotential.one_body_vectors(cell, cf),
-        EDDPotential.feature_vector2(cf.two_body, cell),
-        EDDPotential.feature_vector3(cf.three_body, cell),
+        EDDPotentials.one_body_vectors(cell, cf),
+        EDDPotentials.feature_vector2(cf.two_body, cell),
+        EDDPotentials.feature_vector3(cf.three_body, cell),
     )
-    fb = EDDPotential.ForceBuffer(fvec; ndims=3, core=nothing)
+    fb = EDDPotentials.ForceBuffer(fvec; ndims=3, core=nothing)
 
-    EDDPotential.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
+    EDDPotentials.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
     @test allclose(fb.fcore, zeros(size(fb.fcore)))
     @test allclose(fb.score, zeros(3, 3))
     @test fb.ecore[1] == 0
 
     # With increased core size
-    fb = EDDPotential.ForceBuffer(fvec; ndims=3, core=EDDPotential.CoreRepulsion(3.0))
-    EDDPotential.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
+    fb = EDDPotentials.ForceBuffer(fvec; ndims=3, core=EDDPotentials.CoreRepulsion(3.0))
+    EDDPotentials.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
 
     @test !allclose(fb.fcore, zeros(size(fb.fcore)))
     @test fb.ecore[1] != 0.0
@@ -103,8 +103,8 @@ end
     function fv(cell, pos, cf)
         alter_pos(cell, pos, cf) do (cell, pos, cf)
             vcat(
-                EDDPotential.feature_vector2(cf.two_body, cell),
-                EDDPotential.feature_vector3(cf.three_body, cell),
+                EDDPotentials.feature_vector2(cf.two_body, cell),
+                EDDPotentials.feature_vector3(cf.three_body, cell),
             )
         end
     end
@@ -112,8 +112,8 @@ end
     function sv(cell, s, cf)
         alter_strain(cell, s, cf) do (cell, s, cf)
             vcat(
-                EDDPotential.feature_vector2(cf.two_body, cell),
-                EDDPotential.feature_vector3(cf.three_body, cell),
+                EDDPotentials.feature_vector2(cf.two_body, cell),
+                EDDPotentials.feature_vector3(cf.three_body, cell),
             )
         end
     end
@@ -152,19 +152,19 @@ end
     # Cores
     function core_forces(cell, pos, cf, n1bd)
         alter_pos(cell, pos, cf) do (cell, pos, cf)
-            EDDPotential.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
+            EDDPotentials.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
             fb.ecore[1]
         end
     end
 
     function core_stress(cell, pos, cf, n1bd)
         alter_strain(cell, pos, cf) do (cell, pos, cf)
-            EDDPotential.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
+            EDDPotentials.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
             fb.ecore[1]
         end
     end
 
-    EDDPotential.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
+    EDDPotentials.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
     fcore = copy(fb.fcore)
     score = copy(fb.score)
 
@@ -189,25 +189,25 @@ end
     @test allclose(grad, -score, atol=1e-3)
 
     # Test allocation
-    stats = @timed EDDPotential.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
+    stats = @timed EDDPotentials.compute_fv_gv!(fb, cf.two_body, cf.three_body, cell; offset=n1bd)
     alloc1 = stats.gcstats.poolalloc
     @test alloc1 < 200
 
     # Allocation when computing the features only
     DDP.compute_fv!(fb.fvec, cf.two_body, cf.three_body, cell; offset=n1bd)
-    stats = @timed EDDPotential.compute_fv!(fb.fvec, cf.two_body, cf.three_body, cell; offset=n1bd)
+    stats = @timed EDDPotentials.compute_fv!(fb.fvec, cf.two_body, cf.three_body, cell; offset=n1bd)
     alloc11 = stats.gcstats.poolalloc
     @test alloc11 < 200
 
     supercell = CellBase.make_supercell(cell, 2, 2, 2)
     fvec_super = vcat(
-        EDDPotential.one_body_vectors(supercell, cf),
-        EDDPotential.feature_vector2(cf.two_body, supercell),
-        EDDPotential.feature_vector3(cf.three_body, supercell),
+        EDDPotentials.one_body_vectors(supercell, cf),
+        EDDPotentials.feature_vector2(cf.two_body, supercell),
+        EDDPotentials.feature_vector3(cf.three_body, supercell),
     )
-    fb_super = EDDPotential.ForceBuffer(fvec_super; ndims=3, core=nothing)
-    EDDPotential.compute_fv_gv!(fb_super, cf.two_body, cf.three_body, supercell; offset=n1bd)
-    stats = @timed EDDPotential.compute_fv_gv!(
+    fb_super = EDDPotentials.ForceBuffer(fvec_super; ndims=3, core=nothing)
+    EDDPotentials.compute_fv_gv!(fb_super, cf.two_body, cf.three_body, supercell; offset=n1bd)
+    stats = @timed EDDPotentials.compute_fv_gv!(
         fb_super,
         cf.two_body,
         cf.three_body,
@@ -219,7 +219,7 @@ end
     @test alloc2 / alloc1 < (length(supercell) / length(cell) + 1)
 
     # Allocation when computing the features only should not scale
-    stats = @timed EDDPotential.compute_fv!(
+    stats = @timed EDDPotentials.compute_fv!(
         fb_super.fvec,
         cf.two_body,
         cf.three_body,
@@ -233,11 +233,11 @@ end
 @testset "Gradients" begin
 
     calc = _get_calc()
-    EDDPotential.calculate!(calc; forces=true)
-    n1bd = EDDPotential.feature_size(calc.cf)[1]
+    EDDPotentials.calculate!(calc; forces=true)
+    n1bd = EDDPotentials.feature_size(calc.cf)[1]
     gtot = copy(calc.force_buffer.gvec)
 
-    cell = EDDPotential.get_cell(calc)
+    cell = EDDPotentials.get_cell(calc)
     p0 = cell.positions[:]
 
 
@@ -254,7 +254,7 @@ end
     gtot = permutedims(gtot, [2, 3, 1, 4])
     jac = reshape(jac, size(gtot))
 
-    _, n2, n2 = EDDPotential.feature_size(calc.cf)
+    _, n2, n2 = EDDPotentials.feature_size(calc.cf)
     @test all(isapprox.(jac, gtot, atol=1e-5))
 
 
@@ -268,7 +268,7 @@ end
     )
     sjac = reshape(
         NLSolversBase.jacobian!(od, s0),
-        sum(EDDPotential.feature_size(calc.cf)),
+        sum(EDDPotentials.feature_size(calc.cf)),
         length(get_cell(calc)),
         3,
         3,
@@ -283,16 +283,16 @@ end
 @testset "Forces" begin
 
     calc = _get_calc()
-    EDDPotential._reinit_fb!(calc, "one-pass")
-    ntot = EDDPotential.nfeatures(calc.cf)
+    EDDPotentials._reinit_fb!(calc, "one-pass")
+    ntot = EDDPotentials.nfeatures(calc.cf)
     model = Chain(Dense(ones(1, ntot)))
-    itf = EDDPotential.ManualFluxBackPropInterface(model)
+    itf = EDDPotentials.ManualFluxBackPropInterface(model)
 
-    forces = copy(EDDPotential.get_forces(calc))
-    stress = copy(EDDPotential.get_stress(calc))
+    forces = copy(EDDPotentials.get_forces(calc))
+    stress = copy(EDDPotentials.get_stress(calc))
 
     # Test the total force
-    p0 = EDDPotential.get_positions(calc)
+    p0 = EDDPotentials.get_positions(calc)
     od = OnceDifferentiable(x -> _fd_energy(calc, x), p0, _fd_energy(calc, p0))
     grad = NLSolversBase.gradient(od, p0)
     @test allclose(grad, -forces, atol=1e-6)
@@ -311,9 +311,9 @@ end
 
     # Test wrapper
     # NOTE Somehow this is needed here - possible BUG?
-    vc = EDDPotential.VariableCellCalc(calc)
-    epos = EDDPotential.get_positions(vc)
-    eforce = copy(EDDPotential.get_forces(vc))
+    vc = EDDPotentials.VariableCellCalc(calc)
+    epos = EDDPotentials.get_positions(vc)
+    eforce = copy(EDDPotentials.get_forces(vc))
 
     od = OnceDifferentiable(
         x -> _fd_energy_vc(vc, x),

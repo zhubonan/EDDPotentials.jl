@@ -1,6 +1,6 @@
-## EDDPotentialTools.jl
+## EDDPotentialsTools.jl
 
-Miscellaneous tools for working with [EDDPotential.jl](https://github.com/zhubonan/EDDPotential.jl)
+Miscellaneous tools for working with [EDDPotentials.jl](https://github.com/zhubonan/EDDPotentials.jl)
 
 ## Python requirements
 
@@ -8,9 +8,9 @@ Miscellaneous tools for working with [EDDPotential.jl](https://github.com/zhubon
 
 ## On-demand package loading
 
-To avoid unnecessary code loading, interfaces in `EDDPotentialTools` are only with specific packages are explicitly loaded:
+To avoid unnecessary code loading, interfaces in `EDDPotentialsTools` are only with specific packages are explicitly loaded:
 
 - load `PyCall` to enable `ase` and `phonopy` interface
-- load `Molly` to enable `EDDPotentialInter` *General Interactions* type.
+- load `Molly` to enable `EDDPotentialsInter` *General Interactions* type.
 
 This is achieve via [Requires.jl](https://github.com/JuliaPackaging/Requires.jl)

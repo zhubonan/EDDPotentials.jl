@@ -1,5 +1,5 @@
-using EDDPotential
-using EDDPotential: ComputedRecord, PhaseDiagram, get_e_above_hull
+using EDDPotentials
+using EDDPotentials: ComputedRecord, PhaseDiagram, get_e_above_hull
 using CellBase
 using LaTeXStrings
 import PlotlyJS
@@ -13,7 +13,7 @@ export make_binary_hull_plotly, make_ternary_plot
 Compose ternary diagram from a PhaseDiagram.
 """
 function make_ternary_plot(phased::PhaseDiagram)
-    make_ternary_plot(EDDPotential.get_ternary_hulldata(phased))
+    make_ternary_plot(EDDPotentials.get_ternary_hulldata(phased))
 end
 
 function make_ternary_plot(plot_data)
@@ -97,19 +97,19 @@ end
 
 
 """
-    make_binary_hull_plotly(ps::EDDPotential.PhaseDiagram)
+    make_binary_hull_plotly(ps::EDDPotentials.PhaseDiagram)
 
 Generate binary convex hull plot.
 """
-make_binary_hull_plotly(ps::EDDPotential.PhaseDiagram) =
-    make_binary_hull_plotly(EDDPotential.get_2d_plot_data(ps))
+make_binary_hull_plotly(ps::EDDPotentials.PhaseDiagram) =
+    make_binary_hull_plotly(EDDPotentials.get_2d_plot_data(ps))
 
 """
     make_binary_hull_plotly(data)
 
 Generate binary convex hull plot.
 
-- `data`: A `NamedTuple` return by `EDDPotential.get_2d_plot_data`.
+- `data`: A `NamedTuple` return by `EDDPotentials.get_2d_plot_data`.
 """
 function make_binary_hull_plotly(data)
     trace1 = PlotlyJS.scatter(

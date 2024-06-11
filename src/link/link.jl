@@ -194,7 +194,7 @@ Run `link!` from command line interface.
 Example: 
 
 ```bash
-julia -e "Using EDDPotential;EDDPotential.link()" -- --file "link.toml" 
+julia -e "Using EDDPotentials;EDDPotentials.link()" -- --file "link.toml" 
 ```
 """
 function link()
@@ -341,7 +341,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
                 Base.julia_cmd()...,
                 "--project=$(project_path)",
                 "-e",
-                "using EDDPotential;EDDPotential._run_rss_link()",
+                "using EDDPotentials;EDDPotentials._run_rss_link()",
                 "--",
                 "--file",
                 "$(state.builder_file_path)",
@@ -536,7 +536,7 @@ function _perform_training_external(bu::Builder)
         Base.julia_cmd()...,
         "--project=$(project_path)",
         "-e",
-        "using EDDPotential;EDDPotential.run_trainer()",
+        "using EDDPotentials;EDDPotentials.run_trainer()",
         "$(builder_file)",
         "--iteration",
         "$(bu.state.iteration)",
@@ -723,7 +723,7 @@ function run_acrud(workdir, indir, outdir; batch_size=1, verbose=false, exec="py
         Base.julia_cmd()...,
         "--project=$(project_path)",
         "-e",
-        "using EDDPotential;EDDPotential.acrud(\"$workdir\";exec=\"$exec\",batch_size=$batch_size,verbose=$verbose)",
+        "using EDDPotentials;EDDPotentials.acrud(\"$workdir\";exec=\"$exec\",batch_size=$batch_size,verbose=$verbose)",
     ])
     run(cmd)
     # Copy the results to the output directory
@@ -887,7 +887,7 @@ function walk_forward_tests(
         @info "Loading features of generation $(iter+1) to test for generation $(iter)..."
         fc = load_features(bu, iter + 1; show_progress=fc_show_progress)
         ensemble = load_ensemble(bu, iter)
-        tr = EDDPotential.TrainingResults(ensemble, fc)
+        tr = EDDPotentials.TrainingResults(ensemble, fc)
         push!(trs, tr)
         if print_results
             println(
@@ -917,7 +917,7 @@ function has_ensemble(bu::Builder, iteration=bu.state.iteration)
 end
 
 function load_ensemble(bu::Builder, iteration=_latest_ensemble_iteration(bu))
-    EDDPotential.load_from_jld2(ensemble_name(bu, iteration), EDDPotential.EnsembleNNInterface)
+    EDDPotentials.load_from_jld2(ensemble_name(bu, iteration), EDDPotentials.EnsembleNNInterface)
 end
 
 ensemble_name(bu::Builder, iteration=bu.state.iteration) =
@@ -944,7 +944,7 @@ nstructures_calculated(bu::Builder, iteration) =
 
 function load_structures(bu::Builder, iteration::Vararg{Int})
     dirs = [joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter in iteration]
-    sc = EDDPotential.StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
+    sc = EDDPotentials.StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
     return sc
 end
 load_structures(bu::Builder) = load_structures(bu, 0:bu.state.iteration)
@@ -957,7 +957,7 @@ Loading features for specific iterations.
 """
 function load_features(bu::Builder, iteration::Vararg{Int}; show_progress=true)
     sc = load_structures(bu, iteration...;)
-    return EDDPotential.FeatureContainer(sc, bu.cf; nmax=bu.trainer.nmax, show_progress)
+    return EDDPotentials.FeatureContainer(sc, bu.cf; nmax=bu.trainer.nmax, show_progress)
 end
 
 load_features(bu::Builder; kwargs...) = load_features(bu, 0:bu.state.iteration; kwargs...)
@@ -1028,7 +1028,7 @@ for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enth
         @doc """
             $($func)(cell::Cell, builder::Builder, gen::Int=_latest_ensemble_iteration(builder);kwargs...)
 
-        Convenient method for calling $(EDDPotential.$func) using a Builder object.
+        Convenient method for calling $(EDDPotentials.$func) using a Builder object.
         """ $func(cell::Cell, builder::Builder, gen::Int)
     end
 end

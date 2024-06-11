@@ -41,7 +41,7 @@ jobs:
       shell: bash -el {0}
       run: |
         conda activate airss
-        julia --project -e 'using Pkg; Pkg.test("EDDPotential", coverage=true)'
+        julia --project -e 'using Pkg; Pkg.test("EDDPotentials", coverage=true)'
     - name: Upload coverage
       env: 
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -53,7 +53,7 @@ jobs:
       shell: bash -el {0}
       run: |
         conda activate airss
-        julia --project -e 'using Pkg; Pkg.test("EDDPotential", coverage=true)'
+        julia --project -e 'using Pkg; Pkg.test("EDDPotentials", coverage=true)'
       env: 
         JULIA_NUM_THREADS: 2
     - name: Upload coverage

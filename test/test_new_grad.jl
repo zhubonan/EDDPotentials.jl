@@ -1,5 +1,5 @@
-using EDDPotential
-using EDDPotential: CoreRepulsion, compute_fv_gv
+using EDDPotentials
+using EDDPotentials: CoreRepulsion, compute_fv_gv
 using CellBase
 using LinearAlgebra
 using Test
@@ -40,7 +40,7 @@ j is the gradient of the feature vector of the j atom as a result of the movemen
 """
 function fd_gradient(cf, cell)
 
-    fb = EDDPotential.compute_fv_gv(cf, cell)
+    fb = EDDPotentials.compute_fv_gv(cf, cell)
     gvec0 = copy(fb.gvec) # dFi/drj order
 
     # Recover the gradient in the dFj/dri format
@@ -58,12 +58,12 @@ function fd_gradient(cf, cell)
         for dir = 1:3
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
-            fb = EDDPotential.compute_fv_gv(cf, dcell)
+            fb = EDDPotentials.compute_fv_gv(cf, dcell)
             fv1 = copy(fb.fvec)
 
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] -= 1e-6
-            fb = EDDPotential.compute_fv_gv(cf, dcell)
+            fb = EDDPotentials.compute_fv_gv(cf, dcell)
             fv2 = copy(fb.fvec)
             diff[dir, :, :, iat] .= (fv1 - fv2) / 2e-6
         end
@@ -89,14 +89,14 @@ function force_gradient(cf, cell, core_size=0)
     else
         core = nothing
     end
-    fb = EDDPotential.compute_fv_gv(cf, cell,core=core)
+    fb = EDDPotentials.compute_fv_gv(cf, cell,core=core)
     gvec0 = copy(fb.gvec) # dFi/drj order
     # coefficients such that param * fvec = energies
     param = rand(1, size(fb.gvec, 2))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
-    EDDPotential._force_update!(fb, gv; offset=length(cf.elements))
-    EDDPotential._stress_update!(fb, gv; offset=length(cf.elements))
+    EDDPotentials._force_update!(fb, gv; offset=length(cf.elements))
+    EDDPotentials._stress_update!(fb, gv; offset=length(cf.elements))
     forces = copy(fb.tot_forces)
 
     # dE/dri
@@ -105,7 +105,7 @@ function force_gradient(cf, cell, core_size=0)
         for dir = 1:3
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
-            fb = EDDPotential.compute_fv_gv(cf, dcell, core=core)
+            fb = EDDPotentials.compute_fv_gv(cf, dcell, core=core)
             # Compute the energy
             e1 = sum(param * fb.fvec)
             if core !== nothing
@@ -114,7 +114,7 @@ function force_gradient(cf, cell, core_size=0)
 
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] -= 1e-6
-            fb = EDDPotential.compute_fv_gv(cf, dcell, core=core)
+            fb = EDDPotentials.compute_fv_gv(cf, dcell, core=core)
             e2 = sum(param * fb.fvec)
             if core !== nothing
                 e2 += sum(fb.hardcore.ecore)
@@ -143,13 +143,13 @@ function stress_gradient(cf, cell, core_size=0)
     else
         core = nothing
     end
-    fb = EDDPotential.compute_fv_gv(cf, cell)
+    fb = EDDPotentials.compute_fv_gv(cf, cell)
     # coefficients such that param * fvec = energies
     param = rand(1, size(fb.gvec, 2))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
-    EDDPotential._force_update!(fb, gv; offset=length(cf.elements))
-    EDDPotential._stress_update!(fb, gv; offset=length(cf.elements))
+    EDDPotentials._force_update!(fb, gv; offset=length(cf.elements))
+    EDDPotentials._stress_update!(fb, gv; offset=length(cf.elements))
     stress = copy(fb.tot_stress)
 
 
@@ -163,7 +163,7 @@ function stress_gradient(cf, cell, core_size=0)
             smat = copy(smat_orig)
             smat[i, j] += 1e-6
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
-            fb = EDDPotential.compute_fv_gv(cf, dcell)
+            fb = EDDPotentials.compute_fv_gv(cf, dcell)
             # Compute the energy
             e1 = sum(param * fb.fvec)
             if core !== nothing
@@ -174,7 +174,7 @@ function stress_gradient(cf, cell, core_size=0)
             smat = copy(smat_orig)
             smat[i, j] -= 1e-6
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
-            fb = EDDPotential.compute_fv_gv(cf, dcell)
+            fb = EDDPotentials.compute_fv_gv(cf, dcell)
             e2 = sum(param * fb.fvec)
             if core !== nothing
                 e2 += sum(fb.hardcore.ecore)

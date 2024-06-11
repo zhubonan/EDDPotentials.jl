@@ -1,10 +1,10 @@
 using Documenter
-using EDDPotential
+using EDDPotentials
 
 makedocs(
-    sitename="EDDPotential.jl",
+    sitename="EDDPotentials.jl",
     format=Documenter.HTML(),
-    modules=[EDDPotential],
+    modules=[EDDPotentials],
     pages=[
         "Home" => "index.md",
         "Getting Started" => "getting_started.md",
@@ -19,5 +19,5 @@ makedocs(
 # See "Hosting Documentation" and deploydocs() in the Documenter manual
 # for more information.
 if get(ENV, "CI", "") == "true"
-    deploydocs(repo="github.com/zhubonan/EDDPotential.jl")
+    deploydocs(repo="github.com/zhubonan/EDDPotentials.jl")
 end

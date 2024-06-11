@@ -1,4 +1,4 @@
-module EDDPotentialTools
+module EDDPotentialsTools
 
 using Requires
 
@@ -25,4 +25,4 @@ end
 
 include("restools.jl")
 
-end # module EDDPotentialTools
+end # module EDDPotentialsTools

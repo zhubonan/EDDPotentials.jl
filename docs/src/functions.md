@@ -7,7 +7,7 @@ Documentation for the functions included in the package.
 Function and types for generating features 
 
 ```@autodocs
-Modules = [EDDPotential]
+Modules = [EDDPotentials]
 Pages = [
     "feature.jl",
     "gradient.jl",
@@ -22,7 +22,7 @@ Pages = [
 Routines for training models feature vectors 
 
 ```@autodocs
-Modules = [EDDPotential]
+Modules = [EDDPotentials]
 Pages = [
     "preprocessing.jl",
     "training.jl",
@@ -34,7 +34,7 @@ Pages = [
 ## Model interfaces
 
 ```@autodocs
-Modules = [EDDPotential]
+Modules = [EDDPotentials]
 Pages = [
     "nn/interface.jl",
     "nn/linear.jl",
@@ -49,7 +49,7 @@ Pages = [
 Routines for using the trained potentials for energy/forces/stress calculations.
 
 ```@autodocs
-Modules = [EDDPotential]
+Modules = [EDDPotentials]
 Pages = [
     "calculator.jl",
     "opt.jl",
@@ -61,7 +61,7 @@ Pages = [
 Support utilities and tools.
 
 ```@autodocs
-Modules = [EDDPotential]
+Modules = [EDDPotentials]
 Pages = [
     "tools.jl",
     "records.jl",
@@ -75,7 +75,7 @@ Pages = [
 Function for providing automatic iterative potential building via random structure structure searching.
 
 ```@autodocs
-Modules = [EDDPotential]
+Modules = [EDDPotentials]
 Pages = [
     "link/link.jl",
     "link/trainer.jl",
@@ -87,5 +87,5 @@ Pages = [
 Internal routines in the [NNLS.jl](https://github.com/rdeits/NNLS.jl) package embedded in the package.
 
 ```@autodocs
-Modules = [EDDPotential.NNLS]
+Modules = [EDDPotentials.NNLS]
 ```

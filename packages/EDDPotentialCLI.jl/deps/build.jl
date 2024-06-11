@@ -1,2 +1,2 @@
-using EDDPotentialCli;
-EDDPotentialCli.comonicon_install();
+using EDDPotentialsCli;
+EDDPotentialsCli.comonicon_install();

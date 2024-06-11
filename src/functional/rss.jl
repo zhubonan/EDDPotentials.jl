@@ -20,7 +20,7 @@ function build_and_relax(
     relax_option=RelaxOption(),
 )
     cell = build_one(seedfile; timeout, init_structure_transform)
-    calc = EDDPotential.NNCalc(cell, cf, ensemble; nmax, core=CoreRepulsion(core_size))
+    calc = EDDPotentials.NNCalc(cell, cf, ensemble; nmax, core=CoreRepulsion(core_size))
     re = Relax(calc, relax_option)
     relax!(re)
 end
@@ -63,7 +63,7 @@ function _run_rss(
     if packed
         # Select the first resolved seed file and use it as the name
         name = _select_seed(seedfile, seedfile_weights)[2][1]
-        label = EDDPotential.get_label(EDDPotential.stem(name))
+        label = EDDPotentials.get_label(EDDPotentials.stem(name))
         # Name of the packed out file
         outfile = joinpath(outdir, "$(label).packed.res")
         mode = "a"
@@ -123,7 +123,7 @@ function _run_rss(
 
         # Update the label of the structure
         label = get_label(stem(this_seed))
-        EDDPotential.update_metadata!(calc, label)
+        EDDPotentials.update_metadata!(calc, label)
 
         if !packed
             outfile = joinpath(outdir, "$(label).res")

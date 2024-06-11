@@ -7,11 +7,11 @@
 
 At the time of writing, loading Julia modules comes with high latency in addition to the the so called time-to-first-X (TTFX) delay related to time spent on compiling native code in each fresh Julia session.
 
-Such delays can be completely eliminated by compiling a system image using the [PackageCompiler.jl](https://github.com/JuliaLang/PackageCompiler.jl), which contain `EDDPotential.jl`, `EDDPotentialTools.jl` and all its dependencies. 
+Such delays can be completely eliminated by compiling a system image using the [PackageCompiler.jl](https://github.com/JuliaLang/PackageCompiler.jl), which contain `EDDPotentials.jl`, `EDDPotentialsTools.jl` and all its dependencies. 
 This can be done by simply following the documentation of the PackageCompiler.jl 
 
 For development environment this is a bit more complicated while the inconvenience of compiler latency is more pronounce due to frequent session restarts.
-In this case, a special system image needs to be created that includes all dependencies of `EDDPotential.jl` and `EDDPotentialTools.jl`, plus some commonly used tools (such as `BenchmarkTools.jl` and `Revise`), but not `EDDPotential.jl` and `EDDPotentialTools.jl` themselves. 
+In this case, a special system image needs to be created that includes all dependencies of `EDDPotentials.jl` and `EDDPotentialsTools.jl`, plus some commonly used tools (such as `BenchmarkTools.jl` and `Revise`), but not `EDDPotentials.jl` and `EDDPotentialsTools.jl` themselves. 
 Create such system image, there is a `sysimg.jl` under the `scripts` folder that can used via:
 
 ```bash

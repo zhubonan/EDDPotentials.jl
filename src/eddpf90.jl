@@ -1,5 +1,5 @@
 #=
-Interface for the EDDPotential Fortran package
+Interface for the EDDPotentials Fortran package
 =#
 using CellBase
 using Printf

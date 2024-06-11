@@ -1,21 +1,21 @@
 #=
-Example for using EDDPotential.jl using ASE
+Example for using EDDPotentials.jl using ASE
 
 It is probably easier to run all this from the Julia side. 
 Alternatively, juliacall can be used to used from the python side....
 =#
 
 using Pkg
-Pkg.activate("packages/EDDPotentialTools.jl")
+Pkg.activate("packages/EDDPotentialsTools.jl")
 using CellBase
-using EDDPotential
-using EDDPotentialTools
+using EDDPotentials
+using EDDPotentialsTools
 using PyCall
 
 # Create a random structure
 cell = Cell(Lattice(5.0, 5.0, 5.0), repeat([:H], 10), rand(3, 10) .* 5)
-ecalc = EDDPotential.lj_like_calc(cell)
-atoms, calc = EDDPotentialTools.get_ase_atoms_and_calculator(ecalc)
+ecalc = EDDPotentials.lj_like_calc(cell)
+atoms, calc = EDDPotentialsTools.get_ase_atoms_and_calculator(ecalc)
 
 # Optimize the structure
 opt_class = pyimport("ase.optimize.bfgs").BFGS

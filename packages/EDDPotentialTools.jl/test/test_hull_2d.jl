@@ -1,6 +1,6 @@
-using EDDPotentialTools
+using EDDPotentialsTools
 using Test
-using EDDPotential: PhaseDiagram, ComputedRecord
+using EDDPotentials: PhaseDiagram, ComputedRecord
 using Plots
 
 @testset "binary hull" begin
@@ -13,6 +13,6 @@ using Plots
 
 
     phased = PhaseDiagram(records)
-    p = EDDPotentialTools.make_binary_hull_plot(phased)
+    p = EDDPotentialsTools.make_binary_hull_plot(phased)
     @test isa(p, Plots.Plot)
 end

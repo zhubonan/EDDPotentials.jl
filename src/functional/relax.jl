@@ -9,7 +9,7 @@ using Optim: optimize, LBFGS, BFGS
 using Optim.LineSearches: BackTracking
 using Configurations
 
-@option mutable struct RelaxOption <: EDDPotentialOption
+@option mutable struct RelaxOption <: EDDPotentialsOption
     method::String = "tpsd"
     energy_threshold::Float64 = 1e-5
     force_threshold::Float64 = 1e-2

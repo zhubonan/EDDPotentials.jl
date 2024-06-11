@@ -1,5 +1,5 @@
-using EDDPotential: ComputedRecord, PhaseDiagram
-using EDDPotentialTools
+using EDDPotentials: ComputedRecord, PhaseDiagram
+using EDDPotentialsTools
 using PlotlyJS
 using Test
 
@@ -14,7 +14,7 @@ using Test
     ]
 
     phased = PhaseDiagram(records)
-    p = EDDPotentialTools.make_ternary_plot(phased)
+    p = EDDPotentialsTools.make_ternary_plot(phased)
 
     @test isa(p, PlotlyJS.SyncPlot)
 end

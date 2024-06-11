@@ -106,7 +106,7 @@ function train_lm!(
     itf::AbstractNNInterface,
     x,
     y;
-    p0=EDDPotential.paramvector(itf),
+    p0=EDDPotentials.paramvector(itf),
     maxIter=1000,
     show_progress=false,
     x_test=x,
@@ -192,7 +192,7 @@ function train!(
         train_lm!(itf, x_train, y_train; x_test, y_test, kwargs...)
     elseif train_method == "optim"
         model = get_flux_model(itf)
-        f, g!, pview, callback = EDDPotential.generate_f_g_optim(model, fc_train, fc_test)
+        f, g!, pview, callback = EDDPotentials.generate_f_g_optim(model, fc_train, fc_test)
         od = OnceDifferentiable(f, g!, collect(pview))
         x0 = collect(pview)
         opt_res = Optim.optimize(od, x0; callback=callback, kwargs...)

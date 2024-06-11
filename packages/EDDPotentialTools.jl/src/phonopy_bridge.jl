@@ -1,13 +1,13 @@
 
 module PhonopyInterface
 #=
-Use the EDDPotential model for finite displacements phonon calculation for 
+Use the EDDPotentials model for finite displacements phonon calculation for 
 the simple cubic polonium structure
 =#
 
 using PyCall
-using EDDPotential
-using EDDPotentialTools
+using EDDPotentials
+using EDDPotentialsTools
 using CellBase
 using LinearAlgebra
 
@@ -48,10 +48,10 @@ end
 """Get forces for a series of supercells"""
 function get_phonopy_forces(pyscells, cf, model)
     scells = phonopy2cell.(pyscells)
-    ctmp = EDDPotential.NNCalc(scells[1], cf, model)
+    ctmp = EDDPotentials.NNCalc(scells[1], cf, model)
     forces = []
     for scell in scells
-        EDDPotential.set_positions!(ctmp, positions(scell))
+        EDDPotentials.set_positions!(ctmp, positions(scell))
         push!(forces, get_forces(ctmp) |> transpose |> x -> reshape(x, (1, size(x)...)))
     end
     PyObject(cat(forces..., dims=1))
@@ -82,7 +82,7 @@ function run_phonon(
     cf = calc.cf
     model = calc.nninterface
 
-    pforces = norm.(eachcol(EDDPotential.get_forces(calc)))
+    pforces = norm.(eachcol(EDDPotentials.get_forces(calc)))
     if any(pforces .> 1e-4)
         @warn "Residual forces in the input structure is too large: $(maximum(pforces))!"
     end

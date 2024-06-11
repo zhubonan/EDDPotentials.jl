@@ -1,5 +1,5 @@
 #=
-levenberg-Marquardt solver adapted for solving EDDPotential potential
+levenberg-Marquardt solver adapted for solving EDDPotentials potential
 
 The source code is adapted from that of LsqFit to allow more features.
 =#

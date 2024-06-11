@@ -111,7 +111,7 @@ function build_random_structures(
     while i < n
         this_seed = _select_seed(seedfile, seedfile_weights)[1]
         cell = build_one(this_seed; timeout)
-        label = EDDPotential.get_label(EDDPotential.stem(this_seed))
+        label = EDDPotentials.get_label(EDDPotentials.stem(this_seed))
         cell.metadata[:label] = label
         if outfmt == "res"
             write_res(joinpath(outdir, "$(label).res"), cell)

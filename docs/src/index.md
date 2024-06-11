@@ -1,7 +1,7 @@
 ![](docs/src/assets/logo_small.png)
-# EDDPotential.jl
+# EDDPotentials.jl
 
-[Documentation](https://zhubonan.github.io/EDDPotential.jl)
+[Documentation](https://zhubonan.github.io/EDDPotentials.jl)
 
 A [Julia](https://julialang.org/) package that implements the [Ephemeral data derived potentials](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.106.014102) (EDDP).
 EDDP can be seen as a kind of Machine Learning [(Interatomic) Potentials](https://en.wikipedia.org/wiki/Interatomic_potential) (MLP). 
@@ -25,7 +25,7 @@ In many cases, EDDP can still give sufficiently accurate forces to allow molecul
 ## Related packages
 
 - [airss](https://www.mtg.msm.cam.ac.uk/Codes/AIRSS) - *ab initio* random structure (AIRSS) is used for building random structure through the `buildcell` program included in the bundle.
-- [eddp](https://www.mtg.msm.cam.ac.uk/Codes/EDDP) - The Fortran EDDP code. EDDPotential.jl provides limited interoperability with the eddp fortran package. Although directly loading models trained by eddp is not implemented, the training datasets are compatible as both use the AIRSS-style SHELX format.
+- [eddp](https://www.mtg.msm.cam.ac.uk/Codes/EDDP) - The Fortran EDDP code. EDDPotentials.jl provides limited interoperability with the eddp fortran package. Although directly loading models trained by eddp is not implemented, the training datasets are compatible as both use the AIRSS-style SHELX format.
 - [CASTEP](http://www.castep.org) - A plane-wave DFT code used for efficient generation of training datasets, although in principle any atomistic modelling package that calculates total energy of a given structure is supported.
 - [disp](https://zhubonan.github.io/disp) - Distributed structure prediction (DISP) package can be used to schedule and run data generation tasks (e.g. DFT calculations) on multiple remote computing clusters. 
 
@@ -36,7 +36,7 @@ Pages = ["index.md", "getting_started.md", "faq.md", "python_tools.md"]
 ```
 
 ```@meta
-CurrentModule = EDDPotential
+CurrentModule = EDDPotentials
 ```
 
 ```@docs
