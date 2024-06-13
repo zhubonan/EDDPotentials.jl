@@ -56,6 +56,12 @@ function Builder(options::BuilderOption)
     builder
 end
 
+function get_energy_per_atom(fc::FeatureContainer)
+    fc.H ./ num_atoms(fc)
+end
+
+num_atoms(fc::FeatureContainer) = size.(fc.fvecs, 2)
+num_atoms(sc::StructureContainer) = length(sc.structures)
 
 add_threads_env(cmd, threads) = addenv(cmd, "JULIA_NUM_THREADS" => threads)
 
@@ -178,6 +184,13 @@ Run automated iterative building cycles.
 """
 function link!(builder::Builder)
     state = builder.state
+    names = ["crud.pl", "buildcell", "cabal"]
+    @info "Check if $names are available."
+    for name in names
+        if run(`which $name`).exitcode != 0
+            @info "External program $name not found! Please check the runtime environment."
+        end
+    end
     while state.iteration <= state.max_iterations
         step!(builder)
         if should_stop(builder)
@@ -532,7 +545,8 @@ function _perform_training_external(bu::Builder)
     project_path = dirname(Base.active_project())
     builder_file = bu.state.builder_file_path
     @assert builder_file != ""
-    cmd = Cmd([
+    cmd = Cmd(
+        Cmd([
         Base.julia_cmd()...,
         "--project=$(project_path)",
         "-e",
@@ -540,7 +554,9 @@ function _perform_training_external(bu::Builder)
         "$(builder_file)",
         "--iteration",
         "$(bu.state.iteration)",
-    ])
+    ]),
+    env = ("OMP_NUM_THREADS" => "1",),
+    )
 
     # Call multiple trainer processes
     @info "Subprocess launch command: $cmd"
@@ -955,9 +971,9 @@ load_structures(bu::Builder, iteration) = load_structures(bu, iteration...)
 
 Loading features for specific iterations.   
 """
-function load_features(bu::Builder, iteration::Vararg{Int}; show_progress=true)
+function load_features(bu::Builder, iteration::Vararg{Int}; show_progress=true, kwargs...)
     sc = load_structures(bu, iteration...;)
-    return EDDPotentials.FeatureContainer(sc, bu.cf; nmax=bu.trainer.nmax, show_progress)
+    return EDDPotentials.FeatureContainer(sc, bu.cf; nmax=bu.trainer.nmax, show_progress, kwargs...)
 end
 
 load_features(bu::Builder; kwargs...) = load_features(bu, 0:bu.state.iteration; kwargs...)

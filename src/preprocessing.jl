@@ -150,6 +150,7 @@ mutable struct FeatureContainer{T,N}
     is_x_transformed::Bool
     xt::Any
     yt::Any
+    elemental_energies::Dict{Symbol,Float64}
 end
 
 
@@ -241,6 +242,7 @@ function FeatureContainer(
     feature::CellFeature;
     nmax=500,
     show_progress=true,
+    elemental_energies=Dict{Symbol,Float64}(),
     kwargs...,
 )
 
@@ -266,8 +268,16 @@ function FeatureContainer(
             end
         end
     end
-    FeatureContainer(fvecs, feature, H, labels, metadata, false, nothing, nothing)
+    # Process reference_energies
+    if length(elemental_energies) > 0
+        for i in 1:length(sc)
+            H[i] -= get_elemental_energy(sc.structures[i], elemental_energies)
+        end
+    end
+    FeatureContainer(fvecs, feature, H, labels, metadata, false, nothing, nothing, elemental_energies)
 end
+
+get_elemental_energy(cell::Cell, ref_energies) = sum(x -> ref_energies[x], species(cell))
 
 function FeatureContainer(sc::StructureContainer; cf_kwargs=NamedTuple(), kwargs...)
     symbols = reduce(vcat, unique.(species.(sc.structures)))
@@ -309,6 +319,7 @@ function Base.getindex(v::FeatureContainer, idx::Union{UnitRange,Vector{T}}) whe
         v.is_x_transformed,
         v.xt,
         v.yt,
+        v.elemental_energies,
     )
 end
 function _select_by_label(all_labels, labels)

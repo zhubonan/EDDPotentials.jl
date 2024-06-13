@@ -59,6 +59,8 @@ include("minsep.jl")
 include("plotting/recipes.jl")
 include("lazy_res.jl")
 
+include("model_structures.jl")
+
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export distance_between, distance_squared_between, displace!, clip, Cell, supercell
 export distance_matrix, laplacian_matrix, nmodules, find_modules
