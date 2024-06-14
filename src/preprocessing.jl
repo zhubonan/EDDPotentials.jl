@@ -45,7 +45,12 @@ Args:
       Relative to the median energy.
     - `pressure_gpa`: Pressure under which the enthalpy is calculated. Defaults to 1.0 GPa.
 """
-function StructureContainer(paths::Vector; threshold=10.0, pressure_gpa=1.0, select_func=minimum)
+function StructureContainer(
+    paths::Vector;
+    threshold=10.0,
+    pressure_gpa=1.0,
+    select_func=minimum,
+)
     resolved_paths = String[]
     for path in paths
         if contains(path, "*") || contains(path, "?")
@@ -63,7 +68,10 @@ function StructureContainer(paths::Vector; threshold=10.0, pressure_gpa=1.0, sel
     end
 
     structures = typeof(tmp[1])[x for x in tmp]
-    H = [cell.metadata[:enthalpy] + cell.metadata[:volume] * GPaToeVAng(pressure_gpa) for cell in structures]
+    H = [
+        cell.metadata[:enthalpy] + cell.metadata[:volume] * GPaToeVAng(pressure_gpa) for
+        cell in structures
+    ]
     Ha = H ./ natoms.(structures)
     mask = _select_per_atom_threshold(structures, Ha; select_func, threshold)
     H_0Pa = [structures[i].metadata[:enthalpy] for i in mask]
@@ -270,11 +278,21 @@ function FeatureContainer(
     end
     # Process reference_energies
     if length(elemental_energies) > 0
-        for i in 1:length(sc)
+        for i = 1:length(sc)
             H[i] -= get_elemental_energy(sc.structures[i], elemental_energies)
         end
     end
-    FeatureContainer(fvecs, feature, H, labels, metadata, false, nothing, nothing, elemental_energies)
+    FeatureContainer(
+        fvecs,
+        feature,
+        H,
+        labels,
+        metadata,
+        false,
+        nothing,
+        nothing,
+        elemental_energies,
+    )
 end
 
 get_elemental_energy(cell::Cell, ref_energies) = sum(x -> ref_energies[x], species(cell))
@@ -544,6 +562,7 @@ function Base.:+(a::FeatureContainer, b::FeatureContainer)
     #@assert a.xt == b.xt
     #@assert a.yt == b.yt
     @assert a.is_x_transformed == b.is_x_transformed
+    @assert a.elemental_energies == b.elemental_energies
     FeatureContainer(
         vcat(a.fvecs, b.fvecs),
         a.feature,
@@ -553,5 +572,6 @@ function Base.:+(a::FeatureContainer, b::FeatureContainer)
         a.is_x_transformed,
         a.xt,
         b.yt,
+        a.elemental_energies,
     )
 end

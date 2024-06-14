@@ -547,15 +547,15 @@ function _perform_training_external(bu::Builder)
     @assert builder_file != ""
     cmd = Cmd(
         Cmd([
-        Base.julia_cmd()...,
-        "--project=$(project_path)",
-        "-e",
-        "using EDDPotentials;EDDPotentials.run_trainer()",
-        "$(builder_file)",
-        "--iteration",
-        "$(bu.state.iteration)",
-    ]),
-    env = ("OMP_NUM_THREADS" => "1",),
+            Base.julia_cmd()...,
+            "--project=$(project_path)",
+            "-e",
+            "using EDDPotentials;EDDPotentials.run_trainer()",
+            "$(builder_file)",
+            "--iteration",
+            "$(bu.state.iteration)",
+        ]),
+        env=("OMP_NUM_THREADS" => "1",),
     )
 
     # Call multiple trainer processes
@@ -724,8 +724,15 @@ end
 
 Use acruid for singlepoint calculation - launch many calculations in parallel.
 """
-function run_acrud(workdir, indir, outdir; batch_size=1, verbose=false, exec="python singlepoint.py", 
-                   keep=false)
+function run_acrud(
+    workdir,
+    indir,
+    outdir;
+    batch_size=1,
+    verbose=false,
+    exec="python singlepoint.py",
+    keep=false,
+)
     files = glob_allow_abs(joinpath(indir, "*.res"))
     ensure_dir(workdir)
     ensure_dir(joinpath(workdir, "hopper"))
@@ -933,7 +940,10 @@ function has_ensemble(bu::Builder, iteration=bu.state.iteration)
 end
 
 function load_ensemble(bu::Builder, iteration=_latest_ensemble_iteration(bu))
-    EDDPotentials.load_from_jld2(ensemble_name(bu, iteration), EDDPotentials.EnsembleNNInterface)
+    EDDPotentials.load_from_jld2(
+        ensemble_name(bu, iteration),
+        EDDPotentials.EnsembleNNInterface,
+    )
 end
 
 ensemble_name(bu::Builder, iteration=bu.state.iteration) =
@@ -973,7 +983,13 @@ Loading features for specific iterations.
 """
 function load_features(bu::Builder, iteration::Vararg{Int}; show_progress=true, kwargs...)
     sc = load_structures(bu, iteration...;)
-    return EDDPotentials.FeatureContainer(sc, bu.cf; nmax=bu.trainer.nmax, show_progress, kwargs...)
+    return EDDPotentials.FeatureContainer(
+        sc,
+        bu.cf;
+        nmax=bu.trainer.nmax,
+        show_progress,
+        kwargs...,
+    )
 end
 
 load_features(bu::Builder; kwargs...) = load_features(bu, 0:bu.state.iteration; kwargs...)

@@ -160,7 +160,8 @@ using Flux
         @test EDDPotentials._need_calc(filter, false)
 
         # External pressure
-        filter = EDDPotentials.VariableCellCalc(calc; external_pressure=diagm([3.0, 3.0, 3.0]))
+        filter =
+            EDDPotentials.VariableCellCalc(calc; external_pressure=diagm([3.0, 3.0, 3.0]))
         _test_forces_fd_vc(filter, idx=1)
         _test_forces_fd_vc(filter, idx=nions(get_cell(calc)) + 3)
         @test get_energy(filter) != EDDPotentials.get_enthalpy(filter)
@@ -188,7 +189,13 @@ end
 
 @testset "Relax" begin
     cell = _h2_cell(10, 1.5)
-    cf = EDDPotentials.CellFeature(unique(species(cell)); rcut2=3.5, p2=[6, 12], p3=[], q3=[])
+    cf = EDDPotentials.CellFeature(
+        unique(species(cell));
+        rcut2=3.5,
+        p2=[6, 12],
+        p3=[],
+        q3=[],
+    )
 
     nnitf = EDDPotentials.LinearInterface(rand(EDDPotentials.nfeatures(cf)))
     # Attractive potential with -5f(x)^6 + f(x)^12

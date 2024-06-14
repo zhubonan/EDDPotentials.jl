@@ -3,8 +3,9 @@ using EDDPotentials
 
 @testset ".castep" begin
     datadir = joinpath(splitdir(@__FILE__)[1], "data")
-    frames =
-        EDDPotentials.read_castep(joinpath(datadir, "8B-22-05-09-14-55-04-bfb10744-shake-8.castep"))
+    frames = EDDPotentials.read_castep(
+        joinpath(datadir, "8B-22-05-09-14-55-04-bfb10744-shake-8.castep"),
+    )
     @test length(frames) == 1
     @test length(frames[1].species) == 8
     @test length(frames[1].forces) == 24

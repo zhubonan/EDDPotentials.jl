@@ -59,7 +59,8 @@ using NLSolversBase
 
 
         # Test with training config
-        model = EDDPotentials.ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
+        model =
+            EDDPotentials.ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
 
         EDDPotentials.train_lm!(model, data, y;)
         out = model(data[2])

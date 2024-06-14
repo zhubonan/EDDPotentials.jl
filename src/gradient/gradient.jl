@@ -422,7 +422,7 @@ function _force_update!(workspace, gv; offset=workspace.one_body_offset)
             iat = workspace.gvec_index[ia, iv]  # Translate to the actual atom index
             for i = 1+offset:size(gvec, 2)
                 for elm in axes(workspace.forces, 1)
-                    workspace.forces[elm, iat] -= gvec[elm, i, ia, iv] * gv[i, iat]
+                    workspace.forces[elm, iat] -= gvec[elm, i, ia, iv] * gv[i, iv]
                 end
             end
         end
@@ -462,5 +462,7 @@ end
     Substrate drift forces due to numerical erros.
 """
 function _substract_force_drift(forces)
-    forces .-= sum(forces, dims=2)
+    drift = sum(forces, dims=2)
+    maximum(drift) > 1e-4 && @warn "Drift forces are large: $drift"
+    forces .-= drift ./ size(forces, 2)
 end

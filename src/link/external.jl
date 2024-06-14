@@ -72,7 +72,7 @@ function submit(sch::SchedulerConfig, workdir)
     end
 
     if sch.type == "SGE"
-    # Submit the jobs
+        # Submit the jobs
         prog = "qsub"
     elseif sch.type == "SLURM"
         prog = "sbatch"
@@ -156,7 +156,9 @@ function run_crud_queue(
     # Create the necessary folders
     good_castep = joinpath(workdir, "good_castep")
     bad_castep = joinpath(workdir, "bad_castep")
-    nfinished = length(glob(joinpath(good_castep, "*.res"))) + length(glob(joinpath(bad_castep, "*.res")))
+    nfinished =
+        length(glob(joinpath(good_castep, "*.res"))) +
+        length(glob(joinpath(bad_castep, "*.res")))
     perc_finished = nfinished / nstruct
 
     # Launch jobs
@@ -167,7 +169,9 @@ function run_crud_queue(
 
     # Monitor the status
     while true
-        nfinished = length(glob(joinpath(good_castep, "*.res"))) + length(glob(joinpath(bad_castep, "*.res")))
+        nfinished =
+            length(glob(joinpath(good_castep, "*.res"))) +
+            length(glob(joinpath(bad_castep, "*.res")))
         perc_finished = nfinished / nstruct
         # Check if we have enough number of structures
         perc_finished > perc_threshold && break
@@ -215,8 +219,15 @@ The forces may be included but they are optional.
 
 Supported for multiple input files is optional and only needed if `batch_size` is larger than 1.
 """
-function acrud(workdir;infiles=nothing, nostop=false, exec="python singlepoint.py", 
-                       move_good=true, verbose=false, batch_size=1)
+function acrud(
+    workdir;
+    infiles=nothing,
+    nostop=false,
+    exec="python singlepoint.py",
+    move_good=true,
+    verbose=false,
+    batch_size=1,
+)
     hopper_folder = joinpath(workdir, "hopper")
     gd_folder = joinpath(workdir, "good_castep")
     bd_folder = joinpath(workdir, "bad_castep")
@@ -254,20 +265,24 @@ function acrud(workdir;infiles=nothing, nostop=false, exec="python singlepoint.p
             println(splitext(splitdir(selected)[2])[1])
         end
         # Path to the file
-        fnames = [joinpath(workdir, splitdir(selected)[2])  for selected in to_run]
+        fnames = [joinpath(workdir, splitdir(selected)[2]) for selected in to_run]
         verbose && @info "Path of the files to be processed: $fnames"
         # Run the executable
         cmd = Cmd(String[split(exec)..., fnames...])
-        verbose && @show  cmd
+        verbose && @show cmd
         flag = run(Cmd(cmd))
         # Check the exit status and act accordingly
-        if flag.exitcode == 0 
+        if flag.exitcode == 0
             # Need to implement this function extxyz2res
             for fname in fnames
                 verbose && @info "Convert and move $fname to $gd_folder"
-                extxyz2res(splitext(fname)[1] * ".extxyz", splitext(fname)[1]* ".res")
+                extxyz2res(splitext(fname)[1] * ".extxyz", splitext(fname)[1] * ".res")
                 # Copy to the good castep folder
-                cp(splitext(fname)[1] * ".res", joinpath(gd_folder, stem(fname) * ".res"), force=true)
+                cp(
+                    splitext(fname)[1] * ".res",
+                    joinpath(gd_folder, stem(fname) * ".res"),
+                    force=true,
+                )
                 # Should one copy the good files to the good_castep folder?
                 if move_good
                     debug_files = glob(splitext(fname)[1] * ".*")
@@ -295,8 +310,8 @@ Read an extxyz file and return a Cell object.
 """
 function read_extxyz(extxyz_file)
     data = read_frame(extxyz_file)
-    arrays = Dict{Symbol, AbstractArray}()
-    metadata = Dict{Symbol, Any}()
+    arrays = Dict{Symbol,AbstractArray}()
+    metadata = Dict{Symbol,Any}()
 
     # Pass the info and arrays field
     for (key, value) in data["info"]
@@ -314,7 +329,7 @@ function read_extxyz(extxyz_file)
         Symbol.(data["arrays"]["species"]),
         data["arrays"]["pos"],
         arrays,
-        metadata
+        metadata,
     )
 end
 

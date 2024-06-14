@@ -1,5 +1,5 @@
 #=
-This files contains recipies for using Plots.jl for visualization
+This files contains recipes for using Plots.jl for visualization
 =#
 
 using RecipesBase

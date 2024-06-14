@@ -136,18 +136,6 @@ function NNCalc(
     )
 end
 
-function _reinit_fb!(calc, mode)
-    if mode != calc.param.mode
-        fb = GradientWorkspace(calc.v; calc.force_buffer.core, mode) # Buffer for force calculation 
-        calc.force_buffer = fb
-        calc.forces = fb.forces
-        calc.stress = fb.stress
-        calc.param.mode = mode
-        calc.param.forces_calculated = false
-        calc.param.energy_calculated = false
-    end
-end
-
 """
     get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
 

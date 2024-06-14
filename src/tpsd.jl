@@ -9,10 +9,11 @@ TPSD optimisation algorithm.
 struct TwoPointSteepestDescent{F} <: Optim.FirstOrderOptimizer
     α_init::F
     manifold::Optim.Manifold
+    maxstep::F
 end
 
-TwoPointSteepestDescent(; α_init=1e-8, manifold=Optim.Flat()) =
-    TwoPointSteepestDescent(α_init, manifold)
+TwoPointSteepestDescent(; α_init=1e-8, manifold=Optim.Flat(), maxstep=0.2) =
+    TwoPointSteepestDescent(α_init, manifold, maxstep)
 
 mutable struct TPSDState <: Optim.AbstractOptimizerState
     x::Any
@@ -54,8 +55,12 @@ function Optim.update_state!(
     copy!(state.g_x_previous, gx)
     state.f_x_previous = value(d)
 
+    step = α .* gx
+    # Limit the step size
+    #    step[step .> method.maxstep] .= method.maxstep
+    #    step[step .< method.maxstep] .= -method.maxstep
     # Take step (k+1)
-    state.x .= state.x .- α .* gx
+    state.x .-= step
 
     false
 end

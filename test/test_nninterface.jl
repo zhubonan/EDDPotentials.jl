@@ -106,7 +106,10 @@ using Test
             EDDPotentials.ManualFluxBackPropInterface(chain)
         end
         inp = rand(10, 10)
-        itf = EDDPotentials.EnsembleNNInterface((_get_chainitf(), _get_chainitf()), [0.8, 0.2])
+        itf = EDDPotentials.EnsembleNNInterface(
+            (_get_chainitf(), _get_chainitf()),
+            [0.8, 0.2],
+        )
         # Forward step
         itf(inp)
         EDDPotentials.backward!(itf)

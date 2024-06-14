@@ -88,7 +88,12 @@ end
     be = EDDPotentials.BodyEmbedding(rand(2, 1), 2)
     w = be.weight
     features = rand(2, 4)
-    test_rrule(EDDPotentials._apply_embedding_batch, w, features, check_thunked_output_tangent=true)
+    test_rrule(
+        EDDPotentials._apply_embedding_batch,
+        w,
+        features,
+        check_thunked_output_tangent=true,
+    )
 
     # Test differentiating  through cell embedding with matrix input (batch input) 
 

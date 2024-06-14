@@ -26,3 +26,12 @@ include("test_dotcastep.jl")
 include("test_train.jl")
 include("test_builder.jl")
 include("test_link.jl")
+
+@testset "Model" begin
+    calc = _get_lco_calc()
+    for (n, order) in zip([6, 10, 15], [2, 3, 4])
+        combs, structures =
+            EDDPotentials.model_structures(unique(species(calc.cell)); order)
+        @test length(combs) == n
+    end
+end

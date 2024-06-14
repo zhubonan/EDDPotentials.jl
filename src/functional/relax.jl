@@ -19,6 +19,7 @@ using Configurations
     keep_trajectory::Bool = false
     verbose::Bool = false
     iterations::Int = 1000
+    maxstep::Float64 = 0.2
 end
 
 struct Relax{T}
@@ -120,17 +121,17 @@ Perform relaxation for a `Relax` object.
 """
 function relax!(re::Relax)
     (; method, energy_threshold, force_threshold, stress_threshold) = re.options
-    (; external_pressure, relax_cell, keep_trajectory, verbose) = re.options
+    (; external_pressure, relax_cell, keep_trajectory, verbose, maxstep) = re.options
     (; iterations) = re.options
     trajectory = re.trajectory
     calc = re.calc
 
     if method == "tpsd"
-        _method = TwoPointSteepestDescent()
+        _method = TwoPointSteepestDescent(; maxstep)
     elseif method == "lbfgs"
-        _method = LBFGS(; linesearch=BackTracking(maxstep=0.2))
+        _method = LBFGS(; linesearch=BackTracking(; maxstep))
     elseif method == "bfgs"
-        _method = BFGS(; linesearch=BackTracking(maxstep=0.2))
+        _method = BFGS(; linesearch=BackTracking(; maxstep))
     elseif method == "cg"
         _method = ConjugateGradient(; linesearch=BackTracking(maxstep=0.2))
     else
@@ -160,7 +161,7 @@ function relax!(re::Relax)
         if keep_trajectory
             cell = deepcopy(get_cell(calc))
             cell.metadata[:enthalpy] = get_energy(calc)
-            cell.arrays[:forces] = get_forces(calc)
+            cell.arrays[:forces] = get_forces(calc)[:, 1:length(cell)]
             push!(trajectory, cell)
         end
         forces = get_forces(calc)
