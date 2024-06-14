@@ -34,9 +34,6 @@ jobs:
         conda activate airss
         conda install -c conda-forge airss-with-default-names==0.9.3
 
-    - name: Setup the project environment (using latest CellBase)
-      run: julia --project -e 'using Pkg; Pkg.add(url="https://github.com/zhubonan/CellBase.jl"); Pkg.instantiate()'
-
     - name: run test 
       shell: bash -el {0}
       run: |
