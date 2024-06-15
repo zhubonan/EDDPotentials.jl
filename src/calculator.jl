@@ -79,6 +79,8 @@ mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface} 
     param::NNCalcParam
     "NNInterface"
     nninterface::X
+    "elemental_energies"
+    elemental_energies::Dict{Symbol,Float64}
 end
 
 get_cell(ac::NNCalc) = ac.cell
@@ -114,11 +116,12 @@ function NNCalc(
     nmax=500,
     savevec=true,
     core=CoreRepulsion(1.0),
+    elemental_energies=Dict{Symbol,Float64}(),
 ) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
 
-    fb = GradientWorkspace(v; core, do_grad=true, one_body_offset=feature_size(cf)[1]) # Buffer for force calculation 
+    workspace = GradientWorkspace(v; core, do_grad=true, one_body_offset=feature_size(cf)[1]) # Buffer for force calculation 
     NNCalc(
         cell,
         deepcopy(cell),
@@ -127,12 +130,13 @@ function NNCalc(
         cf,
         v,
         similar(v),  # Gradient of the input to the NN 
-        fb,
-        fb.tot_forces,  # Forces
-        fb.tot_stress,  # Stress
+        workspace,
+        workspace.tot_forces,  # Forces
+        workspace.tot_stress,  # Stress
         zeros(T, nions(cell)), # Energy
         NNCalcParam(; mode=mode),
         nn,
+        Dict{Symbol,Float64}(elemental_energies),
     )
 end
 
@@ -143,8 +147,7 @@ Return the total energy of the calculator.
 """
 function get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     calculate!(calc; forces, rebuild_nl)
-    # Include the core energy if any
-    sum(calc.eng)
+    sum(calc.eng) + get_elemental_energy(calc.cell, calc.elemental_energies)
 end
 
 function get_enthalpy(calc::NNCalc; forces=false, rebuild_nl=true)

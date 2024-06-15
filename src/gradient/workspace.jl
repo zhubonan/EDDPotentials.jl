@@ -30,11 +30,9 @@ end
     Reset all the arrays in the workspace to zero.
 """
 function reset!(hc::HardcoreWorkspace)
-    for prop in propertynames(hc)
-        if isa(getproperty(hc, prop), AbstractArray)
-            fill!(getproperty(hc, prop), 0)
-        end
-    end
+    fill!(hc.fcore, 0)
+    fill!(hc.score, 0)
+    fill!(hc.ecore, 0)
     hc
 end
 
@@ -127,16 +125,18 @@ Reset all the arrays in the workspace to zero.
 """
 function reset!(fb::GradientWorkspace)
     reset!(fb.hardcore)
-    for prop in propertynames(fb)
-        if isa(getproperty(fb, prop), AbstractArray)
-            # Avoid overwrite the one body part of the features
-            if prop == :fvec
-                getproperty(fb, prop)[fb.one_body_offset+1:end, :] .= 0
-            else
-                fill!(getproperty(fb, prop), 0)
-            end
-        end
-    end
+    fb.fvec[fb.one_body_offset+1:end, :] .= 0.
+    #fill!(fb.gvec, 0.)  # Reset on-demand inside compute_fv_gv_one!
+    fill!(fb.gvec_index, 0)
+    fill!(fb.gvec_nn, 0)
+    #fill!(fb.stotv, 0.)  # Reset on-demand inside compute_fv_gv_one!
+    fill!(fb.forces, 0.)
+    fill!(fb.stress, 0.)
+    fill!(fb.energies, 0.)
+    fill!(fb.tot_forces, 0.)
+    fill!(fb.tot_stress, 0.)
+    fill!(fb.tot_energies, 0.)
+    reset!(fb.hardcore)
     fb
 end
 

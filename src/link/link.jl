@@ -431,6 +431,7 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
         pressure_gpa_range=state.rss_pressure_gpa_range,
         seedfile_weights,
         relax_option=bu.state.relax,
+        elemental_energies=_make_symbol_keys(state.elemental_energies),
     )
 end
 
@@ -983,11 +984,13 @@ Loading features for specific iterations.
 """
 function load_features(bu::Builder, iteration::Vararg{Int}; show_progress=true, kwargs...)
     sc = load_structures(bu, iteration...;)
+    elemental_energies = _make_symbol_keys(bu.state.elemental_energies)
     return EDDPotentials.FeatureContainer(
         sc,
         bu.cf;
         nmax=bu.trainer.nmax,
         show_progress,
+        elemental_energies,
         kwargs...,
     )
 end
@@ -1029,6 +1032,7 @@ function run_rss(builder::Builder)
         pressure_gpa=rs.pressure_gpa,
         seedfile_weights,
         relax_option=rs.relax,
+        elemental_energies=_make_symbol_keys(builder.state.elemental_energies),
     )
 end
 
@@ -1134,6 +1138,7 @@ function _run_rss_link()
         seedfile_weights,
         niggli_reduce_output=bu.state.rss_niggli_reduce,
         relax_option=bu.state.relax,
+        elemental_energies=_make_symbol_keys(bu.state.elemental_energies),
     )
 end
 
@@ -1143,8 +1148,8 @@ end
 
 Swap the String keys of a dictonary into Symbol.
 """
-function _make_symbol_keys(dict::Dict)
-    Dict{Symbol,Any}(
+function _make_symbol_keys(dict::Dict{T,K}) where{T, K}
+    Dict{Symbol,K}(
         Symbol(key) => _make_symbol_keys(value) for (key, value) in pairs(dict)
     )
 end

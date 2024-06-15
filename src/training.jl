@@ -377,7 +377,11 @@ function worker_train_one(model, train, test, jobs_channel, results_channel; kwa
     end
 end
 
+"""
+    TrainingResults{F,T}
 
+Container for the results of a training run.
+"""
 struct TrainingResults{F,T}
     fc::F
     model::T
@@ -396,28 +400,54 @@ function Base.getindex(v::TrainingResults, idx::Union{UnitRange,Vector{T}}) wher
     TrainingResults(v.fc[idx], v.model, v.H_pred[idx], v.H_target[idx])
 end
 
+"""
+    TrainingResults(model::AbstractNNInterface, fc::FeatureContainer)
+
+Create a `TrainingResults` object from a model and a feature container.
+"""
 function TrainingResults(model::AbstractNNInterface, fc::FeatureContainer)
     x, H_target = get_fit_data(fc)
     H_pred = predict_energy.(Ref(model), x)
     TrainingResults(fc, model, H_pred, H_target)
 end
 
+"""
+    TrainingResults(tr::TrainingResults, fc::FeatureContainer)
+
+
+Create a `TrainingResults` object from a `TrainingResults` object and a feature container.
+"""
 TrainingResults(tr::TrainingResults, fc::FeatureContainer) = TrainingResults(tr.model, fc)
 
-function rmse_per_atom(tr::TrainingResults)
-    ((tr.H_target .- tr.H_pred) ./ natoms(tr.fc)) .^ 2 |> mean |> sqrt
-end
+"""
+    absolute_error(tr::TrainingResults)
 
-function mae_per_atom(tr::TrainingResults)
-    abs.((tr.H_target .- tr.H_pred) ./ natoms(tr.fc)) |> mean
-end
-
-"Absolute per-atom error"
-function ae_per_atom(tr::TrainingResults)
-    abs.((tr.H_target .- tr.H_pred) ./ natoms(tr.fc))
-end
-
+Absolute error.
+"""
 absolute_error(tr::TrainingResults) = abs.(tr.H_pred .- tr.H_target)
+
+"""
+    ae_per_atom(tr::TrainingResults)
+
+Absolute error per atom.
+"""
+ae_per_atom(tr::TrainingResults) =  absolute_error(tr) ./ natoms(tr.fc)
+
+"""
+    rmse_per_atom(tr::TrainingResults)
+
+Root-mean squared error per atom.
+"""
+rmse_per_atom(tr::TrainingResults) = ae_per_atom(tr) .^ 2 |> mean |> sqrt
+
+
+"""
+    mae_per_atom(tr::TrainingResults)
+
+Mean absolute error per atom.
+"""
+mae_per_atom(tr::TrainingResults) = ae_per_atom(tr) |> mean
+
 
 function Base.show(io::IO, ::MIME"text/plain", tr::TrainingResults)
     @printf(io, "TrainingResults\n%20s: %d\n", "Number of structures", length(tr.fc))
@@ -436,6 +466,10 @@ function Base.show(io::IO, ::MIME"text/plain", tr::TrainingResults)
     @printf(io, "%-10s: %10.5f", "Average Spearman", spearman(tr))
 end
 
+
+"""
+Print the spearman scores for each composition.
+"""
 function print_spearman(io, tr)
     @printf(io, "Spearman Scores:\n")
     for (f, s) in spearman_each_comp(tr)
@@ -448,12 +482,16 @@ print_spearman(tr::TrainingResults) = print_spearman(stdout, tr)
 
 Base.show(io::IO, tr::TrainingResults) = Base.show(io, MIME("text/plain"), tr)
 
+
+"""
+Find the maximum absolute error per atom and the corresponding structure label.
+"""
 function maximum_error(tr::TrainingResults)
     ae = absolute_error(tr)
     maximum_ae = maximum(ae)
     imax = findfirst(x -> x == maximum_ae, ae)
     label_max = tr.fc.labels[imax]
-    return maximum_ae, label_max
+    return maximum_ae / natoms(tr.fc)[imax], label_max
 end
 
 """
@@ -475,6 +513,11 @@ function spearman_each_comp(tr::TrainingResults)
     out
 end
 
+"""
+    per_atom_scatter_each_comp(tr::TrainingResults)
+
+Return a dictionary of per-atom scatter data for each composition.
+"""
 function per_atom_scatter_each_comp(tr::TrainingResults)
     Dict(
         Pair(comp, (t.H_target ./ natoms(t.fc), t.H_pred ./ natoms(t.fc))) for
@@ -482,12 +525,22 @@ function per_atom_scatter_each_comp(tr::TrainingResults)
     )
 end
 
+"""
+    per_atom_scatter_data(tr::TrainingResults)
+
+Return the per-atom scatter data as a tuple of vectors does not take compositions into account.
+"""
 function per_atom_scatter_data(tr::TrainingResults)
     nat = natoms(tr.fc)
     (tr.H_target ./ nat, tr.H_pred ./ nat)
 end
 
 
+"""
+    each_comp(tr::TrainingResults)
+
+Return a dictionary of `TrainingResults` objects for each composition.
+"""
 function each_comp(tr::TrainingResults)
     forms = [m[:formula] for m in tr.fc.metadata]
     uforms = unique(forms)
@@ -510,34 +563,6 @@ function ensemble_std(
         )
     end
     return fvstd_atomic.(tr.fc.fvecs)
-end
-
-mutable struct TrainingResultsSummary
-    rmse::Vector{Float64}
-    mae::Vector{Float64}
-    spearman::Vector{Dict{Symbol,Float64}}
-    r2::Vector{Dict{Symbol,Float64}}
-    "Number of model parameters"
-    nparam::Int
-    "Length of the feature vector"
-    nfeat::Int
-    metadata::Any
-end
-
-"""
-    TrainingResultsSummary(train, test ,valid)
-
-Construct a TrainingResultsSummary object from TrainingResults for the train, test and 
-validation sets.
-"""
-function TrainingResultsSummary(train, test, valid)
-    rmse = Float64[rmse_per_atom(x) for x in [train, test, valid]]
-    mae = Float64[mae_per_atom(x) for x in [train, test, valid]]
-    sp = Dict{Symbol,Float64}[spearman_each_comp(x) for x in [train, test, valid]]
-    r2 = Dict{Symbol,Float64}[r2score_each_comp(x) for x in [train, test, valid]]
-    np = nparams(train.model)
-    nfeat = nfeatures(train.fc.feature)
-    TrainingResultsSummary(rmse, mae, sp, r2, np, nfeat, nothing)
 end
 
 """
@@ -589,7 +614,7 @@ end
 """
     generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
 
-Generate f, g!, view of the parameters and the callback function for NN training using Optim.
+Generate f, g!, view of the parameters and the callback function for neuron network training using Optim.
 
 This is for 'batch' training where all of the data are included.
 """

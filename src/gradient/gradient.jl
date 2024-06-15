@@ -96,15 +96,19 @@ function compute_fv_gv_one!(
     nl::NeighbourList,
     ;
     offset=workspace.one_body_offset,
+    do_grad=workspace.do_grad
 )
 
     # NeighbourList must be built with vectors for gradient computation
-    do_grad = workspace.do_grad
     do_grad && (@assert nl.has_vectors)
-
     # Main quantities
     (; fvec, gvec, gvec_index, gvec_nn, stotv, hardcore) = workspace
     (; core, fcore, score, ecore) = hardcore
+
+    if do_grad
+        gvec[:, :, :, iat] .= 0.
+        stotv[:, :, :, iat] .= 0.
+    end
 
     # Check if all features are the same - so powers does not need to be recalculated for each feature.
     same_3b = _is_same_pqrcutf(features3)
@@ -190,20 +194,20 @@ function compute_fv_gv_one!(
                 if do_grad
                     # Force updates df(rij)^p/drij
                     if val != 0.0
-                        gfij = f.p[m] * val / fij2 * gij
+                        @inbounds gfij = f.p[m] * val / fij2 * gij
                     else
                         gfij = zero(val)
                     end
                     # Force update 
                     #@inbounds 
-                    for elm = 1:length(vij)
+                    for elm = axes(gvec, 1)
                         gvec[elm, i, 1, iat] -= modvij[elm] * gfij
                         gvec[elm, i, ineigth_j, iat] += modvij[elm] * gfij
                     end
                     # Stress update
                     #@inbounds 
-                    for elm2 = 1:3
-                        for elm1 = 1:3
+                    for elm2 = axes(stotv, 2)
+                        for elm1 = axes(stotv, 1)
                             stotv[elm1, elm2, i, iat] += vij[elm1] * modvij[elm2] * gfij
                         end
                     end
@@ -295,15 +299,15 @@ function compute_fv_gv_one!(
                             t2 = modvik * gtmp2[m] * val
                             t3 = modvjk * gtmp3[o] * val
 
-                            for elm = 1:length(vij)
+                            for elm = axes(gvec, 1)
                                 gvec[elm, i, 1, iat] -= t1[elm] + t2[elm]
                                 gvec[elm, i, ineigth_j, iat] += t1[elm] - t3[elm]
                                 gvec[elm, i, ineigth_k, iat] += t2[elm] + t3[elm]
                             end
 
                             # Stress
-                            for elm2 = 1:3
-                                for elm1 = 1:3
+                            for elm2 = axes(stotv, 2)
+                                for elm1 = axes(stotv, 1)
                                     stotv[elm1, elm2, i, iat] += (
                                         vij[elm1] * t1[elm2] +
                                         vik[elm1] * t2[elm2] +
@@ -361,9 +365,19 @@ function compute_fv!(
 )
     reset!(workspace)
     for iat = 1:natoms(cell)
-        compute_fv_gv_one!(workspace, f2, f3, iat, cell, nl; offset, kwargs...)
+        compute_fv_gv_one!(workspace, f2, f3, iat, cell, nl; do_grad=false, offset, kwargs...)
     end
     workspace.fvec
+end
+
+"""
+    compute_fv(f2, f3, cell::Cell; nl, kwargs...)
+
+Compute the feature vectors for a cell.
+"""
+function compute_fv(f2, f3, cell::Cell; nl, kwargs...)
+    workspace = get_workspace(f2, f3, nl, false; kwargs...)
+    compute_fv!(workspace, f2, f3, cell; nl, kwargs...)
 end
 
 function get_workspace(

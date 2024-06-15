@@ -34,6 +34,7 @@ using GarishPrint
     project_prefix_override::String = ""
     builder_file_path::String = ""
     relax::RelaxOption = RelaxOption()
+    elemental_energies = Dict{String,Any}()
 end
 
 abstract type AbstractTrainer end

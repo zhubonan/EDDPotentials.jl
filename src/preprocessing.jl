@@ -126,7 +126,7 @@ _select_per_atom_threshold(sc; select_func=minimum, threshold=10.0) =
 
 
 """
-Split a vector by integer numbres
+Split a vector by integer numbers
 """
 function _split_vector(c, nsplit::Vararg{Int}; shuffle=true, seed=42)
     out = []
@@ -250,7 +250,7 @@ function FeatureContainer(
     feature::CellFeature;
     nmax=500,
     show_progress=true,
-    elemental_energies=Dict{Symbol,Float64}(),
+    elemental_energies=Dict{Symbol,Any}(),
     kwargs...,
 )
 
@@ -291,11 +291,11 @@ function FeatureContainer(
         false,
         nothing,
         nothing,
-        elemental_energies,
+        Dict{Symbol,Float64}(elemental_energies),
     )
 end
 
-get_elemental_energy(cell::Cell, ref_energies) = sum(x -> ref_energies[x], species(cell))
+get_elemental_energy(cell::Cell, ref_energies::Dict) = sum(x -> get(ref_energies, x, 0.), species(cell))
 
 function FeatureContainer(sc::StructureContainer; cf_kwargs=NamedTuple(), kwargs...)
     symbols = reduce(vcat, unique.(species.(sc.structures)))
@@ -399,8 +399,30 @@ function Base.split(
     standardize=true,
     apply_transform=true,
     seed=42,
+    respect_shakes=false,
 )
-    out = _split_vector(c, nsplit...; shuffle, seed)
+    if respect_shakes
+        # Respect the shakes - ensure that the shake structures are always in one set
+        isa(c, StructureContainer) ? (labels = c.paths) : (labels = c.labels)
+        valid_labels = []
+        for i = 1:length(c)
+            result = match(r"(^.*)-shake.*$", labels[i])
+            if isnothing(result)
+                push!(valid_labels, labels[i])
+            else
+                push!(valid_labels, result[1])
+            end
+        end
+        unique_labels = unique(valid_labels)
+        # Split the set by the labels
+        out_labels = _split_vector(unique_labels, nsplit...; shuffle, seed)
+        # Construct the containers
+        out = map(out_labels) do selected
+            c[findall(x -> x in selected, valid_labels)]
+        end
+    else
+        out = _split_vector(c, nsplit...; shuffle, seed)
+    end
     isa(c, FeatureContainer) && standardize && standardize!(out...; apply_transform)
     out
 end
@@ -529,7 +551,7 @@ function transform_y(fc::FeatureContainer; yt=fc.yt)
 end
 
 """
-Recover training X inputs
+Recover training X inputs before standardisation
 """
 function reconstruct_x!(xt, x_train)
     for data in x_train
@@ -540,6 +562,9 @@ function reconstruct_x!(xt, x_train)
     x_train
 end
 
+"""
+Recover training X inputs before standardisation
+"""
 function reconstruct_x!(fc::FeatureContainer; xt=fc.xt)
     fvecs = copy.(fc.fvecs)
     @assert fc.is_x_transformed

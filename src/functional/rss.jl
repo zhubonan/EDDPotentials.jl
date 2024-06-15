@@ -18,9 +18,10 @@ function build_and_relax(
     core_size=1.0,
     init_structure_transform=nothing,
     relax_option=RelaxOption(),
+    elemental_energies=Dict{Symbol,Any}(),
 )
     cell = build_one(seedfile; timeout, init_structure_transform)
-    calc = EDDPotentials.NNCalc(cell, cf, ensemble; nmax, core=CoreRepulsion(core_size))
+    calc = EDDPotentials.NNCalc(cell, cf, ensemble; nmax, core=CoreRepulsion(core_size), elemental_energies)
     re = Relax(calc, relax_option)
     relax!(re)
 end
@@ -55,6 +56,7 @@ function _run_rss(
     pressure_gpa_range=nothing,
     relax_option=RelaxOption(),
     core_size=0.5,
+    elemental_energies=Dict{Symbol,Any}(),
 )
     _relax_option = deepcopy(relax_option)
     i = 1
@@ -94,6 +96,7 @@ function _run_rss(
             init_structure_transform,
             relax_option,
             core_size,
+            elemental_energies,
         )
 
         calc = res.relax.calc
@@ -161,6 +164,7 @@ function build_and_relax_one(
     max_err=10,
     relax_option=RelaxOption(),
     core_size=0.5,
+    elemental_energies=Dict{Symbol,Any}(),
 )
     nerr = 1
     local res
@@ -173,6 +177,7 @@ function build_and_relax_one(
                 init_structure_transform,
                 relax_option,
                 core_size,
+                elemental_energies,
             )
         catch err
             isa(err, InterruptException) && throw(err)
