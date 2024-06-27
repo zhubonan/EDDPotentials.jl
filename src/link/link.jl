@@ -134,6 +134,9 @@ function Builder(str::AbstractString="link.toml")
     # Store the path to the builder file
     builder.state.builder_file_path = str
 
+    # Update the iteration number with the new path
+    _set_iteration!(builder)
+
     builder
 end
 

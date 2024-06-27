@@ -640,12 +640,10 @@ function generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
         push!(datasets, (this_tensor, this_H))
     end
 
-    mdl = model
-
-    ps = Flux.params(mdl)
+    mdl = model.chain
 
     # View into the parameters of the model
-    flat, rebuild = Flux.destructure(model)
+    flat, rebuild = Flux.destructure(mdl)
 
     # Per-atom data
     Ha = fc_train.H ./ natoms(fc_train)
@@ -662,7 +660,7 @@ function generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
     end
 
     function g!(g, x)
-        grad = Zygote.gradient(x) do
+        grad = Zygote.gradient(x) do _
             mdl = rebuild(x)
             loss_stacked(mdl, datasets; pow)
         end
