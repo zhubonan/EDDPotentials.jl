@@ -5,11 +5,18 @@ import CellBase
 using StatsBase: mean
 export mean
 using TimerOutputs
-export reset_timer!, enable_timer!, disable_timer!
 
 const to = TimerOutput()
 # Default to have the timer disabled
 disable_timer!(to)
+
+enable_eddp_timer!() = enable_timer!(to)
+disable_eddp_timer!() = disable_timer!(to)
+reset_eddp_timer!() = reset_timer!(to)
+
+export enable_eddp_timer!, disable_eddp_timer!, reset_eddp_timer!
+
+
 
 # Re-export `glob`
 using Glob
@@ -60,6 +67,7 @@ include("plotting/recipes.jl")
 include("lazy_res.jl")
 
 include("model_structures.jl")
+include("plotting.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export distance_between, distance_squared_between, displace!, clip, Cell, supercell
@@ -86,10 +94,6 @@ export TrainingResults
 export PhaseDiagram, read_shelx_record, ShelxRecord, ComputedRecord
 
 function __init__()
-    reset_timer!(to)
-end
-
-function clear_timer!()
     reset_timer!(to)
 end
 

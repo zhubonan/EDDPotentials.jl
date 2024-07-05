@@ -17,7 +17,9 @@ include("options.jl")
 
 
 """
-The Builder stores states and options for training and using the potentials.
+    Builder
+
+The Builder is the main object that stores states and options for training and using the potentials.
 """
 mutable struct Builder
     cf::CellFeature
@@ -30,6 +32,11 @@ mutable struct Builder
 end
 
 
+"""
+    Builder(options::BuilderOption)
+
+Create a new `Builder` object with the given options.
+"""
 function Builder(options::BuilderOption)
     cf = CellFeature(options.cf)
     if options.cf_embedding !== nothing
@@ -56,13 +63,21 @@ function Builder(options::BuilderOption)
     builder
 end
 
+"""
+    get_energy_per_atom(fc::FeatureContainer)
+
+    Energy per atom of each structure in the `FeatureContainer`.
+"""
 function get_energy_per_atom(fc::FeatureContainer)
     fc.H ./ num_atoms(fc)
 end
 
+"""The number of atoms of each structure in the `FeatureContainer` or `StructureContainer`."""
 num_atoms(fc::FeatureContainer) = size.(fc.fvecs, 2)
+"""The number of atoms of each structure in the `FeatureContainer` or `StructureContainer`."""
 num_atoms(sc::StructureContainer) = length(sc.structures)
 
+"""Set the environmental variable that controls the number of julia threads."""
 add_threads_env(cmd, threads) = addenv(cmd, "JULIA_NUM_THREADS" => threads)
 
 
@@ -81,7 +96,7 @@ end
 """
     Builder(str::AbstractString="link.toml")
 
-Load the builder from a YAML file. The file contains nested key-values pairs
+Load the builder from a TOML/YAML file. The file contains nested key-values pairs
 similar to the constructors of the types.
 
 ```yaml
@@ -1166,3 +1181,22 @@ function _make_string_keys(dict::Dict)
 end
 
 _make_string_keys(x) = x
+
+
+function write_model_structures(bu::Builder; iteration=bu.state.iteration)
+    target_dir = joinpath(bu.state.workdir, "gen$iteration")
+    ensure_dir(target_dir)
+    rmin = bu.state.core_size
+    rmax = suggest_rcut(bu.cf)
+    seedstem = split(stem(bu.state.seedfile), "-")[1]
+    for order in [2, 3, 4]
+        pairs, cells = model_structures(bu.cf.elements;order, rmin, rmax)
+        for (pair, this_cells) in zip(pairs, cells)
+            p = join(pair, "-")
+            for (n, cell) in enumerate(this_cells)
+                name = joinpath(target_dir, "$seedstem-$p-$n.res")
+                write_res(name, cell)
+            end
+        end
+    end
+end

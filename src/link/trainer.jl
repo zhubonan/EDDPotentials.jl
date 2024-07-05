@@ -107,7 +107,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
     end
 
     i_trained = 0
-    while num_existing_models(bu) < tra.nmodels || i_trained > tra.max_train
+    while num_existing_models(bu) < tra.nmodels
 
         @info "Model initialized"
         # Initialise the model

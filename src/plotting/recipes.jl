@@ -63,6 +63,36 @@ end
 resample_mae_rmse(tr::TrainingResults, samples) =
     resample_mae_rmse(_get_rel_target_and_pred(tr)..., samples)
 
+@userplot FitQuality
+
+"""
+    fitquality(args...;kwargs...)
+
+    Plot the training/predicted energies against the true energies.
+    If the first argument is a `TrainingResults` then the predicted energies will
+    be used instead.
+"""
+fitquality
+
+@recipe function f(h::FitQuality)
+
+    if isa(h.args[1], TrainingResults)
+        target, pred = _get_target_and_pred(h.args[1])
+    else
+        target, pred = h.args
+    end
+
+    @series begin
+        seriestype := :scatter
+        markersize := 1
+        xlabel := "Energy (eV / atom)"
+        ylabel := "Energy (eV / atom)"
+        label := "Target"
+        pred, target
+    end
+
+end
+
 @userplot RelativeAbsoluteError
 
 """
@@ -137,7 +167,7 @@ end
 
 @userplot InOutSample
 """
-    inoutsample(builder::Builder, i::Int)
+    inoutsample(builder::Builder, i::Int, iter_start=0)
 
 Return plots for out-of-sample prediction analysis.
 This function loads the model trained up to ``i`` iteration and apply it to the ``i + 1`` iteration.
@@ -147,6 +177,7 @@ Ideally, we want the out-of-sample to behave like the in-sample results.
 Unless otherwise stateed, latter refers to the training data and the model at the ``i`` iteration.
 """
 inoutsample
+
 
 function _get_inoutsample_data(builder, test_iter, iter_start=0)
     # Data Processing

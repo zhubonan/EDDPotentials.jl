@@ -72,9 +72,20 @@ function centre!(cell)
 end
 
 """
-    model_structures(cell;order=2, rmin=0.5, rmax=6.0, npts=30, rcut=6.0)
+    model_structures(sym;order=2, rmin=0.5, rmax=6.0, npts=30, rcut=6.0)
 
 Generate model structures for a given cell and order.
+
+Arguments:
+
+- `sym`: A sequence of symbols
+
+Keyword Arguments:
+
+- `order`: Order of the model, can be `2`, `3` or `4`.
+- `rmin`: Minimum distance.
+- `rmax`: Maximum distance.
+- `npts`: The number of points to be generated.
 """
 function model_structures(sym; order=2, rmin=1.0, rmax=6.0, npts=30, rcut=6.0)
     xs = collect(LinRange(rmin, rmax, npts))
