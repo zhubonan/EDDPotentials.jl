@@ -141,6 +141,7 @@ abstract type AbstractTrainer end
     external = true
     "Parameter for Boltzmann weighting, positive to activate"
     boltzmann_kt::Float64 = -1.0
+    clean_models::Bool = true
 end
 
 

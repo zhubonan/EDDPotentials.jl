@@ -12,6 +12,7 @@ For even faster loading, the composition string should be encoded inside the REM
 using CellBase
 import CellBase
 using StatsBase
+export read_shelx_record
 
 """
     ShelxTITL
@@ -82,11 +83,13 @@ record_id(s::ShelxRecord) = s.titl.label
 
 
 """
-    read_shelx_record(fnames)
+    read_shelx_record(fnames::AbstractVector)
 
 Read all SHELX records from a list of (packed) files.
+The SHELX record include the saved information of the structure with out
+loading the full structure (positions of the atoms) into the memory.
 """
-function read_shelx_record(fnames::Vector)
+function read_shelx_record(fnames::AbstractVector)
     output = ShelxRecord[]
     for name in fnames
         tmp = open(name) do handle
@@ -151,20 +154,24 @@ function read_shelx_record(io::IO, fname::AbstractString)
 end
 
 """
-    extract_res(entries::Vector{ShelxRecord}, needle;outdir=".")
+    extract_res(entries::Vector{ShelxRecord}, needle;outdir=".";outdir=".", save=true, outfile=nothing)
 
-Extract a SHELX entry from a haystack. Return the selected entries.
+Write a SHELX entry to the disk from a haystack. 
+Return the selected entries.
 
-Args:
+## Arguments:
+
 - `needle`: `String` or `Regex` for selecting records based on their labels.
-- `save`: If set to `true` (default), write the files out.
+- `save`: If set to `true` (default), write the files out, otherwise just return the entries.
 - `outdir`: Which output directory to use when writing out individual SHELX files.
+- `outfile`: Name of the same file that will contain all the selected records. Default to `nothing` which 
+  means that the output files will be named after the selected records. 
 
 Note: 
 This can results in undefined behaviour if non-identical records
 share the same *label*.
 """
-function extract_res(entries::Vector{ShelxRecord}, needle=""; outdir=".", save=true)
+function extract_res(entries::Vector{ShelxRecord}, needle=""; outdir=".", save=true, outfile=nothing)
     if needle == ""
         selected = entries
     end
@@ -173,22 +180,36 @@ function extract_res(entries::Vector{ShelxRecord}, needle=""; outdir=".", save=t
         return selected
     end
 
+    # TODO - this is not good with lots of files
+    # There can be a limit of open file handles on some systems.
     fnames = unique([x.fname for x in selected])
     ioset = Dict(name => open(name) for name in fnames)
-    for entry in selected
-        label = entry.titl.label
-        outfile = joinpath(outdir, label * ".res")
-        if isfile(outfile)
-            @warn "Skipping existing file $(outfile)..."
-            continue
+    if outfile === nothing
+        # Extract to individual files
+        for entry in selected
+            label = entry.titl.label
+            outfile = joinpath(outdir, label * ".res")
+            if isfile(outfile)
+                @warn "Skipping existing file $(outfile)..."
+                continue
+            end
+            open(outfile, "w") do fh
+                stream = ioset[entry.fname]
+                seek(stream, entry.offset)
+                write(fh, read(stream, entry.length))
+            end
         end
+    else
+        # Write to a single file
         open(outfile, "w") do fh
-            stream = ioset[entry.fname]
-            seek(stream, entry.offset)
-            write(fh, read(stream, entry.length))
+            for entry in selected
+                stream = ioset[entry.fname]
+                seek(stream, entry.offset)
+                write(fh, read(stream, entry.length))
+            end
         end
     end
-    # Close the file handles
+    # Close the input file handles
     map(close, values(ioset))
     selected
 end
@@ -196,6 +217,7 @@ end
 
 """
     CellBase.read_res(record::ShelxRecord)
+
 Read the underlying record into a `Cell` object.
 """
 function CellBase.read_res(record::ShelxRecord)
@@ -209,19 +231,27 @@ end
 
 """
     CellBase.read_res_many(records::Vector{ShelxRecord})
-Read multiple records.
+
+Read multiple records from single/multiple files.
 """
 function CellBase.read_res_many(records::Vector{ShelxRecord})
-    fnames = unique(x.fname for x in records)
-    ioset = Dict(name => open(name) for name in fnames)
-    out = Cell{Float64}[]
-    for entry in records
-        stream = ioset[entry.fname]
-        seek(stream, entry.offset)
-        data = String(read(stream, entry.length))
-        push!(out, read_res(split(data, "\n")))
+    fnames_map = Dict()
+    # Organise by the fnames
+    for name in unique(x.fname for x in records)
+        fnames_map[name] = findall(x -> x.fname == name, records)
     end
-    # Close the file handles
-    map(close, values(ioset))
+    @assert sum(x -> length(x), values(fnames_map)) == length(records)
+    # Open the file handles
+    out = Vector{Cell{Float64}}(undef, length(records)) 
+    for (fname, vec_i) in fnames_map
+        open(fname) do stream
+            for i in vec_i 
+                entry = records[i]
+                seek(stream, entry.offset)
+                data = String(read(stream, entry.length))
+                out[i] = read_res(split(data, "\n"))
+            end
+        end
+    end
     out
 end

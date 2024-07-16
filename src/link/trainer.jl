@@ -25,7 +25,7 @@ Return the number of existing models in the training directory.
 function num_existing_models(bu::Builder, tra::TrainingOption=bu.trainer)
     training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
     count(
-        x -> endswith(x, ".jld2") && startswith(x, tra.prefix * "model"),
+        x -> endswith(x, ".jld2") && startswith(x, tra.prefix * "gen-$(bu.state.iteration)-model"),
         readdir(training_dir),
     )
 end
@@ -177,7 +177,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
 
         # Save the model
         clear_transient_gradients!(model)
-        model_name = tra.prefix * "model-" * string(uuid4())[1:8] * ".jld2"
+        model_name = tra.prefix * "gen-$(bu.state.iteration)-model-" * string(uuid4())[1:8] * ".jld2"
         save_as_jld2(joinpath(training_dir, model_name), model)
         @info "Model save $model_name"
         i_trained += 1
@@ -195,10 +195,12 @@ the transient data.
 function create_ensemble(
     bu::Builder,
     tra::TrainingOption=bu.trainer;
-    save_and_clean=false,
+    save_ensemble_model=false,
+    clean_individual_models=false,
     dataset_path=dataset_name(bu),
-    use_validation=false,
-    pattern=joinpath(bu.state.workdir, TRAINING_DIR, tra.prefix * "model-*.jld2"),
+    ensemble_target=:validation,
+    pattern=joinpath(bu.state.workdir, TRAINING_DIR, tra.prefix * "gen-$(bu.state.iteration)-model-*.jld2"),
+    alg=:fnnls,
 )
     names = glob_allow_abs(pattern)
     @assert !isempty(names) "No model found at $pattern"
@@ -214,13 +216,21 @@ function create_ensemble(
         reconstruct_x!(validation)
     end
 
-    if use_validation
+    # Select which set of data is used for ensemble creation
+    if ensemble_target == :validation
+        total = validation
+    elseif ensemble_target == :all
         total = train + test + validation
-    else
+    elseif ensemble_target == :training
+        total = training
+    elseif ensemble_target == :test
+        total = test
+    elseif ensemble_target == :trainandtest
         total = train + test
     end
-    ensemble = create_ensemble(models, total)
-    if save_and_clean
+
+    ensemble = create_ensemble(models, total;alg)
+    if save_ensemble_model
         savepath = joinpath(bu.state.workdir, ensemble_name(bu))
         save_as_jld2(savepath, ensemble)
         # Write additional metadata
@@ -231,9 +241,8 @@ function create_ensemble(
             fh["builder_uuid"] = builder_uuid(bu)
             fh["cf"] = bu.cf
         end
-        # Remove individual models
-        rm.(names)
     end
+    clean_individual_models && rm.(names)
     ensemble
 end
 

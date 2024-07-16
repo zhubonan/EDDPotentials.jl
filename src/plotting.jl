@@ -18,3 +18,9 @@ end
 
 function plot_std_vs_error()
 end
+
+function as_dataframe()
+end
+
+function select_refine()
+end

@@ -2,6 +2,7 @@ import Optim
 import Base
 using Optim: LBFGS, optimize
 using LineSearches: HagerZhang
+using LinearAlgebra
 import CellBase: set_cellmat!, set_positions!, get_cellmat, get_positions
 using StatsBase: ZScoreTransform, transform!
 abstract type AbstractCalc end
@@ -235,6 +236,28 @@ function get_energy_std(calc::NNCalc{T,N,M,X}) where {T,N,M,X<:EnsembleNNInterfa
     get_energy(calc)
     per_atom = reduce(vcat, forward!.(calc.nninterface.models, Ref(calc.v)))
     std(sum(per_atom, dims=2))
+end
+
+function get_committee_forces(calc)
+    force_list = map(calc.nninterface.models) do model
+        # TODO - allow others to be customised
+        calc = NNCalc(calc.cell, calc.cf, model;elemental_energies=calc.elemental_energies)
+        get_forces(calc)
+    end
+end
+
+
+function get_committee_ferror(calc)
+    flist = get_committee_forces(calc)
+    fmean = reduce(+, flist) ./ length(flist)
+    fmax=0.0
+    for i in 1:length(flist)
+        maxdiff = maximum(map(norm, eachcol(flist[i] .- fmean)))
+        if maxdiff > fmax
+            fmax = maxdiff
+        end
+    end
+    fmax
 end
 
 

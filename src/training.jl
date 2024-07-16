@@ -15,6 +15,7 @@ using StatsBase
 import Base
 import CellBase
 using Logging
+using NonNegLeastSquares
 
 const XT_NAME = "xt"
 const YT_NAME = "yt"
@@ -62,12 +63,13 @@ Args:
     - `y`: a `Vector` containing the total energy of each structure.
 
 """
-function nnls_weights(models, x, y)
+function nnls_weights(models, x, y;alg=:fnnls)
     all_engs = zeros(length(x), length(models))
     for (i, model) in enumerate(models)
         all_engs[:, i] = predict_energy.(Ref(model), x)
     end
-    wt = nnls(all_engs, y)
+    #wt = nnls(all_engs, y)
+    wt = nonneg_lsq(all_engs, y;alg)
     wt
 end
 
@@ -77,8 +79,8 @@ end
 
 Create an EnsembleNNInterface from a vector of interfaces and x, y data for fitting.
 """
-function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold=1e-3)
-    weights = nnls_weights(models, x, y)
+function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold=1e-13, alg=:fnnls)
+    weights = nnls_weights(models, x, y;alg)[:]
     tmp_models = collect(models)
     mask = weights .< threshold
     # Eliminate models with weights lower than the threshold
@@ -86,7 +88,7 @@ function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold
         # Models with weights higher than the threshold
         tmp_models = tmp_models[map(!, mask)]
         # Refit the weights
-        weights = nnls_weights(tmp_models, x, y)
+        weights = nnls_weights(tmp_models, x, y;alg)[:]
         # Models with small weights
         mask = weights .< threshold
     end

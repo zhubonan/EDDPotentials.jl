@@ -541,7 +541,7 @@ function _perform_training(bu::Builder)
     # Create ensemble
     nm = num_existing_models(bu)
     if nm >= bu.trainer.nmodels * 0.9
-        ensemble = create_ensemble(bu; save_and_clean=true)
+        ensemble = create_ensemble(bu; clean_individual_models=bu.trainer.clean_models, save_ensemble_mode=true)
     else
         throw(
             ErrorException(
