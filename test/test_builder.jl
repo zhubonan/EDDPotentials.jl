@@ -52,7 +52,7 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
         state = EDDPotentials.BuilderState(seedfile="seed.cell", seedfile_calc="calc.cell")
         test_to_from_toml(state)
 
-        lm = EDDPotentials.TrainingOption(type="lm")
+        lm = EDDPotentials.TrainingOption()
         test_to_from_toml(lm)
 
         rss = EDDPotentials.RssSetting()

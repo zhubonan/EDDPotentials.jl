@@ -165,7 +165,12 @@ function train_lm!(
 
     callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
 
-    opt_res = @timeit to "lm solve" levenberg_marquardt(
+    func = levenberg_marquardt 
+    if EDDPotentials.use_cuda
+        func = levenberg_marquardt_gpu
+    end
+
+    opt_res = @timeit to "lm solve" func(
         od2,
         p0;
         show_trace=false,

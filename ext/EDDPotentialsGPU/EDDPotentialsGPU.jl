@@ -1,56 +1,29 @@
 #=
-levenberg-Marquardt solver adapted for solving EDDPotentials potential
+GPU accelerated Levenberg-Marquardt algorithm for solving non-linear least squares problems.
 
-The source code is adapted from that of LsqFit to allow more features.
+
+Naive implementation - accelerate only the transpose(J) * J part.
 =#
 
+module EDDPotentialsGPU
+
+using TimerOutputs
+import EDDPotentials
+import EDDPotentials: to, LevenbergMarquardt, ATWA_DIAG!, ATWA!, earlystopcheck
+
+using CUDA
 using Base.Threads
 using Distributions
 using OptimBase
 using LinearAlgebra
 import NLSolversBase: value, jacobian
 import StatsBase
-import StatsBase: coef, dof, nobs, rss, stderror, weights, residuals
 import LsqFit
 
 import Base.summary
 
-struct LevenbergMarquardt <: Optimizer end
-Base.summary(::LevenbergMarquardt) = "Levenberg-Marquardt"
-"""
-    `levenberg_marquardt(f, g, initial_x; <keyword arguments>`
-Returns the argmin over x of `sum(f(x).^2)` using the Levenberg-Marquardt
-algorithm, and an estimate of the Jacobian of `f` at x.
-The function `f` should take an input vector of length n and return an output
-vector of length m. The function `g` is the Jacobian of f, and should return an m x
-n matrix. `initial_x` is an initial guess for the solution.
-Implements box constraints as described in Kanzow, Yamashita, Fukushima (2004; J
-Comp & Applied Math).
-# Keyword arguments
-* `x_tol::Real=1e-8`: search tolerance in x
-* `g_tol::Real=1e-12`: search tolerance in gradient
-* `p`: The power of the norm for iterative weight update
-* `update_weights`: wether to update the weights in the inner iteration loops
-* `maxIter::Integer=1000`: maximum number of iterations
-* `min_step_quality=1e-3`: for steps below this quality, the trust region is shrinked
-* `good_step_quality=0.75`: for steps above this quality, the trust region is expanded
-* `lambda::Real=10`: (inverse of) initial trust region radius
-* `tau=Inf`: set initial trust region radius using the heuristic : tau*maximum(jacobian(df)'*jacobian(df))
-* `lambda_increase=10.0`: `lambda` is multiplied by this factor after step below min quality
-* `lambda_decrease=0.1`: `lambda` is multiplied by this factor after good quality steps
-* `show_trace::Bool=false`: print a status summary on each iteration if true
-* `keep_best`: If true, return the best solution instead of that of the last iteration. If callback is supplied, use the best value from it.
-* `lower,upper=[]`: bound solution to these limits
-"""
 
-# I think a smarter way to do this *might* be to create a type similar to `OnceDifferentiable`
-# and the like. This way we could not only merge the two functions, but also have a convenient
-# way to provide an autodiff-made acceleration when someone doesn't provide an `avv`.
-# it would probably be very inefficient performace-wise for most cases, but it wouldn't hurt to have it somewhere
-function levenberg_marquardt_gpu()
-end
-
-function levenberg_marquardt(
+function EDDPotentials.levenberg_marquardt_gpu(
     df::OnceDifferentiable,
     initial_x::AbstractVector{T};
     p=2.0,
@@ -123,7 +96,6 @@ function levenberg_marquardt(
     # Create buffers
     n = length(x)
     m = length(trial_f)
-    JJ = Matrix{T}(undef, n, n)
     n_buffer = Vector{T}(undef, n)
     Jdelta_buffer = similar(value(df))
     test_rmse = T[]
@@ -141,7 +113,10 @@ function levenberg_marquardt(
 
     # and an alias for the jacobian
     J = @timeit to "jacobian" jacobian(df)
-    J2 = copy(J)
+
+    # Convert to GPU arrays
+    J2 = CuArray{Float32}(J)
+    JJ = CuArray{Float32}(undef, n, n)
 
     dir_deriv = Array{T}(undef, m)
     v = Array{T}(undef, n)
@@ -196,21 +171,19 @@ function levenberg_marquardt(
         #@timeit to "ATWA! (mul!(JJ))" ATWA!(JJ, J, wt)
 
         # Embed the weights into the jacobian matrix - equivalent to JTAJ
-        @timeit to "JJ1" J2 .= sqrt.(wt) .* J
-        @timeit to "JJ2" JJ = transpose(J2) * J2
+        @timeit to "JJ1" J2 .= CuArray{Float32}(sqrt.(wt)) .* CuArray{Float32}(J)
+        @timeit to "JJ2" JJ .= transpose(J2) * J2
 
         # Add the diagonal term without constructing the full matrix out
-        @simd for i = 1:n
-            @inbounds JJ[i, i] += lambda * DtD[i]
-        end
+        JJ .+= CuArray{Float32}(diagm(lambda .* DtD))
 
         #n_buffer is delta C, JJ is g compared to Mark's code
         # This computes the right hand side term of the equation above
         mul!(n_buffer, transpose(J), wt .* value(df))
         rmul!(n_buffer, -1)   # Fast inplace update, better than n_buffer .*= -1 !!!
 
-        # Solve the matrix equation (A*x == B)
-        @timeit to "matinv" v .= JJ \ n_buffer
+        # Solve the matrix equation (A*x == B) on GPU
+        @timeit to "matinv" v .= Array{Float64}(JJ \ CuArray{Float32}(n_buffer))
 
 
         # Geodesic acceleration part - can leave out for now
@@ -370,45 +343,4 @@ function levenberg_marquardt(
     )
 end
 
-"Signal stop if the min is more than n cycles away"
-earlystopcheck(array, n) = (length(array) - argmin(array)) > n
-
-"""
-Compute the output of 
-
-\$ diag(A^T W A) \$
-"""
-function ATWA_DIAG!(out, A, W)
-    m, n = size(A)
-    fill!(out, 0)
-    @assert size(out, 1) == n
-    Threads.@threads for j = 1:n
-        for i = 1:m
-            @inbounds out[j] += A[i, j] * A[i, j] * W[i]
-        end
-    end
-    out
-end
-
-"""
-Implement the output of
-
-\$ A^T W A \$
-"""
-function ATWA!(out, A, W)
-    m, n = size(A)
-    fill(out, 0)
-    @assert size(out) == (n, n)
-    @assert size(W, 1) == m
-    for b = 1:n
-        @info b
-        for a = 1:n
-            tmp = zero(eltype(A))
-            for i = 1:m
-                tmp += A[i, a] * W[i] * A[i, b]
-            end
-            out[a, b] = tmp
-        end
-    end
-    out
-end
+end # module
