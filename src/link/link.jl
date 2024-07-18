@@ -541,7 +541,7 @@ function _perform_training(bu::Builder)
     # Create ensemble
     nm = num_existing_models(bu)
     if nm >= bu.trainer.nmodels * 0.9
-        ensemble = create_ensemble(bu; clean_individual_models=bu.trainer.clean_models, save_ensemble_mode=true)
+        ensemble = create_ensemble(bu; clean_individual_models=bu.trainer.clean_models, save_ensemble_model=true)
     else
         throw(
             ErrorException(
@@ -564,12 +564,16 @@ function _perform_training_external(bu::Builder)
     project_path = dirname(Base.active_project())
     builder_file = bu.state.builder_file_path
     @assert builder_file != ""
+    julia_cmd = "using EDDPotentials;EDDPotentials.run_trainer()"
+    if tra.use_cuda == true
+        julia_cmd = "using EDDPotentials;using CUDA;EDDPotentials.USE_CUDA[]=true;EDDPotentials.run_trainer()"
+    end
     cmd = Cmd(
         Cmd([
             Base.julia_cmd()...,
             "--project=$(project_path)",
             "-e",
-            "using EDDPotentials;EDDPotentials.run_trainer()",
+            julia_cmd,
             "$(builder_file)",
             "--iteration",
             "$(bu.state.iteration)",
@@ -583,6 +587,10 @@ function _perform_training_external(bu::Builder)
     for i = 1:tra.num_workers
         # Run with ids
         _cmd = add_threads_env(Cmd([cmd..., "--id", "$i"]), tra.num_threads_per_worker)
+        if tra.cuda_visible_devices != ""
+            devices = split(tra.cuda_visible_devices, ",")
+            _cmd = addenv(_cmd, "EDDP_CUDA_DEVICE" => devices[(i-1) % length(devices) + 1])
+        end
         this_task = @async begin
             run(pipeline(_cmd, stdout="lm-process-$i-stdout", stderr="lm-process-$i-stderr"))
         end

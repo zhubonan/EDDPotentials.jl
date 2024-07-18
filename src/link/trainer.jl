@@ -185,6 +185,17 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
     @info "Trainer completed - total number of trained models: $(i_trained)"
 end
 
+"""
+    load_training_data(file)
+
+Load the training data from a JLD2 archive.
+"""
+function load_training_data(file)
+    jldopen(file) do handle
+        handle["train"], handle["test"], handle["validate"]
+    end
+end 
+
 
 """
     create_ensemble(bu::Builder, tra::TrainingOption=bu.trainer;save_and_clean=false, kwargs...)
@@ -206,9 +217,7 @@ function create_ensemble(
     @assert !isempty(names) "No model found at $pattern"
     # Load the models
     models = load_from_jld2.(names)
-    train, test, validation = jldopen(dataset_path) do file
-        file["train"], file["test"], file["validate"]
-    end
+    train, test, validation = load_training_data(dataset_path)
 
     if isa(models[1], LinearInterface)
         reconstruct_x!(train)
@@ -229,7 +238,7 @@ function create_ensemble(
         total = train + test
     end
 
-    ensemble = create_ensemble(models, total;alg)
+    ensemble = create_ensemble(models, total;alg, error_threshold=tra.ensemble_error_threshold)
     if save_ensemble_model
         savepath = joinpath(bu.state.workdir, ensemble_name(bu))
         save_as_jld2(savepath, ensemble)

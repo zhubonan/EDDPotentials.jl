@@ -117,6 +117,11 @@ abstract type AbstractTrainer end
 - `type`: The type of potential to be trained. Currently, only `nn` and `nn_multi` are supported.
 - `external`: Whether to launch external Julia processes for training.
 - `boltermann_kt`: The parameter for Boltzmann weighting for the loss function, set to positive to activate.
+- `use_cuda`: Use GPU (CUDA) to accelerate the training.
+- `cuda_visible_devices`: The CUDA visible devices to use.
+- `ensemble_error_threshold`: The threshold for the error per atom for selecting observations to create the ensemble via NNLS.
+  Observations with errors larger than this threshold will be excluded.
+- `clean_models`: Whether to clean the models after training.
 """
 @option mutable struct TrainingOption <: EDDPotentialsOption
     energy_threshold::Float64 = 10.0
@@ -139,9 +144,11 @@ abstract type AbstractTrainer end
     num_workers::Int = 1
     num_threads_per_worker::Int = 1
     external = true
-    "Parameter for Boltzmann weighting, positive to activate"
     boltzmann_kt::Float64 = -1.0
     clean_models::Bool = true
+    use_cuda::Bool = false
+    cuda_visible_devices::String = ""
+    ensemble_error_threshold::Float64 = 0.5
 end
 
 

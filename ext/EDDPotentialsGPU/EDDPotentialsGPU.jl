@@ -46,6 +46,8 @@ function EDDPotentials.levenberg_marquardt_gpu(
     earlystop=0,
 ) where {T}
 
+    set_cuda_device!()
+
     # First evaluation
     value_jacobian!!(df, initial_x)
 
@@ -342,5 +344,22 @@ function EDDPotentials.levenberg_marquardt_gpu(
         0,                      # h_calls
     )
 end
+
+"""
+    set_cuda_device!()
+
+Set CUDA device to be used based on the environment variable EDDP_CUDA_DEVICE.
+"""
+function set_cuda_device!()
+    # Check of CUDA device selection
+    dev = get(ENV, "EDDP_CUDA_DEVICE", "")
+    @info "EDDP_CUDA_DEVICE=$dev"
+    if !isempty(dev)
+        d = collect(CUDA.devices())[parse(Int, dev) + 1]  # CUDA uses 0 based index
+        CUDA.device!(d)
+    end
+    @info "Using CUDA device $(CUDA.device())"
+end
+
 
 end # module

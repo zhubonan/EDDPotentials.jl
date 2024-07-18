@@ -93,7 +93,7 @@ export nfeatures
 export TrainingResults
 export PhaseDiagram, read_shelx_record, ShelxRecord, ComputedRecord
 
-use_cuda :: Bool= false
+const USE_CUDA = Ref{Bool}(false)
 
 function __init__()
     reset_timer!(to)

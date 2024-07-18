@@ -104,15 +104,6 @@ using NLSolversBase
         out = EDDPotentials.predict_energy(emod, fc_train[1][1])
         @test isa(out, Real)
 
-        ## Training with multithreading - this is not optimum...
-        res = EDDPotentials.train_multi_threaded(
-            model,
-            fc_train,
-            fc_test;
-            nmodels=3,
-            save_each_model=false,
-        )
-        @test isa(res, EDDPotentials.EnsembleNNInterface)
     end
 
 

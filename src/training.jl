@@ -63,13 +63,28 @@ Args:
     - `y`: a `Vector` containing the total energy of each structure.
 
 """
-function nnls_weights(models, x, y;alg=:fnnls)
+function nnls_weights(models, x, y;alg=:fnnls, error_threshold=0.5)
     all_engs = zeros(length(x), length(models))
+    nat = map(x -> size(x, 2), x)
+    y_pa = y ./ nat
+    mask = ones(Bool, length(x))
+
     for (i, model) in enumerate(models)
-        all_engs[:, i] = predict_energy.(Ref(model), x)
+        y_tmp = predict_energy.(Ref(model), x)
+        all_engs[:, i] = y_tmp
+        ae = abs.(y_tmp ./ nat .- y_pa)
+        @. mask = mask & (ae < error_threshold)
+    end
+    nselected = sum(mask)
+    if nselected != length(x)
+        @info "Using $(nselected)/$(length(x)) structures with AE < $(error_threshold) eV/atom."
+    end
+    if sum(mask) < 100
+        mask .= true
+        @info "Less than 100 observations selected, using all structures instead."
     end
     #wt = nnls(all_engs, y)
-    wt = nonneg_lsq(all_engs, y;alg)
+    wt = nonneg_lsq(all_engs[mask, :], y[mask];alg)
     wt
 end
 
@@ -79,25 +94,15 @@ end
 
 Create an EnsembleNNInterface from a vector of interfaces and x, y data for fitting.
 """
-function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold=1e-13, alg=:fnnls)
-    weights = nnls_weights(models, x, y;alg)[:]
+function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold=1e-13, alg=:fnnls, error_threshold=0.5)
+    weights = nnls_weights(models, x, y;alg, error_threshold)[:]
     tmp_models = collect(models)
-    mask = weights .< threshold
-    # Eliminate models with weights lower than the threshold
-    while sum(mask) > 0
-        # Models with weights higher than the threshold
-        tmp_models = tmp_models[map(!, mask)]
-        # Refit the weights
-        weights = nnls_weights(tmp_models, x, y;alg)[:]
-        # Models with small weights
-        mask = weights .< threshold
-    end
-    @assert length(tmp_models) > 0
-    EnsembleNNInterface(Tuple(tmp_models), weights)
+    mask = weights .> threshold
+    EnsembleNNInterface(Tuple(tmp_models[mask]), weights[mask])
 end
 
-EnsembleNNInterface(models, fc::FeatureContainer; threshold=1e-3) =
-    create_ensemble(models, get_fit_data(fc)...; threshold)
+EnsembleNNInterface(models, fc::FeatureContainer; kwargs...) =
+    create_ensemble(models, get_fit_data(fc)...; kwargs...)
 
 predict_energy(itf::AbstractNNInterface, vec) = sum(itf(vec))
 
@@ -166,7 +171,7 @@ function train_lm!(
     callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
 
     func = levenberg_marquardt 
-    if EDDPotentials.use_cuda
+    if EDDPotentials.USE_CUDA[]
         func = levenberg_marquardt_gpu
     end
 
@@ -245,109 +250,6 @@ end
 @_itf_per_atom_wrap(rmse_per_atom)
 @_itf_per_atom_wrap(max_ae_per_atom)
 @_itf_per_atom_wrap(mae_per_atom)
-
-
-function train_multi_threaded(
-    itf,
-    fc_train,
-    fc_test;
-    show_progress=true,
-    nmodels=10,
-    suffix=nothing,
-    prefix=nothing,
-    save_each_model=true,
-    use_test_for_ensemble=true,
-    kwargs...,
-)
-
-    results_channel = Channel(nmodels)
-    job_channel = Channel(nmodels)
-
-    # Put the jobs
-    for i = 1:nmodels
-        put!(job_channel, i)
-    end
-    tasks = []
-
-    @info "Training samples : $(length(fc_train))"
-    @info "Test samples     : $(length(fc_test))"
-    @info "Training method  : $(get(kwargs, :train_method, nothing))"
-    @debug "Keyord arguments : $(kwargs)"
-
-    for _ = 1:nthreads()
-        push!(
-            tasks,
-            Threads.@spawn worker_train_one(
-                itf,
-                fc_train,
-                fc_test,
-                job_channel,
-                results_channel;
-                kwargs...,
-            )
-        )
-    end
-
-    # Check for any errors - works should not return until they are explicitly signaled
-    sleep(0.1)
-    for task in tasks
-        if istaskfailed(task)
-            output = fetch(task)
-            @error "Error detected for the task $output"
-            throw(output)
-        end
-    end
-
-    # Receive the data and update the progress
-    i = 1
-    if show_progress
-        p = Progress(nmodels)
-    end
-    all_models = []
-    ts = Dates.format(now(), "yyyy-mm-dd-HH-MM-SS")
-    if prefix === nothing
-        fname = "models-$(ts)"
-    else
-        fname = "$(prefix)-models-$(ts)"
-    end
-
-    # Add suffix for saved models
-    if !isnothing(suffix)
-        fname = fname * "-$(suffix)"
-    end
-
-    try
-        while i <= nmodels
-            itf, out = take!(results_channel)
-            if show_progress
-                showvalues = [(:rmse, minimum(out[3][:, 2]))]
-                ProgressMeter.next!(p; showvalues)
-            end
-            # Save to files
-            save_each_model && save_as_jld2(@sprintf("%s-%03d.jld2", fname, i), itf)
-            push!(all_models, itf)
-            i += 1
-        end
-    catch err
-        if isa(err, InterruptException)
-            Base.throwto(foreach_task, err)
-        else
-            throw(err)
-        end
-    finally
-        # Send signals to stop the workers
-        foreach(x -> put!(job_channel, -1), 1:length(nthreads()))
-        sleep(1.0)
-        # Close all channels
-        close(job_channel)
-        close(results_channel)
-    end
-    if use_test_for_ensemble
-        create_ensemble(all_models, fc_train + fc_test)
-    else
-        create_ensemble(all_models, fc_train)
-    end
-end
 
 
 
