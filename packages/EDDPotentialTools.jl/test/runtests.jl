@@ -32,22 +32,22 @@ using Test
 
     cell = Cell(Lattice(10.0, 10.0, 10.0), [:H, :H, :H, :H], rand(3, 4) .* 4.0)
     calc = gen_lj_like(cell)
-    EDDPotentials.get_energy(calc)
+    EDDPotentials.eddp_energy(calc)
     atoms, acalc = EDDPotentialsTools.get_ase_atoms_and_calculator(calc)
 
 
     energy = atoms.get_potential_energy()
-    forces = atoms.get_forces()
+    forces = atoms.eddp_forces()
 
-    @test get_forces(calc) == transpose(forces)
-    @test get_energy(calc) == energy
+    @test eddp_forces(calc) == transpose(forces)
+    @test eddp_energy(calc) == energy
 
     # Test geometry optimisation
 
     mod = pyimport("ase.optimize.bfgs")
     b = mod.BFGS(atoms, logfile=nothing)
     b.run(steps=100)
-    @test maximum(atoms.get_forces()) < 1
+    @test maximum(atoms.eddp_forces()) < 1
 end
 
 

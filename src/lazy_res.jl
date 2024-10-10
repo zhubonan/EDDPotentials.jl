@@ -242,7 +242,7 @@ function CellBase.read_res_many(records::Vector{ShelxRecord})
     end
     @assert sum(x -> length(x), values(fnames_map)) == length(records)
     # Open the file handles
-    out = Vector{Cell{Float64}}(undef, length(records)) 
+    out = Vector{Cell{Float64, 3}}(undef, length(records)) 
     for (fname, vec_i) in fnames_map
         open(fname) do stream
             for i in vec_i 

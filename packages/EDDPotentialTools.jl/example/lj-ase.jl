@@ -22,8 +22,8 @@ opt_class = pyimport("ase.optimize.bfgs").BFGS
 opt = opt_class(atoms)
 opt.run(steps=300)
 
-println(atoms.get_stress())
-println(atoms.get_forces())
+println(atoms.eddp_stress())
+println(atoms.eddp_forces())
 
 # VC optimisation using the UnitCellFilter object
 vc_atoms = pyimport("ase.constraints").UnitCellFilter(atoms)
@@ -31,5 +31,5 @@ gpa = pyimport("ase.units").GPa
 opt = opt_class(vc_atoms)
 opt.run(steps=300)
 
-println(atoms.get_stress() .* gpa)
-println(atoms.get_forces())
+println(atoms.eddp_stress() .* gpa)
+println(atoms.eddp_forces())

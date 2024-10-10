@@ -1,6 +1,6 @@
 using LinearAlgebra
 using EDDPotentials
-using EDDPotentials: get_cell, get_forces, get_stress, get_energy
+using EDDPotentials: get_cell, eddp_forces, eddp_stress, eddp_energy
 using Test
 using CellBase
 using Flux
@@ -11,11 +11,11 @@ using Flux
     cf = EDDPotentials.CellFeature(unique(species(cell)), p2=[2], q3=[2, 3], p3=[2, 3])
 
     function _test_forces_fd(calc, amp=1e-7, atol=1e-5)
-        ftmp = copy(EDDPotentials.get_forces(calc))
-        etmp = EDDPotentials.get_energy(calc)
+        ftmp = copy(EDDPotentials.eddp_forces(calc))
+        etmp = EDDPotentials.eddp_energy(calc)
         positions(get_cell(calc))[1] += amp
         @test EDDPotentials._need_calc(calc, true)
-        tmp = (get_energy(calc) - etmp) / amp
+        tmp = (eddp_energy(calc) - etmp) / amp
         @test -tmp ≈ ftmp[1] atol = atol
     end
 
@@ -23,7 +23,7 @@ using Flux
         if !isa(calc, EDDPotentials.VariableCellCalc)
             calc = VariableCellCalc(calc)
         end
-        ftmp = copy(EDDPotentials.get_forces(calc))
+        ftmp = copy(EDDPotentials.eddp_forces(calc))
         etmp = EDDPotentials.get_enthalpy(calc)
         positions(get_cell(calc))[idx] += amp
         @test EDDPotentials._need_calc(calc, true)
@@ -46,14 +46,14 @@ using Flux
         EDDPotentials.copycell!(cell, cell2)
         @test EDDPotentials.is_equal(cell, cell2)
 
-        eng = EDDPotentials.get_energy(calc)
+        eng = EDDPotentials.eddp_energy(calc)
         @test isa(eng, Float64)
 
-        forces = EDDPotentials.get_forces(calc)
+        forces = EDDPotentials.eddp_forces(calc)
         # Newton's second law
         @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10))
 
-        stress = EDDPotentials.get_stress(calc)
+        stress = EDDPotentials.eddp_stress(calc)
         @test size(stress) == (3, 3)
         @test any(stress .!== 0.0)
 
@@ -68,14 +68,14 @@ using Flux
         calc = EDDPotentials.NNCalc(cell, cf, nnitf; core=nothing)
         nnitf.chain(calc.v)
 
-        eng = EDDPotentials.get_energy(calc)
+        eng = EDDPotentials.eddp_energy(calc)
         @test isa(eng, Float64)
 
-        forces = EDDPotentials.get_forces(calc)
+        forces = EDDPotentials.eddp_forces(calc)
         # Newton's second law
         @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10))
 
-        stress = EDDPotentials.get_stress(calc)
+        stress = EDDPotentials.eddp_stress(calc)
         @test size(stress) == (3, 3)
         @test any(stress .!== 0.0)
 
@@ -91,14 +91,14 @@ using Flux
         calc = EDDPotentials.NNCalc(cell, cf, nnitf; core=nothing)
         nnitf.model(calc.v)
 
-        eng = EDDPotentials.get_energy(calc)
+        eng = EDDPotentials.eddp_energy(calc)
         @test isa(eng, Float64)
 
-        forces = EDDPotentials.get_forces(calc)
+        forces = EDDPotentials.eddp_forces(calc)
         # Newton's second law
         @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10))
 
-        stress = EDDPotentials.get_stress(calc)
+        stress = EDDPotentials.eddp_stress(calc)
         @test size(stress) == (3, 3)
         @test any(stress .!== 0.0)
 
@@ -116,8 +116,8 @@ using Flux
         ]
         nnitf = EDDPotentials.EnsembleNNInterface(Tuple(nnitfs), repeat([0.2], 5))
         calc = EDDPotentials.NNCalc(cell, cf, nnitf; core=nothing)
-        eng = get_energy(calc)
-        std_tot = EDDPotentials.get_energy_std(calc)
+        eng = eddp_energy(calc)
+        std_tot = EDDPotentials.eddp_energy_std(calc)
         @test eng != 0.0
         @test std_tot != 0.0
 
@@ -128,9 +128,9 @@ using Flux
     @testset "Linear" begin
         nnitf = EDDPotentials.LinearInterface(rand(EDDPotentials.nfeatures(cf)))
         calc = EDDPotentials.NNCalc(cell, cf, nnitf; core=nothing)
-        eng = get_energy(calc)
-        forces = get_forces(calc)
-        stress = get_stress(calc)
+        eng = eddp_energy(calc)
+        forces = eddp_forces(calc)
+        stress = eddp_stress(calc)
 
         @test isa(eng, Float64)
 
@@ -148,7 +148,7 @@ using Flux
         filter = EDDPotentials.VariableCellCalc(calc)
         _test_forces_fd(filter)
         _test_forces_fd_vc(filter)
-        stress = get_stress(filter)
+        stress = eddp_stress(filter)
         @test size(stress) == (3, 3)
         @test any(stress .!== 0.0)
 
@@ -164,7 +164,7 @@ using Flux
             EDDPotentials.VariableCellCalc(calc; external_pressure=diagm([3.0, 3.0, 3.0]))
         _test_forces_fd_vc(filter, idx=1)
         _test_forces_fd_vc(filter, idx=nions(get_cell(calc)) + 3)
-        @test get_energy(filter) != EDDPotentials.get_enthalpy(filter)
+        @test eddp_energy(filter) != EDDPotentials.get_enthalpy(filter)
         @test get_pressure(filter) != 0
         @test get_pressure(calc) != 0
     end
@@ -235,9 +235,9 @@ end
     traj = []
     @test EDDPotentials.opt_tpsd(calc, trajectory=traj)
     @test length(traj) > 1
-    @test maximum(norm.(eachcol(EDDPotentials.get_forces(calc)))) < 1e-4
+    @test maximum(norm.(eachcol(EDDPotentials.eddp_forces(calc)))) < 1e-4
     @test EDDPotentials.opt_tpsd(EDDPotentials.VariableCellCalc(calc))
-    @test maximum(EDDPotentials.get_stress(calc)) < 1e-4
+    @test maximum(EDDPotentials.eddp_stress(calc)) < 1e-4
 
 
     cell = _h2_cell()
@@ -247,7 +247,7 @@ end
     vc = EDDPotentials.VariableCellCalc(calc, external_pressure=diagm([p, p, p]))
     global vc
     EDDPotentials.opt_tpsd(vc;)
-    @test maximum(abs.(EDDPotentials.get_forces(vc.calc))) < 1e-3
-    @test maximum(EDDPotentials.get_stress(vc.calc)) > 1e-3
-    @test maximum(EDDPotentials.get_stress(vc) .- vc.external_pressure) < 1e-4
+    @test maximum(abs.(EDDPotentials.eddp_forces(vc.calc))) < 1e-3
+    @test maximum(EDDPotentials.eddp_stress(vc.calc)) > 1e-3
+    @test maximum(EDDPotentials.eddp_stress(vc) .- vc.external_pressure) < 1e-4
 end

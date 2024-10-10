@@ -143,21 +143,21 @@ end
 function _fd_energy(calc, p)
     _alter_pos(calc, p) do _
         calc.param.energy_calculated = false
-        get_energy(calc)
+        eddp_energy(calc)
     end
 end
 
 function _fd_energy_vc(calc, p)
     _alter_pos_vc(calc, p) do _
         calc.calc.param.energy_calculated = false
-        eng = get_energy(calc)
+        eng = eddp_energy(calc)
         eng
     end
 end
 
 function _fd_strain(calc, p)
     _alter_strain(get_cell(calc), p) do _
-        get_energy(calc)
+        eddp_energy(calc)
     end
 end
 
@@ -201,7 +201,7 @@ function fd_desc(cf, cell)
 
     diff = zeros(size(gvec, 1), size(gvec, 2), natoms(cell), natoms(cell))  # dFj/dri
     for iat = 1:natoms(cell)
-        for dir = 1:3
+        for dir = 1:size(dcell.positions, 1)
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
             fb = EDDPotentials.compute_fv_gv(cf, dcell)
@@ -248,7 +248,7 @@ function force_gradient(cf, cell, core_size=0)
     # dE/dri
     diff = zeros(size(gvec, 1), natoms(cell))
     for iat = 1:natoms(cell)
-        for dir = 1:3
+        for dir = 1:size(dcell.positions, 1)
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
             fb = EDDPotentials.compute_fv_gv(cf, dcell, core=core)
@@ -348,8 +348,8 @@ function test_finite_difference(calc::NNCalc)
     desc_ok || @warn "Finite difference gradient of the descriptor is not correct"
 
 
-    forces = copy(EDDPotentials.get_forces(calc))
-    stress = copy(EDDPotentials.get_stress(calc))
+    forces = copy(EDDPotentials.eddp_forces(calc))
+    stress = copy(EDDPotentials.eddp_stress(calc))
     # Test the total force
     p0 = get_positions(calc)
     od = OnceDifferentiable(x -> _fd_energy(calc, x), p0, _fd_energy(calc, p0))
@@ -373,7 +373,7 @@ function test_finite_difference(calc::NNCalc)
     # NOTE Somehow this is needed here - possible BUG?
     vc = EDDPotentials.VariableCellCalc(calc)
     epos = EDDPotentials.get_positions(vc)
-    eforce = copy(EDDPotentials.get_forces(vc))
+    eforce = copy(EDDPotentials.eddp_forces(vc))
 
     od = OnceDifferentiable(
         x -> _fd_energy_vc(vc, x),

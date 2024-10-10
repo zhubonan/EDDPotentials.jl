@@ -104,7 +104,7 @@ function _run_rss(
         # Check for ensemble error and act
         # This prunes structure that we are too confident, e.g. nothing to learn from
         if ensemble_std_min > 0.0 || ensemble_std_max > 0.0
-            estd = get_energy_std(calc) / length(get_cell(calc))
+            estd = eddp_energy_std(calc) / length(get_cell(calc))
             if ensemble_std_min > 0.0 && estd < ensemble_std_min
                 @info "Ensemble standard deviation $(estd) is too small ($(ensemble_std_min))!"
                 continue
@@ -207,7 +207,7 @@ energy seen so far.
 """
 function check_energy_threshold!(composition_engmin, calc, threshold)
     # Is the energy low enough?
-    epa = get_energy(calc) / length(get_cell(calc))
+    epa = eddp_energy(calc) / length(get_cell(calc))
     reduced_comp = reduce_composition(Composition(get_cell(calc)))
     if reduced_comp in keys(composition_engmin)
         # Update the lowest energy seen so far

@@ -64,11 +64,11 @@ function Builder(options::BuilderOption)
 end
 
 """
-    get_energy_per_atom(fc::FeatureContainer)
+    eddp_energy_per_atom(fc::FeatureContainer)
 
     Energy per atom of each structure in the `FeatureContainer`.
 """
-function get_energy_per_atom(fc::FeatureContainer)
+function eddp_energy_per_atom(fc::FeatureContainer)
     fc.H ./ num_atoms(fc)
 end
 
@@ -1076,7 +1076,7 @@ end
 TRAINER_NAME = Dict(TrainingOption => "locallm")
 
 
-for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enthalpy]
+for func in [:eddp_energy, :eddp_forces, :get_pressure, :eddp_energy_std, :get_enthalpy]
     @eval begin
         function $func(
             cell::Cell,

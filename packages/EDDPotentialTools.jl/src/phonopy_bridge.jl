@@ -52,7 +52,7 @@ function get_phonopy_forces(pyscells, cf, model)
     forces = []
     for scell in scells
         EDDPotentials.set_positions!(ctmp, positions(scell))
-        push!(forces, get_forces(ctmp) |> transpose |> x -> reshape(x, (1, size(x)...)))
+        push!(forces, eddp_forces(ctmp) |> transpose |> x -> reshape(x, (1, size(x)...)))
     end
     PyObject(cat(forces..., dims=1))
 end
@@ -82,7 +82,7 @@ function run_phonon(
     cf = calc.cf
     model = calc.nninterface
 
-    pforces = norm.(eachcol(EDDPotentials.get_forces(calc)))
+    pforces = norm.(eachcol(EDDPotentials.eddp_forces(calc)))
     if any(pforces .> 1e-4)
         @warn "Residual forces in the input structure is too large: $(maximum(pforces))!"
     end

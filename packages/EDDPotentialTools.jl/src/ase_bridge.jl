@@ -89,9 +89,9 @@ function __init__()
 
         function run_eddp(self)
             EDDPotentials.calculate!(self.eddp_calc)
-            self.energy = EDDPotentials.get_energy(self.eddp_calc)
-            self.forces = PyReverseDims(EDDPotentials.get_forces(self.eddp_calc))
-            self.stress = PyReverseDims(EDDPotentials.get_stress(self.eddp_calc))
+            self.energy = EDDPotentials.eddp_energy(self.eddp_calc)
+            self.forces = PyReverseDims(EDDPotentials.eddp_forces(self.eddp_calc))
+            self.stress = PyReverseDims(EDDPotentials.eddp_stress(self.eddp_calc))
         end
     end
 

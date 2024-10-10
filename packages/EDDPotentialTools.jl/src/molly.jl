@@ -31,13 +31,13 @@ end
 function Molly.forces(inter::EDDPotentialsInter, sys, neighbors=nothing)
     _geometry_system2calc!(inter.calc, sys)
 
-    forces = get_forces(inter.calc)
+    forces = eddp_forces(inter.calc)
     # Output forces
     [SVector{3}(col) * sys.force_units for col in eachcol(forces)]
 end
 
 function Molly.potential_energy(inter::EDDPotentialsInter, sys, neighbours=nothing)
     _geometry_system2calc!(inter.calc, sys)
-    get_energy(inter.calc) * sys.energy_units
+    eddp_energy(inter.calc) * sys.energy_units
 
 end

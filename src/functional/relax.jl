@@ -152,7 +152,7 @@ function relax!(re::Relax)
     "Energy"
     function fo(x, calc)
         set_positions!(calc, reshape(x, 3, :))
-        get_energy(calc)
+        eddp_energy(calc)
     end
 
     "Gradient"
@@ -160,18 +160,18 @@ function relax!(re::Relax)
         set_positions!(calc, reshape(x, 3, :))
         if keep_trajectory
             cell = deepcopy(get_cell(calc))
-            cell.metadata[:enthalpy] = get_energy(calc)
-            cell.arrays[:forces] = get_forces(calc)[:, 1:length(cell)]
+            cell.metadata[:enthalpy] = eddp_energy(calc)
+            cell.arrays[:forces] = eddp_forces(calc)[:, 1:length(cell)]
             push!(trajectory, cell)
         end
-        forces = get_forces(calc)
+        forces = eddp_forces(calc)
         # ∇E = -F
         forces .* -1
     end
 
     start_time = time()
     "Callback function to control the stopping of the optimisation"
-    last_energy = get_energy(_calc)
+    last_energy = eddp_energy(_calc)
 
     smax = 0.0
     fmax = 0.0
@@ -185,12 +185,12 @@ function relax!(re::Relax)
     as specified.
     """
     function callback(x)
-        eng = get_energy(_calc)
+        eng = eddp_energy(_calc)
         de = abs((eng - last_energy) / length(get_cell(_calc)))
         last_energy = eng
-        forces = get_forces(_calc)
+        forces = eddp_forces(_calc)
         fmax = maximum(norm.(eachcol(forces)))
-        stress = eVAngToGPa.(get_stress(calc))
+        stress = eVAngToGPa.(eddp_stress(calc))
         smax = maximum(abs.(stress))
         elapsed = time() - start_time
 

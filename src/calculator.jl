@@ -12,13 +12,13 @@ const AC = AbstractCalc
 
 function get_cell end
 
-function get_energy end
+function eddp_energy end
 
 function calculate! end
 
-function get_forces end
+function eddp_forces end
 
-function get_stress end
+function eddp_stress end
 
 
 ## Base default implementation 
@@ -56,12 +56,12 @@ end
     mode::String = "one-pass"
 end
 
-mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface} <:
+mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface, D} <:
                AbstractCalc
-    cell::Cell{T}
-    last_cell::Cell{T}
+    cell::Cell{T, D}
+    last_cell::Cell{T, D}
     "Positions when the NeighbourList is built"
-    last_nn_build_pos::Vector{SVector{3,T}}
+    last_nn_build_pos::Vector{SVector{D,T}}
     "NeighbourList"
     nl::N
     cf::M
@@ -86,14 +86,14 @@ end
 
 get_cell(ac::NNCalc) = ac.cell
 
-"""
-Copy the lattice and positions from one cell to the other
-"""
-function copycell!(cell_from::Cell, cell_to::Cell)
-    set_cellmat!(cell_to, cellmat(cell_from))
-    set_positions!(cell_to, positions(cell_from))
-    species(cell_to) .= species(cell_from)
-end
+# """
+# Copy the lattice and positions from one cell to the other
+# """
+# function copycell!(cell_from::Cell, cell_to::Cell)
+#     set_cellmat!(cell_to, cellmat(cell_from))
+#     set_positions!(cell_to, positions(cell_from))
+#     species(cell_to) .= species(cell_from)
+# end
 
 """
     is_equal(cell_a, cell_b)
@@ -122,7 +122,7 @@ function NNCalc(
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
 
-    workspace = GradientWorkspace(v; core, do_grad=true, one_body_offset=feature_size(cf)[1]) # Buffer for force calculation 
+    workspace = GradientWorkspace(v; ndims=CellBase._n_dimensions(cell), core, do_grad=true, one_body_offset=feature_size(cf)[1]) # Buffer for force calculation 
     NNCalc(
         cell,
         deepcopy(cell),
@@ -142,20 +142,20 @@ function NNCalc(
 end
 
 """
-    get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
+    eddp_energy(calc::NNCalc; forces=false, rebuild_nl=true)
 
 Return the total energy of the calculator.
 """
-function get_energy(calc::NNCalc; forces=false, rebuild_nl=true)
+function eddp_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     calculate!(calc; forces, rebuild_nl)
     sum(calc.eng) + get_elemental_energy(calc.cell, calc.elemental_energies)
 end
 
 function get_enthalpy(calc::NNCalc; forces=false, rebuild_nl=true)
-    get_energy(calc; forces, rebuild_nl)
+    eddp_energy(calc; forces, rebuild_nl)
 end
 
-function get_forces(calc::NNCalc; rebuild_nl=true, make_copy=true)
+function eddp_forces(calc::NNCalc; rebuild_nl=true, make_copy=true)
     calculate!(calc; forces=true, rebuild_nl)
     if make_copy
         return copy(calc.forces)
@@ -163,7 +163,7 @@ function get_forces(calc::NNCalc; rebuild_nl=true, make_copy=true)
     calc.forces
 end
 
-function get_stress(calc::NNCalc; rebuild_nl=true, make_copy=true)
+function eddp_stress(calc::NNCalc; rebuild_nl=true, make_copy=true)
     calculate!(calc; forces=true, rebuild_nl)
     if make_copy
         return copy(calc.stress)
@@ -196,7 +196,7 @@ Core function used to compute energy, forces and stress.
     # Disable rebuilding NL - we have done this already
     @timeit to "_calculate" _calculate!(calc, false, forces)
     # Update as the last calculated cell
-    copycell!(calc.cell, calc.last_cell)
+    calc.last_cell = deepcopy(calc.cell)
     calc
 end
 
@@ -232,8 +232,8 @@ end
 Return standard deviation of the predicted total energy
 Note: must be run after a energy call!
 """
-function get_energy_std(calc::NNCalc{T,N,M,X}) where {T,N,M,X<:EnsembleNNInterface}
-    get_energy(calc)
+function eddp_energy_std(calc::NNCalc{T,N,M,X}) where {T,N,M,X<:EnsembleNNInterface}
+    eddp_energy(calc)
     per_atom = reduce(vcat, forward!.(calc.nninterface.models, Ref(calc.v)))
     std(sum(per_atom, dims=2))
 end
@@ -242,7 +242,7 @@ function get_committee_forces(calc)
     force_list = map(calc.nninterface.models) do model
         # TODO - allow others to be customised
         calc = NNCalc(calc.cell, calc.cf, model;elemental_energies=calc.elemental_energies)
-        get_forces(calc)
+        eddp_forces(calc)
     end
 end
 
@@ -352,7 +352,7 @@ end
 Return pressure in unit of GPa.
 """
 function get_pressure_gpa(vc::AbstractCalc)
-    eVAngToGPa(tr(EDDPotentials.get_stress(vc)) / 3.0)
+    eVAngToGPa(tr(EDDPotentials.eddp_stress(vc)) / 3.0)
 end
 
 """
@@ -388,10 +388,10 @@ end
 
 _need_calc(calc::VariableCellCalc, forces) = _need_calc(calc.calc, forces)
 get_cell(c::VariableCellCalc) = get_cell(c.calc)
-get_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) =
-    get_energy(c.calc; rebuild_nl, kwargs...)
+eddp_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) =
+    eddp_energy(c.calc; rebuild_nl, kwargs...)
 
-get_energy_std(vc::VariableCellCalc) = get_energy_std(vc.calc)
+eddp_energy_std(vc::VariableCellCalc) = eddp_energy_std(vc.calc)
 
 function VariableCellCalc(calc::NNCalc{T}; external_pressure=zeros(T, 3, 3)) where {T}
     latt = copy(cellmat(get_cell(calc)))
@@ -423,17 +423,17 @@ end
 
 
 """
-    _get_forces_and_stress(cf::VariableCellCalc;rebuild_nl)
+    _eddp_forces_and_stress(cf::VariableCellCalc;rebuild_nl)
 
 Construct force and stress for the filter object
 """
-function _get_forces_and_stress(vc::VariableCellCalc; rebuild_nl, kwargs...)
+function _eddp_forces_and_stress(vc::VariableCellCalc; rebuild_nl, kwargs...)
     calculate!(vc.calc; forces=true, rebuild_nl, kwargs...)
     dgrad = deformgradient(vc)
     vol = volume(get_cell(vc))
     # Compute the stress
-    stress = get_stress(vc.calc) .- vc.external_pressure
-    forces = get_forces(vc.calc)
+    stress = eddp_stress(vc.calc) .- vc.external_pressure
+    forces = eddp_forces(vc.calc)
 
     virial = (dgrad \ (vol .* stress))
     # Deformed forces
@@ -447,22 +447,22 @@ end
 """
 Forces including the stress contributions that is consistent with the augmented positions
 """
-get_forces(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
-    _get_forces_and_stress(vc; rebuild_nl, kwargs...)[1]
+eddp_forces(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
+    _eddp_forces_and_stress(vc; rebuild_nl, kwargs...)[1]
 _get_effective_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
-    _get_forces_and_stress(vc; rebuild_nl, kwargs...)[2]
+    _eddp_forces_and_stress(vc; rebuild_nl, kwargs...)[2]
 
 """
-    get_stress(vc::VariableCellCalc;kwargs...)
+    eddp_stress(vc::VariableCellCalc;kwargs...)
 Return the effective stress of the VaraibleCellCalc (including the external pressure)
 """
-get_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
-    get_stress(vc.calc; rebuild_nl, kwargs...)
+eddp_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
+    eddp_stress(vc.calc; rebuild_nl, kwargs...)
 
 function get_enthalpy(vc::VariableCellCalc; kwargs...)
     stress = vc.external_pressure
     # H = E + PV
-    get_energy(vc; kwargs...) +
+    eddp_energy(vc; kwargs...) +
     volume(get_cell(vc)) * (stress[1, 1] + stress[2, 2] + stress[3, 3]) / 3
 end
 
@@ -503,13 +503,13 @@ end
 Return the total pressure with the external pressure subtracted.
 """
 function get_pressure(calc::AbstractCalc)
-    stress = get_stress(calc)
+    stress = eddp_stress(calc)
     return (stress[1, 1] + stress[2, 2] + stress[3, 3]) / 3
 end
 
 
 ## Add Convenience methods
-for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enthalpy]
+for func in [:eddp_energy, :eddp_forces, :get_pressure, :eddp_energy_std, :get_enthalpy]
     @eval begin
         function $func(cell::Cell, cf::CellFeature, itf::AbstractNNInterface; kwargs...)
             $func(VariableCellCalc(NNCalc(cell, cf, itf)); kwargs...)
@@ -522,11 +522,11 @@ for func in [:get_energy, :get_forces, :get_pressure, :get_energy_std, :get_enth
     end
 end
 
-get_energy_per_atom(cell::Cell, args...; kwargs...) =
-    get_energy(cell, args...; kwargs...) / length(cell)
-get_energy_per_atom(calc::AbstractCalc, args...; kwargs...) =
-    get_energy(calc, args...; kwargs...) / length(get_cell(calc))
-get_energy_std_per_atom(cell::Cell, args...; kwargs...) =
-    get_energy_std(cell, args...; kwargs...) / length(cell)
-get_energy_std_per_atom(calc::AbstractCalc, args...; kwargs...) =
-    get_energy_std(calc, args...; kwargs...) / length(get_cell(calc))
+eddp_energy_per_atom(cell::Cell, args...; kwargs...) =
+    eddp_energy(cell, args...; kwargs...) / length(cell)
+eddp_energy_per_atom(calc::AbstractCalc, args...; kwargs...) =
+    eddp_energy(calc, args...; kwargs...) / length(get_cell(calc))
+eddp_energy_std_per_atom(cell::Cell, args...; kwargs...) =
+    eddp_energy_std(cell, args...; kwargs...) / length(cell)
+eddp_energy_std_per_atom(calc::AbstractCalc, args...; kwargs...) =
+    eddp_energy_std(calc, args...; kwargs...) / length(get_cell(calc))

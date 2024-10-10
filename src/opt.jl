@@ -27,7 +27,7 @@ function opt_tpsd(
     callback=nothing,
     trajectory=nothing,
 )
-    f = get_forces(vc)
+    f = eddp_forces(vc)
     f0 = similar(f)
     e0 = -9999.0
     x = get_positions(vc)
@@ -48,15 +48,15 @@ function opt_tpsd(
 
     while i < itermax
 
-        e = get_energy(vc)
-        f = get_forces(vc)
+        e = eddp_energy(vc)
+        f = eddp_forces(vc)
 
         if isa(vc, VariableCellCalc)
-            fa = get_forces(vc.calc)
-            sa = get_stress(vc)
+            fa = eddp_forces(vc.calc)
+            sa = eddp_stress(vc)
         else
             fa = f
-            sa = get_stress(vc)
+            sa = eddp_stress(vc)
         end
 
         fmax = maximum(norm.(eachcol(fa)))

@@ -117,6 +117,6 @@ function model_energies(
         npts=npts,
         rcut=suggest_rcut(cf),
     )
-    energies = [get_energy(NNCalc(x, cf, model; core)) / length(x) for x in structures]
+    energies = [eddp_energy(NNCalc(x, cf, model; core)) / length(x) for x in structures]
     combs, xs, energies
 end

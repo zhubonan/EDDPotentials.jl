@@ -73,15 +73,15 @@ export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos,
 export distance_between, distance_squared_between, displace!, clip, Cell, supercell
 export distance_matrix, laplacian_matrix, nmodules, find_modules
 export get_cell,
-    get_forces,
-    get_energy,
-    get_energy_per_atom,
-    get_stress,
+    eddp_forces,
+    eddp_energy,
+    eddp_energy_per_atom,
+    eddp_stress,
     CellFeature,
     NNCalc,
     VariableCellCalc,
-    get_energy_std,
-    get_energy_std_per_atom
+    eddp_energy_std,
+    eddp_energy_std_per_atom
 export get_enthalpy, get_pressure
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer, FeatureContainer, load_from_jld2

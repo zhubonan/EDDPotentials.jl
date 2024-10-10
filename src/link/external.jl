@@ -2,7 +2,6 @@
 Routines for running external code
 =#
 using Random
-using ExtXYZ
 
 """
     run_crud(workdir, indir, outdir;nparallel=1, mpinp=4)

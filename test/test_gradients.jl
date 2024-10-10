@@ -2,7 +2,7 @@ using EDDPotentials
 using EDDPotentials:
     CoreRepulsion,
     compute_fv_gv,
-    get_energy,
+    eddp_energy,
     get_cell,
     _fd_energy,
     _fd_energy_vc,
@@ -72,8 +72,8 @@ end
     model = Chain(Dense(ones(1, ntot)))
     itf = EDDPotentials.ManualFluxBackPropInterface(model)
 
-    forces = copy(EDDPotentials.get_forces(calc))
-    stress = copy(EDDPotentials.get_stress(calc))
+    forces = copy(EDDPotentials.eddp_forces(calc))
+    stress = copy(EDDPotentials.eddp_stress(calc))
 
     # Test the total force
     p0 = EDDPotentials.get_positions(calc)
@@ -97,7 +97,7 @@ end
     # NOTE Somehow this is needed here - possible BUG?
     vc = EDDPotentials.VariableCellCalc(calc)
     epos = EDDPotentials.get_positions(vc)
-    eforce = copy(EDDPotentials.get_forces(vc))
+    eforce = copy(EDDPotentials.eddp_forces(vc))
 
     od = OnceDifferentiable(
         x -> _fd_energy_vc(vc, x),

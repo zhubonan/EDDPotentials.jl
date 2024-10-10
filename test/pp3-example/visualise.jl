@@ -11,7 +11,7 @@ x = LinRange(1, 5, 100)
 
 function E(x, calc)
     get_cell(calc).positions[1, 2] = x
-    get_energy(calc)
+    eddp_energy(calc)
 end
 
 begin

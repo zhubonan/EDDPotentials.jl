@@ -400,7 +400,8 @@ function get_workspace(
     else
         _fvec = fvec
     end
-    GradientWorkspace(_fvec, nn_max; core, do_grad)
+    ndims = length(nl.ea.positions[1])
+    GradientWorkspace(_fvec, nn_max; core, do_grad, ndims)
 end
 
 get_workspace(cf::CellFeature, nl, do_grad=true; fvec=nothing) =
