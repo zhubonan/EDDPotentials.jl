@@ -24,10 +24,10 @@ using Flux
             calc = VariableCellCalc(calc)
         end
         ftmp = copy(EDDPotentials.eddp_forces(calc))
-        etmp = EDDPotentials.get_enthalpy(calc)
+        etmp = EDDPotentials.eddp_enthalpy(calc)
         positions(get_cell(calc))[idx] += amp
         @test EDDPotentials._need_calc(calc, true)
-        tmp = (EDDPotentials.get_enthalpy(calc) - etmp) / amp
+        tmp = (EDDPotentials.eddp_enthalpy(calc) - etmp) / amp
         @test -tmp ≈ ftmp[idx] atol = atol
     end
 
@@ -164,9 +164,9 @@ using Flux
             EDDPotentials.VariableCellCalc(calc; external_pressure=diagm([3.0, 3.0, 3.0]))
         _test_forces_fd_vc(filter, idx=1)
         _test_forces_fd_vc(filter, idx=nions(get_cell(calc)) + 3)
-        @test eddp_energy(filter) != EDDPotentials.get_enthalpy(filter)
-        @test get_pressure(filter) != 0
-        @test get_pressure(calc) != 0
+        @test eddp_energy(filter) != EDDPotentials.eddp_enthalpy(filter)
+        @test eddp_pressure(filter) != 0
+        @test eddp_pressure(calc) != 0
     end
 
     @testset "Neigh" begin

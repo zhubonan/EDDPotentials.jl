@@ -82,7 +82,7 @@ export get_cell,
     VariableCellCalc,
     eddp_energy_std,
     eddp_energy_std_per_atom
-export get_enthalpy, get_pressure
+export eddp_enthalpy, eddp_pressure
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer, FeatureContainer, load_from_jld2
 export BuilderState, TrainingOption, link!

@@ -1076,7 +1076,7 @@ end
 TRAINER_NAME = Dict(TrainingOption => "locallm")
 
 
-for func in [:eddp_energy, :eddp_forces, :get_pressure, :eddp_energy_std, :get_enthalpy]
+for func in [:eddp_energy, :eddp_forces, :eddp_pressure, :eddp_energy_std, :eddp_enthalpy]
     @eval begin
         function $func(
             cell::Cell,

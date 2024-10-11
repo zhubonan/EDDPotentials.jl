@@ -151,17 +151,18 @@ function relax!(re::Relax)
 
     "Energy"
     function fo(x, calc)
-        set_positions!(calc, reshape(x, 3, :))
+        set_positions!(calc, reshape(x, CellBase.n_dimensions(get_cell(calc)), :))
         eddp_energy(calc)
     end
 
     "Gradient"
     function go(x, calc)
-        set_positions!(calc, reshape(x, 3, :))
+        set_positions!(calc, reshape(x, CellBase.n_dimensions(get_cell(calc)), :))
         if keep_trajectory
             cell = deepcopy(get_cell(calc))
             cell.metadata[:enthalpy] = eddp_energy(calc)
-            cell.arrays[:forces] = eddp_forces(calc)[:, 1:length(cell)]
+            cell[:enthalpy] = eddp_energy(calc)
+            cell[:, :force] = eddp_forces(calc)[:, 1:length(cell)]
             push!(trajectory, cell)
         end
         forces = eddp_forces(calc)

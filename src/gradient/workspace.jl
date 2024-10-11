@@ -16,10 +16,11 @@ end
 
 function HardcoreWorkspace(T::DataType, core::N, nat::Int, ndims=3) where {N}
     core === nothing ? _nat = 0 : _nat = nat
+    stress_dims = 3
     HardcoreWorkspace{T,N}(
         zeros(T, ndims, _nat),
         zeros(T, _nat),
-        zeros(T, ndims, ndims, _nat),
+        zeros(T, stress_dims, stress_dims, _nat),
         core,
     )
 end
@@ -100,17 +101,18 @@ function GradientWorkspace(
     if do_grad == false
         _nat = 0
     end
+    stress_ndims = 3
     GradientWorkspace(
         fvec,
         zeros(T, ndims, nf, nn_max, _nat), # gvec
         zeros(Int, nn_max, _nat), # neigh_index
         zeros(Int, _nat), # number of unique neighbours (include self)
-        zeros(T, ndims, ndims, nf, _nat), # stotv
+        zeros(T, stress_ndims, stress_ndims, nf, _nat), # stotv
         zeros(T, ndims, _nat),  # forces
-        zeros(T, ndims, ndims, _nat), # stress (per atom)
+        zeros(T, stress_ndims, stress_ndims, _nat), # stress (per atom)
         zeros(T, nat), # Per atom energy from features
         zeros(T, ndims, _nat),  # total forces
-        zeros(T, ndims, ndims), # total stress (global)
+        zeros(T, stress_ndims, stress_ndims), # total stress (global)
         zeros(T, _nat), # total energies per atom
         HardcoreWorkspace(T, core, nat, ndims),
         do_grad,

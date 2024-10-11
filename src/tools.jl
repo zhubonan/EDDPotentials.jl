@@ -20,9 +20,9 @@ Update the metadata attached to a `Cell`` object
 function update_metadata!(vc::AbstractCalc, label; symprec=1e-2)
     this_cell = get_cell(vc)
     # Set metadata
-    this_cell.metadata[:enthalpy] = get_enthalpy(vc)
+    this_cell.metadata[:enthalpy] = eddp_enthalpy(vc)
     this_cell.metadata[:volume] = volume(this_cell)
-    this_cell.metadata[:pressure] = get_pressure_gpa(vc)
+    this_cell.metadata[:pressure] = eddp_pressure_gpa(vc)
     this_cell.metadata[:label] = label
     symm = CellBase.get_international(this_cell, symprec)
     this_cell.metadata[:symm] = "($(symm))"

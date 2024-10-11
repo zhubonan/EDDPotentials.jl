@@ -306,6 +306,8 @@ function compute_fv_gv_one!(
                             end
 
                             # Stress
+                            # Note for high dimensionality: 
+                            # The code below takes only the first three dimensions which are periodic (as intended)
                             for elm2 = axes(stotv, 2)
                                 for elm1 = axes(stotv, 1)
                                     stotv[elm1, elm2, i, iat] += (

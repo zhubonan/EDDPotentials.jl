@@ -151,7 +151,7 @@ function eddp_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     sum(calc.eng) + get_elemental_energy(calc.cell, calc.elemental_energies)
 end
 
-function get_enthalpy(calc::NNCalc; forces=false, rebuild_nl=true)
+function eddp_enthalpy(calc::NNCalc; forces=false, rebuild_nl=true)
     eddp_energy(calc; forces, rebuild_nl)
 end
 
@@ -347,11 +347,11 @@ function update_feature_vector!(calc::NNCalc; rebuild_nl=true, compute_gradients
 end
 
 """
-    get_pressure_gpa(vc::AbstractCalc) 
+    eddp_pressure_gpa(vc::AbstractCalc) 
 
 Return pressure in unit of GPa.
 """
-function get_pressure_gpa(vc::AbstractCalc)
+function eddp_pressure_gpa(vc::AbstractCalc)
     eVAngToGPa(tr(EDDPotentials.eddp_stress(vc)) / 3.0)
 end
 
@@ -416,8 +416,14 @@ Composed positions vectors including cell defromations
 function CellBase.get_positions(vc::VariableCellCalc)
     cell = get_cell(vc)
     dgrad = deformgradient(vc)
-    apos = dgrad \ positions(cell)
+    apos = copy(positions(cell))
+    apos[1:3, :] .= dgrad \ apos[1:3, :]
     lpos = vc.lattice_factor .* dgrad'
+    # Pad the "fake" positions if needed (for high dimensional cell)
+    npad = size(apos, 1) - size(lpos, 1)
+    if npad > 0
+        lpos = vcat(lpos, repeat([zero(eltype(lpos))], npad, 3))
+    end
     hcat(apos, lpos)
 end
 
@@ -433,13 +439,16 @@ function _eddp_forces_and_stress(vc::VariableCellCalc; rebuild_nl, kwargs...)
     vol = volume(get_cell(vc))
     # Compute the stress
     stress = eddp_stress(vc.calc) .- vc.external_pressure
-    forces = eddp_forces(vc.calc)
-
     virial = (dgrad \ (vol .* stress))
-    # Deformed forces
-    atomic_forces = dgrad * forces
 
-    out_forces = hcat(atomic_forces, virial ./ vc.lattice_factor)
+    # Deformed forces
+    atomic_forces = copy(eddp_forces(vc.calc))
+    atomic_forces[1:3, :] .= dgrad * atomic_forces[1:3, :]
+    # Pad zeros
+    virial_forces = repeat([zero(eltype(atomic_forces))], size(atomic_forces, 1), 3)
+    virial_forces[1:3, :] = virial ./ vc.lattice_factor
+
+    out_forces = hcat(atomic_forces, virial_forces)
     out_stress = -virial / vol
     out_forces, out_stress
 end
@@ -459,7 +468,7 @@ Return the effective stress of the VaraibleCellCalc (including the external pres
 eddp_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
     eddp_stress(vc.calc; rebuild_nl, kwargs...)
 
-function get_enthalpy(vc::VariableCellCalc; kwargs...)
+function eddp_enthalpy(vc::VariableCellCalc; kwargs...)
     stress = vc.external_pressure
     # H = E + PV
     eddp_energy(vc; kwargs...) +
@@ -475,10 +484,12 @@ function set_positions!(vc::VariableCellCalc, new)
     nat = nions(cell)
     pos = new[:, 1:nat]
     new_dgrad = transpose(new[:, nat+1:end]) ./ vc.lattice_factor
-
     # Set the cell according to the deformation
-    set_cellmat!(cell, new_dgrad * cellmat(vc.orig_lattice))
-    set_positions!(cell, new_dgrad * pos)
+    set_cellmat!(cell, new_dgrad[:, 1:3] * cellmat(vc.orig_lattice);scale_positions=false)
+    # Scale the positions for the first three dimensions
+    pos_new = copy(pos)
+    pos_new[1:3, :] .= new_dgrad[:, 1:3] * pos_new[1:3, :]
+    set_positions!(cell, pos_new)
 end
 
 """
@@ -486,10 +497,10 @@ end
 
 Check if there are atoms that are too close to each other.
 """
-function check_global_minsep(nl::NeighbourList, threshold)
+function check_global_minsep(nl::NeighbourList, minsep)
     for i = 1:length(nl.nneigh)
         for (_, _, d) in eachneighbour(nl, i)
-            if d < threshold
+            if d < minsep
                 return false
             end
         end
@@ -498,18 +509,18 @@ function check_global_minsep(nl::NeighbourList, threshold)
 end
 
 """
-    get_pressure(calc::VariableCellCalc)
+    eddp_pressure(calc::VariableCellCalc)
 
 Return the total pressure with the external pressure subtracted.
 """
-function get_pressure(calc::AbstractCalc)
+function eddp_pressure(calc::AbstractCalc)
     stress = eddp_stress(calc)
     return (stress[1, 1] + stress[2, 2] + stress[3, 3]) / 3
 end
 
 
 ## Add Convenience methods
-for func in [:eddp_energy, :eddp_forces, :get_pressure, :eddp_energy_std, :get_enthalpy]
+for func in [:eddp_energy, :eddp_forces, :eddp_pressure, :eddp_energy_std, :eddp_enthalpy]
     @eval begin
         function $func(cell::Cell, cf::CellFeature, itf::AbstractNNInterface; kwargs...)
             $func(VariableCellCalc(NNCalc(cell, cf, itf)); kwargs...)
