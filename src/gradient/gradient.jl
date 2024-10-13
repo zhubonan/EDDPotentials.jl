@@ -96,7 +96,7 @@ function compute_fv_gv_one!(
     nl::NeighbourList,
     ;
     offset=workspace.one_body_offset,
-    do_grad=workspace.do_grad
+    do_grad=workspace.do_grad,
 )
 
     # NeighbourList must be built with vectors for gradient computation
@@ -106,8 +106,8 @@ function compute_fv_gv_one!(
     (; core, fcore, score, ecore) = hardcore
 
     if do_grad
-        gvec[:, :, :, iat] .= 0.
-        stotv[:, :, :, iat] .= 0.
+        gvec[:, :, :, iat] .= 0.0
+        stotv[:, :, :, iat] .= 0.0
     end
 
     # Check if all features are the same - so powers does not need to be recalculated for each feature.
@@ -200,14 +200,14 @@ function compute_fv_gv_one!(
                     end
                     # Force update 
                     #@inbounds 
-                    for elm = axes(gvec, 1)
+                    for elm in axes(gvec, 1)
                         gvec[elm, i, 1, iat] -= modvij[elm] * gfij
                         gvec[elm, i, ineigth_j, iat] += modvij[elm] * gfij
                     end
                     # Stress update
                     #@inbounds 
-                    for elm2 = axes(stotv, 2)
-                        for elm1 = axes(stotv, 1)
+                    for elm2 in axes(stotv, 2)
+                        for elm1 in axes(stotv, 1)
                             stotv[elm1, elm2, i, iat] += vij[elm1] * modvij[elm2] * gfij
                         end
                     end
@@ -299,7 +299,7 @@ function compute_fv_gv_one!(
                             t2 = modvik * gtmp2[m] * val
                             t3 = modvjk * gtmp3[o] * val
 
-                            for elm = axes(gvec, 1)
+                            for elm in axes(gvec, 1)
                                 gvec[elm, i, 1, iat] -= t1[elm] + t2[elm]
                                 gvec[elm, i, ineigth_j, iat] += t1[elm] - t3[elm]
                                 gvec[elm, i, ineigth_k, iat] += t2[elm] + t3[elm]
@@ -308,8 +308,8 @@ function compute_fv_gv_one!(
                             # Stress
                             # Note for high dimensionality: 
                             # The code below takes only the first three dimensions which are periodic (as intended)
-                            for elm2 = axes(stotv, 2)
-                                for elm1 = axes(stotv, 1)
+                            for elm2 in axes(stotv, 2)
+                                for elm1 in axes(stotv, 1)
                                     stotv[elm1, elm2, i, iat] += (
                                         vij[elm1] * t1[elm2] +
                                         vik[elm1] * t2[elm2] +
@@ -367,7 +367,17 @@ function compute_fv!(
 )
     reset!(workspace)
     for iat = 1:natoms(cell)
-        compute_fv_gv_one!(workspace, f2, f3, iat, cell, nl; do_grad=false, offset, kwargs...)
+        compute_fv_gv_one!(
+            workspace,
+            f2,
+            f3,
+            iat,
+            cell,
+            nl;
+            do_grad=false,
+            offset,
+            kwargs...,
+        )
     end
     workspace.fvec
 end

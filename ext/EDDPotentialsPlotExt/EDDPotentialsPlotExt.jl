@@ -1,5 +1,5 @@
 
-module EDDPotentialsPlotExt 
+module EDDPotentialsPlotExt
 
 using EDDPotentials
 using EDDPotentials: load_ensemble, load_features, load_structures, resample_mae_rmse
@@ -155,7 +155,7 @@ function _get_rel_target_and_pred(tr::TrainingResults)
 end
 
 function _get_plot_data(tr::TrainingResults)
-  if has_multiple_comp(tr.fc) 
+    if has_multiple_comp(tr.fc)
         _get_rel_target_and_pred(tr)
     else
         _get_target_and_pred(tr)
@@ -163,22 +163,27 @@ function _get_plot_data(tr::TrainingResults)
 end
 
 function EDDPotentials.plot_hist2d(tr::TrainingResults, args...; kwargs...)
-    histogram2d(_get_plot_data(tr)..., args...; kwargs...) 
+    histogram2d(_get_plot_data(tr)..., args...; kwargs...)
 end
 
 function EDDPotentials.plot_scatter(tr::TrainingResults, args...; kwargs...)
-    scatter(_get_plot_data(tr)..., args...; kwargs...) 
+    scatter(_get_plot_data(tr)..., args...; kwargs...)
 end
 
 
-function EDDPotentials.plot_std_vs_error(tr::TrainingResults, args...; mode="scatter",kwargs...)
+function EDDPotentials.plot_std_vs_error(
+    tr::TrainingResults,
+    args...;
+    mode="scatter",
+    kwargs...,
+)
     estd = EDDPotentials.ensemble_std(tr)
     nat = EDDPotentials.natoms(tr.fc)
-    ae = abs.(tr.H_pred ./ nat .- tr.H_target ./nat)
+    ae = abs.(tr.H_pred ./ nat .- tr.H_target ./ nat)
     if mode == "scatter"
-    scatter(estd, ae, args...; kwargs...) 
+        scatter(estd, ae, args...; kwargs...)
     elseif mode == "histogram2d"
-    histogram2d(estd, ae, args...; kwargs...) 
+        histogram2d(estd, ae, args...; kwargs...)
     end
 end
 

@@ -541,7 +541,11 @@ function _perform_training(bu::Builder)
     # Create ensemble
     nm = num_existing_models(bu)
     if nm >= bu.trainer.nmodels * 0.9
-        ensemble = create_ensemble(bu; clean_individual_models=bu.trainer.clean_models, save_ensemble_model=true)
+        ensemble = create_ensemble(
+            bu;
+            clean_individual_models=bu.trainer.clean_models,
+            save_ensemble_model=true,
+        )
     else
         throw(
             ErrorException(
@@ -589,7 +593,7 @@ function _perform_training_external(bu::Builder)
         _cmd = add_threads_env(Cmd([cmd..., "--id", "$i"]), tra.num_threads_per_worker)
         if tra.cuda_visible_devices != ""
             devices = split(tra.cuda_visible_devices, ",")
-            _cmd = addenv(_cmd, "EDDP_CUDA_DEVICE" => devices[(i-1) % length(devices) + 1])
+            _cmd = addenv(_cmd, "EDDP_CUDA_DEVICE" => devices[(i-1)%length(devices)+1])
         end
         this_task = @async begin
             run(pipeline(_cmd, stdout="lm-process-$i-stdout", stderr="lm-process-$i-stderr"))
@@ -1174,10 +1178,8 @@ end
 
 Swap the String keys of a dictonary into Symbol.
 """
-function _make_symbol_keys(dict::Dict{T,K}) where{T, K}
-    Dict{Symbol,K}(
-        Symbol(key) => _make_symbol_keys(value) for (key, value) in pairs(dict)
-    )
+function _make_symbol_keys(dict::Dict{T,K}) where {T,K}
+    Dict{Symbol,K}(Symbol(key) => _make_symbol_keys(value) for (key, value) in pairs(dict))
 end
 
 _make_symbol_keys(x) = x
@@ -1198,7 +1200,7 @@ function write_model_structures(bu::Builder; iteration=bu.state.iteration)
     rmax = suggest_rcut(bu.cf)
     seedstem = split(stem(bu.state.seedfile), "-")[1]
     for order in [2, 3, 4]
-        pairs, cells = model_structures(bu.cf.elements;order, rmin, rmax)
+        pairs, cells = model_structures(bu.cf.elements; order, rmin, rmax)
         for (pair, this_cells) in zip(pairs, cells)
             p = join(pair, "-")
             for (n, cell) in enumerate(this_cells)

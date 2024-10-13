@@ -56,10 +56,10 @@ end
     mode::String = "one-pass"
 end
 
-mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface, D} <:
+mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface,D} <:
                AbstractCalc
-    cell::Cell{T, D}
-    last_cell::Cell{T, D}
+    cell::Cell{T,D}
+    last_cell::Cell{T,D}
     "Positions when the NeighbourList is built"
     last_nn_build_pos::Vector{SVector{D,T}}
     "NeighbourList"
@@ -122,7 +122,13 @@ function NNCalc(
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
 
-    workspace = GradientWorkspace(v; ndims=CellBase._n_dimensions(cell), core, do_grad=true, one_body_offset=feature_size(cf)[1]) # Buffer for force calculation 
+    workspace = GradientWorkspace(
+        v;
+        ndims=CellBase._n_dimensions(cell),
+        core,
+        do_grad=true,
+        one_body_offset=feature_size(cf)[1],
+    ) # Buffer for force calculation 
     NNCalc(
         cell,
         deepcopy(cell),
@@ -241,7 +247,7 @@ end
 function get_committee_forces(calc)
     force_list = map(calc.nninterface.models) do model
         # TODO - allow others to be customised
-        calc = NNCalc(calc.cell, calc.cf, model;elemental_energies=calc.elemental_energies)
+        calc = NNCalc(calc.cell, calc.cf, model; elemental_energies=calc.elemental_energies)
         eddp_forces(calc)
     end
 end
@@ -250,8 +256,8 @@ end
 function get_committee_ferror(calc)
     flist = get_committee_forces(calc)
     fmean = reduce(+, flist) ./ length(flist)
-    fmax=0.0
-    for i in 1:length(flist)
+    fmax = 0.0
+    for i = 1:length(flist)
         maxdiff = maximum(map(norm, eachcol(flist[i] .- fmean)))
         if maxdiff > fmax
             fmax = maxdiff
@@ -485,7 +491,7 @@ function set_positions!(vc::VariableCellCalc, new)
     pos = new[:, 1:nat]
     new_dgrad = transpose(new[:, nat+1:end]) ./ vc.lattice_factor
     # Set the cell according to the deformation
-    set_cellmat!(cell, new_dgrad[:, 1:3] * cellmat(vc.orig_lattice);scale_positions=false)
+    set_cellmat!(cell, new_dgrad[:, 1:3] * cellmat(vc.orig_lattice); scale_positions=false)
     # Scale the positions for the first three dimensions
     pos_new = copy(pos)
     pos_new[1:3, :] .= new_dgrad[:, 1:3] * pos_new[1:3, :]

@@ -24,7 +24,7 @@ function volume(sys::AbstractSystem)
 end
 
 
-function set_cellmatrix(sys::AbstractSystem, vecs;scale_atoms=false)
+function set_cellmatrix(sys::AbstractSystem, vecs; scale_atoms=false)
     if scale_atoms
         spos = scaled_position(sys, :)
         cellmat = hcat(vecs...)
@@ -37,7 +37,7 @@ function set_cellmatrix(sys::AbstractSystem, vecs;scale_atoms=false)
 end
 
 
-function set_cellmatrix(sys::AbstractSystem, mat::AbstractMatrix;scale_atoms=false)
+function set_cellmatrix(sys::AbstractSystem, mat::AbstractMatrix; scale_atoms=false)
     set_cellmatrix(sys, collect(eachcol(mat)), scale_atoms=scale_atoms)
 end
 
@@ -46,7 +46,8 @@ function set_positions(sys::AbstractSystem, positions::AbstractVector)
     AbstractSystem(sys; particles=particles)
 end
 
-set_positions(sys::AbstractSystem, positions::AbstractMatrix) = set_positions(sys, collect(eachcol(positions)))
+set_positions(sys::AbstractSystem, positions::AbstractMatrix) =
+    set_positions(sys, collect(eachcol(positions)))
 
 
 function rec_bounding_box(vecs)
@@ -70,7 +71,7 @@ Make a supercell
 Currently only work with diagonal transform matrices.
 """
 function make_supercell(structure::AbstractSystem, tmat)
-    
+
     old_cell = cellmatrix(structure)
     new_cell = old_cell * tmat
 
@@ -92,16 +93,19 @@ function make_supercell(structure::AbstractSystem, tmat)
     end
     new_spec = repeat(AtomsBase.species(structure, :), nshifts)
     AtomsBase.periodic_system(
-        [Atom(spec, pos; original_idx=i) for (spec, pos, i) in zip(new_spec, new_pos, iorig)],
-        collect(eachcol(new_cell))
+        [
+            Atom(spec, pos; original_idx=i) for
+            (spec, pos, i) in zip(new_spec, new_pos, iorig)
+        ],
+        collect(eachcol(new_cell)),
     )
 end
 
 function make_supercell(structure::AbstractSystem, a, b, c)
     tmat = [
-            a 0 0
-            0 b 0
-            0 0 c
-        ]
+        a 0 0
+        0 b 0
+        0 0 c
+    ]
     make_supercell(structure, tmat)
 end

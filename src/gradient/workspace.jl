@@ -127,17 +127,17 @@ Reset all the arrays in the workspace to zero.
 """
 function reset!(fb::GradientWorkspace)
     reset!(fb.hardcore)
-    fb.fvec[fb.one_body_offset+1:end, :] .= 0.
+    fb.fvec[fb.one_body_offset+1:end, :] .= 0.0
     #fill!(fb.gvec, 0.)  # Reset on-demand inside compute_fv_gv_one!
     fill!(fb.gvec_index, 0)
     fill!(fb.gvec_nn, 0)
     #fill!(fb.stotv, 0.)  # Reset on-demand inside compute_fv_gv_one!
-    fill!(fb.forces, 0.)
-    fill!(fb.stress, 0.)
-    fill!(fb.energies, 0.)
-    fill!(fb.tot_forces, 0.)
-    fill!(fb.tot_stress, 0.)
-    fill!(fb.tot_energies, 0.)
+    fill!(fb.forces, 0.0)
+    fill!(fb.stress, 0.0)
+    fill!(fb.energies, 0.0)
+    fill!(fb.tot_forces, 0.0)
+    fill!(fb.tot_stress, 0.0)
+    fill!(fb.tot_energies, 0.0)
     reset!(fb.hardcore)
     fb
 end

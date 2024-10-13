@@ -14,11 +14,11 @@ using Base.Threads
 
 Loader for storing structure data
 """
-struct StructureContainer{T,N, D}
+struct StructureContainer{T,N,D}
     paths::Vector{String}
     "Enthalpy"
     H::Vector{N}
-    structures::Vector{Cell{T, D}}
+    structures::Vector{Cell{T,D}}
 end
 
 Base.length(v::StructureContainer) = length(v.H)
@@ -295,7 +295,8 @@ function FeatureContainer(
     )
 end
 
-get_elemental_energy(cell::Cell, ref_energies::Dict) = sum(x -> get(ref_energies, x, 0.), species(cell))
+get_elemental_energy(cell::Cell, ref_energies::Dict) =
+    sum(x -> get(ref_energies, x, 0.0), species(cell))
 
 function FeatureContainer(sc::StructureContainer; cf_kwargs=NamedTuple(), kwargs...)
     symbols = reduce(vcat, unique.(species.(sc.structures)))
@@ -311,7 +312,7 @@ Base.IndexStyle(T::FeatureContainer) = IndexLinear()
 
 Base.iterate(v::Union{FeatureContainer,StructureContainer}, state=1) =
     state > length(v) ? nothing : (v[state], state + 1)
-Base.eltype(::Type{StructureContainer{T,N,D}}) where {T,N, D} = Cell{T, D}
+Base.eltype(::Type{StructureContainer{T,N,D}}) where {T,N,D} = Cell{T,D}
 Base.eltype(::Type{FeatureContainer{T,N}}) where {T,N} = Tuple{T,N}
 
 Base.getindex(v::StructureContainer, i::Int) = v.structures[i]

@@ -8,7 +8,7 @@ Routines for building structures
 Build a single structure via `buildcell`.
 """
 function build_one(seedfile; timeout=10, init_structure_transform=nothing, max_attemp=100)
-    local cell::Cell{Float64, 3}
+    local cell::Cell{Float64,3}
     i = 1
     while true
         if i >= max_attemp
