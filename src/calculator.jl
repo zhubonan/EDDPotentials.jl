@@ -564,25 +564,36 @@ E^{\prime} = \sum_i x_i ^2 \alpha / 2
 F_i^{\prime} = -x_i 
 ```
 """
-mutable struct DimPenalty{T,D,F} <: AbstractCalc
+mutable struct DimPenalty{T,D,F,C} <: AbstractCalc
     cell::Cell{T,D}
     alpha::T
     gamma::T
     n::Int
     f::F
+    calculator::C
 end
 
 set_positions!(calc::DimPenalty, new) = set_positions!(get_cell(calc), new)
 set_cellmat!(calc::DimPenalty, new) = set_cellmat!(get_cell(calc), new)
 
-DimPenalty(cell::Cell{T}; alpha=T(0.1), gamma=T(10)) where {T} =
-    DimPenalty(cell, alpha, gamma, 0, (x, y) -> (x / y)^2)
-DimPenalty(calc::AbstractCalc; alpha=eltype(positions(get_cell(calc)))(0.1), kwargs...) =
-    DimPenalty(get_cell(calc); alpha, kwargs...)
+DimPenalty(cell::Cell{T}; alpha=T(0.1), gamma=T(10), calculator=nothing) where {T} =
+    DimPenalty(cell, alpha, gamma, 0, (x, y) -> (x / y)^2, calculator)
+function DimPenalty(
+    calc::AbstractCalc;
+    alpha=eltype(positions(get_cell(calc)))(0.1),
+    kwargs...,
+)
+    DimPenalty(get_cell(calc); alpha, calculator=calc, kwargs...)
+end
 
 _factor(c::DimPenalty) = c.alpha * c.f(c.n, c.gamma)
 function eddp_forces(calc::DimPenalty)
-    forces = positions(get_cell(calc)) .* -2 * _factor(calc)
+    if calc.calculator !== nothing
+        pos = get_positions(calc.calculator)
+    else
+        pos = positions(calc.cell)
+    end
+    forces = pos .* -2 * _factor(calc)
     # Set the first three dimensions to zero
     forces[1:3, :] .*= 0
     forces
@@ -625,3 +636,4 @@ eddp_stress(calc::MultiCalc) = sum([eddp_stress(c) for c in calc.calcs])
 get_cell(calc::MultiCalc) = get_cell(calc.calcs[1])
 set_positions!(calc::MultiCalc, new) = set_positions!(calc.calcs[1], new)
 set_cellmat!(calc::MultiCalc, new) = set_cellmat!(calc.calcs[1], new)
+get_positions(calc::MultiCalc) = get_positions(calc.calcs[1])
