@@ -3,7 +3,13 @@ import Base
 using Optim: LBFGS, optimize
 using LineSearches: HagerZhang
 using LinearAlgebra
-import CellBase: set_cellmat!, set_positions!, get_cellmat, get_positions
+import CellBase:
+    set_cellmat!,
+    set_positions!,
+    get_cellmat,
+    get_positions,
+    add_dimensions,
+    remove_dimensions
 using StatsBase: ZScoreTransform, transform!
 abstract type AbstractCalc end
 const AC = AbstractCalc
@@ -547,3 +553,75 @@ eddp_energy_std_per_atom(cell::Cell, args...; kwargs...) =
     eddp_energy_std(cell, args...; kwargs...) / length(cell)
 eddp_energy_std_per_atom(calc::AbstractCalc, args...; kwargs...) =
     eddp_energy_std(calc, args...; kwargs...) / length(get_cell(calc))
+
+
+
+raw"""
+Compute the energy and force penalty for going into the extra dimensions
+
+```math
+E^{\prime} = \sum_i x_i ^2 \alpha / 2
+F_i^{\prime} = -x_i 
+```
+"""
+mutable struct DimPenalty{T,D,F} <: AbstractCalc
+    cell::Cell{T,D}
+    alpha::T
+    gamma::T
+    n::Int
+    f::F
+end
+
+set_positions!(calc::DimPenalty, new) = set_positions!(get_cell(calc), new)
+set_cellmat!(calc::DimPenalty, new) = set_cellmat!(get_cell(calc), new)
+
+DimPenalty(cell::Cell{T}; alpha=T(0.1), gamma=T(10)) where {T} =
+    DimPenalty(cell, alpha, gamma, 0, (x, y) -> (x / y)^2)
+DimPenalty(calc::AbstractCalc; alpha=eltype(positions(get_cell(calc)))(0.1), kwargs...) =
+    DimPenalty(get_cell(calc); alpha, kwargs...)
+
+_factor(c::DimPenalty) = c.alpha * c.f(c.n, c.gamma)
+function eddp_forces(calc::DimPenalty)
+    forces = positions(get_cell(calc)) .* -2 * _factor(calc)
+    # Set the first three dimensions to zero
+    forces[1:3, :] .*= 0
+    forces
+end
+
+function eddp_energy(calc::DimPenalty)
+    calc.n += 1
+    sum(sum(x -> x^2, @view(positions(get_cell(calc))[4:end, :]), dims=1)) * _factor(calc)
+end
+
+function eddp_stress(::DimPenalty{T}) where {T}
+    zeros(T, 3, 3)
+end
+
+
+get_cell(calc::DimPenalty) = calc.cell
+
+
+struct MultiCalc{T} <: AbstractCalc
+    calcs::T
+    function MultiCalc(calcs)
+        _calcs = collect(calcs)
+        # Ensure that variable cell calculation is the first one so we call its methods when setting/getting 
+        # positions and cell
+        ivar = findfirst(x -> isa(x, VariableCellCalc), calcs)
+        if ivar !== nothing
+            varcalc = popat!(_calcs, ivar)
+            pushfirst!(_calcs, varcalc)
+        end
+        tup = tuple(_calcs...)
+        new{typeof(tup)}(tup)
+    end
+end
+
+MultiCalc(calc...) = MultiCalc(calc)
+
+eddp_energy(calc::MultiCalc) = sum(eddp_energy(c) for c in calc.calcs)
+eddp_forces(calc::MultiCalc) = sum([eddp_forces(c) for c in calc.calcs])
+eddp_stress(calc::MultiCalc) = sum([eddp_stress(c) for c in calc.calcs])
+get_cell(calc::MultiCalc) = get_cell(calc.calcs[1])
+set_positions!(calc::MultiCalc, new) = set_positions!(calc.calcs[1], new)
+set_cellmat!(calc::MultiCalc, new) = set_cellmat!(calc.calcs[1], new)
