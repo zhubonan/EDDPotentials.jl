@@ -1,5 +1,6 @@
 using LinearAlgebra
 using GarishPrint
+using ExtXYZ
 #=
 Relaxation of a structure
 =#
@@ -20,6 +21,7 @@ using Configurations
     verbose::Bool = false
     iterations::Int = 1000
     maxstep::Float64 = 0.2
+    trajectory_file::String = ""
 end
 
 struct Relax{T}
@@ -121,7 +123,7 @@ Perform relaxation for a `Relax` object.
 """
 function relax!(re::Relax)
     (; method, energy_threshold, force_threshold, stress_threshold) = re.options
-    (; external_pressure, relax_cell, keep_trajectory, verbose, maxstep) = re.options
+    (; external_pressure, relax_cell, keep_trajectory, verbose, maxstep, trajectory_file) = re.options
     (; iterations) = re.options
     trajectory = re.trajectory
     calc = re.calc
@@ -165,9 +167,8 @@ function relax!(re::Relax)
         set_positions!(calc, reshape(x, CellBase.n_dimensions(get_cell(calc)), :))
         if keep_trajectory
             cell = deepcopy(get_cell(calc))
-            cell.metadata[:enthalpy] = eddp_energy(calc)
-            cell[:enthalpy] = eddp_energy(calc)
-            cell[:, :force] = eddp_forces(calc)[:, 1:length(cell)]
+            cell.metadata[:energy] = eddp_energy(calc)
+            cell.metadata[:force] = eddp_forces(calc)[:, 1:length(cell)]
             push!(trajectory, cell)
         end
         forces = eddp_forces(calc)
@@ -199,6 +200,11 @@ function relax!(re::Relax)
         stress = eVAngToGPa.(eddp_stress(calc))
         smax = maximum(abs.(stress))
         elapsed = time() - start_time
+
+        # Write trajectory file 
+        xyzdict = ExtXYZ.write_dict(CellBase.remove_dimensions(get_cell(calc)))
+        #xyzdict[:arrays][:forces] = forces
+        ExtXYZ.write_frame(trajectory_file, xyzdict; append=true)
 
         # Check for convergence criteria
         fmax < force_threshold ? fok = "T" : fok = "F"
