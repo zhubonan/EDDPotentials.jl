@@ -9,7 +9,7 @@ makedocs(
         "Home" => "index.md",
         "Getting Started" => "getting_started.md",
         "AIRSS Background" => "airss.md",
- #      "Functions" => "functions.md",
+        "GPU" => "gpu.md",
         "FAQ" => "faq.md",
         "API" => "api.md",
         "Python Tools" => "python_tools.md",
