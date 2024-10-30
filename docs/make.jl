@@ -4,15 +4,17 @@ using EDDPotentials
 makedocs(
     sitename="EDDPotentials.jl",
     format=Documenter.HTML(),
-    modules=[EDDPotentials],
+    #modules=[EDDPotentials],
     pages=[
         "Home" => "index.md",
         "Getting Started" => "getting_started.md",
-        "Functions" => "functions.md",
+        "AIRSS Background" => "airss.md",
+ #      "Functions" => "functions.md",
         "FAQ" => "faq.md",
         "API" => "api.md",
         "Python Tools" => "python_tools.md",
     ],
+    warnonly = Documenter.except(:missing_docs, :autodocs_block, :cross_references)
 )
 
 # Documenter can also automatically deploy documentation to gh-pages.

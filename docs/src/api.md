@@ -1,4 +1,8 @@
-# Index
+# API
 
-```@index
+
+## Public API
+```@docs
+Builder
+link!
 ```

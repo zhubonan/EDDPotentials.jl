@@ -1,4 +1,4 @@
-![](docs/src/assets/logo_small.png)
+![](assets/logo_small.png)
 # EDDPotentials.jl
 
 [Documentation](https://zhubonan.github.io/EDDPotentials.jl)
@@ -32,7 +32,7 @@ In many cases, EDDP can still give sufficiently accurate forces to allow molecul
 ## Documentations
 
 ```@contents
-Pages = ["index.md", "getting_started.md", "faq.md", "python_tools.md"]
+Pages = ["getting_started.md", "faq.md", "python_tools.md", "airss.md"]
 ```
 
 ```@meta
