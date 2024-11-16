@@ -90,11 +90,13 @@ function pairpot_energy_forces(workspace::PairpotWorkspace{T, S}, cell, nl) wher
 end
 
 
-mutable struct PairpotCalc{T,D,S}
+mutable struct PairpotCalc{T,D,S} <: AbstractCalc
     cell::Cell{T,D}
     nl::NeighbourList{T,D}
     workspace::PairpotWorkspace{T,S}
 end
+
+get_cell(p::PairpotCalc) = p.cell
 
 PairpotCalc(cell::Cell, workspace::PairpotWorkspace; 
     nl=NeighbourList(cell, 6.0; savevec=true),
@@ -103,21 +105,22 @@ PairpotCalc(cell::Cell, workspace::PairpotWorkspace;
 set_positions!(calc::PairpotCalc, new) = set_positions!(calc.cell, new)
 set_cellmat!(calc::PairpotCalc, new) = set_cellmat!(calc.cell, new)
 
-function calculate!(calc::PairpotCalc)
+function calculate!(calc::PairpotCalc;kwargs...)
+    rebuild!(calc.nl, get_cell(calc))
     pairpot_energy_forces(calc.workspace, calc.cell, calc.nl)
 end
 
-function eddp_forces(calc::PairpotCalc)
+function eddp_forces(calc::PairpotCalc;kwargs...)
     calculate!(calc)
     calc.workspace.forces
 end
 
-function eddp_energy(calc::PairpotCalc)
+function eddp_energy(calc::PairpotCalc; kwargs...)
     calculate!(calc)
     calc.workspace.energy
 end
 
-function eddp_stress(calc::PairpotCalc)
+function eddp_stress(calc::PairpotCalc; kwargs...)
     calculate!(calc)
     calc.workspace.stress
 end

@@ -201,10 +201,12 @@ function relax!(re::Relax)
         smax = maximum(abs.(stress))
         elapsed = time() - start_time
 
-        # Write trajectory file 
-        xyzdict = ExtXYZ.write_dict(CellBase.remove_dimensions(get_cell(calc)))
-        #xyzdict[:arrays][:forces] = forces
-        ExtXYZ.write_frame(trajectory_file, xyzdict; append=true)
+        if !isempty(trajectory_file)
+            # Write trajectory file 
+            xyzdict = ExtXYZ.write_dict(CellBase.remove_dimensions(get_cell(calc)))
+            #xyzdict[:arrays][:forces] = forces
+            ExtXYZ.write_frame(trajectory_file, xyzdict; append=true)
+        end
 
         # Check for convergence criteria
         fmax < force_threshold ? fok = "T" : fok = "F"

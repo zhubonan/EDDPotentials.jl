@@ -405,9 +405,9 @@ eddp_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) =
 
 eddp_energy_std(vc::VariableCellCalc) = eddp_energy_std(vc.calc)
 
-function VariableCellCalc(calc::NNCalc{T}; external_pressure=zeros(T, 3, 3)) where {T}
+function VariableCellCalc(calc::AbstractCalc; external_pressure=zeros(3, 3))
     latt = copy(cellmat(get_cell(calc)))
-    lattice_factor = convert(T, nions(get_cell(calc)))
+    lattice_factor = convert(eltype(latt), nions(get_cell(calc)))
     VariableCellCalc(calc, Lattice(latt), lattice_factor, external_pressure)
 end
 
