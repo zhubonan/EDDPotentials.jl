@@ -27,7 +27,6 @@ export glob
 abstract type EDDPotentialsOption end
 
 # end of abstract types
-
 include("constants.jl")
 # External
 include("nnls/nnls.jl")

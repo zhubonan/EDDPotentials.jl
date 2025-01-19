@@ -182,4 +182,13 @@ function EDDPotentials.plot_std_vs_error(tr::TrainingResults, args...; mode="sca
     end
 end
 
+"""
+Plot the radial distribution function
+"""
+function EDDPotentials.plot_rdf(cell:: Cell; bins=0.5:0.1:10.0, kwargs...)
+    counts = EDDPotentials.plot_rdf(cell; bins, kwargs...)
+    Plots.plot(bins, counts, xlabel="Distance (Å)", ylabel="Counts")
+end
+    
 end # module
+

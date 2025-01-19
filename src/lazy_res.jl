@@ -77,9 +77,13 @@ struct ShelxRecord <: AbstractRecord
 end
 
 record_energy(s::ShelxRecord) = s.titl.enthalpy
+energy(s::ShelxRecord) = s.titl.enthalpy
 record_comp(s::ShelxRecord) = s.comp
+composition(s::ShelxRecord) = s.comp
 record_reduced_comp(s::ShelxRecord) = s.reduced_comp
+reduced_composition(s::ShelxRecord) = s.reduced_comp
 record_id(s::ShelxRecord) = s.titl.label
+label(s::ShelxRecord) = s.titl.label
 
 
 """

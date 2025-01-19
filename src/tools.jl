@@ -388,3 +388,47 @@ function test_finite_difference(calc::NNCalc)
 
     vc_force_ok && force_ok && stress_ok && desc_ok
 end
+
+
+"""
+    compute_rdf(cell:: Cell; nmax=500, bins=0.5:0.1:cutoff,
+
+Compute the radial distribution function for a given cell.
+
+Arguments
+    - `cell`: The cell for which to compute the RDF.
+    - `nmax`: The maximum number of neighbours to consider.
+    - `bins`: The bins to use for the RDF.
+    - `centre_symbols`: The symbols of the atoms to consider as centres.
+    - `neighbour_symbols`: The symbols of the atoms to consider as neighbours.
+"""
+function compute_rdf(cell:: Cell; nmax=500, bins=0.5:0.1:10.0,
+    centre_symbols=nothing, neighbour_symbols=nothing)
+    nl = NeighbourList(cell, bins[end], nmax)
+    counts = zeros(Int, length(bins))
+    dmax = bins[end]
+    dmin = bins[1]
+    sym = species(cell)
+
+    for idxi in 1:length(cell)
+        if centre_symbols !== nothing
+            (sym[idxi] in centre_symbols) || continue
+        end
+        for (idxj, _, dist) in eachneighbour(nl, idxi)
+            if neighbour_symbols !== nothing
+                (sym[idxj] in neighbour_symbols) || continue
+            end
+            # Check for ranges
+            (dist > dmax) && continue
+            (dist < dmin) && continue
+            # Find the bin index
+            idxtemp = (dist - dmin) / (dmax - dmin) * (length(bins) - 1)
+            # Accumulate
+            counts[Int(ceil(idxtemp))] += 1
+        end
+    end
+    counts
+end
+
+function plot_rdf
+end

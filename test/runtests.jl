@@ -13,6 +13,7 @@ using Test
 end
 
 include("utils.jl")
+include("test_tools.jl")
 
 include("test_records.jl")
 include("test_cellfeature.jl")
