@@ -144,13 +144,8 @@ function relax!(re::Relax)
 
     # Initial position vector
 
-    if relax_cell
-        if isa(calc, MultiCalc)
-            _calc = VariableCellCalc(calc.calcs[1]; external_pressure=smat)
-            _calc = MultiCalc(_calc, calc.calcs[2:end]...)
-        else
-            _calc = VariableCellCalc(calc; external_pressure=smat)
-        end
+    if relax_cell && !isa(calc, VariableCellCalc)
+        _calc = VariableCellCalc(calc; external_pressure=smat)
     else
         _calc = calc
     end
@@ -256,6 +251,12 @@ function relax!(re::Relax)
     RelaxResult(re, de, fmax, smax, res.iterations, converged)
 end
 
+function (re::Relax)(;kwargs...) 
+    for (key, value) in kwargs
+        setproperty!(re.options, key, value)
+    end
+    relax!(re)
+end
 
 
 """
@@ -272,4 +273,30 @@ function relax!(calc::AbstractCalc; multi=true, relax_cell=true, method="tpsd", 
     else
         relax!(relax)
     end
+end
+
+"""
+Relax with scheduled extra dimension penalty.
+"""
+function scheduled_penalty_relax!(
+    re::Relax,
+    penalty::DimPenalty;
+    schedule_every=10,
+    max_iterations=500,
+    schedule_function= x -> x * 10,
+    alpha_start=1e-4
+)
+    calc = re.calc
+    cell = get_cell(calc)
+    results = []
+    extra_d = []
+    penalty.alpha = alpha_start
+    for i in 1:div(max_iterations, schedule_every)
+        re = Relax(calc, RelaxOption())
+        push!(extra_d, 
+            maximum(norm.(eachcol(positions(cell)[4:end, :]))))
+        push!(results, re(iterations=schedule_every))
+        penalty.alpha = schedule_function(penalty.alpha)
+    end
+    (relax_results=results, extra_dim_norms=extra_d)
 end

@@ -406,6 +406,10 @@ eddp_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) =
 eddp_energy_std(vc::VariableCellCalc) = eddp_energy_std(vc.calc)
 
 function VariableCellCalc(calc::AbstractCalc; external_pressure=zeros(3, 3))
+    # Reconstruct if a VariableCellCalc is passed
+    if isa(calc, VariableCellCalc) 
+        calc = calc.calc
+    end
     latt = copy(cellmat(get_cell(calc)))
     lattice_factor = convert(eltype(latt), nions(get_cell(calc)))
     VariableCellCalc(calc, Lattice(latt), lattice_factor, external_pressure)
@@ -564,47 +568,49 @@ E^{\prime} = \sum_i x_i ^2 \alpha / 2
 F_i^{\prime} = -x_i 
 ```
 """
-mutable struct DimPenalty{T,D,F,C} <: AbstractCalc
+mutable struct DimPenalty{T,D,C} <: AbstractCalc
     cell::Cell{T,D}
     alpha::T
-    gamma::T
-    n::Int
-    f::F
     calculator::C
 end
 
 set_positions!(calc::DimPenalty, new) = set_positions!(get_cell(calc), new)
 set_cellmat!(calc::DimPenalty, new) = set_cellmat!(get_cell(calc), new)
 
-DimPenalty(cell::Cell{T}; alpha=T(0.1), gamma=T(10), calculator=nothing) where {T} =
-    DimPenalty(cell, alpha, gamma, 0, (x, y) -> (x / y)^2, calculator)
 function DimPenalty(
     calc::AbstractCalc;
     alpha=eltype(positions(get_cell(calc)))(0.1),
     kwargs...,
 )
-    DimPenalty(get_cell(calc); alpha, calculator=calc, kwargs...)
+    DimPenalty(get_cell(calc), alpha, calc)
 end
 
-_factor(c::DimPenalty) = c.alpha * c.f(c.n, c.gamma)
-function eddp_forces(calc::DimPenalty)
+
+"""
+Do nothing as quantities are calculated by each
+force/stress/energy call.
+"""
+function calculate!(calc::DimPenalty; kwargs...)
+    nothing
+end
+
+function eddp_forces(calc::DimPenalty; kwargs...)
     if calc.calculator !== nothing
         pos = get_positions(calc.calculator)
     else
         pos = positions(calc.cell)
     end
-    forces = pos .* -2 * _factor(calc)
+    forces = pos .* -2 * calc.alpha
     # Set the first three dimensions to zero
     forces[1:3, :] .*= 0
     forces
 end
 
-function eddp_energy(calc::DimPenalty)
-    calc.n += 1
-    sum(sum(x -> x^2, @view(positions(get_cell(calc))[4:end, :]), dims=1)) * _factor(calc)
+function eddp_energy(calc::DimPenalty; kwargs...)
+    sum(sum(x -> x^2, @view(positions(get_cell(calc))[4:end, :]), dims=1))
 end
 
-function eddp_stress(::DimPenalty{T}) where {T}
+function eddp_stress(::DimPenalty{T}; kwargs...) where {T}
     zeros(T, 3, 3)
 end
 
@@ -630,10 +636,16 @@ end
 
 MultiCalc(calc...) = MultiCalc(calc)
 
-eddp_energy(calc::MultiCalc) = sum(eddp_energy(c) for c in calc.calcs)
-eddp_forces(calc::MultiCalc) = sum([eddp_forces(c) for c in calc.calcs])
-eddp_stress(calc::MultiCalc) = sum([eddp_stress(c) for c in calc.calcs])
+eddp_energy(calc::MultiCalc; kwargs...) = sum(eddp_energy(c;kwargs...) for c in calc.calcs)
+eddp_forces(calc::MultiCalc; kwargs...) = sum([eddp_forces(c;kwargs...) for c in calc.calcs])
+eddp_stress(calc::MultiCalc; kwargs...) = sum([eddp_stress(c;kwargs...) for c in calc.calcs])
 get_cell(calc::MultiCalc) = get_cell(calc.calcs[1])
 set_positions!(calc::MultiCalc, new) = set_positions!(calc.calcs[1], new)
 set_cellmat!(calc::MultiCalc, new) = set_cellmat!(calc.calcs[1], new)
 get_positions(calc::MultiCalc) = get_positions(calc.calcs[1])
+
+function calculate!(calc::MultiCalc;kwargs...) 
+    for obj in calc.calcs
+        calculate!(obj;kwargs...) 
+    end
+end
