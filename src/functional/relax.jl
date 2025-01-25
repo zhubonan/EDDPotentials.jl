@@ -144,11 +144,20 @@ function relax!(re::Relax)
 
     # Initial position vector
 
-    if relax_cell && !isa(calc, VariableCellCalc)
-        _calc = VariableCellCalc(calc; external_pressure=smat)
+    if relax_cell
+        if isa(calc, VariableCellCalc)
+            _calc = calc
+            # Apply the specified external pressure
+            _calc.external_pressure .= smat
+        else
+            # Construct a VariableCellCalc type
+            _calc = VariableCellCalc(calc; external_pressure=smat)
+        end
     else
+        # Do nothing 
         _calc = calc
     end
+    # Initial position
     p0 = get_positions(_calc)[:]
 
     "Energy"

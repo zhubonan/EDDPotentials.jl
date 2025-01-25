@@ -87,7 +87,7 @@ mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface,D
     "NNInterface"
     nninterface::X
     "elemental_energies"
-    elemental_energies::Dict{Symbol,Float64}
+    elemental_energies::Dict{Symbol,T}
 end
 
 get_cell(ac::NNCalc) = ac.cell
@@ -123,7 +123,7 @@ function NNCalc(
     nmax=500,
     savevec=true,
     core=CoreRepulsion(1.0),
-    elemental_energies=Dict{Symbol,Float64}(),
+    elemental_energies=Dict{Symbol, T}(),
 ) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
@@ -149,7 +149,7 @@ function NNCalc(
         zeros(T, nions(cell)), # Energy
         NNCalcParam(; mode=mode),
         nn,
-        Dict{Symbol,Float64}(elemental_energies),
+        Dict{Symbol, T}(_make_symbol_keys(elemental_energies)),
     )
 end
 
