@@ -523,6 +523,13 @@ function _run_external(bu::Builder)
     end
     return false
 end
+
+
+"""
+    _perform_training(bu::Builder)
+
+Carry out training using the latest set of data.
+"""
 function _perform_training(bu::Builder)
 
     # Write the dataset to the disk
@@ -530,8 +537,11 @@ function _perform_training(bu::Builder)
     write_dataset(bu)
 
     if bu.trainer.external
+        # Call external program for training, e.g. running another Julia process
+        # This is the preferred way in order to maximizes the efficiency
         _perform_training_external(bu)
     else
+        # Run training at the current process
         run_trainer(bu, bu.trainer)
     end
 
@@ -568,8 +578,12 @@ function _perform_training_external(bu::Builder)
     if tra.use_cuda == true
         julia_cmd = "using EDDPotentials;using CUDA;EDDPotentials.USE_CUDA[]=true;EDDPotentials.run_trainer()"
     end
-    cmd = Cmd(
-        Cmd([
+    # Call multiple trainer processes
+    @info "Subprocess launch command: $cmd"
+    tasks = Task[]
+    for i = 1:tra.num_workers
+        # Run with ids
+        cmd = Cmd([
             Base.julia_cmd()...,
             "--project=$(project_path)",
             "-e",
@@ -577,22 +591,17 @@ function _perform_training_external(bu::Builder)
             "$(builder_file)",
             "--iteration",
             "$(bu.state.iteration)",
-        ]),
-        env=("OMP_NUM_THREADS" => "1",),
-    )
-
-    # Call multiple trainer processes
-    @info "Subprocess launch command: $cmd"
-    tasks = Task[]
-    for i = 1:tra.num_workers
-        # Run with ids
-        _cmd = add_threads_env(Cmd([cmd..., "--id", "$i"]), tra.num_threads_per_worker)
+            "--id",
+            "$i"
+            ])
+        # Set environmental variables
+        cmd = addenv(cmd, "JULIA_NUM_THREADS"=>tra.num_threads_per_worker, "OMP_NUM_THREADS" => "1")
         if tra.cuda_visible_devices != ""
             devices = split(tra.cuda_visible_devices, ",")
-            _cmd = addenv(_cmd, "EDDP_CUDA_DEVICE" => devices[(i-1) % length(devices) + 1])
+            cmd = addenv(cmd, "EDDP_CUDA_DEVICE" => devices[(i-1) % length(devices) + 1])
         end
         this_task = @async begin
-            run(pipeline(_cmd, stdout="lm-process-$i-stdout", stderr="lm-process-$i-stderr"))
+            run(pipeline(cmd, stdout="lm-process-$i-stdout", stderr="lm-process-$i-stderr"))
         end
         push!(tasks, this_task)
     end
