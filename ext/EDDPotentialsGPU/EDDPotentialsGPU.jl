@@ -355,7 +355,7 @@ function set_cuda_device!()
     dev = get(ENV, "EDDP_CUDA_DEVICE", "")
     @info "EDDP_CUDA_DEVICE=$dev"
     if !isempty(dev)
-        d = collect(CUDA.devices())[parse(Int, dev) + 1]  # CUDA uses 0 based index
+        d = collect(CUDA.devices())[parse(Int, dev)+1]  # CUDA uses 0 based index
         CUDA.device!(d)
     end
     @info "Using CUDA device $(CUDA.device())"

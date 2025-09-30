@@ -140,7 +140,7 @@ function Builder(str::AbstractString="link.toml")
     # Adjust the workdir to be that relative to the yaml file
     paths = splitpath(str)
     if length(paths) > 1
-        parents = paths[1:end-1]
+        parents = paths[1:(end-1)]
         @assert !startswith(builder.state.workdir, "/") ":workdir should be a relative path"
         builder.state.workdir = joinpath(parents..., builder.state.workdir)
         @info "Setting workdir to $(builder.state.workdir)"
@@ -551,7 +551,11 @@ function _perform_training(bu::Builder)
     # Create ensemble
     nm = num_existing_models(bu)
     if nm >= bu.trainer.nmodels * 0.9
-        ensemble = create_ensemble(bu; clean_individual_models=bu.trainer.clean_models, save_ensemble_model=true)
+        ensemble = create_ensemble(
+            bu;
+            clean_individual_models=bu.trainer.clean_models,
+            save_ensemble_model=true,
+        )
     else
         throw(
             ErrorException(
@@ -592,13 +596,17 @@ function _perform_training_external(bu::Builder)
             "--iteration",
             "$(bu.state.iteration)",
             "--id",
-            "$i"
-            ])
+            "$i",
+        ])
         # Set environmental variables
-        cmd = addenv(cmd, "JULIA_NUM_THREADS"=>tra.num_threads_per_worker, "OMP_NUM_THREADS" => "1")
+        cmd = addenv(
+            cmd,
+            "JULIA_NUM_THREADS"=>tra.num_threads_per_worker,
+            "OMP_NUM_THREADS" => "1",
+        )
         if tra.cuda_visible_devices != ""
             devices = split(tra.cuda_visible_devices, ",")
-            cmd = addenv(cmd, "EDDP_CUDA_DEVICE" => devices[(i-1) % length(devices) + 1])
+            cmd = addenv(cmd, "EDDP_CUDA_DEVICE" => devices[(i-1)%length(devices)+1])
         end
         this_task = @async begin
             run(pipeline(cmd, stdout="lm-process-$i-stdout", stderr="lm-process-$i-stderr"))
@@ -678,7 +686,8 @@ function run_disp_castep(
     # Setup the inputs
     project_name = joinpath(project_prefix, abspath(indir)[2:end])
     seed_stem = splitext(basename(seedfile))[1]
-    cmd = `disp deploy singlepoint --seed $seed_stem --base-cell $seed.cell --param $seed.param --cell $file_pattern --project $project_name --priority $priority`
+    cmd =
+        `disp deploy singlepoint --seed $seed_stem --base-cell $seed.cell --param $seed.param --cell $file_pattern --project $project_name --priority $priority`
 
     # Define the categories
     for category in categories
@@ -929,7 +938,7 @@ from generation ``N-1``, and compare it with the results using model from genera
 function walk_forward_tests(
     bu::Builder;
     print_results=false,
-    iters=0:bu.state.iteration-1,
+    iters=0:(bu.state.iteration-1),
     fc_show_progress=false,
     check_training_data=false,
 )
@@ -1183,10 +1192,8 @@ end
 
 Swap the String keys of a dictonary into Symbol.
 """
-function _make_symbol_keys(dict::Dict{T,K}) where{T, K}
-    Dict{Symbol,K}(
-        Symbol(key) => _make_symbol_keys(value) for (key, value) in pairs(dict)
-    )
+function _make_symbol_keys(dict::Dict{T,K}) where {T,K}
+    Dict{Symbol,K}(Symbol(key) => _make_symbol_keys(value) for (key, value) in pairs(dict))
 end
 
 _make_symbol_keys(x) = x
@@ -1207,7 +1214,7 @@ function write_model_structures(bu::Builder; iteration=bu.state.iteration)
     rmax = suggest_rcut(bu.cf)
     seedstem = split(stem(bu.state.seedfile), "-")[1]
     for order in [2, 3, 4]
-        pairs, cells = model_structures(bu.cf.elements;order, rmin, rmax)
+        pairs, cells = model_structures(bu.cf.elements; order, rmin, rmax)
         for (pair, this_cells) in zip(pairs, cells)
             p = join(pair, "-")
             for (n, cell) in enumerate(this_cells)

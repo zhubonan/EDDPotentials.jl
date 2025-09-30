@@ -153,12 +153,12 @@ function _chunk_ranges(ndata; ngps=1)
     out = UnitRange{Int64}[]
     i = 1
     for _ = 1:ndivide
-        push!(out, i:i+ningroup-1)
+        push!(out, i:(i+ningroup-1))
         i += ningroup
     end
     m = mod(ndata, ndivide)
     if m != 0
-        push!(out, ndata-m+1:ndata)
+        push!(out, (ndata-m+1):ndata)
     end
     @assert sum(length, out) == ndata
     out

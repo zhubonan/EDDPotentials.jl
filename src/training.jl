@@ -63,7 +63,7 @@ Args:
     - `y`: a `Vector` containing the total energy of each structure.
 
 """
-function nnls_weights(models, x, y;alg=:fnnls, error_threshold=0.5)
+function nnls_weights(models, x, y; alg=:fnnls, error_threshold=0.5)
     all_engs = zeros(length(x), length(models))
     nat = map(x -> size(x, 2), x)
     y_pa = y ./ nat
@@ -84,7 +84,7 @@ function nnls_weights(models, x, y;alg=:fnnls, error_threshold=0.5)
         @info "Less than 100 observations selected, using all structures instead."
     end
     #wt = nnls(all_engs, y)
-    wt = nonneg_lsq(all_engs[mask, :], y[mask];alg)
+    wt = nonneg_lsq(all_engs[mask, :], y[mask]; alg)
     wt
 end
 
@@ -94,8 +94,15 @@ end
 
 Create an EnsembleNNInterface from a vector of interfaces and x, y data for fitting.
 """
-function create_ensemble(models, x::AbstractVector, y::AbstractVector; threshold=1e-13, alg=:fnnls, error_threshold=0.5)
-    weights = nnls_weights(models, x, y;alg, error_threshold)[:]
+function create_ensemble(
+    models,
+    x::AbstractVector,
+    y::AbstractVector;
+    threshold=1e-13,
+    alg=:fnnls,
+    error_threshold=0.5,
+)
+    weights = nnls_weights(models, x, y; alg, error_threshold)[:]
     tmp_models = collect(models)
     mask = weights .> threshold
     EnsembleNNInterface(Tuple(tmp_models[mask]), weights[mask])
@@ -170,7 +177,7 @@ function train_lm!(
 
     callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
 
-    func = levenberg_marquardt 
+    func = levenberg_marquardt
     if EDDPotentials.USE_CUDA[]
         func = levenberg_marquardt_gpu
     end
@@ -340,7 +347,7 @@ absolute_error(tr::TrainingResults) = abs.(tr.H_pred .- tr.H_target)
 
 Absolute error per atom.
 """
-ae_per_atom(tr::TrainingResults) =  absolute_error(tr) ./ natoms(tr.fc)
+ae_per_atom(tr::TrainingResults) = absolute_error(tr) ./ natoms(tr.fc)
 
 """
     rmse_per_atom(tr::TrainingResults)

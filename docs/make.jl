@@ -14,7 +14,7 @@ makedocs(
         "API" => "api.md",
         "Python Tools" => "python_tools.md",
     ],
-    warnonly = Documenter.except(:missing_docs, :autodocs_block, :cross_references)
+    warnonly=Documenter.except(:missing_docs, :autodocs_block, :cross_references),
 )
 
 # Documenter can also automatically deploy documentation to gh-pages.

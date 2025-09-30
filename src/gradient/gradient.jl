@@ -96,7 +96,7 @@ function compute_fv_gv_one!(
     nl::NeighbourList,
     ;
     offset=workspace.one_body_offset,
-    do_grad=workspace.do_grad
+    do_grad=workspace.do_grad,
 )
 
     # NeighbourList must be built with vectors for gradient computation
@@ -106,8 +106,8 @@ function compute_fv_gv_one!(
     (; core, fcore, score, ecore) = hardcore
 
     if do_grad
-        gvec[:, :, :, iat] .= 0.
-        stotv[:, :, :, iat] .= 0.
+        gvec[:, :, :, iat] .= 0.0
+        stotv[:, :, :, iat] .= 0.0
     end
 
     # Check if all features are the same - so powers does not need to be recalculated for each feature.
@@ -150,7 +150,7 @@ function compute_fv_gv_one!(
         gvec_index[1, iat] = iat
         # The rest are teh neighbouring atoms (can include the central atom itself)
         # We always use the original index not the extended index
-        gvec_index[2:length(neighbour_indices)+1, iat] .= neighbour_indices
+        gvec_index[2:(length(neighbour_indices)+1), iat] .= neighbour_indices
         gvec_nn[iat] = length(neighbour_indices) + 1
     end
 
@@ -200,14 +200,14 @@ function compute_fv_gv_one!(
                     end
                     # Force update 
                     #@inbounds 
-                    for elm = axes(gvec, 1)
+                    for elm in axes(gvec, 1)
                         gvec[elm, i, 1, iat] -= modvij[elm] * gfij
                         gvec[elm, i, ineigth_j, iat] += modvij[elm] * gfij
                     end
                     # Stress update
                     #@inbounds 
-                    for elm2 = axes(stotv, 2)
-                        for elm1 = axes(stotv, 1)
+                    for elm2 in axes(stotv, 2)
+                        for elm1 in axes(stotv, 1)
                             stotv[elm1, elm2, i, iat] += vij[elm1] * modvij[elm2] * gfij
                         end
                     end
@@ -299,15 +299,15 @@ function compute_fv_gv_one!(
                             t2 = modvik * gtmp2[m] * val
                             t3 = modvjk * gtmp3[o] * val
 
-                            for elm = axes(gvec, 1)
+                            for elm in axes(gvec, 1)
                                 gvec[elm, i, 1, iat] -= t1[elm] + t2[elm]
                                 gvec[elm, i, ineigth_j, iat] += t1[elm] - t3[elm]
                                 gvec[elm, i, ineigth_k, iat] += t2[elm] + t3[elm]
                             end
 
                             # Stress
-                            for elm2 = axes(stotv, 2)
-                                for elm1 = axes(stotv, 1)
+                            for elm2 in axes(stotv, 2)
+                                for elm1 in axes(stotv, 1)
                                     stotv[elm1, elm2, i, iat] += (
                                         vij[elm1] * t1[elm2] +
                                         vik[elm1] * t2[elm2] +
@@ -365,7 +365,17 @@ function compute_fv!(
 )
     reset!(workspace)
     for iat = 1:natoms(cell)
-        compute_fv_gv_one!(workspace, f2, f3, iat, cell, nl; do_grad=false, offset, kwargs...)
+        compute_fv_gv_one!(
+            workspace,
+            f2,
+            f3,
+            iat,
+            cell,
+            nl;
+            do_grad=false,
+            offset,
+            kwargs...,
+        )
     end
     workspace.fvec
 end
@@ -434,7 +444,7 @@ function _force_update!(workspace, gv; offset=workspace.one_body_offset)
     for iv in axes(gvec, 4)
         for ia = 1:workspace.gvec_nn[iv]  # Number of unique neighbours and self whose graidents are stored
             iat = workspace.gvec_index[ia, iv]  # Translate to the actual atom index
-            for i = 1+offset:size(gvec, 2)
+            for i = (1+offset):size(gvec, 2)
                 for elm in axes(workspace.forces, 1)
                     workspace.forces[elm, iat] -= gvec[elm, i, ia, iv] * gv[i, iv]
                 end
@@ -458,7 +468,7 @@ function _stress_update!(workspace::GradientWorkspace, gv; offset=workspace.one_
     stotv = workspace.stotv
     fill!(workspace.stress, 0)
     for iat in axes(stotv, 4)
-        for i = 1+offset:size(stotv, 3)
+        for i = (1+offset):size(stotv, 3)
             for a in axes(workspace.stress, 1), b in axes(workspace.stress, 2)
                 workspace.stress[a, b, iat] -= stotv[a, b, i, iat] * gv[i, iat]
             end

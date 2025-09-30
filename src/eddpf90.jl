@@ -77,7 +77,7 @@ function write_eddpf90_features(
         j = 1
         for _ = 1:nfeats[2]
             _i = nfeats[1] + j
-            for i = _i:_i+fsize_eddp[1]-1
+            for i = _i:(_i+fsize_eddp[1]-1)
                 @printf io "%.14f " fv[i]
             end
             j += fsize_eddp[1]
@@ -87,7 +87,7 @@ function write_eddpf90_features(
         j = 1
         for _ = 1:nfeats[3]
             _i = nfeats[1] + j + fsize_eddp[1] * nfeats[2]
-            for i = _i:_i+fsize_eddp[2]-1
+            for i = _i:(_i+fsize_eddp[2]-1)
                 @printf io "%.14f " fv[i]
             end
             j += fsize_eddp[2]

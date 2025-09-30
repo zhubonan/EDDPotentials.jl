@@ -166,7 +166,7 @@ Do a forward pass compute the intermediate quantities for each layer
 function forward!(chaing::ChainGradients, chain::Chain, x)
     nlayers = length(chain.layers)
 
-    for i = 1:length(chain.layers)-1
+    for i = 1:(length(chain.layers)-1)
         forward!(chaing.layers[i], chain.layers[i], chaing.layers[i+1], x, i, nlayers)
         x = chaing.layers[i].out
     end
@@ -234,7 +234,7 @@ function paramvector!(vec::AbstractVector, model::Chain)
     # Can be optimized here
     for item in fparam
         l = length(item)
-        vec[i:i+l-1] .= item[:]
+        vec[i:(i+l-1)] .= item[:]
         i += l
     end
     vec
@@ -261,7 +261,7 @@ function update_param!(model, param)
     i = 1
     for item in fparams
         l = length(item)
-        item[:] .= param[i:i+l-1]
+        item[:] .= param[i:(i+l-1)]
         i += l
     end
     model
@@ -344,7 +344,7 @@ function forward!(
     if !isnothing(itf.xt) && itf.apply_xt
         nl = itf.xt.len
         inptmp .= inp
-        transform!(itf.xt, @view(inptmp[end-nl+1:end, :]))
+        transform!(itf.xt, @view(inptmp[(end-nl+1):end, :]))
         out = forward!(gchain, itf.chain, inptmp)
     else
         out = forward!(gchain, itf.chain, inp)
@@ -377,7 +377,7 @@ function gradinp!(gvec::AbstractVecOrMat, itf::ManualFluxBackPropInterface)
     # If transform is applied then we have to scale the gradient
     if !isnothing(itf.xt) && itf.apply_xt
         nl = itf.xt.len
-        gvec[end-nl+1:end, :] ./= itf.xt.scale
+        gvec[(end-nl+1):end, :] ./= itf.xt.scale
     end
     if !isnothing(itf.yt)
         gvec .*= itf.yt.scale[1]

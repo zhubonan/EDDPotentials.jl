@@ -1,22 +1,27 @@
 #=
 Implementation of the SNES algorithm
-=#  
+=#
 using Random
 using Distributions
 
 
-function snes(f, vec, population_size, max_iteration;
-    σ=ones(size(vec)...), η_μ=1., 
+function snes(
+    f,
+    vec,
+    population_size,
+    max_iteration;
+    σ=ones(size(vec)...),
+    η_μ=1.0,
     η_σ=(3+log(length(vec)))/(5 * sqrt(length(vec))),
     verbose=false,
     u_k_function=_u_k,
-    callback=nothing
-    ) 
+    callback=nothing,
+)
 
     n = length(vec)
     s_k_list = zeros(n, population_size)
-    det_μ_J =  zeros(n)
-    det_σ_J =  zeros(n)
+    det_μ_J = zeros(n)
+    det_σ_J = zeros(n)
     iter = 1
     while iter <= max_iteration
         # Compute the fitness 
@@ -42,8 +47,8 @@ function snes(f, vec, population_size, max_iteration;
         vec .+= η_μ .* σ .* det_μ_J
         σ .*= exp.(η_σ/2 .* det_σ_J)
         verbose && @info "Iteration $iter: Fitness is $(f(vec))"
-#        verbose && @info "Iteration $iter: σ is $σ"
-#        verbose && @info "Iteration $iter: Fitness $(minimum(fitness))"
+        #        verbose && @info "Iteration $iter: σ is $σ"
+        #        verbose && @info "Iteration $iter: Fitness $(minimum(fitness))"
         isnothing(callback) || callback()
         iter += 1
     end
@@ -56,9 +61,9 @@ The utility function
 function _u_k(indices)
     n = length(indices)
     deno = sum(indices) do i
-        max(0, log(n / 2 +1) - log(i))
+        max(0, log(n / 2 + 1) - log(i))
     end
     map(indices) do i
-        max(0, log(n /2 + 1) - log(i)) / deno
+        max(0, log(n / 2 + 1) - log(i)) / deno
     end
 end

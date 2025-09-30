@@ -67,7 +67,7 @@ nparams(itf::FluxInterface) = sum(length, itf.params)
 function setparamvector!(itf::FluxInterface, param)
     i = 1
     for elem in itf.params
-        elem[:] .= param[i:i+length(elem)-1]
+        elem[:] .= param[i:(i+length(elem)-1)]
         i += length(elem)
     end
 end
@@ -99,7 +99,7 @@ function gradparam!(gvec, itf::FluxInterface, inp=itf.inp)
     i = 1
     for elem in grad.params
         g = grad.grads[elem]
-        gvec[i:i+length(g)-1] .= g[:]
+        gvec[i:(i+length(g)-1)] .= g[:]
         i += length(g)
     end
     gvec

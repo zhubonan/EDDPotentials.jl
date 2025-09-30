@@ -25,7 +25,9 @@ Return the number of existing models in the training directory.
 function num_existing_models(bu::Builder, tra::TrainingOption=bu.trainer)
     training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
     count(
-        x -> endswith(x, ".jld2") && startswith(x, tra.prefix * "gen-$(bu.state.iteration)-model"),
+        x ->
+            endswith(x, ".jld2") &&
+            startswith(x, tra.prefix * "gen-$(bu.state.iteration)-model"),
         readdir(training_dir),
     )
 end
@@ -177,7 +179,8 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
 
         # Save the model
         clear_transient_gradients!(model)
-        model_name = tra.prefix * "gen-$(bu.state.iteration)-model-" * string(uuid4())[1:8] * ".jld2"
+        model_name =
+            tra.prefix * "gen-$(bu.state.iteration)-model-" * string(uuid4())[1:8] * ".jld2"
         save_as_jld2(joinpath(training_dir, model_name), model)
         @info "Model save $model_name"
         i_trained += 1
@@ -194,7 +197,7 @@ function load_training_data(file)
     jldopen(file) do handle
         handle["train"], handle["test"], handle["validate"]
     end
-end 
+end
 
 
 """
@@ -210,7 +213,11 @@ function create_ensemble(
     clean_individual_models=false,
     dataset_path=dataset_name(bu),
     ensemble_target=:validation,
-    pattern=joinpath(bu.state.workdir, TRAINING_DIR, tra.prefix * "gen-$(bu.state.iteration)-model-*.jld2"),
+    pattern=joinpath(
+        bu.state.workdir,
+        TRAINING_DIR,
+        tra.prefix * "gen-$(bu.state.iteration)-model-*.jld2",
+    ),
     alg=:fnnls,
 )
     names = glob_allow_abs(pattern)
@@ -238,7 +245,8 @@ function create_ensemble(
         total = train + test
     end
 
-    ensemble = create_ensemble(models, total;alg, error_threshold=tra.ensemble_error_threshold)
+    ensemble =
+        create_ensemble(models, total; alg, error_threshold=tra.ensemble_error_threshold)
     if save_ensemble_model
         savepath = joinpath(bu.state.workdir, ensemble_name(bu))
         save_as_jld2(savepath, ensemble)

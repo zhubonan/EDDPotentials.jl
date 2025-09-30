@@ -108,7 +108,7 @@ Obtain an transformed the input array
 function transformed_inp(itf, inp)
     if (itf.xt !== nothing) && (itf.apply_xt)
         inptmp = copy(inp)
-        transform!(itf.xt, @view(inptmp[end-itf.xt.len+1:end, :]))
+        transform!(itf.xt, @view(inptmp[(end-itf.xt.len+1):end, :]))
         return inptmp
     else
         return inp

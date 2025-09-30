@@ -122,7 +122,8 @@ function NNCalc(
     nl = NeighbourList(cell, rcut, nmax; savevec)
     v = zeros(T, nfeatures(cf), length(cell))
 
-    workspace = GradientWorkspace(v; core, do_grad=true, one_body_offset=feature_size(cf)[1]) # Buffer for force calculation 
+    workspace =
+        GradientWorkspace(v; core, do_grad=true, one_body_offset=feature_size(cf)[1]) # Buffer for force calculation 
     NNCalc(
         cell,
         deepcopy(cell),
@@ -241,7 +242,7 @@ end
 function get_committee_forces(calc)
     force_list = map(calc.nninterface.models) do model
         # TODO - allow others to be customised
-        calc = NNCalc(calc.cell, calc.cf, model;elemental_energies=calc.elemental_energies)
+        calc = NNCalc(calc.cell, calc.cf, model; elemental_energies=calc.elemental_energies)
         get_forces(calc)
     end
 end
@@ -251,7 +252,7 @@ function get_committee_ferror(calc)
     flist = get_committee_forces(calc)
     fmean = reduce(+, flist) ./ length(flist)
     fmax=0.0
-    for i in 1:length(flist)
+    for i = 1:length(flist)
         maxdiff = maximum(map(norm, eachcol(flist[i] .- fmean)))
         if maxdiff > fmax
             fmax = maxdiff
@@ -474,7 +475,7 @@ function set_positions!(vc::VariableCellCalc, new)
     cell = get_cell(vc)
     nat = nions(cell)
     pos = new[:, 1:nat]
-    new_dgrad = transpose(new[:, nat+1:end]) ./ vc.lattice_factor
+    new_dgrad = transpose(new[:, (nat+1):end]) ./ vc.lattice_factor
 
     # Set the cell according to the deformation
     set_cellmat!(cell, new_dgrad * cellmat(vc.orig_lattice))

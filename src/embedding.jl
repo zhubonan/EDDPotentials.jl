@@ -152,14 +152,14 @@ end
 function two_body_view(cf, vector)
     n1bd = feature_size(cf)[1]
     n2bd = feature_size(cf)[2]
-    view(vector, n1bd+1:n1bd+n2bd)
+    view(vector, (n1bd+1):(n1bd+n2bd))
 end
 
 function three_body_view(cf, vector)
     n1bd = feature_size(cf)[1]
     n2bd = feature_size(cf)[2]
     n3bd = feature_size(cf)[3]
-    view(vector, n1bd+n2bd+1:n1bd+n2bd+n3bd)
+    view(vector, (n1bd+n2bd+1):(n1bd+n2bd+n3bd))
 end
 
 
@@ -189,8 +189,8 @@ function (ce::CellEmbedding)(mat::AbstractMatrix)
 end
 
 function _apply_embedding_cell(n1bd, n2bd, n3bd, w2, w3, mat::AbstractMatrix)
-    m2 = mat[n1bd+1:n2bd+n1bd, :]
-    m3 = mat[n1bd+n2bd+1:n2bd+n1bd+n3bd, :]
+    m2 = mat[(n1bd+1):(n2bd+n1bd), :]
+    m3 = mat[(n1bd+n2bd+1):(n2bd+n1bd+n3bd), :]
     e2 = _apply_embedding_batch(w2, m2)
     e3 = _apply_embedding_batch(w3, m3)
     vcat(mat[1:n1bd, :], e2, e3)
@@ -356,12 +356,12 @@ function forward!(
 
     # Inputs for two-body and three-body features
     offset = gradient.offset
-    x_two_body = view(x, offset+1:offset+n2, :)
-    x_three_body = view(x, offset+n2+1:offset+n2+n3, :)
+    x_two_body = view(x, (offset+1):(offset+n2), :)
+    x_three_body = view(x, (offset+n2+1):(offset+n2+n3), :)
 
     # Next input - again we split it here
-    next_two_body = view(next_gradient.x, offset+1:offset+l2, :)
-    next_three_body = view(next_gradient.x, offset+l2+1:offset+l2+l3, :)
+    next_two_body = view(next_gradient.x, (offset+1):(offset+l2), :)
+    next_three_body = view(next_gradient.x, (offset+l2+1):(offset+l2+l3), :)
 
     forward!(gradient.two_body, layer.two_body, next_two_body, x_two_body, i, nlayers)
     forward!(
@@ -376,8 +376,8 @@ function forward!(
     # Pass through for the one-body
     gradient.out[1:offset, :] = x[1:offset, :]
     # Store the outputs of two and three body
-    gradient.out[offset+1:offset+l2, :] .= gradient.two_body.out
-    gradient.out[offset+1+l2:offset+l2+l3, :] .= gradient.three_body.out
+    gradient.out[(offset+1):(offset+l2), :] .= gradient.two_body.out
+    gradient.out[(offset+1+l2):(offset+l2+l3), :] .= gradient.three_body.out
 
 end
 
@@ -392,8 +392,8 @@ function backprop!(cg::CellEmbeddingGradient, ce::CellEmbedding; weight_and_bias
 
     # Update the upstream gradients
     offset = cg.offset
-    cg.two_body.gu .= cg.gu[offset+1:offset+l2, :]
-    cg.three_body.gu .= cg.gu[offset+1+l2:offset+l2+l3, :]
+    cg.two_body.gu .= cg.gu[(offset+1):(offset+l2), :]
+    cg.three_body.gu .= cg.gu[(offset+1+l2):(offset+l2+l3), :]
     backprop!(cg.two_body, ce.two_body; weight_and_bias)
     backprop!(cg.three_body, ce.three_body; weight_and_bias)
 
@@ -401,7 +401,7 @@ function backprop!(cg::CellEmbeddingGradient, ce::CellEmbedding; weight_and_bias
     # one-body
     cg.gx[1:offset, :] = cg.gu[1:offset, :]
     # two-body
-    cg.gx[1+offset:offset+n2, :] .= cg.two_body.gx
+    cg.gx[(1+offset):(offset+n2), :] .= cg.two_body.gx
     # three-body
-    cg.gx[1+n2+offset:offset+n2+n3, :] .= cg.three_body.gx
+    cg.gx[(1+n2+offset):(offset+n2+n3), :] .= cg.three_body.gx
 end

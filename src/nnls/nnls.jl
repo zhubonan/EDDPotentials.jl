@@ -681,7 +681,7 @@ function Base.resize!(work::QPWorkspace{T}, q::Integer, n::Integer) where {T}
     work.e = Vector{T}(undef, n)
     work.A = Matrix{T}(undef, n + 1, q)
     work.AM = view(work.A, 1:n, :)
-    work.Ad = view(work.A, n+1:n+1, :)
+    work.Ad = view(work.A, (n+1):(n+1), :)
     work.b = Vector{T}(undef, n + 1)
     work.nnlswork = NNLSWorkspace{T,Int}(size(work.A)...)
     work.status = :Unsolved

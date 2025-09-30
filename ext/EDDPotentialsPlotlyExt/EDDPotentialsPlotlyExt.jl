@@ -104,7 +104,8 @@ end
 
 Generate binary convex hull plot.
 """
-plot_binary_plotly(ps::EDDPotentials.PhaseDiagram) =  _make_binary_hull_plotly(EDDPotentials.get_2d_plot_data(ps))
+plot_binary_plotly(ps::EDDPotentials.PhaseDiagram) =
+    _make_binary_hull_plotly(EDDPotentials.get_2d_plot_data(ps))
 
 """
     make_binary_hull_plotly(data)

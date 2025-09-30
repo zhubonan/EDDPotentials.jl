@@ -109,7 +109,7 @@ bary_coords(s, p, phased::PhaseDiagram) = bary_coords(s, get_coord(p, phased))
 Convert barycentric coordinate to normal point
 """
 function coords_from_bary(s::Simplex, bary::Vector)
-    s.aug[1:end-1, :] * bary
+    s.aug[1:(end-1), :] * bary
 end
 
 """
@@ -161,7 +161,7 @@ Return the composition coordinates
 function get_composition_coord(comp, elements)
     n = natoms(comp)
     out = zeros(Float64, length(elements) - 1)
-    for j = 1:length(elements)-1
+    for j = 1:(length(elements)-1)
         out[j] = comp[elements[j+1]] / n
     end
     out
@@ -252,7 +252,7 @@ function PhaseDiagram(
     # This used to select the "visible" facets
     qhull_points[:, i] .= 1 / delems
     # Make sure it is "above" the existing points
-    qhull_points[end, i] = maximum(qhull_points[end, 1:i-1]) + 1.0
+    qhull_points[end, i] = maximum(qhull_points[end, 1:(i-1)]) + 1.0
 
     # Compute the convex hull
     hull = ConvexHull(qhull_points)
@@ -283,7 +283,7 @@ function PhaseDiagram(
     for (i, pidx) in enumerate(valid_simplices)
         local sim
         try
-            sim = Simplex(qhull_points[1:end-1, pidx])
+            sim = Simplex(qhull_points[1:(end-1), pidx])
         catch err
             if isa(err, SimplexError)
                 continue
@@ -301,7 +301,7 @@ function PhaseDiagram(
     e_above_hull = Base.IdDict{T,Float64}()
     for (irec, rec) in enumerate(min_eng_records)
         for (j, s) in enumerate(simp)
-            coord = qhull_points[1:end-1, irec]
+            coord = qhull_points[1:(end-1), irec]
             if contains_point(s, coord)
                 simplex_idx[rec] = j
                 # Compute the coords
@@ -441,7 +441,7 @@ end
 Return the ternary coordinates for all stable and non stable phases 
 """
 function get_ternary_hulldata(phased::PhaseDiagram)
-    hullbc = phased.qhull_input[1:end-1, 1:end-1]
+    hullbc = phased.qhull_input[1:(end-1), 1:(end-1)]
     hulla = [(1.0 .- sum.(eachcol(hullbc)))...;;]
     hullabc = vcat(hulla, hullbc)
 

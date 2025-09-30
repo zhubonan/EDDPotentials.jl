@@ -61,7 +61,7 @@ ensure_dir(path) = isdir(path) || mkdir(path)
 
 function get_label(seedname)
     dt = Dates.format(now(), "yy-mm-dd-HH-MM-SS")
-    suffix = string(uuid4())[end-7:end]
+    suffix = string(uuid4())[(end-7):end]
     "$(seedname)-$(dt)-$(suffix)"
 end
 
@@ -402,15 +402,20 @@ Arguments
     - `centre_symbols`: The symbols of the atoms to consider as centres.
     - `neighbour_symbols`: The symbols of the atoms to consider as neighbours.
 """
-function compute_rdf(cell:: Cell; nmax=500, bins=0.5:0.1:10.0,
-    centre_symbols=nothing, neighbour_symbols=nothing)
+function compute_rdf(
+    cell::Cell;
+    nmax=500,
+    bins=0.5:0.1:10.0,
+    centre_symbols=nothing,
+    neighbour_symbols=nothing,
+)
     nl = NeighbourList(cell, bins[end], nmax)
     counts = zeros(Int, length(bins))
     dmax = bins[end]
     dmin = bins[1]
     sym = species(cell)
 
-    for idxi in 1:length(cell)
+    for idxi = 1:length(cell)
         if centre_symbols !== nothing
             (sym[idxi] in centre_symbols) || continue
         end
@@ -430,5 +435,4 @@ function compute_rdf(cell:: Cell; nmax=500, bins=0.5:0.1:10.0,
     counts
 end
 
-function plot_rdf
-end
+function plot_rdf end

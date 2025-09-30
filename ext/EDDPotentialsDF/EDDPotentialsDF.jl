@@ -95,7 +95,7 @@ function deduplicate(func, df, cut_off=0.1)
         if taken[i] != i
             continue
         end
-        for j = i+1:l
+        for j = (i+1):l
             dist = func(df, i, j)
             if dist < cut_off
                 taken[j] = i

@@ -47,8 +47,7 @@ Comp & Applied Math).
 # and the like. This way we could not only merge the two functions, but also have a convenient
 # way to provide an autodiff-made acceleration when someone doesn't provide an `avv`.
 # it would probably be very inefficient performace-wise for most cases, but it wouldn't hurt to have it somewhere
-function levenberg_marquardt_gpu()
-end
+function levenberg_marquardt_gpu() end
 
 function levenberg_marquardt(
     df::OnceDifferentiable,

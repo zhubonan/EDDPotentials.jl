@@ -175,7 +175,13 @@ Note:
 This can results in undefined behaviour if non-identical records
 share the same *label*.
 """
-function extract_res(entries::Vector{ShelxRecord}, needle=""; outdir=".", save=true, outfile=nothing)
+function extract_res(
+    entries::Vector{ShelxRecord},
+    needle="";
+    outdir=".",
+    save=true,
+    outfile=nothing,
+)
     if needle == ""
         selected = entries
     end
@@ -246,10 +252,10 @@ function CellBase.read_res_many(records::Vector{ShelxRecord})
     end
     @assert sum(x -> length(x), values(fnames_map)) == length(records)
     # Open the file handles
-    out = Vector{Cell{Float64}}(undef, length(records)) 
+    out = Vector{Cell{Float64}}(undef, length(records))
     for (fname, vec_i) in fnames_map
         open(fname) do stream
-            for i in vec_i 
+            for i in vec_i
                 entry = records[i]
                 seek(stream, entry.offset)
                 data = String(read(stream, entry.length))

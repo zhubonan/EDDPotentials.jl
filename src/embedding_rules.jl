@@ -49,8 +49,8 @@ function rrule(
     kwargs...,
 )
 
-    m2 = mat[n1bd+1:n2bd+n1bd, :]
-    m3 = mat[n1bd+n2bd+1:n2bd+n1bd+n3bd, :]
+    m2 = mat[(n1bd+1):(n2bd+n1bd), :]
+    m3 = mat[(n1bd+n2bd+1):(n2bd+n1bd+n3bd), :]
     e2 = _apply_embedding_batch(w2, m2)
     e3 = _apply_embedding_batch(w3, m3)
     y = vcat(mat[1:n1bd, :], e2, e3)
@@ -85,10 +85,10 @@ function rrule(
         ȳ_tmp3 = similar(ȳ, nf3, neb3)
 
         for i = 1:size(mat, 2)
-            ȳ_tmp2[:] .= ȳ[n1bd+1:n2embed+n1bd, i]
-            ȳ_tmp3[:] .= ȳ[n1bd+1+n2embed:n2embed+n1bd+n3embed, i]
-            x_tmp2[:] .= mat[n1bd+1:n2bd+n1bd, i]
-            x_tmp3[:] .= mat[n1bd+1+n2bd:n2bd+n1bd+n3bd, i]
+            ȳ_tmp2[:] .= ȳ[(n1bd+1):(n2embed+n1bd), i]
+            ȳ_tmp3[:] .= ȳ[(n1bd+1+n2embed):(n2embed+n1bd+n3embed), i]
+            x_tmp2[:] .= mat[(n1bd+1):(n2bd+n1bd), i]
+            x_tmp3[:] .= mat[(n1bd+1+n2bd):(n2bd+n1bd+n3bd), i]
 
             # Accumulate the gradient of the weights
             w̄2 .+= x_tmp2' * ȳ_tmp2
@@ -96,8 +96,8 @@ function rrule(
 
             # Compute the gradient of the input matrix
             x̄[1:n1bd, i] .= ȳ[1:n1bd, i]
-            x̄[n1bd+1:n2bd+n1bd, i] .= vec(ȳ_tmp2 * w2')
-            x̄[n1bd+1+n2bd:n2bd+n1bd+n3bd, i] .= vec(ȳ_tmp3 * w3')
+            x̄[(n1bd+1):(n2bd+n1bd), i] .= vec(ȳ_tmp2 * w2')
+            x̄[(n1bd+1+n2bd):(n2bd+n1bd+n3bd), i] .= vec(ȳ_tmp3 * w3')
         end
         return NoTangent(), NoTangent(), NoTangent(), NoTangent(), w̄2, w̄3, x̄
 

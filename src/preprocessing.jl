@@ -138,7 +138,7 @@ function _split_vector(c, nsplit::Vararg{Int}; shuffle=true, seed=42)
     end
     i = 1
     for n in nsplit
-        push!(out, c[perm[i:n-1+i]])
+        push!(out, c[perm[i:(n-1+i)]])
         i += n
     end
     Tuple(out)
@@ -295,7 +295,8 @@ function FeatureContainer(
     )
 end
 
-get_elemental_energy(cell::Cell, ref_energies::Dict) = sum(x -> get(ref_energies, x, 0.), species(cell))
+get_elemental_energy(cell::Cell, ref_energies::Dict) =
+    sum(x -> get(ref_energies, x, 0.0), species(cell))
 
 function FeatureContainer(sc::StructureContainer; cf_kwargs=NamedTuple(), kwargs...)
     symbols = reduce(vcat, unique.(species.(sc.structures)))
@@ -381,9 +382,9 @@ function train_test_split(
     ntrain = length(v) - ntest
     if shuffle
         perm = randperm(length(v))
-        return v[perm[1:ntrain]], v[perm[ntrain+1:end]]
+        return v[perm[1:ntrain]], v[perm[(ntrain+1):end]]
     end
-    return v[1:ntrain], v[train+1:end]
+    return v[1:ntrain], v[(train+1):end]
 end
 
 """
@@ -448,7 +449,7 @@ function standardize!(fc::FeatureContainer; xt=nothing, yt=nothing, apply_transf
         if isnothing(fc.xt)
             total_x_train = reduce(hcat, fc.fvecs)
             n1 = feature_size(fc.feature)[1]
-            xt = fit(StatsBase.ZScoreTransform, @view(total_x_train[n1+1:end, :]), dims=2)
+            xt = fit(StatsBase.ZScoreTransform, @view(total_x_train[(n1+1):end, :]), dims=2)
             if apply_transform && !fc.is_x_transformed
                 # We have to make copy to avoid affect the original data which may present in other objects
                 fvecs = copy.(fc.fvecs)
@@ -527,7 +528,7 @@ Apply transformation for training X inputs
 function transform_x!(xt, x_train)
     for data in x_train
         if size(data, 1) > xt.len
-            transform!(xt, @view(data[end-xt.len+1:end, :]))
+            transform!(xt, @view(data[(end-xt.len+1):end, :]))
         else
             transform!(xt, data)
         end
@@ -556,7 +557,7 @@ Recover training X inputs before standardisation
 function reconstruct_x!(xt, x_train)
     for data in x_train
         if size(data, 1) > xt.len
-            reconstruct!(xt, @view(data[end-xt.len+1:end, :]))
+            reconstruct!(xt, @view(data[(end-xt.len+1):end, :]))
         end
     end
     x_train
