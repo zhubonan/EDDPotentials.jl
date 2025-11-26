@@ -61,6 +61,7 @@ include("quickbuild.jl")
 # Automated building
 include("link/link.jl")
 include("link/trainer.jl")
+include("hyper.jl")
 
 # Plotting and analysis
 include("minsep.jl")
