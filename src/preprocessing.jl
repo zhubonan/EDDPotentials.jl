@@ -10,9 +10,57 @@ import Base
 using Base.Threads
 
 """
-    StructureContainer{T}
+    StructureContainer{T,N,D}
 
-Loader for storing structure data
+Container for storing crystal structures and their energies for EDDP training.
+
+A StructureContainer holds a collection of atomic structures (typically from DFT calculations)
+along with their total energies. This is the first step in preparing data for training an
+EDDP model. Structures can be loaded from files or created directly from Cell objects.
+
+# Fields
+- `paths::Vector{String}`: Labels/paths identifying each structure
+- `H::Vector{N}`: Total enthalpies (energies) in eV for each structure
+- `structures::Vector{Cell{T,D}}`: Crystal structure objects
+
+# Constructors
+
+## From file paths
+```julia
+StructureContainer(paths; threshold=10.0, pressure_gpa=1.0, select_func=minimum)
+```
+Load structures from .res or other CellBase-compatible files.
+
+## From Cell objects
+```julia
+StructureContainer(structures, engs, labels; threshold=10.0, select_func=minimum)
+```
+Create directly from vectors of Cell objects and energies.
+
+# Examples
+```julia
+# Load structures from AIRSS .res files
+sc = StructureContainer("carbon_data/*.res")
+println(length(sc), " structures loaded")
+
+# Load with custom energy threshold
+sc = StructureContainer("diamond.res"; threshold=5.0)
+
+# Create from Cell objects directly
+structures = [cell1, cell2, cell3]
+energies = [-10.5, -10.3, -10.7]  # eV
+labels = ["struct1", "struct2", "struct3"]
+sc = StructureContainer(structures, energies, labels)
+```
+
+# Notes
+- Structures with per-atom energy more than `threshold` eV above the minimum (per composition) are automatically excluded
+- This helps remove high-energy unphysical structures from training data
+- The `select_func` determines the reference (default: `minimum`)
+- Supports glob patterns in file paths (e.g., "*.res")
+
+# See also
+[`FeatureContainer`](@ref), [`CellBase.read_res_many`](@ref)
 """
 struct StructureContainer{T,N,D}
     paths::Vector{String}
@@ -147,7 +195,60 @@ end
 """
     FeatureContainer{T,N}
 
-Container for holding features from structures.
+Container for holding computed features and energies ready for neural network training.
+
+A FeatureContainer stores the feature vectors computed from atomic structures,
+along with target energies and metadata. This is created from a StructureContainer
+and CellFeature specification, and is directly used for training EDDP models.
+
+# Fields
+- `fvecs::Vector{T}`: Vector of feature matrices (nfeatures × natoms), one per structure
+- `feature::CellFeature`: Feature specification used to generate features
+- `H::Vector{N}`: Target total energies (in eV), one per structure
+- `labels::Vector{String}`: Structure identifiers
+- `metadata::Vector{Dict{Symbol,Any}}`: Per-structure metadata (formula, etc.)
+- `is_x_transformed::Bool`: Whether features have been standardized
+- `xt::Any`: Feature standardization transformation (ZScoreTransform)
+- `yt::Any`: Energy standardization transformation
+- `elemental_energies::Dict{Symbol,Float64}`: Reference energies per element
+
+# Constructor
+```julia
+FeatureContainer(sc::StructureContainer, feature::CellFeature; kwargs...)
+```
+
+# Examples
+```julia
+# Basic workflow: structures → features → training
+using EDDPotentials
+
+# Step 1: Load structures
+sc = StructureContainer("carbon_structures/*.res")
+println(length(sc), " structures loaded")
+
+# Step 2: Define features (two-body only for simplicity)
+cf = CellFeature([:C])  # Carbon structures
+
+# Step 3: Compute features
+fc = FeatureContainer(sc, cf)
+println(size(fc.fvecs[1]), " - feature dimensions for first structure")
+
+# Step 4: Split into train/test
+fc_train, fc_test = split(fc, 450, 50)  # 450 train, 50 test
+
+# Step 5: Use for training
+itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
+train!(itf, fc_train, fc_test; maxIter=500)
+```
+
+# Notes
+- Feature computation can be slow for large systems; progress is shown by default
+- Features are computed in parallel using threading
+- Features can be standardized using `standardize!` or automatically via `split`
+- Saved to disk using `save_fc(fc, "features.jld2")` and loaded with `load_fc`
+
+# See also
+[`StructureContainer`](@ref), [`CellFeature`](@ref), [`train!`](@ref), [`split`](@ref)
 """
 mutable struct FeatureContainer{T,N}
     fvecs::Vector{T}
@@ -369,9 +470,34 @@ end
 
 
 """
-    tain_test_split(v::FeatureContainer; ratio_test=0.1, shuffle=true)
+    train_test_split(v::Union{FeatureContainer,StructureContainer}; ratio_test=0.1, shuffle=true)
 
-Split the training 
+Split a container into training and test sets.
+
+This is a convenience function for creating a simple train/test split with a
+specified ratio. For more control over split sizes, use `split` instead.
+
+# Arguments
+- `v::Union{FeatureContainer,StructureContainer}`: Container to split
+
+# Keyword Arguments
+- `ratio_test=0.1`: Fraction of data to use for testing (0.0 to 1.0)
+- `shuffle=true`: Randomly shuffle data before splitting
+
+# Returns
+- `Tuple{typeof(v), typeof(v)}`: (training_set, test_set)
+
+# Examples
+```julia
+# Simple 90/10 train/test split
+fc_train, fc_test = train_test_split(fc; ratio_test=0.1)
+
+# 80/20 split without shuffling
+sc_train, sc_test = train_test_split(sc; ratio_test=0.2, shuffle=false)
+```
+
+# See also
+[`split`](@ref)
 """
 function train_test_split(
     v::Union{FeatureContainer,StructureContainer};

@@ -8,6 +8,14 @@ makedocs(
     pages=[
         "Home" => "index.md",
         "Getting Started" => "getting_started.md",
+        "Concepts" => [
+            "Iterative Building" => "concepts_iterative_building.md",
+        ],
+        "Tutorials" => [
+            "Complete Workflow" => "tutorial_simple.md",
+            "Understanding Features" => "tutorial_features.md",
+            "Advanced: AIRSS Workflow" => "tutorial_airss_workflow.md",
+        ],
         "Functions" => "functions.md",
         "FAQ" => "faq.md",
         "API" => "api.md",

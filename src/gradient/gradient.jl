@@ -82,10 +82,37 @@ end
 
 
 """
-    compute_fv_gv_one!(workspace::GradientWorkspace, features2, features3, iat, cell, nl; offset=workspace.one_body_offset)
+    compute_fv_gv_one!(workspace, features2, features3, iat, cell, nl; offset, do_grad)
 
-Compute the feature vector for a given set of two and three body interactions, compute gradients as well for a single 
-atom.
+Compute feature vector and gradients for a single atom.
+
+This is the core computational kernel that computes local atomic environment
+features for one atom, considering all its neighbors. This function handles
+both two-body (pairwise) and three-body (triplet) interactions.
+
+# Arguments
+- `workspace::GradientWorkspace`: Pre-allocated workspace for computation
+- `features2`: Vector or tuple of `TwoBodyFeature` specifications
+- `features3`: Vector or tuple of `ThreeBodyFeature` specifications
+- `iat::Int`: Index of the central atom to compute features for
+- `cell::Cell`: Crystal structure
+- `nl::NeighbourList`: Neighbour list (must have `has_vectors=true` if `do_grad=true`)
+
+# Keyword Arguments
+- `offset=workspace.one_body_offset`: Offset in feature vector for one-body features
+- `do_grad=workspace.do_grad`: Whether to compute gradients
+
+# Returns
+- Nothing (modifies workspace in-place)
+
+# Notes
+- This function is called internally by `compute_fv!` and `compute_fv_gv!`
+- Computes features by summing contributions from all neighbor pairs and triplets
+- For gradients, neighbor list must be built with `savevec=true`
+- Results are accumulated in `workspace.fvec` and `workspace.gvec`
+
+# See also
+[`compute_fv!`](@ref), [`compute_fv_gv!`](@ref), [`GradientWorkspace`](@ref)
 """
 function compute_fv_gv_one!(
     workspace::GradientWorkspace,
@@ -352,9 +379,48 @@ function compute_fv_gv(
 end
 
 """
-    compute_fv!(workspace::GradientWorkspace, f2, f3, cell::Cell; offset=0, kwargs...)
+    compute_fv!(workspace::GradientWorkspace, f2, f3, cell::Cell; nl, offset=0, kwargs...)
 
-Compute the feature vectors for a cell.
+Compute feature vectors for all atoms in a cell (in-place, no gradients).
+
+This function computes the local atomic environment descriptors (features) for
+each atom in a structure. Features include two-body (pairwise) and three-body
+(triplet) interactions. This version does NOT compute gradients and modifies
+the workspace in-place for efficiency.
+
+# Arguments
+- `workspace::GradientWorkspace`: Pre-allocated workspace for feature computation
+- `f2`: Vector or tuple of `TwoBodyFeature` specifications
+- `f3`: Vector or tuple of `ThreeBodyFeature` specifications
+- `cell::Cell`: Crystal structure to compute features for
+
+# Keyword Arguments
+- `nl`: NeighbourList for the cell (must be pre-computed)
+- `offset=workspace.one_body_offset`: Offset for one-body features in feature vector
+- Additional kwargs passed to `compute_fv_gv_one!`
+
+# Returns
+- Feature matrix (nfeatures × natoms) stored in `workspace.fvec`
+
+# Examples
+```julia
+# Compute features for a carbon structure
+cf = CellFeature([:C])
+nl = NeighbourList(cell, 5.0)  # 5 Å cutoff
+workspace = get_workspace(cf, nl, false)  # false = no gradients
+fvec = compute_fv!(workspace, cf.two_body, cf.three_body, cell; nl=nl)
+
+# fvec dimensions
+println(size(fvec))  # (nfeatures, natoms)
+```
+
+# Notes
+- This version is faster than `compute_fv_gv!` as it skips gradient computation
+- Workspace is reused across calls for efficiency
+- For one-time computation, use `compute_fv` convenience function instead
+
+# See also
+[`compute_fv`](@ref), [`compute_fv_gv!`](@ref), [`get_workspace`](@ref), [`GradientWorkspace`](@ref)
 """
 function compute_fv!(
     workspace::GradientWorkspace,
@@ -392,6 +458,54 @@ function compute_fv(f2, f3, cell::Cell; nl, kwargs...)
     compute_fv!(workspace, f2, f3, cell; nl, kwargs...)
 end
 
+"""
+    get_workspace(features2, features3, nl, do_grad=true; fvec=nothing, core=nothing, offset=0)
+
+Allocate a workspace for efficient feature and gradient computation.
+
+Creates a `GradientWorkspace` object that pre-allocates all arrays needed for
+feature vector and gradient calculations. Reusing workspaces across multiple
+calculations avoids memory allocation overhead.
+
+# Arguments
+- `features2`: Vector or tuple of `TwoBodyFeature` specifications
+- `features3`: Vector or tuple of `ThreeBodyFeature` specifications
+- `nl`: NeighbourList for the structure
+- `do_grad=true`: Whether to allocate arrays for gradient computation
+
+# Keyword Arguments
+- `fvec=nothing`: Pre-allocated feature vector array (if `nothing`, creates new array)
+- `core=nothing`: Hard-core repulsion potential (optional)
+- `offset=0`: Offset for one-body features in the feature vector
+
+# Returns
+- `GradientWorkspace`: Workspace object containing pre-allocated arrays
+
+# Examples
+```julia
+# Create workspace for gradient computation
+cf = CellFeature([:C])
+nl = NeighbourList(cell, 5.0; savevec=true)
+workspace = get_workspace(cf.two_body, cf.three_body, nl, true)
+
+# Reuse workspace for multiple structures
+for cell in structures
+    compute_fv_gv!(workspace, cf.two_body, cf.three_body, cell; nl=nl)
+    # Process features and gradients...
+end
+
+# Create workspace without gradients (faster for prediction)
+workspace_no_grad = get_workspace(cf.two_body, cf.three_body, nl, false)
+```
+
+# Notes
+- Set `do_grad=false` when only computing features (prediction), not forces
+- Workspace size depends on maximum number of neighbors and feature dimensions
+- Reusing workspaces significantly improves performance for batch computations
+
+# See also
+[`GradientWorkspace`](@ref), [`compute_fv!`](@ref), [`compute_fv_gv!`](@ref)
+"""
 function get_workspace(
     features2,
     features3,
@@ -419,6 +533,54 @@ end
 get_workspace(cf::CellFeature, nl, do_grad=true; fvec=nothing) =
     get_workspace(cf.two_body, cf.three_body, nl, do_grad; fvec)
 
+"""
+    compute_fv_gv!(workspace::GradientWorkspace, features2, features3, cell::Cell; nl, offset=0)
+
+Compute feature vectors AND gradients for all atoms in a cell (in-place).
+
+This function computes both the local atomic environment features and their
+gradients with respect to atomic positions. Gradients are essential for
+computing forces during molecular dynamics or structure optimization.
+
+# Arguments
+- `workspace::GradientWorkspace`: Pre-allocated workspace (must have `do_grad=true`)
+- `features2`: Vector or tuple of `TwoBodyFeature` specifications
+- `features3`: Vector or tuple of `ThreeBodyFeature` specifications
+- `cell::Cell`: Crystal structure to compute features and gradients for
+
+# Keyword Arguments
+- `nl=NeighbourList(...)`: NeighbourList for the cell (default: auto-created with `savevec=true`)
+- `offset=workspace.one_body_offset`: Offset for one-body features
+
+# Returns
+- Modified `workspace` containing:
+  - `workspace.fvec`: Feature vectors (nfeatures × natoms)
+  - `workspace.gvec`: Feature gradients (3 × nfeatures × nneigh × natoms)
+
+# Examples
+```julia
+# Compute features and gradients for force calculation
+cf = CellFeature([:C])
+nl = NeighbourList(cell, 5.0; savevec=true)  # savevec=true required for gradients
+workspace = get_workspace(cf, nl, true)  # true = compute gradients
+
+# Compute features and gradients
+compute_fv_gv!(workspace, cf.two_body, cf.three_body, cell; nl=nl)
+
+# Access results
+fvec = workspace.fvec  # Features
+gvec = workspace.gvec  # Gradients (for force calculations)
+```
+
+# Notes
+- Neighbour list MUST have `savevec=true` for gradient computation
+- Significantly more expensive than `compute_fv!` (which skips gradients)
+- Gradients are used to compute forces via chain rule with neural network gradients
+- Workspace must be created with `do_grad=true`
+
+# See also
+[`compute_fv!`](@ref), [`get_workspace`](@ref), [`GradientWorkspace`](@ref)
+"""
 function compute_fv_gv!(
     workspace::GradientWorkspace,
     features2,

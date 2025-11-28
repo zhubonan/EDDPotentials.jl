@@ -46,23 +46,71 @@ Base.show(io::IO, x::CellFeature) = Base.show(io, MIME("text/plain"), x)
 
 
 """
-    CellFeature(elements;kwargs...)
+    CellFeature(elements; kwargs...)
 
-Construct a `CellFeature` instance.
+High-level specification for EDDP features combining two-body and three-body interactions.
 
-# Args
-- `elements`: A vector of the elements to be included in the features.
-- `p2`: A sequence of the two-body polynomial powers (``p``).
-- `p3`: A sequence of the three-body polynomial powers (``p``).
-- `q3`: A sequence of the three-body polynomial powers (``q``).
-- `rcut2`: Cut off distance for two-body features.
-- `rcut3`: Cut off distance for three-body features.
-- `f2`: Distance function for two-body interactions.
-- `f3`: Distance function for three-body interactions.
-- `g2`: Gradient function for two-body interactions.
-- `g3`: Gradient function for three-body interactions.
-- `geometry_sequence`: Wether to covnert the `p2`, `p3`, `q3` as geometry sequence.
+CellFeature is the main interface for defining features in EDDP. It automatically
+generates all necessary two-body and three-body feature specifications for the
+given elements, handling symmetry and creating appropriate feature combinations.
 
+# Arguments
+- `elements`: Vector of element symbols (e.g., `[:C]`, `[:C, :H]`)
+
+# Keyword Arguments
+- `p2=2:8`: Exponents for two-body features (default: range 2 to 8)
+- `p3=p2`: Exponents for three-body p (default: same as p2)
+- `q3=p3`: Exponents for three-body q (default: same as p3)
+- `rcut2=4.0`: Cutoff radius for two-body features (Angstroms)
+- `rcut3=rcut2`: Cutoff radius for three-body features (default: same as rcut2)
+- `f2=fr`: Basis function for two-body interactions
+- `g2=gfr`: Gradient of f2
+- `f3=fr`: Basis function for three-body interactions
+- `g3=gfr`: Gradient of f3
+- `geometry_sequence=false`: Convert p/q ranges to geometric sequences
+
+# Fields
+- `elements::Vector{Symbol}`: List of element symbols
+- `two_body::Tuple`: Tuple of TwoBodyFeature objects
+- `three_body::Tuple`: Tuple of ThreeBodyFeature objects
+- `constructor_kwargs`: Kwargs used for construction (for serialization)
+
+# Examples
+```julia
+# Simple carbon features with defaults
+cf = CellFeature([:C])
+
+# Binary system with custom parameters
+cf = CellFeature([:C, :H];
+    p2=2:6,           # Two-body exponents 2,3,4,5,6
+    rcut2=4.5,        # 4.5 Å cutoff for two-body
+    rcut3=4.0,        # 4.0 Å cutoff for three-body
+    geometry_sequence=false  # Linear spacing
+)
+
+# Using geometric sequence for better scaling
+cf = CellFeature([:C];
+    p2=2:8,
+    geometry_sequence=true  # Convert to geometric series
+)
+
+# Check total number of features
+println("Two-body features: ", sum(nfeatures, cf.two_body))
+println("Three-body features: ", sum(nfeatures, cf.three_body))
+
+# Use for feature computation
+fc = FeatureContainer(sc, cf)
+```
+
+# Notes
+- Automatically generates all unique element combinations respecting symmetry
+- For n elements: generates n(n+1)/2 two-body and n(n+1)(n+2)/6 three-body types
+- Geometric sequences (`geometry_sequence=true`) recommended for better range coverage
+- Total features = sum of all two-body + three-body features
+- CellFeature objects can be combined with `+` operator
+
+# See also
+[`TwoBodyFeature`](@ref), [`ThreeBodyFeature`](@ref), [`FeatureContainer`](@ref), [`genp`](@ref)
 """
 function CellFeature(
     elements;

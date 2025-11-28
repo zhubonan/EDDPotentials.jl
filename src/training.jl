@@ -54,14 +54,45 @@ end
 
 
 """
-    nnls_weights(models, x, y)
+    nnls_weights(models, x, y; alg=:fnnls, error_threshold=0.5) -> Vector{Float64}
 
-Compute the weights for an ensemble of models using NNLS.
-Args:
-    - `models: a `Tuple`/`Vector` of models.
-    - `x`: a `Vector` containing the features of each structure.
-    - `y`: a `Vector` containing the total energy of each structure.
+Compute optimal non-negative weights for an ensemble of models using NNLS.
 
+This function determines how much each model should contribute to the final
+ensemble prediction by solving a non-negative least squares problem. The weights
+minimize the total energy prediction error across all structures.
+
+# Arguments
+- `models`: Tuple or vector of trained models (e.g., multiple `AbstractNNInterface`)
+- `x`: Vector of feature matrices, one per structure
+- `y`: Vector of target total energies (in eV), one per structure
+
+# Keyword Arguments
+- `alg=:fnnls`: NNLS algorithm (`:fnnls` for fast NNLS is recommended)
+- `error_threshold=0.5`: Exclude structures where individual models have error > threshold (eV/atom)
+
+# Returns
+- `Vector{Float64}`: Non-negative weight for each model (same length as `models`)
+
+# Examples
+```julia
+# Compute weights for 5 trained models
+models = [model1, model2, model3, model4, model5]
+x_train, y_train = get_fit_data(fc_train)
+weights = nnls_weights(models, x_train, y_train)
+
+# Use weights manually
+ensemble_energy = sum(w * predict_energy(m, fvec) for (w, m) in zip(weights, models))
+```
+
+# Notes
+- Weights sum to minimize mean squared error of total energies
+- Structures with very high errors from any model can be excluded to improve robustness
+- At least 100 structures are always included, even if error threshold is exceeded
+- Zero or near-zero weights indicate a model does not improve ensemble predictions
+
+# See also
+[`create_ensemble`](@ref), [`EnsembleNNInterface`](@ref)
 """
 function nnls_weights(models, x, y; alg=:fnnls, error_threshold=0.5)
     all_engs = zeros(length(x), length(models))
@@ -90,9 +121,55 @@ end
 
 
 """
-    create_ensemble(models::AbstractVector, x::AbstractVector, y::AbstractVector;
+    create_ensemble(models, x::AbstractVector, y::AbstractVector; kwargs...) -> EnsembleNNInterface
 
-Create an EnsembleNNInterface from a vector of interfaces and x, y data for fitting.
+Create an ensemble model by combining multiple trained neural networks.
+
+Ensemble models improve prediction accuracy and provide uncertainty estimates by
+combining predictions from multiple independently trained models. The optimal
+weights for each model are determined using non-negative least squares (NNLS)
+to minimize prediction error on the provided data.
+
+# Arguments
+- `models`: Vector or tuple of trained `AbstractNNInterface` models
+- `x::AbstractVector`: Vector of feature matrices for fitting ensemble weights
+- `y::AbstractVector`: Vector of target energies for fitting ensemble weights
+
+# Keyword Arguments
+- `threshold=1e-13`: Minimum weight threshold - models with lower weights are excluded
+- `alg=:fnnls`: NNLS algorithm (`:fnnls` for fast NNLS, `:nnls` for standard)
+- `error_threshold=0.5`: Exclude structures with individual model errors > this value (eV/atom)
+
+# Returns
+- `EnsembleNNInterface`: Ensemble model containing selected models and their weights
+
+# Examples
+```julia
+# Train multiple models with different initializations
+models = []
+for i in 1:10
+    itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
+    train!(itf, fc_train, fc_test; maxIter=300)
+    push!(models, itf)
+end
+
+# Create ensemble using training data
+x_train, y_train = get_fit_data(fc_train)
+ensemble = create_ensemble(models, x_train, y_train)
+
+# Ensemble automatically weights models and removes low-performing ones
+println("Ensemble contains ", length(ensemble.models), " models")
+println("Weights: ", ensemble.weights)
+```
+
+# Notes
+- Models are weighted to minimize total energy error, not per-atom error
+- Models with NNLS weights below `threshold` are automatically removed
+- Structures where any individual model has high error can be excluded via `error_threshold`
+- Using ensemble models improves robustness and enables uncertainty quantification
+
+# See also
+[`EnsembleNNInterface`](@ref), [`nnls_weights`](@ref), [`train!`](@ref)
 """
 function create_ensemble(
     models,
@@ -111,10 +188,95 @@ end
 EnsembleNNInterface(models, fc::FeatureContainer; kwargs...) =
     create_ensemble(models, get_fit_data(fc)...; kwargs...)
 
+"""
+    predict_energy(itf::AbstractNNInterface, vec) -> Float64
+
+Predict the total energy for a structure from its feature vector.
+
+This function evaluates the neural network on the feature vector and sums
+the atomic energy contributions to get the total energy.
+
+# Arguments
+- `itf::AbstractNNInterface`: Trained neural network interface
+- `vec`: Feature vector matrix (nfeatures × natoms)
+
+# Returns
+- `Float64`: Total predicted energy in eV
+
+# Examples
+```julia
+# Predict energy for a structure
+fvec = compute_fv(calc, structure)
+energy = predict_energy(model, fvec)
+```
+
+# See also
+[`AbstractNNInterface`](@ref), [`compute_fv`](@ref)
+"""
 predict_energy(itf::AbstractNNInterface, vec) = sum(itf(vec))
 
 """
-Perform training for the given TrainingConfig
+    train_lm!(itf::AbstractNNInterface, x, y; kwargs...) -> (opt_res, params, history, funcs)
+
+Train a neural network using the Levenberg-Marquardt algorithm.
+
+This is the core training function that optimizes the neural network parameters
+to minimize the difference between predicted and target energies. The algorithm
+uses second-order optimization (Levenberg-Marquardt) which is efficient for
+fitting potential energy surfaces.
+
+# Arguments
+- `itf::AbstractNNInterface`: Neural network interface to train (will be modified in-place)
+- `x`: Vector of feature matrices, one per structure
+- `y`: Vector of target total energies (in eV), one per structure
+
+# Keyword Arguments
+- `p0=paramvector(itf)`: Initial parameter vector for optimization
+- `maxIter=1000`: Maximum number of iterations
+- `show_progress=false`: Print progress to stdout during training
+- `x_test=x`: Test set feature vectors (defaults to training set)
+- `y_test=y`: Test set target energies (defaults to training set)
+- `earlystop=50`: Stop if test error doesn't improve for this many iterations
+- `keep_best=true`: Keep parameters with best test error instead of final iteration
+- `log_file=""`: Path to file for logging progress (empty string = no logging)
+- `p=1.25`: Levenberg-Marquardt damping parameter
+- `weights=nothing`: Optional weights for each structure in the loss function
+
+# Returns
+- `opt_res`: Optimization result object
+- `params`: Final parameter vector
+- `history`: Matrix with columns [train_rmse, test_rmse] for each iteration
+- `funcs`: Tuple of (f!, j!, fj!) functions used for optimization
+
+# Examples
+```julia
+# Basic training on carbon structures
+itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
+x_train, y_train = get_fit_data(fc_train)
+x_test, y_test = get_fit_data(fc_test)
+
+# Train with progress display and early stopping
+opt_res, params, history = train_lm!(
+    itf, x_train, y_train;
+    x_test=x_test, y_test=y_test,
+    maxIter=500,
+    show_progress=true,
+    earlystop=30
+)
+
+# Check final RMSE
+final_train_rmse = history[end, 1]
+final_test_rmse = history[end, 2]
+```
+
+# Notes
+- The network parameters in `itf` are updated in-place during training
+- Training minimizes RMSE of total energies, not per-atom energies
+- Early stopping uses test set RMSE to prevent overfitting
+- GPU acceleration is used automatically if CUDA is available
+
+# See also
+[`train!`](@ref), [`AbstractNNInterface`](@ref), [`create_ensemble`](@ref)
 """
 function train_lm!(
     itf::AbstractNNInterface,
@@ -197,6 +359,58 @@ function train_lm!(
     opt_res, paramvector(itf), [map(x -> x[1], rec) map(x -> x[2], rec)], (f!, j!, fj!)
 end
 
+"""
+    train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_test::FeatureContainer; kwargs...)
+
+Train a neural network model using training and test datasets.
+
+This is the main high-level training function that users should call. It automatically
+extracts features and energies from FeatureContainers and dispatches to the appropriate
+training algorithm (Levenberg-Marquardt by default).
+
+# Arguments
+- `itf::AbstractNNInterface`: Neural network interface to train
+- `fc_train::FeatureContainer`: Training dataset with features and energies
+- `fc_test::FeatureContainer`: Test dataset for validation
+
+# Keyword Arguments
+- `train_method="lm"`: Training algorithm ("lm" for Levenberg-Marquardt, "optim" for Optim.jl)
+- Additional kwargs are passed to the underlying training function
+
+# Returns
+Returns from underlying training method (`train_lm!` or Optim optimization)
+
+# Examples
+```julia
+# Load training and test data
+using ExtXYZ
+structures_train = read("carbon_train.xyz", ExtXYZ)
+structures_test = read("carbon_test.xyz", ExtXYZ)
+
+# Create FeatureContainers
+cf = CellFeature([:C])  # Define features for carbon
+sc_train = StructureContainer(structures_train)
+sc_test = StructureContainer(structures_test)
+fc_train = FeatureContainer(cf, sc_train)
+fc_test = FeatureContainer(cf, sc_test)
+
+# Create and train model
+itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
+train!(itf, fc_train, fc_test; maxIter=500, show_progress=true)
+
+# Evaluate performance
+train_results = TrainingResults(itf, fc_train)
+println("Train RMSE: ", rmse_per_atom(train_results), " eV/atom")
+```
+
+# Notes
+- The default Levenberg-Marquardt method (`train_method="lm"`) is recommended for EDDP
+- Features and energies are automatically extracted from FeatureContainers
+- All kwargs are passed through to the underlying training function
+
+# See also
+[`train_lm!`](@ref), [`FeatureContainer`](@ref), [`TrainingResults`](@ref), [`create_ensemble`](@ref)
+"""
 function train!(
     itf::AbstractNNInterface,
     fc_train::FeatureContainer,
