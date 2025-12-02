@@ -8,19 +8,27 @@ makedocs(
     pages=[
         "Home" => "index.md",
         "Getting Started" => "getting_started.md",
+
         "Concepts" => [
-            "Iterative Building" => "concepts_iterative_building.md",
+            "What is EDDP?" => "concepts/what_is_eddp.md",
+            "Understanding Features" => "concepts/features.md",
+            "Iterative Training" => "concepts/iterative_training.md",
         ],
+
         "Tutorials" => [
-            "Complete Workflow" => "tutorial_simple.md",
-            "Understanding Features" => "tutorial_features.md",
-            "Advanced: AIRSS Workflow" => "tutorial_airss_workflow.md",
+            "AIRSS Workflow" => "tutorials/airss_workflow.md",
         ],
+
+        "How-To Guides" => [
+            "Customize Features" => "howto/customize_features.md",
+            "Crystal Structure Prediction" => "howto/structure_prediction.md",
+            "Run Phonon Calculations" => "howto/run_phonon_calculations.md",
+            "Enable GPU Acceleration" => "howto/enable_gpu_acceleration.md",
+        ],
+
         "Functions" => "functions.md",
-        "FAQ" => "faq.md",
-        "API" => "api.md",
-        "Python Tools" => "python_tools.md",
     ],
+    warnonly = Documenter.except(),
 )
 
 # Documenter can also automatically deploy documentation to gh-pages.

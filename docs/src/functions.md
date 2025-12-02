@@ -63,10 +63,10 @@ Support utilities and tools.
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "tools.jl",
-    "records.jl",
-    "plotting/recipes.jl",
-    "eddpf90.jl",
+    "/tools.jl",
+    "/records.jl",
+    "/plotting/recipes.jl",
+    "/eddpf90.jl",
 ]
 ```
 

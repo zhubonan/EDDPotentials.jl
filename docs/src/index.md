@@ -1,45 +1,164 @@
-![](docs/src/assets/logo_small.png)
+![](assets/logo_small.png)
 # EDDPotentials.jl
 
-[Documentation](https://zhubonan.github.io/EDDPotentials.jl)
+A [Julia](https://julialang.org/) package for [Ephemeral Data Derived Potentials](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.106.014102) (EDDP) - machine learning interatomic potentials designed for crystal structure prediction and rapid structural screening.
 
-A [Julia](https://julialang.org/) package that implements the [Ephemeral data derived potentials](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.106.014102) (EDDP).
-EDDP can be seen as a kind of Machine Learning [(Interatomic) Potentials](https://en.wikipedia.org/wiki/Interatomic_potential) (MLP). 
-Normally such potentials are aim at accurately reproduce the results of first-principles calculations to run large scale molecular dynamics simulation which are otherwise intractable with first-principles calculations. 
+## Quick Links
 
-EDDP takes a simple and physically motivated form that resembles a generalized N-body *Lenard-Jones-like* potential, making it very easy to train.
-Being physically motivated allow EDDP to give sufficiently good representations for most of the configuration space, allowing crystal structure prediction to be carried out with much reduced computational resources and walltime.
-In many cases, EDDP can still give sufficiently accurate forces to allow molecular dynamics simulation and phonon properties.
+**New users:** Start with [Getting Started](getting_started.md)
 
-## Features
+**Learn concepts:** [What is EDDP?](concepts/what_is_eddp.md) | [Understanding Features](concepts/features.md) | [Iterative Training](concepts/iterative_training.md)
 
-- Generating EDDP feature vectors (local descriptors).
-- Train EDDP ensemble models.
-- Perform geometry optimization using trained models. 
-- Interface to other package for property calculations.
-- Automated workflows for automated potential building and crystal structure prediction.
-  - Training data generation using standard scheduler queue system.
-  - Training data generation through [DISP](https://github.com/zhubonan/disp).
-- Analysis and visualisation for potential quality verification and convergence.
+**Step-by-step tutorial:** [AIRSS Workflow](tutorials/airss_workflow.md)
 
-## Related packages
+**Common tasks:** [Customize Features](howto/customize_features.md) | [Structure Prediction](howto/structure_prediction.md) | [Phonon Calculations](howto/run_phonon_calculations.md)
 
-- [airss](https://www.mtg.msm.cam.ac.uk/Codes/AIRSS) - *ab initio* random structure (AIRSS) is used for building random structure through the `buildcell` program included in the bundle.
-- [eddp](https://www.mtg.msm.cam.ac.uk/Codes/EDDP) - The Fortran EDDP code. EDDPotentials.jl provides limited interoperability with the eddp fortran package. Although directly loading models trained by eddp is not implemented, the training datasets are compatible as both use the AIRSS-style SHELX format.
-- [CASTEP](http://www.castep.org) - A plane-wave DFT code used for efficient generation of training datasets, although in principle any atomistic modelling package that calculates total energy of a given structure is supported.
-- [disp](https://zhubonan.github.io/disp) - Distributed structure prediction (DISP) package can be used to schedule and run data generation tasks (e.g. DFT calculations) on multiple remote computing clusters. 
+## What is EDDP?
 
-## Documentations
+EDDP is a machine learning potential optimized for **crystal structure prediction**. Key features:
 
-```@contents
-Pages = ["index.md", "getting_started.md", "faq.md", "python_tools.md"]
+- **Energy-only training:** No expensive DFT force calculations required
+- **Fast training:** Minutes to hours, not days
+- **Physically motivated:** Based on Lennard-Jones-like potentials
+- **Iterative building:** Automated data generation guided by model uncertainty
+- **High throughput:** Screen thousands of candidate structures rapidly
+
+EDDP trades ultimate accuracy for speed and simplicity, making it ideal for ranking candidate structures before high-accuracy DFT validation.
+
+## Key Capabilities
+
+**Feature Generation**
+- Two-body and three-body atomic environment descriptors
+- Rotation/translation invariant, periodic boundary conditions
+- Flexible cutoff radii and power series
+
+**Training**
+- Shallow neural networks (fast, good generalization)
+- Ensemble models with NNLS weighting
+- GPU acceleration support (optional)
+- Energy-only or energy+force training
+
+**Structure Prediction**
+- Integration with AIRSS (Ab Initio Random Structure Searching)
+- Automated iterative potential building (`link!()`)
+- Parallel random structure search (RSS)
+- CASTEP DFT integration for training data
+
+**Analysis**
+- Uncertainty quantification (ensemble standard deviation)
+- Walk-forward testing for convergence validation
+- Phonon calculations via Phonopy interface
+
+## Installation
+
+```julia
+using Pkg
+Pkg.add("EDDPotentials")
 ```
+
+**Optional dependencies:**
+```julia
+# GPU acceleration
+Pkg.add("CUDA")
+
+# Python integration (Phonopy, ASE)
+Pkg.add("PyCall")
+
+# Visualization
+Pkg.add("Plots")
+Pkg.add("PlotlyJS")
+```
+
+## Typical Workflow
+
+```julia
+using EDDPotentials, ExtXYZ
+
+# 1. Load training data (DFT-calculated structures)
+structures = ExtXYZ.load("carbon_data.xyz")
+sc = StructureContainer(structures)
+
+# 2. Define features (two-body + three-body)
+cf = CellFeature([:C])
+
+# 3. Compute feature vectors
+fc = FeatureContainer(cf, sc)
+fc_train, fc_test = train_test_split(fc)
+
+# 4. Train ensemble of neural networks
+models = []
+for i in 1:10
+    chain = Chain(Dense(nfeatures(cf), 20, tanh), Dense(20, 1))
+    model = FluxInterface(chain)
+    train!(model, fc_train, fc_test; maxIter=300)
+    push!(models, model)
+end
+
+# 5. Create ensemble predictor
+x_train, y_train = get_fit_data(fc_train)
+ensemble = create_ensemble(models, x_train, y_train)
+
+# 6. Use for predictions and structure optimization
+calc = NNCalc(structure, cf, ensemble)
+optimise!(calc; fmax=0.01)
+```
+
+For automated potential building with iterative training, see [AIRSS Workflow](tutorials/airss_workflow.md).
+
+## Documentation Structure
+
+This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
+
+**[Getting Started](getting_started.md)** - Quick introduction and first example
+
+**Tutorials** - Learning-oriented guides
+- [AIRSS Workflow](tutorials/airss_workflow.md): Complete structure prediction workflow
+
+**How-To Guides** - Task-oriented recipes
+- [Customize Features](howto/customize_features.md): Advanced feature engineering
+- [Crystal Structure Prediction](howto/structure_prediction.md): Large-scale RSS workflows
+- [Run Phonon Calculations](howto/run_phonon_calculations.md): Vibrational properties
+- [Enable GPU Acceleration](howto/enable_gpu_acceleration.md): Training speedup
+
+**Concepts** - Understanding-oriented explanations
+- [What is EDDP?](concepts/what_is_eddp.md): Design philosophy and use cases
+- [Understanding Features](concepts/features.md): Feature theory and selection
+- [Iterative Training](concepts/iterative_training.md): Automated potential building
+
+**[API Reference](functions.md)** - Technical function documentation
+
+## Related Tools
+
+- **[AIRSS](https://www.mtg.msm.cam.ac.uk/Codes/AIRSS):** *Ab initio* random structure searching toolkit
+- **[CASTEP](http://www.castep.org):** Plane-wave DFT code for training data generation
+- **[DISP](https://zhubonan.github.io/disp):** Distributed structure prediction on computing clusters
+- **[Phonopy](https://phonopy.github.io/phonopy/):** Phonon calculations (Python interface)
+
+## Citation
+
+If you use EDDPotentials.jl, please cite:
+
+> C. J. Pickard, *Ephemeral Data Derived Potentials for Random Structure Search*, [Phys. Rev. B **106**, 014102 (2022)](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.106.014102)
+
+```bibtex
+@article{pickard2022ephemeral,
+  title={Ephemeral data derived potentials for random structure search},
+  author={Pickard, Chris J},
+  journal={Physical Review B},
+  volume={106},
+  number={1},
+  pages={014102},
+  year={2022},
+  publisher={APS}
+}
+```
+
+## Contributing
+
+Contributions welcome! Report issues or submit pull requests on [GitHub](https://github.com/zhubonan/EDDPotentials.jl).
 
 ```@meta
 CurrentModule = EDDPotentials
-```
-
-```@docs
 ```
 
 ## Index
