@@ -11,6 +11,11 @@ mutable struct CellFeature{T,G,V}
     constructor_kwargs::V
 end
 
+"""
+    CellFeature(elements, two_body, three_body)
+
+Construct a CellFeature object
+"""
 function CellFeature(elements, two_body, three_body)
     CellFeature(elements, two_body, three_body, nothing)
 end

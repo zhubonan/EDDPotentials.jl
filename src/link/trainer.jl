@@ -6,8 +6,6 @@ using ArgParse
 
 const TRAINING_DIR = "training"
 
-function run_trainer(trainer::AbstractTrainer, builder::Builder) end
-
 """
     dataset_name(bu::Builder, i=bu.state.iteration)
 
