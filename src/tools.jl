@@ -191,7 +191,7 @@ end
 Return the gradient of the feature indexed by [dir, nf, j, i], where i is tha atom that is moved and
 j is the gradient of the feature vector of the j atom as a result of the movement of i.
 """
-function fd_desc(cf, cell)
+function fd_desc(cf, cell, step=1e-6)
 
     fb = EDDPotentials.compute_fv_gv(cf, cell)
     gvec = fb.gvec # dFi/drj order
@@ -201,17 +201,17 @@ function fd_desc(cf, cell)
 
     diff = zeros(size(gvec, 1), size(gvec, 2), natoms(cell), natoms(cell))  # dFj/dri
     for iat = 1:natoms(cell)
-        for dir = 1:size(dcell.positions, 1)
+        for dir = 1:size(cell.positions, 1)
             dcell = deepcopy(cell)
-            dcell.positions[dir, iat] += 1e-6
+            dcell.positions[dir, iat] += step
             fb = EDDPotentials.compute_fv_gv(cf, dcell)
             fv1 = copy(fb.fvec)
 
             dcell = deepcopy(cell)
-            dcell.positions[dir, iat] -= 1e-6
+            dcell.positions[dir, iat] -= step
             fb = EDDPotentials.compute_fv_gv(cf, dcell)
             fv2 = copy(fb.fvec)
-            diff[dir, :, :, iat] .= (fv1 - fv2) / 2e-6
+            diff[dir, :, :, iat] .= (fv1 - fv2) / step / 2
         end
     end
 
@@ -248,7 +248,7 @@ function force_gradient(cf, cell, core_size=0)
     # dE/dri
     diff = zeros(size(gvec, 1), natoms(cell))
     for iat = 1:natoms(cell)
-        for dir = 1:size(dcell.positions, 1)
+        for dir = 1:size(cell.positions, 1)
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
             fb = EDDPotentials.compute_fv_gv(cf, dcell, core=core)
@@ -276,13 +276,13 @@ end
 
 
 """
-    stress_gradient(cf, cell)
+    stress_gradient(cf, cell, core_size=0, step=1e-6)
 
     Finite difference gradient of the energies with respect to cell deformations.
 Returns the gradient from finite difference and analytical computation. A random linear model is
 used for prediction.
 """
-function stress_gradient(cf, cell, core_size=0)
+function stress_gradient(cf, cell, core_size=0, step=1e-6)
 
     if core_size != 0
         core = CoreRepulsion(core_size)
@@ -307,7 +307,7 @@ function stress_gradient(cf, cell, core_size=0)
         for j = 1:3
             dcell = deepcopy(cell)
             smat = copy(smat_orig)
-            smat[i, j] += 1e-6
+            smat[i, j] += step
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
             fb = EDDPotentials.compute_fv_gv(cf, dcell)
             # Compute the energy
@@ -318,7 +318,7 @@ function stress_gradient(cf, cell, core_size=0)
 
             dcell = deepcopy(cell)
             smat = copy(smat_orig)
-            smat[i, j] -= 1e-6
+            smat[i, j] -= step
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
             fb = EDDPotentials.compute_fv_gv(cf, dcell)
             e2 = sum(param * fb.fvec)
@@ -327,7 +327,7 @@ function stress_gradient(cf, cell, core_size=0)
             end
 
             # Compute the energy
-            diff[i, j] = (e1 - e2) / 2e-6
+            diff[i, j] = (e1 - e2) / (2 * step)
         end
     end
     return diff, stress

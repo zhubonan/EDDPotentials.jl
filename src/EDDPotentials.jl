@@ -51,6 +51,9 @@ include("preprocessing.jl")
 include("eddpf90.jl")
 include("training.jl")
 include("calculator.jl")
+# New MetaCalculator and Modifier system
+include("calculator/modifiers/modifiers.jl")
+include("calculator/metacalculator.jl")
 include("pairpot.jl")
 include("tools.jl")
 include("functional/functional.jl")
@@ -71,7 +74,7 @@ include("model_structures.jl")
 include("plotting.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
-export distance_between, distance_squared_between, displace!, clip, Cell, supercell
+export displace!, clip, Cell, supercell
 export distance_matrix, laplacian_matrix, nmodules, find_modules
 export get_cell,
     eddp_forces,
@@ -83,6 +86,17 @@ export get_cell,
     VariableCellCalc,
     eddp_energy_std,
     eddp_energy_std_per_atom
+# New MetaCalculator and Modifier exports
+export MetaCalculator,
+    AbstractModifier,
+    ExtraDimensionPenaltyModifier,
+    CellRelaxationModifier,
+    AdditiveCalculatorModifier,
+    get_modifier,
+    get_modifier_parameter,
+    set_modifier_parameter!,
+    get_augmented_positions,
+    set_augmented_positions!
 export eddp_enthalpy, eddp_pressure
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer, FeatureContainer, load_from_jld2

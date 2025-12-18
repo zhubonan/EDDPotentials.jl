@@ -9,7 +9,8 @@ import CellBase:
     get_cellmat,
     get_positions,
     add_dimensions,
-    remove_dimensions
+    remove_dimensions,
+    distance_squared_between
 using StatsBase: ZScoreTransform, transform!
 abstract type AbstractCalc end
 const AC = AbstractCalc
@@ -149,7 +150,7 @@ function NNCalc(
         zeros(T, nions(cell)), # Energy
         NNCalcParam(; mode=mode),
         nn,
-        Dict{Symbol, T}(_make_symbol_keys(elemental_energies)),
+        Dict{Symbol, T}(make_symbol_keys(elemental_energies)),
     )
 end
 

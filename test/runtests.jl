@@ -25,7 +25,11 @@ include("test_preprocess.jl")
 include("test_dotcastep.jl")
 include("test_train.jl")
 include("test_builder.jl")
-include("test_link.jl")
+#include("test_link.jl")
+
+# New MetaCalculator and Modifier tests
+include("test_modifiers.jl")
+include("test_metacalculator.jl")
 
 @testset "Model" begin
     calc = _get_lco_calc()

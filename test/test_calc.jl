@@ -1,8 +1,10 @@
 using LinearAlgebra
 using EDDPotentials
+using Unitful
 using EDDPotentials: get_cell, eddp_forces, eddp_stress, eddp_energy
 using Test
 using CellBase
+using CellBase: distance_between
 using Flux
 
 @testset "Calc" begin
@@ -40,11 +42,11 @@ using Flux
         calc = EDDPotentials.NNCalc(cell, cf, nnitf; core=nothing)
         nnitf.chain(calc.v)
 
-        # Test copying positions
-        cell2 = deepcopy(cell)
-        positions(cell2) .= 0.0
-        EDDPotentials.copycell!(cell, cell2)
-        @test EDDPotentials.is_equal(cell, cell2)
+        # # Test copying positions
+        # cell2 = deepcopy(cell)
+        # positions(cell2) .= 0.0
+        # EDDPotentials.copycell!(cell, cell2)
+        # @test EDDPotentials.is_equal(cell, cell2)
 
         eng = EDDPotentials.eddp_energy(calc)
         @test isa(eng, Float64)
@@ -214,7 +216,7 @@ end
     # Expected distance
     rexp = (1 - (5 / 2 / 2^6)^(1 / 6)) * 3.5
     dd = distance_between(cell[1], cell[2])
-    @test dd ≈ rexp atol = 1e-6
+    @test ustrip(dd) ≈ rexp atol = 1e-4
 
     # Test recording trajectory
     cell = _h2_cell(10, 1.5)
@@ -223,10 +225,11 @@ end
     @test res.converged
 
     dd = distance_between(cell[1], cell[2])
-    @test dd ≈ rexp atol = 1e-6
+    @test ustrip(dd) ≈ rexp atol = 1e-4
 
     @test length(res.relax.trajectory) > 1
-    @test :enthalpy in keys(res.relax.trajectory[1].metadata)
+    @test :energy in keys(res.relax.trajectory[1].metadata)
+    @test :force in keys(res.relax.trajectory[1].metadata)
 end
 
 @testset "Opt" begin

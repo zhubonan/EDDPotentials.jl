@@ -28,7 +28,7 @@ ensemble_std_max = -1
 
 [trainer]
 log_file = "train-log"
-type = "locallm"
+training_mode = "linear"
 energy_threshold = 100
 nmodels = 8
 n_nodes = [2]
