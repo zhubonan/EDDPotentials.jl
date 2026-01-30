@@ -31,6 +31,9 @@ include("test_builder.jl")
 include("test_modifiers.jl")
 include("test_metacalculator.jl")
 
+# Native optimizer tests
+include("test_native_optimizers.jl")
+
 @testset "Model" begin
     calc = _get_lco_calc()
     for (n, order) in zip([6, 10, 15], [2, 3, 4])

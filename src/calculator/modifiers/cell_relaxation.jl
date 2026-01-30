@@ -75,7 +75,8 @@ Create a cell relaxation modifier.
 """
 function CellRelaxationModifier(cell::Cell; external_pressure=zeros(3, 3))
     T = eltype(cellmat(cell))
-    D = CellBase.n_dimensions(cell)
+    #D = CellBase.n_dimensions(cell)
+    D = 3 # Only three dimensions
     nat = length(cell)
 
     CellRelaxationModifier(

@@ -57,6 +57,11 @@ include("calculator/metacalculator.jl")
 include("pairpot.jl")
 include("tools.jl")
 include("functional/functional.jl")
+# Native optimizers
+include("optimizer/abstract.jl")
+include("optimizer/utils.jl")
+include("optimizer/tpsd.jl")
+include("optimizer/fire.jl")
 include("opt.jl")
 include("records.jl")
 include("quickbuild.jl")
@@ -77,10 +82,12 @@ export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos,
 export displace!, clip, Cell, supercell
 export distance_matrix, laplacian_matrix, nmodules, find_modules
 export get_cell,
-    eddp_forces,
     eddp_energy,
     eddp_energy_per_atom,
     eddp_stress,
+    eddp_pressure,
+    eddp_pressure_gpa
+    eddp_enthalpy
     CellFeature,
     NNCalc,
     VariableCellCalc,
@@ -97,7 +104,7 @@ export MetaCalculator,
     set_modifier_parameter!,
     get_augmented_positions,
     set_augmented_positions!
-export eddp_enthalpy, eddp_pressure
+export opt_tpsd, opt_fire  # Explicit optimization functions
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer, FeatureContainer, load_from_jld2
 export BuilderState, TrainingOption, link!

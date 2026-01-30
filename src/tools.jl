@@ -23,7 +23,9 @@ function update_metadata!(vc::AbstractCalc, label; symprec=1e-2)
     this_cell.metadata[:enthalpy] = eddp_enthalpy(vc)
     this_cell.metadata[:volume] = volume(this_cell)
     this_cell.metadata[:pressure] = eddp_pressure_gpa(vc)
-    this_cell.metadata[:label] = label
+    if !haskey(this_cell.metadata, :label)
+        this_cell.metadata[:label] = label
+    end
     symm = CellBase.get_international(this_cell, symprec)
     this_cell.metadata[:symm] = "($(symm))"
     # Write to the file
@@ -35,7 +37,7 @@ end
 
 Write structure in VariableCellCalc as SHELX file.
 """
-function write_res(path, vc::VariableCellCalc; symprec=1e-2, label="EDDPotentials")
+function write_res(path, vc::AbstractCalc; symprec=1e-2, label="EDDPotentials")
     update_metadata!(vc, label; symprec)
     write_res(path, get_cell(vc))
 end
