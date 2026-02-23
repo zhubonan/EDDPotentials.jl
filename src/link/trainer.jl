@@ -112,7 +112,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
         @info "Model initialized"
         # Initialise the model
         if training_mode == "manual_backprop"
-            model = EDDPotentials.ManualFluxBackPropInterface(
+            model = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
                 bu.cf,
                 tra.n_nodes...;
                 xt=train.xt,
@@ -122,7 +122,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
             )
         elseif training_mode == "linear"
             # Linear model
-            model = EDDPotentials.LinearInterface(zeros(size(x_train[1], 1)))
+            model = EDDPotentials.EDDPotentialsCore.LinearInterface(zeros(size(x_train[1], 1)))
         else
             throw(ErrorException("Unknown `training_mode`: $(training_mode)"))
         end

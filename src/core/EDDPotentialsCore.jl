@@ -39,7 +39,6 @@ export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos,
 export displace!, clip, Cell, supercell
 export distance_matrix, laplacian_matrix, nmodules, find_modules
 export get_positions, set_positions!, set_cell!, set_cellmat!, remove_dimensions
-export glob_allow_abs
 
 # Core calculator and feature API
 export AbstractCalc, get_cell
@@ -56,33 +55,7 @@ export CellFeature, nfeatures
 export TwoBodyFeature, ThreeBodyFeature, permequal, feature_size
 export NNCalc, VariableCellCalc, MultiCalc, DimPenalty
 export CoreRepulsion
-export get_elemental_energy
-export calculate!, _need_calc
-
-# NN interfaces and helpers
-export AbstractNNInterface,
-    ManualFluxBackPropInterface,
-    FluxInterface,
-    LinearInterface,
-    EnsembleNNInterface,
-    paramvector,
-    paramvector!,
-    setparamvector!,
-    nparams,
-    get_flux_model,
-    setup_fj,
-    load_from_jld2,
-    flux_mlp_model
-export forward!, backward!, gradinp!, gradparam!
-export ChainGradients, setup_fg_backprop
-
-# Feature/gradient helpers used by functional tooling
-export update_feature_vector!, compute_fv!, compute_fv_gv!, compute_fv_gv, _force_update!, _stress_update!
-export eVAngToGPa, GPaToeVAng
-export GradientWorkspace
-export BodyEmbedding, CellEmbedding, BodyEmbeddingGradient, CellEmbeddingGradient
-export two_body_view, three_body_view, backprop!
-export _apply_embedding_batch, _apply_embedding_cell
+export calculate!
 
 # Meta calculator/modifier API used in workflows
 export MetaCalculator,

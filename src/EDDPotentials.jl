@@ -25,19 +25,33 @@ const to = EDDPotentialsCore.to
 # Bring selected core symbols into the top-level namespace where
 # functional files extend/use them without qualification.
 import .EDDPotentialsCore:
+    AbstractNNInterface,
     CellFeature,
     EnsembleNNInterface,
+    FluxInterface,
+    GPaToeVAng,
+    LinearInterface,
+    ManualFluxBackPropInterface,
+    _force_update!,
+    _stress_update!,
     compute_objectives,
     compute_objectives_diff,
+    compute_fv_gv,
     eddp_energy,
     eddp_forces,
     eddp_pressure,
     eddp_energy_std,
     eddp_enthalpy,
     eddp_energy_per_atom,
+    eVAngToGPa,
+    get_flux_model,
     ginit,
     get_elemental_energy,
     feature_vector,
+    glob_allow_abs,
+    load_from_jld2,
+    setup_fj,
+    update_feature_vector!,
     reinit,
     reinit!
 

@@ -132,7 +132,7 @@ function optimizer_effective_stress(calc::AbstractCalc; rebuild_nl=true)
 end
 
 function optimizer_effective_stress(calc::VariableCellCalc; rebuild_nl=true)
-    _get_effective_stress(calc; rebuild_nl=rebuild_nl)
+    EDDPotentialsCore._get_effective_stress(calc; rebuild_nl=rebuild_nl)
 end
 
 function optimizer_effective_stress(calc::MetaCalculator; rebuild_nl=true)

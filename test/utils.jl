@@ -59,7 +59,7 @@ end
 function _get_calc()
     cell = _h2_cell()
     cf = _generate_cf(cell)
-    itf = EDDPotentials.ManualFluxBackPropInterface(
+    itf = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
         Chain(Dense(rand(5, EDDPotentials.nfeatures(cf))), Dense(rand(1, 5))),
     )
     calc = EDDPotentials.NNCalc(cell, cf, itf)
@@ -69,7 +69,7 @@ end
 function _get_lco_calc()
     cell = _lco_cell()
     cf = _generate_cf(cell)
-    itf = EDDPotentials.ManualFluxBackPropInterface(
+    itf = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
         Chain(Dense(rand(5, EDDPotentials.nfeatures(cf))), Dense(rand(1, 5))),
     )
     calc = EDDPotentials.NNCalc(cell, cf, itf)

@@ -16,7 +16,7 @@ using Flux
         ftmp = copy(EDDPotentials.eddp_forces(calc))
         etmp = EDDPotentials.eddp_energy(calc)
         positions(get_cell(calc))[1] += amp
-        @test EDDPotentials._need_calc(calc, true)
+        @test EDDPotentials.EDDPotentialsCore._need_calc(calc, true)
         tmp = (eddp_energy(calc) - etmp) / amp
         @test -tmp ≈ ftmp[1] atol = atol
     end
@@ -28,7 +28,7 @@ using Flux
         ftmp = copy(EDDPotentials.eddp_forces(calc))
         etmp = EDDPotentials.eddp_enthalpy(calc)
         positions(get_cell(calc))[idx] += amp
-        @test EDDPotentials._need_calc(calc, true)
+        @test EDDPotentials.EDDPotentialsCore._need_calc(calc, true)
         tmp = (EDDPotentials.eddp_enthalpy(calc) - etmp) / amp
         @test -tmp ≈ ftmp[idx] atol = atol
     end
@@ -36,7 +36,7 @@ using Flux
 
 
     @testset "MBP" begin
-        nnitf = EDDPotentials.ManualFluxBackPropInterface(
+        nnitf = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
             Chain(Dense(rand(5, EDDPotentials.nfeatures(cf))), Dense(rand(1, 5))),
         )
         calc = EDDPotentials.NNCalc(cell, cf, nnitf; core=nothing)
@@ -65,8 +65,8 @@ using Flux
     end
 
     @testset "MBP&Embedding" begin
-        embed = EDDPotentials.CellEmbedding(cf, 2)
-        nnitf = EDDPotentials.ManualFluxBackPropInterface(cf, 5; embedding=embed)
+        embed = EDDPotentials.EDDPotentialsCore.CellEmbedding(cf, 2)
+        nnitf = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(cf, 5; embedding=embed)
         calc = EDDPotentials.NNCalc(cell, cf, nnitf; core=nothing)
         nnitf.chain(calc.v)
 
@@ -87,9 +87,9 @@ using Flux
     end
 
     @testset "Flux&Embedding" begin
-        embed = EDDPotentials.CellEmbedding(cf, 2)
-        model = EDDPotentials.flux_mlp_model(cf, 5; embedding=embed)
-        nnitf = EDDPotentials.FluxInterface(model)
+        embed = EDDPotentials.EDDPotentialsCore.CellEmbedding(cf, 2)
+        model = EDDPotentials.EDDPotentialsCore.flux_mlp_model(cf, 5; embedding=embed)
+        nnitf = EDDPotentials.EDDPotentialsCore.FluxInterface(model)
         calc = EDDPotentials.NNCalc(cell, cf, nnitf; core=nothing)
         nnitf.model(calc.v)
 
@@ -112,11 +112,11 @@ using Flux
 
     @testset "Ensemble" begin
         nnitfs = [
-            EDDPotentials.ManualFluxBackPropInterface(
+            EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
                 Chain(Dense(rand(5, EDDPotentials.nfeatures(cf))), Dense(rand(1, 5))),
             ) for _ = 1:5
         ]
-        nnitf = EDDPotentials.EnsembleNNInterface(Tuple(nnitfs), repeat([0.2], 5))
+        nnitf = EDDPotentials.EDDPotentialsCore.EnsembleNNInterface(Tuple(nnitfs), repeat([0.2], 5))
         calc = EDDPotentials.NNCalc(cell, cf, nnitf; core=nothing)
         eng = eddp_energy(calc)
         std_tot = EDDPotentials.eddp_energy_std(calc)
@@ -128,7 +128,7 @@ using Flux
     end
 
     @testset "Linear" begin
-        nnitf = EDDPotentials.LinearInterface(rand(EDDPotentials.nfeatures(cf)))
+        nnitf = EDDPotentials.EDDPotentialsCore.LinearInterface(rand(EDDPotentials.nfeatures(cf)))
         calc = EDDPotentials.NNCalc(cell, cf, nnitf; core=nothing)
         eng = eddp_energy(calc)
         forces = eddp_forces(calc)
@@ -145,7 +145,7 @@ using Flux
     end
 
     @testset "VCFilter" begin
-        nnitf = EDDPotentials.LinearInterface(rand(EDDPotentials.nfeatures(cf)))
+        nnitf = EDDPotentials.EDDPotentialsCore.LinearInterface(rand(EDDPotentials.nfeatures(cf)))
         calc = EDDPotentials.NNCalc(cell, cf, nnitf)
         filter = EDDPotentials.VariableCellCalc(calc)
         _test_forces_fd(filter)
@@ -159,7 +159,7 @@ using Flux
         @test size(pos) == (3, 5)
         pos[1] += 1e-9
         set_positions!(filter, pos)
-        @test EDDPotentials._need_calc(filter, false)
+        @test EDDPotentials.EDDPotentialsCore._need_calc(filter, false)
 
         # External pressure
         filter =
@@ -173,7 +173,7 @@ using Flux
 
     @testset "Neigh" begin
         # Check NeighbourList rebuild
-        nnitf = EDDPotentials.LinearInterface(rand(EDDPotentials.nfeatures(cf)))
+        nnitf = EDDPotentials.EDDPotentialsCore.LinearInterface(rand(EDDPotentials.nfeatures(cf)))
         calc = EDDPotentials.NNCalc(cell, cf, nnitf)
         p1 = calc.last_nn_build_pos[1]
         positions(get_cell(calc))[1] += 3.0
@@ -199,9 +199,9 @@ end
         q3=[],
     )
 
-    nnitf = EDDPotentials.LinearInterface(rand(EDDPotentials.nfeatures(cf)))
+    nnitf = EDDPotentials.EDDPotentialsCore.LinearInterface(rand(EDDPotentials.nfeatures(cf)))
     # Attractive potential with -5f(x)^6 + f(x)^12
-    EDDPotentials.setparamvector!(nnitf, [0, -5, 1])
+    EDDPotentials.EDDPotentialsCore.setparamvector!(nnitf, [0, -5, 1])
     calc = EDDPotentials.NNCalc(cell, cf, nnitf)
 
     # Test RelaxOption

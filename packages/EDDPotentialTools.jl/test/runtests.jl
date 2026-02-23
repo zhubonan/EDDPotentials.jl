@@ -24,7 +24,7 @@ using Test
         chain.layers[1].weight[1, 2:3] .= [-2.0, 1.0]
         chain.layers[1].bias .= 0
 
-        model = EDDPotentials.ManualFluxBackPropInterface(chain)
+        model = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(chain)
         EDDPotentials.NNCalc(cell, cf, model)
     end
 

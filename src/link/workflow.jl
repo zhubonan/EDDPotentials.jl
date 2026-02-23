@@ -216,9 +216,9 @@ end
 Load the ensemble model for a given iteration.
 """
 function load_ensemble(bu::Builder, iteration=_latest_ensemble_iteration(bu))
-    EDDPotentials.load_from_jld2(
+    EDDPotentials.EDDPotentialsCore.load_from_jld2(
         ensemble_name(bu, iteration),
-        EDDPotentials.EnsembleNNInterface,
+        EDDPotentials.EDDPotentialsCore.EnsembleNNInterface,
     )
 end
 

@@ -1,12 +1,12 @@
 using EDDPotentials
 using EDDPotentials:
     CoreRepulsion,
-    compute_fv_gv,
     eddp_energy,
     get_cell,
     _fd_energy,
     _fd_energy_vc,
     _fd_strain
+using EDDPotentials.EDDPotentialsCore: compute_fv_gv
 using EDDPotentials: fd_desc, force_gradient, stress_gradient, test_finite_difference
 using CellBase
 using LinearAlgebra
@@ -70,7 +70,7 @@ end
     calc = _get_lco_calc()
     ntot = EDDPotentials.nfeatures(calc.cf)
     model = Chain(Dense(ones(1, ntot)))
-    itf = EDDPotentials.ManualFluxBackPropInterface(model)
+    itf = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(model)
 
     forces = copy(EDDPotentials.eddp_forces(calc))
     stress = copy(EDDPotentials.eddp_stress(calc))

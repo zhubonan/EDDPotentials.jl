@@ -15,21 +15,21 @@ using NLSolversBase
         y = rand(length(data))
         yt = StatsBase.fit(StatsBase.ZScoreTransform, reshape(y, 1, length(y)), dims=2)
 
-        model = EDDPotentials.ManualFluxBackPropInterface(
+        model = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
             Chain(Dense(rand(1, nf), rand(1), tanh)),
             yt=yt,
         )
         EDDPotentials.compute_objectives(f, model, data, f)
         @test any(f != 0.0)
 
-        jmat = rand(length(data), EDDPotentials.nparams(model))
+        jmat = rand(length(data), EDDPotentials.EDDPotentialsCore.nparams(model))
         EDDPotentials.compute_objectives_diff(f, jmat, model, data, y)
 
         @test any(jmat != 0.0)
 
         # Setting up and minimising
-        f!, j!, fj! = EDDPotentials.setup_fj(model, data, y)
-        p0 = EDDPotentials.paramvector(model)
+        f!, j!, fj! = EDDPotentials.EDDPotentialsCore.setup_fj(model, data, y)
+        p0 = EDDPotentials.EDDPotentialsCore.paramvector(model)
 
         # Manual diff
         jmat = zeros(length(y), length(p0))
@@ -60,7 +60,7 @@ using NLSolversBase
 
         # Test with training config
         model =
-            EDDPotentials.ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
+            EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
 
         EDDPotentials.train_lm!(model, data, y;)
         out = model(data[2])
@@ -71,7 +71,7 @@ using NLSolversBase
         nf = 1000
         data = vcat([rand(nf, 3) for _ = 1:10], [rand(nf, 2) for _ = 1:10])
         y = size.(data, 2) ./ 2
-        model = EDDPotentials.LinearInterface(rand(1, nf))
+        model = EDDPotentials.EDDPotentialsCore.LinearInterface(rand(1, nf))
 
         opt_res, _, _ = EDDPotentials.train_lm!(model, data, y; earlystop=0)
     end
@@ -86,14 +86,14 @@ using NLSolversBase
         # This gives fix examples
         fc_train, fc_test = split(fc, 5, 5; standardize=true, apply_transform=true)
         models = []
-        model = EDDPotentials.ManualFluxBackPropInterface(
+        model = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
             Chain(Dense(ginit(5, EDDPotentials.nfeatures(fc.feature))), Dense(ginit(1, 5))),
             xt=fc_train.xt,
             yt=fc_train.yt,
             apply_xt=false,
         )
         model_ = EDDPotentials.reinit(model)
-        @test any(EDDPotentials.paramvector(model_) .!= EDDPotentials.paramvector(model))
+        @test any(EDDPotentials.EDDPotentialsCore.paramvector(model_) .!= EDDPotentials.EDDPotentialsCore.paramvector(model))
         for _ = 1:10
             model_ = EDDPotentials.reinit(model)
             res = EDDPotentials.train!(model_, fc_train, fc_test)
@@ -115,17 +115,17 @@ using NLSolversBase
         y = rand(length(data))
         yt = StatsBase.fit(StatsBase.ZScoreTransform, reshape(y, 1, length(y)), dims=2)
 
-        model = EDDPotentials.FluxInterface(Chain(Dense(rand(1, nf), rand(1))))
+        model = EDDPotentials.EDDPotentialsCore.FluxInterface(Chain(Dense(rand(1, nf), rand(1))))
         EDDPotentials.compute_objectives(f, model, data, f)
         @test any(f != 0.0)
 
-        jmat = rand(length(data), EDDPotentials.nparams(model))
+        jmat = rand(length(data), EDDPotentials.EDDPotentialsCore.nparams(model))
         EDDPotentials.compute_objectives_diff(f, jmat, model, data, y)
         @test any(jmat != 0.0)
 
         # Setting up and minimising
-        f!, j!, fj! = EDDPotentials.setup_fj(model, data, y)
-        p0 = EDDPotentials.paramvector(model)
+        f!, j!, fj! = EDDPotentials.EDDPotentialsCore.setup_fj(model, data, y)
+        p0 = EDDPotentials.EDDPotentialsCore.paramvector(model)
 
         # Manual finite diff
         jmat = zeros(length(y), length(p0))

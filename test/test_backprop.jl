@@ -1,7 +1,7 @@
 using Flux
 
-using EDDPotentials: backward!, forward!, ChainGradients
 using EDDPotentials
+using EDDPotentials.EDDPotentialsCore: backward!, forward!, ChainGradients
 using Test
 
 
@@ -73,9 +73,9 @@ using Test
         chain.layers[2].bias .= rand(1)
         inp = [rand(Float64, 21, 2), rand(Float64, 21, 2)]
         gd = Flux.jacobian(() -> [sum(chain(x)) for x in inp], Flux.params(chain))
-        gp! = EDDPotentials.setup_fg_backprop(chain, inp, [1.0, 1.0])
+        gp! = EDDPotentials.EDDPotentialsCore.setup_fg_backprop(chain, inp, [1.0, 1.0])
         jmat = zeros(eltype(inp[1]), 2, 116)
-        gp!([0.0, 1.0], jmat, EDDPotentials.paramvector(chain))
+        gp!([0.0, 1.0], jmat, EDDPotentials.EDDPotentialsCore.paramvector(chain))
 
         @test allclose(jmat[:, 1:105], gd.grads[gd.params[1]])
         @test allclose(jmat[:, 106:110], gd.grads[gd.params[2]])
@@ -88,9 +88,9 @@ using Test
         chain.layers[2].bias .= rand(1)
         inp = [rand(Float64, 21, 2), rand(Float64, 21, 2)]
         gd = Flux.jacobian(() -> [sum(chain(x)) for x in inp], Flux.params(chain))
-        gp! = EDDPotentials.setup_fg_backprop(chain, inp, [1.0, 1.0])
+        gp! = EDDPotentials.EDDPotentialsCore.setup_fg_backprop(chain, inp, [1.0, 1.0])
         jmat = zeros(eltype(inp[1]), length(inp), 181)
-        gp!([0.0, 1.0], jmat, EDDPotentials.paramvector(chain))
+        gp!([0.0, 1.0], jmat, EDDPotentials.EDDPotentialsCore.paramvector(chain))
         @test allclose(jmat[:, 1:105], gd.grads[gd.params[1]])
         @test allclose(jmat[:, 106:110], gd.grads[gd.params[2]])
         @test allclose(jmat[:, 111:160], gd.grads[gd.params[3]])
