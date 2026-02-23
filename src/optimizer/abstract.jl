@@ -60,6 +60,22 @@ function initialize!(opt::AbstractOptimizer, calc::AbstractCalc)
 end
 
 """
+    optimize!(opt::AbstractOptimizer, calc::AbstractCalc; callback=nothing) -> AbstractOptimizer
+
+Run optimization until convergence or `opt.itermax` is reached.
+
+This helper provides a common execution loop for native optimizers. It returns
+the optimizer instance so callers can inspect trajectory and convergence state.
+"""
+function optimize!(opt::AbstractOptimizer, calc::AbstractCalc; callback=nothing)
+    while !converged(opt, calc) && (opt.iteration < opt.itermax)
+        step!(opt, calc)
+        isnothing(callback) || callback()
+    end
+    opt
+end
+
+"""
     get_iteration(opt::AbstractOptimizer) -> Int
 
 Get current iteration number.
@@ -125,7 +141,8 @@ Set positions, including augmented lattice DOF if variable cell.
 function set_augmented_positions_internal!(calc::AbstractCalc, x::AbstractVector)
     if is_variable_cell(calc)
         if calc isa VariableCellCalc
-            set_positions!(calc, x)
+            shape = size(get_positions(calc))
+            set_positions!(calc, reshape(x, shape...))
         elseif hasproperty(calc, :modifiers)
             # MetaCalculator with CellRelaxationModifier
             for mod in calc.modifiers

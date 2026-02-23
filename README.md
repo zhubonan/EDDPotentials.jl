@@ -24,6 +24,21 @@ A recent pre-print explaining more applications of the model can found here: htt
   - Training data generation through [DISP](https://github.com/zhubonan/disp).
 - Analysis and visualisation for potential quality verification and convergence.
 
+## Internal architecture
+
+The source tree is separated into two internal layers:
+
+- `src/core_layer.jl`: core evaluation path (feature generation, gradients, calculator energy/force/stress).
+- `src/functional_layer.jl`: higher-level workflows (training, relaxations, builder workflows, analysis and plotting).
+- `src/experimental/`: archived prototypes that are intentionally not part of the runtime include graph.
+
+This separation is internal only; the public API remains available through `EDDPotentials`.
+You can regenerate the source dependency baseline with:
+
+```bash
+julia --project=. scripts/dependency_report.jl docs/architecture/dependency_baseline.md
+```
+
 ## Related packages
 
 - [airss](https://www.mtg.msm.cam.ac.uk/Codes/AIRSS) - *ab initio* random structure (AIRSS) is used for building random structure through the `buildcell` program included in the bundle.

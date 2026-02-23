@@ -1,0 +1,314 @@
+# Source Dependency Report
+
+- Generated: 2026-02-22 22:50:29
+- Entrypoint: `src/EDDPotentials.jl`
+- Included source files: 61
+- Total source files: 65
+- Non-experimental orphans: 0
+
+## Include Graph
+- `src/EDDPotentials.jl`
+  - includes `src/core_layer.jl`
+  - includes `src/functional_layer.jl`
+- `src/calculator.jl`
+- `src/calculator/metacalculator.jl`
+- `src/calculator/modifiers/abstract.jl`
+- `src/calculator/modifiers/additive_calc.jl`
+- `src/calculator/modifiers/cell_relaxation.jl`
+- `src/calculator/modifiers/dimension_penalty.jl`
+- `src/calculator/modifiers/modifiers.jl`
+  - includes `src/calculator/modifiers/abstract.jl`
+  - includes `src/calculator/modifiers/dimension_penalty.jl`
+  - includes `src/calculator/modifiers/cell_relaxation.jl`
+  - includes `src/calculator/modifiers/additive_calc.jl`
+- `src/constants.jl`
+- `src/core_layer.jl`
+  - includes `src/constants.jl`
+  - includes `src/nnls/nnls.jl`
+  - includes `src/utils/utils.jl`
+  - includes `src/feature/feature.jl`
+  - includes `src/embedding.jl`
+  - includes `src/embedding_rules.jl`
+  - includes `src/gradient/gradient.jl`
+  - includes `src/nn/interface.jl`
+  - includes `src/nntools.jl`
+  - includes `src/calculator.jl`
+  - includes `src/calculator/modifiers/modifiers.jl`
+  - includes `src/calculator/metacalculator.jl`
+  - includes `src/pairpot.jl`
+- `src/eddpf90.jl`
+- `src/embedding.jl`
+- `src/embedding_rules.jl`
+- `src/feature/cell.jl`
+- `src/feature/compute.jl`
+- `src/feature/feature.jl`
+  - includes `src/feature/cell.jl`
+  - includes `src/feature/lookup.jl`
+  - includes `src/feature/compute.jl`
+- `src/feature/lookup.jl`
+- `src/functional/buildcell.jl`
+- `src/functional/functional.jl`
+  - includes `src/functional/transforms.jl`
+  - includes `src/functional/buildcell.jl`
+  - includes `src/functional/relax.jl`
+  - includes `src/functional/rss.jl`
+- `src/functional/relax.jl`
+- `src/functional/rss.jl`
+- `src/functional/transforms.jl`
+- `src/functional_layer.jl`
+  - includes `src/lmsolve.jl`
+  - includes `src/preprocessing.jl`
+  - includes `src/eddpf90.jl`
+  - includes `src/training.jl`
+  - includes `src/tools.jl`
+  - includes `src/functional/functional.jl`
+  - includes `src/optimizer/abstract.jl`
+  - includes `src/optimizer/utils.jl`
+  - includes `src/optimizer/tpsd.jl`
+  - includes `src/optimizer/fire.jl`
+  - includes `src/opt.jl`
+  - includes `src/records.jl`
+  - includes `src/quickbuild.jl`
+  - includes `src/link/link.jl`
+  - includes `src/hyper.jl`
+  - includes `src/minsep.jl`
+  - includes `src/plotting/recipes.jl`
+  - includes `src/lazy_res.jl`
+  - includes `src/model_structures.jl`
+  - includes `src/plotting.jl`
+- `src/gradient/gradient.jl`
+  - includes `src/gradient/repulsive_core.jl`
+  - includes `src/gradient/workspace.jl`
+- `src/gradient/repulsive_core.jl`
+- `src/gradient/workspace.jl`
+- `src/hyper.jl`
+- `src/lazy_res.jl`
+- `src/link/analysis.jl`
+- `src/link/data.jl`
+- `src/link/external.jl`
+- `src/link/link.jl`
+  - includes `src/link/options.jl`
+  - includes `src/link/utils.jl`
+  - includes `src/link/workflow.jl`
+  - includes `src/link/trainer.jl`
+  - includes `src/link/external.jl`
+  - includes `src/link/data.jl`
+  - includes `src/link/analysis.jl`
+- `src/link/options.jl`
+- `src/link/trainer.jl`
+- `src/link/utils.jl`
+- `src/link/workflow.jl`
+- `src/lmsolve.jl`
+- `src/minsep.jl`
+- `src/model_structures.jl`
+- `src/nn/ensemble.jl`
+- `src/nn/flux.jl`
+- `src/nn/interface.jl`
+  - includes `src/nn/manual_backprop.jl`
+  - includes `src/nn/linear.jl`
+  - includes `src/nn/ensemble.jl`
+  - includes `src/nn/flux.jl`
+- `src/nn/linear.jl`
+- `src/nn/manual_backprop.jl`
+- `src/nnls/nnls.jl`
+- `src/nntools.jl`
+- `src/opt.jl`
+  - includes `src/tpsd.jl`
+- `src/optimizer/abstract.jl`
+- `src/optimizer/fire.jl`
+- `src/optimizer/tpsd.jl`
+- `src/optimizer/utils.jl`
+- `src/pairpot.jl`
+- `src/plotting.jl`
+- `src/plotting/recipes.jl`
+- `src/preprocessing.jl`
+- `src/quickbuild.jl`
+- `src/records.jl`
+- `src/tools.jl`
+- `src/tpsd.jl`
+- `src/training.jl`
+- `src/utils/utils.jl`
+
+## Imports By File
+- `src/EDDPotentials.jl`
+  - `CellBase: read_castep`
+  - `CellBase`
+  - `StatsBase: mean`
+  - `TimerOutputs`
+  - `Glob`
+- `src/calculator.jl`
+  - `Optim`
+  - `Base`
+  - `Optim: LBFGS, optimize`
+  - `LineSearches: HagerZhang`
+  - `LinearAlgebra`
+  - `CellBase:`
+  - `StatsBase: ZScoreTransform, transform!`
+- `src/eddpf90.jl`
+  - `CellBase`
+  - `Printf`
+- `src/embedding.jl`
+  - `Flux`
+- `src/embedding_rules.jl`
+  - `ChainRulesCore: rrule, NoTangent, unthunk`
+- `src/feature/feature.jl`
+  - `Base`
+  - `CellBase`
+  - `StaticArrays`
+  - `Parameters`
+- `src/functional/relax.jl`
+  - `LinearAlgebra`
+  - `GarishPrint`
+  - `ExtXYZ`
+  - `Printf`
+  - `Optim: optimize, LBFGS, BFGS`
+  - `Optim.LineSearches: BackTracking`
+  - `Configurations`
+- `src/gradient/gradient.jl`
+  - `StaticArrays`
+  - `Base.Threads`
+- `src/lazy_res.jl`
+  - `CellBase`
+  - `CellBase`
+  - `StatsBase`
+- `src/link/external.jl`
+  - `Random`
+  - `JSON`
+- `src/link/link.jl`
+  - `Base`
+  - `Parameters`
+  - `JSON`
+  - `YAML`
+  - `TOML`
+  - `ArgParse`
+  - `Random`
+- `src/link/options.jl`
+  - `Configurations`
+  - `GarishPrint`
+- `src/link/trainer.jl`
+  - `ArgParse`
+- `src/link/workflow.jl`
+  - `Parameters`
+  - `JSON`
+  - `YAML`
+  - `TOML`
+  - `ArgParse`
+  - `Random`
+- `src/lmsolve.jl`
+  - `Base.Threads`
+  - `Distributions`
+  - `OptimBase`
+  - `LinearAlgebra`
+  - `NLSolversBase: value, jacobian`
+  - `StatsBase`
+  - `StatsBase: coef, dof, nobs, rss, stderror, weights, residuals`
+  - `LsqFit`
+  - `Base.summary`
+- `src/minsep.jl`
+  - `CellBase`
+- `src/model_structures.jl`
+  - `Combinatorics: with_replacement_combinations`
+- `src/nn/ensemble.jl`
+  - `Base`
+- `src/nn/flux.jl`
+  - `Flux`
+- `src/nn/interface.jl`
+  - `JLD2`
+  - `StatsBase: ZScoreTransform, fit, transform!, reconstruct!`
+- `src/nn/manual_backprop.jl`
+  - `Base`
+  - `JLD2`
+  - `LinearAlgebra`
+  - `Flux`
+  - `Zygote`
+  - `JLD2`
+- `src/nnls/nnls.jl`
+  - `LinearAlgebra`
+  - `StatsBase: mean`
+- `src/nntools.jl`
+  - `Random`
+  - `Flux`
+- `src/opt.jl`
+  - `LinearAlgebra`
+- `src/optimizer/fire.jl`
+  - `LinearAlgebra`
+  - `Parameters`
+  - `Printf`
+- `src/optimizer/tpsd.jl`
+  - `LinearAlgebra`
+  - `Parameters`
+  - `Printf`
+- `src/optimizer/utils.jl`
+  - `LinearAlgebra`
+- `src/plotting/recipes.jl`
+  - `RecipesBase`
+  - `LaTeXStrings`
+- `src/preprocessing.jl`
+  - `JLD2`
+  - `StatsBase`
+  - `Random`
+  - `Glob`
+  - `CellBase`
+  - `ProgressMeter`
+  - `CellBase: natoms, reduce, Composition`
+  - `Base`
+  - `Base.Threads`
+  - `EDDPotentials`
+- `src/quickbuild.jl`
+  - `CellBase`
+- `src/records.jl`
+  - `Base`
+  - `CellBase`
+  - `DirectQhull`
+  - `CellBase`
+  - `LinearAlgebra`
+- `src/tools.jl`
+  - `CellBase: rattle!, reduce, Composition`
+  - `NLSolversBase`
+  - `ProgressMeter: @showprogress`
+  - `CellBase: write_res`
+  - `StatsBase`
+  - `Base.Threads`
+  - `JLD2`
+  - `Dates`
+  - `UUIDs`
+- `src/tpsd.jl`
+  - `Optim`
+- `src/training.jl`
+  - `Base.Threads`
+  - `Dates`
+  - `JLD2`
+  - `Glob`
+  - `Printf`
+  - `.NNLS: nnls`
+  - `NLSolversBase`
+  - `ProgressMeter: Progress`
+  - `Parameters`
+  - `Printf`
+  - `StatsBase`
+  - `Base`
+  - `CellBase`
+  - `Logging`
+  - `NonNegLeastSquares`
+  - `ExtXYZ`
+  - `the full dataset containing different compositions.`
+
+## Largest Included Files
+- `src/link/external.jl`: 925 LOC
+- `src/nnls/nnls.jl`: 918 LOC
+- `src/training.jl`: 854 LOC
+- `src/link/workflow.jl`: 788 LOC
+- `src/preprocessing.jl`: 730 LOC
+- `src/gradient/gradient.jl`: 658 LOC
+- `src/calculator.jl`: 652 LOC
+- `src/feature/feature.jl`: 541 LOC
+- `src/records.jl`: 471 LOC
+- `src/nn/manual_backprop.jl`: 451 LOC
+- `src/lmsolve.jl`: 414 LOC
+- `src/embedding.jl`: 408 LOC
+- `src/tools.jl`: 393 LOC
+- `src/plotting/recipes.jl`: 338 LOC
+- `src/nntools.jl`: 325 LOC
+
+## Orphans (Non-Experimental)
+- None

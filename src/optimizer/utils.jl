@@ -10,8 +10,9 @@ Check convergence based on forces, stress, and energy criteria.
 Returns `true` if all applicable criteria are satisfied.
 """
 function check_convergence(opt::AbstractOptimizer, calc::AbstractCalc)
+    rebuild_nl = is_variable_cell(calc)
     # Get forces
-    F = eddp_forces(calc; rebuild_nl=false, make_copy=false)
+    F = eddp_forces(calc; rebuild_nl=rebuild_nl, make_copy=false)
     fmax = maximum(norm.(eachcol(F)))
 
     # Check force convergence
@@ -19,7 +20,7 @@ function check_convergence(opt::AbstractOptimizer, calc::AbstractCalc)
 
     # For variable cell, also check stress
     if is_variable_cell(calc)
-        S = eddp_stress(calc; rebuild_nl=false, make_copy=false)
+        S = eddp_stress(calc; rebuild_nl=true, make_copy=false)
         smax = maximum(abs.(S))
         stress_converged = smax < opt.s_tol
         return force_converged && stress_converged
@@ -53,19 +54,22 @@ Log optimization step based on log_level.
 - `:detailed`: Full state including velocities, step sizes, etc.
 """
 function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
-    # Skip if minimal logging
-    if opt.log_level == :minimal
+    keep_traj = hasproperty(opt, :keep_trajectory) && opt.keep_trajectory
+
+    # Skip the full metric computation only when absolutely nothing is requested.
+    if opt.log_level == :minimal && !keep_traj
         return
     end
 
+    rebuild_nl = is_variable_cell(calc)
     # Compute metrics
-    E = eddp_energy(calc; forces=false, rebuild_nl=false)
-    F = eddp_forces(calc; rebuild_nl=false, make_copy=false)
+    E = eddp_energy(calc; forces=false, rebuild_nl=rebuild_nl)
+    F = eddp_forces(calc; rebuild_nl=rebuild_nl, make_copy=false)
     fmax = maximum(norm.(eachcol(F)))
 
     smax = 0.0
     if is_variable_cell(calc)
-        S = eddp_stress(calc; rebuild_nl=false, make_copy=false)
+        S = eddp_stress(calc; rebuild_nl=true, make_copy=false)
         smax = maximum(abs.(S))
     end
 
@@ -95,7 +99,7 @@ function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
     end
 
     # Store in trajectory if requested
-    if hasproperty(opt, :keep_trajectory) && opt.keep_trajectory
+    if keep_traj
         cell = get_cell(calc)
         frame = TrajectoryFrame(
             opt.iteration,

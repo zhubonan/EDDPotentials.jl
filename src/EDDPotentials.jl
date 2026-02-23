@@ -28,66 +28,23 @@ abstract type EDDPotentialsOption end
 
 # end of abstract types
 
-include("constants.jl")
-# External
-include("nnls/nnls.jl")
-
-# General utility
-include("utils/utils.jl")
-
-# Feature generation
-include("feature/feature.jl")
-include("embedding.jl")
-include("embedding_rules.jl")
-include("gradient/gradient.jl")
-
-# NN interface
-include("nn/interface.jl")
-include("nntools.jl")
-
-# Training and data handling
-include("lmsolve.jl")
-include("preprocessing.jl")
-include("eddpf90.jl")
-include("training.jl")
-include("calculator.jl")
-# New MetaCalculator and Modifier system
-include("calculator/modifiers/modifiers.jl")
-include("calculator/metacalculator.jl")
-include("pairpot.jl")
-include("tools.jl")
-include("functional/functional.jl")
-# Native optimizers
-include("optimizer/abstract.jl")
-include("optimizer/utils.jl")
-include("optimizer/tpsd.jl")
-include("optimizer/fire.jl")
-include("opt.jl")
-include("records.jl")
-include("quickbuild.jl")
-
-# Automated building
-include("link/link.jl")
-include("hyper.jl")
-
-# Plotting and analysis
-include("minsep.jl")
-include("plotting/recipes.jl")
-include("lazy_res.jl")
-
-include("model_structures.jl")
-include("plotting.jl")
+# Internal layering:
+# - `core_layer.jl`: feature generation and evaluator kernel
+# - `functional_layer.jl`: training/workflow/analysis code built on top of core
+include("core_layer.jl")
+include("functional_layer.jl")
 
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export displace!, clip, Cell, supercell
 export distance_matrix, laplacian_matrix, nmodules, find_modules
 export get_cell,
     eddp_energy,
+    eddp_forces,
     eddp_energy_per_atom,
     eddp_stress,
     eddp_pressure,
-    eddp_pressure_gpa
-    eddp_enthalpy
+    eddp_pressure_gpa,
+    eddp_enthalpy,
     CellFeature,
     NNCalc,
     VariableCellCalc,
@@ -105,6 +62,8 @@ export MetaCalculator,
     get_augmented_positions,
     set_augmented_positions!
 export opt_tpsd, opt_fire  # Explicit optimization functions
+export AbstractOptimizer, NativeTPSD, NativeFIRE
+export initialize!, step!, converged, reset!, get_iteration, optimize!
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer, FeatureContainer, load_from_jld2
 export BuilderState, TrainingOption, link!

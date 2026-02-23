@@ -451,7 +451,8 @@ end
 Construct force and stress for the filter object
 """
 function _eddp_forces_and_stress(vc::VariableCellCalc; rebuild_nl, kwargs...)
-    calculate!(vc.calc; forces=true, rebuild_nl, kwargs...)
+    # Do not forward passthrough kwargs (e.g. `make_copy`) to `calculate!`.
+    calculate!(vc.calc; forces=true, rebuild_nl)
     dgrad = deformgradient(vc)
     vol = volume(get_cell(vc))
     # Compute the stress

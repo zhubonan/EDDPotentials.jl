@@ -107,10 +107,11 @@ function step!(opt::NativeTPSD, calc::AbstractCalc)
 
     # Get current positions
     x = get_augmented_positions_internal(calc)
+    rebuild_nl = is_variable_cell(calc)
 
     # Compute energy and forces
     E = eddp_energy(calc; forces=true, rebuild_nl=true)
-    F = eddp_forces(calc; rebuild_nl=false, make_copy=false)
+    F = eddp_forces(calc; rebuild_nl=rebuild_nl, make_copy=false)
 
     # Gradient is negative force (flattened)
     g = -F[:]

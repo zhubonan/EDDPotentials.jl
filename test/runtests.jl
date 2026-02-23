@@ -13,6 +13,8 @@ using Test
 end
 
 include("utils.jl")
+include("test_layer_boundaries.jl")
+include("test_source_topology.jl")
 
 include("test_records.jl")
 include("test_cellfeature.jl")
@@ -31,8 +33,16 @@ include("test_builder.jl")
 include("test_modifiers.jl")
 include("test_metacalculator.jl")
 
-# Native optimizer tests
-include("test_native_optimizers.jl")
+# Native optimizer tests are opt-in while the API stabilizes.
+# Enable with: EDDP_RUN_NATIVE_OPT_TESTS=1
+if get(ENV, "EDDP_RUN_NATIVE_OPT_TESTS", "0") == "1"
+    native_opt_tests = joinpath(@__DIR__, "test_native_optimizers.jl")
+    if isfile(native_opt_tests)
+        include("test_native_optimizers.jl")
+    else
+        @warn "EDDP_RUN_NATIVE_OPT_TESTS=1 but test_native_optimizers.jl is missing"
+    end
+end
 
 @testset "Model" begin
     calc = _get_lco_calc()

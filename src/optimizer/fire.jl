@@ -149,13 +149,26 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
 
     # Get current positions
     x = get_augmented_positions_internal(calc)
+    rebuild_nl = is_variable_cell(calc)
 
     # Compute energy and forces
     E = eddp_energy(calc; forces=true, rebuild_nl=true)
-    F = eddp_forces(calc; rebuild_nl=false, make_copy=false)
+    F = eddp_forces(calc; rebuild_nl=rebuild_nl, make_copy=false)
 
     # Gradient (force, not negative)
     gradient = F[:]
+    grad_norm = sqrt(dot(gradient, gradient))
+
+    # Preserve velocity when the force is numerically zero.
+    # This keeps optimizer state inspectable in debugging/tests while convergence
+    # is still governed by forces via `converged`.
+    if grad_norm <= eps(Float64)
+        opt.x_last = x
+        opt.e_last = E
+        opt.iteration += 1
+        log_step!(opt, calc)
+        return nothing
+    end
 
     # Check if moving uphill (optional energy-based check)
     is_uphill = false
@@ -175,7 +188,6 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
     if vf > 0.0 && !is_uphill
         # Moving downhill - modify velocity
         vel_norm = sqrt(dot(opt.vel, opt.vel))
-        grad_norm = sqrt(dot(gradient, gradient))
 
         if grad_norm > eps(Float64)
             # Mix velocity with force direction: v = (1-α)v + α F̂|v|

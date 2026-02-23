@@ -1,10 +1,12 @@
 [deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 CellBase = "01ff7365-e1e2-4ed5-aabe-f1c451dd6d4e"
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 ChainRulesTestUtils = "cdddcdb0-9152-4a09-a978-84456f9df70a"
 Configurations = "5218b696-f38b-4ac9-8b61-a12ec717816d"
 EDDPotentials = "cffdf5dc-aa8e-4f15-840d-78559bc58d9d"
 Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 NLSolversBase = "d41bc354-129a-5804-8e4c-c37616107c6c"
