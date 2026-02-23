@@ -85,7 +85,7 @@ function external_stress_matrix(vector::AbstractVector)
         ]
     end
 end
-external_pressure_matrix(x::Real) = external_pressure_matrix([x])
+external_pressure_matrix(x::Real) = external_stress_matrix([x])
 
 
 """

@@ -4,6 +4,7 @@ using CellBase
 using LinearAlgebra
 
 # Import test utilities
+isdefined(Main, :_h2_cell) || include("utils.jl")
 const lj_like_calc = EDDPotentials.lj_like_calc
 
 @testset "Native Optimizers" begin

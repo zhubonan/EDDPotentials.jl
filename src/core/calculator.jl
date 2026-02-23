@@ -488,7 +488,10 @@ _get_effective_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
 
 """
     eddp_stress(vc::VariableCellCalc;kwargs...)
-Return the effective stress of the VaraibleCellCalc (including the external pressure)
+Return the internal stress tensor reported by the wrapped calculator.
+
+Use `_get_effective_stress(vc)` when external-pressure-adjusted stress is needed
+for optimization internals.
 """
 eddp_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
     eddp_stress(vc.calc; rebuild_nl, kwargs...)
@@ -573,8 +576,8 @@ raw"""
 Compute the energy and force penalty for going into the extra dimensions
 
 ```math
-E^{\prime} = \sum_i x_i ^2 \alpha / 2
-F_i^{\prime} = -x_i 
+E^{\prime} = \alpha \sum_i x_i^2
+F_i^{\prime} = -2 \alpha x_i
 ```
 """
 mutable struct DimPenalty{T,D,C} <: AbstractCalc
@@ -616,7 +619,7 @@ function eddp_forces(calc::DimPenalty; kwargs...)
 end
 
 function eddp_energy(calc::DimPenalty; kwargs...)
-    sum(sum(x -> x^2, @view(positions(get_cell(calc))[4:end, :]), dims=1))
+    calc.alpha * sum(sum(abs2, @view(positions(get_cell(calc))[4:end, :]), dims=1))
 end
 
 function eddp_stress(::DimPenalty{T}; kwargs...) where {T}

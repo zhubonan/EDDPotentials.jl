@@ -12,7 +12,7 @@ Returns `true` if all applicable criteria are satisfied.
 function check_convergence(opt::AbstractOptimizer, calc::AbstractCalc)
     rebuild_nl = is_variable_cell(calc)
     # Get forces
-    F = eddp_forces(calc; rebuild_nl=rebuild_nl, make_copy=false)
+    F = eddp_forces(calc; rebuild_nl=rebuild_nl)
     fmax = maximum(norm.(eachcol(F)))
 
     # Check force convergence
@@ -20,7 +20,7 @@ function check_convergence(opt::AbstractOptimizer, calc::AbstractCalc)
 
     # For variable cell, also check stress
     if is_variable_cell(calc)
-        S = eddp_stress(calc; rebuild_nl=true, make_copy=false)
+        S = optimizer_effective_stress(calc; rebuild_nl=true)
         smax = maximum(abs.(S))
         stress_converged = smax < opt.s_tol
         return force_converged && stress_converged
@@ -64,12 +64,12 @@ function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
     rebuild_nl = is_variable_cell(calc)
     # Compute metrics
     E = eddp_energy(calc; forces=false, rebuild_nl=rebuild_nl)
-    F = eddp_forces(calc; rebuild_nl=rebuild_nl, make_copy=false)
+    F = eddp_forces(calc; rebuild_nl=rebuild_nl)
     fmax = maximum(norm.(eachcol(F)))
 
     smax = 0.0
     if is_variable_cell(calc)
-        S = eddp_stress(calc; rebuild_nl=true, make_copy=false)
+        S = optimizer_effective_stress(calc; rebuild_nl=true)
         smax = maximum(abs.(S))
     end
 

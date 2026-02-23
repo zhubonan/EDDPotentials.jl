@@ -98,15 +98,48 @@ function is_variable_cell(calc::AbstractCalc)
     end
 
     # Check for MetaCalculator with CellRelaxationModifier
+    !isnothing(get_cell_relaxation_modifier(calc)) && return true
+
+    return false
+end
+
+"""
+    get_cell_relaxation_modifier(calc::AbstractCalc)
+
+Return the active `CellRelaxationModifier` for calculators that expose a
+modifier pipeline, or `nothing` when absent.
+"""
+function get_cell_relaxation_modifier(calc::AbstractCalc)
     if hasproperty(calc, :modifiers)
         for mod in calc.modifiers
-            if nameof(typeof(mod)) == :CellRelaxationModifier
-                return true
+            if mod isa CellRelaxationModifier || nameof(typeof(mod)) == :CellRelaxationModifier
+                return mod
             end
         end
     end
+    return nothing
+end
 
-    return false
+"""
+    optimizer_effective_stress(calc::AbstractCalc; rebuild_nl=true)
+
+Stress used by optimizer convergence/logging. For plain calculators this is the
+reported stress tensor. Variable-cell calculators use external-pressure-adjusted
+effective stress.
+"""
+function optimizer_effective_stress(calc::AbstractCalc; rebuild_nl=true)
+    eddp_stress(calc; rebuild_nl=rebuild_nl)
+end
+
+function optimizer_effective_stress(calc::VariableCellCalc; rebuild_nl=true)
+    _get_effective_stress(calc; rebuild_nl=rebuild_nl)
+end
+
+function optimizer_effective_stress(calc::MetaCalculator; rebuild_nl=true)
+    stress = eddp_stress(calc; rebuild_nl=rebuild_nl)
+    mod = get_cell_relaxation_modifier(calc)
+    isnothing(mod) && return stress
+    stress .- mod.external_pressure
 end
 
 """
@@ -121,11 +154,8 @@ function get_augmented_positions_internal(calc::AbstractCalc)
             return get_positions(calc)[:]
         elseif hasproperty(calc, :modifiers)
             # MetaCalculator with CellRelaxationModifier
-            for mod in calc.modifiers
-                if nameof(typeof(mod)) == :CellRelaxationModifier
-                    return get_augmented_positions(mod, get_cell(calc))[:]
-                end
-            end
+            mod = get_cell_relaxation_modifier(calc)
+            !isnothing(mod) && return get_augmented_positions(mod, get_cell(calc))[:]
         end
     end
 
@@ -145,13 +175,12 @@ function set_augmented_positions_internal!(calc::AbstractCalc, x::AbstractVector
             set_positions!(calc, reshape(x, shape...))
         elseif hasproperty(calc, :modifiers)
             # MetaCalculator with CellRelaxationModifier
-            for mod in calc.modifiers
-                if nameof(typeof(mod)) == :CellRelaxationModifier
-                    cell = get_cell(calc)
-                    ndim = size(get_positions(cell), 1)
-                    set_augmented_positions!(mod, cell, reshape(x, ndim, :))
-                    return
-                end
+            mod = get_cell_relaxation_modifier(calc)
+            if !isnothing(mod)
+                cell = get_cell(calc)
+                ndim = size(get_positions(cell), 1)
+                set_augmented_positions!(mod, cell, reshape(x, ndim, :))
+                return
             end
         end
     else

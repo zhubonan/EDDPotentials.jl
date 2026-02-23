@@ -135,12 +135,16 @@ function calculate!(calc::MetaCalculator; forces=true, rebuild_nl=true, kwargs..
         pre_calculate!(mod, calc.cell)
     end
 
+    # Some modifiers need force/stress information even for energy-only calls.
+    needs_force_for_modifiers = any(requires_forces(mod) for mod in calc.modifiers)
+    compute_forces = forces || needs_force_for_modifiers
+
     # Run source calculator
-    calculate!(calc.source; forces, rebuild_nl, kwargs...)
+    calculate!(calc.source; forces=compute_forces, rebuild_nl, kwargs...)
 
     # Get source results
     energy = eddp_energy(calc.source)
-    if forces
+    if compute_forces
         forces_result = eddp_forces(calc.source)
         stress_result = eddp_stress(calc.source)
     else
@@ -150,7 +154,7 @@ function calculate!(calc::MetaCalculator; forces=true, rebuild_nl=true, kwargs..
 
     # Apply post-calculation modifiers in pipeline order
     for mod in calc.modifiers
-        if forces || !requires_forces(mod)
+        if compute_forces || !requires_forces(mod)
             energy, forces_result, stress_result = post_calculate!(
                 mod, calc.cell, energy, forces_result, stress_result
             )
@@ -159,7 +163,7 @@ function calculate!(calc::MetaCalculator; forces=true, rebuild_nl=true, kwargs..
 
     # Cache results
     calc.energy = energy
-    if forces
+    if compute_forces
         calc.forces = forces_result
         calc.stress = stress_result
         calc.forces_dirty = false
@@ -184,8 +188,8 @@ get_cell(calc::MetaCalculator) = calc.cell
 
 Compute energy through the modifier pipeline.
 """
-function eddp_energy(calc::MetaCalculator; kwargs...)
-    calculate!(calc; forces=false, kwargs...)
+function eddp_energy(calc::MetaCalculator; forces=false, kwargs...)
+    calculate!(calc; forces=forces, kwargs...)
     calc.energy
 end
 
@@ -194,9 +198,9 @@ end
 
 Compute forces through the modifier pipeline.
 """
-function eddp_forces(calc::MetaCalculator; kwargs...)
+function eddp_forces(calc::MetaCalculator; make_copy=true, kwargs...)
     calculate!(calc; forces=true, kwargs...)
-    copy(calc.forces)
+    make_copy ? copy(calc.forces) : calc.forces
 end
 
 """
@@ -204,9 +208,9 @@ end
 
 Compute stress through the modifier pipeline.
 """
-function eddp_stress(calc::MetaCalculator; kwargs...)
+function eddp_stress(calc::MetaCalculator; make_copy=true, kwargs...)
     calculate!(calc; forces=true, kwargs...)
-    copy(calc.stress)
+    make_copy ? copy(calc.stress) : calc.stress
 end
 
 # Position accessors with modifier dispatch

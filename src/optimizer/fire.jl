@@ -178,6 +178,13 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
             set_augmented_positions_internal!(calc, opt.x_last)
             x = opt.x_last
             is_uphill = true
+
+            # Recompute derivatives at the reverted state so subsequent updates
+            # are consistent with the active configuration.
+            E = eddp_energy(calc; forces=true, rebuild_nl=true)
+            F = eddp_forces(calc; rebuild_nl=rebuild_nl, make_copy=false)
+            gradient = F[:]
+            grad_norm = sqrt(dot(gradient, gradient))
         end
     end
 
