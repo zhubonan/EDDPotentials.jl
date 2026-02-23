@@ -21,7 +21,7 @@ function build_and_relax(
     elemental_energies=Dict{Symbol,Any}(),
 )
     cell = build_one(seedfile; timeout, init_structure_transform)
-    calc = EDDPotentials.NNCalc(
+    calc = NNCalc(
         cell,
         cf,
         ensemble;

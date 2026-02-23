@@ -89,9 +89,9 @@ Support only single a element for now.
 function lj_like_calc(cell::Cell; α=1.0, a=6, rc=3.0)
     elem = unique(species(cell))
     @assert length(elem) == 1 "Only works for single specie Cell for now."
-    cf = EDDPotentials.CellFeature(elem, p2=[a, 2a], p3=[], q3=[], rcut2=rc)
-    model = EDDPotentials.LinearInterface([0, -2, 1.0] .* α)
-    EDDPotentials.NNCalc(cell, cf, model)
+    cf = CellFeature(elem, p2=[a, 2a], p3=[], q3=[], rcut2=rc)
+    model = LinearInterface([0, -2, 1.0] .* α)
+    NNCalc(cell, cf, model)
 end
 
 
@@ -130,14 +130,14 @@ end
 
 function _fd_features_strain(calc, s)
     _alter_strain(calc, s) do x
-        EDDPotentials.update_feature_vector!(calc; rebuild_nl=true, compute_gradients=true)
+        update_feature_vector!(calc; rebuild_nl=true, compute_gradients=true)
         copy(calc.workspace.fvec)
     end
 end
 
 function _fd_features(calc, s)
     _alter_pos(calc, s) do _
-        EDDPotentials.update_feature_vector!(calc; rebuild_nl=true, compute_gradients=true)
+        update_feature_vector!(calc; rebuild_nl=true, compute_gradients=true)
         copy(calc.workspace.fvec)
     end
 end
@@ -195,7 +195,7 @@ j is the gradient of the feature vector of the j atom as a result of the movemen
 """
 function fd_desc(cf, cell, step=1e-6)
 
-    fb = EDDPotentials.compute_fv_gv(cf, cell)
+    fb = compute_fv_gv(cf, cell)
     gvec = fb.gvec # dFi/drj order
 
     # Recover the gradient in the dFj/dri format
@@ -206,12 +206,12 @@ function fd_desc(cf, cell, step=1e-6)
         for dir = 1:size(cell.positions, 1)
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += step
-            fb = EDDPotentials.compute_fv_gv(cf, dcell)
+            fb = compute_fv_gv(cf, dcell)
             fv1 = copy(fb.fvec)
 
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] -= step
-            fb = EDDPotentials.compute_fv_gv(cf, dcell)
+            fb = compute_fv_gv(cf, dcell)
             fv2 = copy(fb.fvec)
             diff[dir, :, :, iat] .= (fv1 - fv2) / step / 2
         end
@@ -237,14 +237,14 @@ function force_gradient(cf, cell, core_size=0)
     else
         core = nothing
     end
-    fb = EDDPotentials.compute_fv_gv(cf, cell, core=core)
+    fb = compute_fv_gv(cf, cell, core=core)
     gvec = fb.gvec # dFi/drj order
     # coefficients such that param * fvec = energies
     param = rand(1, size(fb.gvec, 2))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
-    EDDPotentials._force_update!(fb, gv; offset=length(cf.elements))
-    EDDPotentials._stress_update!(fb, gv; offset=length(cf.elements))
+    _force_update!(fb, gv; offset=length(cf.elements))
+    _stress_update!(fb, gv; offset=length(cf.elements))
     forces = copy(fb.tot_forces)
 
     # dE/dri
@@ -253,7 +253,7 @@ function force_gradient(cf, cell, core_size=0)
         for dir = 1:size(cell.positions, 1)
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] += 1e-6
-            fb = EDDPotentials.compute_fv_gv(cf, dcell, core=core)
+            fb = compute_fv_gv(cf, dcell, core=core)
             # Compute the energy
             e1 = sum(param * fb.fvec)
             if core !== nothing
@@ -262,7 +262,7 @@ function force_gradient(cf, cell, core_size=0)
 
             dcell = deepcopy(cell)
             dcell.positions[dir, iat] -= 1e-6
-            fb = EDDPotentials.compute_fv_gv(cf, dcell, core=core)
+            fb = compute_fv_gv(cf, dcell, core=core)
             e2 = sum(param * fb.fvec)
             if core !== nothing
                 e2 += sum(fb.hardcore.ecore)
@@ -291,13 +291,13 @@ function stress_gradient(cf, cell, core_size=0, step=1e-6)
     else
         core = nothing
     end
-    fb = EDDPotentials.compute_fv_gv(cf, cell)
+    fb = compute_fv_gv(cf, cell)
     # coefficients such that param * fvec = energies
     param = rand(1, size(fb.gvec, 2))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
-    EDDPotentials._force_update!(fb, gv; offset=length(cf.elements))
-    EDDPotentials._stress_update!(fb, gv; offset=length(cf.elements))
+    _force_update!(fb, gv; offset=length(cf.elements))
+    _stress_update!(fb, gv; offset=length(cf.elements))
     stress = copy(fb.tot_stress)
 
 
@@ -311,7 +311,7 @@ function stress_gradient(cf, cell, core_size=0, step=1e-6)
             smat = copy(smat_orig)
             smat[i, j] += step
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
-            fb = EDDPotentials.compute_fv_gv(cf, dcell)
+            fb = compute_fv_gv(cf, dcell)
             # Compute the energy
             e1 = sum(param * fb.fvec)
             if core !== nothing
@@ -322,7 +322,7 @@ function stress_gradient(cf, cell, core_size=0, step=1e-6)
             smat = copy(smat_orig)
             smat[i, j] -= step
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
-            fb = EDDPotentials.compute_fv_gv(cf, dcell)
+            fb = compute_fv_gv(cf, dcell)
             e2 = sum(param * fb.fvec)
             if core !== nothing
                 e2 += sum(fb.hardcore.ecore)
@@ -350,8 +350,8 @@ function test_finite_difference(calc::NNCalc)
     desc_ok || @warn "Finite difference gradient of the descriptor is not correct"
 
 
-    forces = copy(EDDPotentials.eddp_forces(calc))
-    stress = copy(EDDPotentials.eddp_stress(calc))
+    forces = copy(eddp_forces(calc))
+    stress = copy(eddp_stress(calc))
     # Test the total force
     p0 = get_positions(calc)
     od = OnceDifferentiable(x -> _fd_energy(calc, x), p0, _fd_energy(calc, p0))
@@ -373,9 +373,9 @@ function test_finite_difference(calc::NNCalc)
 
     # Test wrapper
     # NOTE Somehow this is needed here - possible BUG?
-    vc = EDDPotentials.VariableCellCalc(calc)
-    epos = EDDPotentials.get_positions(vc)
-    eforce = copy(EDDPotentials.eddp_forces(vc))
+    vc = VariableCellCalc(calc)
+    epos = get_positions(vc)
+    eforce = copy(eddp_forces(vc))
 
     od = OnceDifferentiable(
         x -> _fd_energy_vc(vc, x),

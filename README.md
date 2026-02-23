@@ -28,8 +28,8 @@ A recent pre-print explaining more applications of the model can found here: htt
 
 The source tree is separated into two internal layers:
 
-- `src/core_layer.jl`: core evaluation path (feature generation, gradients, calculator energy/force/stress).
-- `src/functional_layer.jl`: higher-level workflows (training, relaxations, builder workflows, analysis and plotting).
+- `src/core/EDDPotentialsCore.jl`: standalone core submodule (`EDDPotentials.EDDPotentialsCore`) with feature generation, gradients, and calculator energy/force/stress evaluation.
+- `src/EDDPotentials.jl`: top-level module that imports `EDDPotentialsCore` and directly includes higher-level workflows (training, relaxations, builder workflows, analysis and plotting).
 - `src/experimental/`: archived prototypes that are intentionally not part of the runtime include graph.
 
 This separation is internal only; the public API remains available through `EDDPotentials`.

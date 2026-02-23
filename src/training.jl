@@ -6,16 +6,20 @@ using Dates
 using JLD2
 using Glob
 using Printf
-using .NNLS: nnls
+using .EDDPotentialsCore.NNLS: nnls
 using NLSolversBase
 using ProgressMeter: Progress
 using Parameters
 using Printf
 using StatsBase
+using Flux: Dense, Chain, tanh
+import Flux
 import Base
 import CellBase
 using Logging
 using NonNegLeastSquares
+using .EDDPotentialsCore: paramvector
+import .EDDPotentialsCore: EnsembleNNInterface
 
 const XT_NAME = "xt"
 const YT_NAME = "yt"
@@ -282,7 +286,7 @@ function train_lm!(
     itf::AbstractNNInterface,
     x,
     y;
-    p0=EDDPotentials.paramvector(itf),
+    p0=paramvector(itf),
     maxIter=1000,
     show_progress=false,
     x_test=x,

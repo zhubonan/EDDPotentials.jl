@@ -1,5 +1,6 @@
 using JLD2
 using StatsBase
+import StatsBase: transform!, reconstruct!, ZScoreTransform
 using Random
 using Glob
 using CellBase
@@ -193,6 +194,26 @@ function _split_vector(c, nsplit::Vararg{Int}; shuffle=true, seed=42)
 end
 
 """
+Split a vector by either integer counts or ratio values.
+"""
+function _split_vector(c, nsplit::Vararg{<:Real}; shuffle=true, seed=42)
+    counts = Int[]
+    total = length(c)
+    for n in nsplit
+        if isinteger(n)
+            push!(counts, Int(round(n)))
+        elseif 0.0 <= n <= 1.0
+            push!(counts, Int(floor(total * n)))
+        else
+            error(
+                "Invalid split value $n. Use integer counts or ratios in [0, 1].",
+            )
+        end
+    end
+    _split_vector(c, counts...; shuffle, seed)
+end
+
+"""
     FeatureContainer{T,N}
 
 Container for holding computed features and energies ready for neural network training.
@@ -365,7 +386,7 @@ function FeatureContainer(
     jj = Atomic{Int}(0)
     l = ReentrantLock()
     Threads.@threads for i = 1:length(sc)
-        fvecs[i] = EDDPotentials.feature_vector(feature, sc.structures[i]; nmax, kwargs...)
+        fvecs[i] = feature_vector(feature, sc.structures[i]; nmax, kwargs...)
         m = metadata[i]
         form, nf = CellBase.formula_and_factor(sc.structures[i])
         m[:formula] = form
@@ -395,9 +416,6 @@ function FeatureContainer(
         Dict{Symbol,Float64}(elemental_energies),
     )
 end
-
-get_elemental_energy(cell::Cell, ref_energies::Dict) =
-    sum(x -> get(ref_energies, x, 0.0), species(cell))
 
 function FeatureContainer(sc::StructureContainer; cf_kwargs=NamedTuple(), kwargs...)
     symbols = reduce(vcat, unique.(species.(sc.structures)))

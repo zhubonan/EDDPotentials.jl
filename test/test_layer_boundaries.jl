@@ -9,9 +9,9 @@ using Test
         [m.captures[1] for m in eachmatch(r"include\(\"([^\"]+)\"\)", text)]
     end
 
-    core_targets = include_targets(joinpath(srcdir, "core_layer.jl"))
-    functional_targets = include_targets(joinpath(srcdir, "functional_layer.jl"))
+    core_targets = include_targets(joinpath(srcdir, "core", "EDDPotentialsCore.jl"))
     top_targets = include_targets(joinpath(srcdir, "EDDPotentials.jl"))
+    top_text = read(joinpath(srcdir, "EDDPotentials.jl"), String)
 
     @test core_targets == [
         "constants.jl",
@@ -29,7 +29,8 @@ using Test
         "pairpot.jl",
     ]
 
-    @test functional_targets == [
+    @test top_targets == [
+        "core/EDDPotentialsCore.jl",
         "lmsolve.jl",
         "preprocessing.jl",
         "eddpf90.jl",
@@ -51,6 +52,5 @@ using Test
         "model_structures.jl",
         "plotting.jl",
     ]
-
-    @test top_targets == ["core_layer.jl", "functional_layer.jl"]
+    @test occursin(r"using\s+\.EDDPotentialsCore", top_text)
 end

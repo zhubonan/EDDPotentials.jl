@@ -6,16 +6,6 @@ using StatsBase: mean
 export mean
 using TimerOutputs
 
-const to = TimerOutput()
-# Default to have the timer disabled
-disable_timer!(to)
-
-enable_eddp_timer!() = enable_timer!(to)
-disable_eddp_timer!() = disable_timer!(to)
-reset_eddp_timer!() = reset_timer!(to)
-
-export enable_eddp_timer!, disable_eddp_timer!, reset_eddp_timer!
-
 
 
 # Re-export `glob`
@@ -28,12 +18,57 @@ abstract type EDDPotentialsOption end
 
 # end of abstract types
 
-# Internal layering:
-# - `core_layer.jl`: feature generation and evaluator kernel
-# - `functional_layer.jl`: training/workflow/analysis code built on top of core
-include("core_layer.jl")
-include("functional_layer.jl")
+include("core/EDDPotentialsCore.jl")
+using .EDDPotentialsCore
+const to = EDDPotentialsCore.to
 
+# Bring selected core symbols into the top-level namespace where
+# functional files extend/use them without qualification.
+import .EDDPotentialsCore:
+    CellFeature,
+    EnsembleNNInterface,
+    compute_objectives,
+    compute_objectives_diff,
+    eddp_energy,
+    eddp_forces,
+    eddp_pressure,
+    eddp_energy_std,
+    eddp_enthalpy,
+    eddp_energy_per_atom,
+    ginit,
+    get_elemental_energy,
+    feature_vector,
+    reinit,
+    reinit!
+
+# Functional layer (training/workflow/analysis)
+include("lmsolve.jl")
+include("preprocessing.jl")
+include("eddpf90.jl")
+include("training.jl")
+
+include("tools.jl")
+include("functional/functional.jl")
+
+include("optimizer/abstract.jl")
+include("optimizer/utils.jl")
+include("optimizer/tpsd.jl")
+include("optimizer/fire.jl")
+include("opt.jl")
+
+include("records.jl")
+include("quickbuild.jl")
+include("link/link.jl")
+include("hyper.jl")
+
+include("minsep.jl")
+include("plotting/recipes.jl")
+include("lazy_res.jl")
+include("model_structures.jl")
+include("plotting.jl")
+
+export EDDPotentialsCore
+export enable_eddp_timer!, disable_eddp_timer!, reset_eddp_timer!
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export displace!, clip, Cell, supercell
 export distance_matrix, laplacian_matrix, nmodules, find_modules
@@ -77,7 +112,7 @@ export PhaseDiagram, read_shelx_record, ShelxRecord, ComputedRecord
 const USE_CUDA = Ref{Bool}(false)
 
 function __init__()
-    reset_timer!(to)
+    reset_eddp_timer!()
 end
 
 end # module

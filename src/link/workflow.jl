@@ -14,6 +14,7 @@ using YAML
 using TOML
 using ArgParse
 using Random
+using .EDDPotentialsCore: CellEmbedding
 
 # Note: Utils functions will be available from parent module after include
 # using ensure_dir, input_structure_dir, output_structure_dir

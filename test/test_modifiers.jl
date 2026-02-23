@@ -2,6 +2,7 @@ using EDDPotentials
 using CellBase
 using Test
 using LinearAlgebra
+using EDDPotentials.EDDPotentialsCore: set_parameter!, get_parameter, post_calculate!, modifies_positions, requires_forces, pre_calculate!, deformgradient
 
 @testset "Modifier Interface" begin
     # Test abstract modifier interface

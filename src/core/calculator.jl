@@ -113,6 +113,10 @@ function is_equal(cell_a, cell_b)
         all(species(cell_a) .== species(cell_b))
 end
 
+_make_symbol_keys(x) = x
+function _make_symbol_keys(dict::Dict{T,K}) where {T,K}
+    Dict{Symbol,K}(Symbol(key) => _make_symbol_keys(value) for (key, value) in pairs(dict))
+end
 
 function NNCalc(
     cell::Cell{T},
@@ -150,7 +154,7 @@ function NNCalc(
         zeros(T, nions(cell)), # Energy
         NNCalcParam(; mode=mode),
         nn,
-        Dict{Symbol, T}(make_symbol_keys(elemental_energies)),
+        Dict{Symbol, T}(_make_symbol_keys(elemental_energies)),
     )
 end
 
@@ -163,6 +167,9 @@ function eddp_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     calculate!(calc; forces, rebuild_nl)
     sum(calc.eng) + get_elemental_energy(calc.cell, calc.elemental_energies)
 end
+
+get_elemental_energy(cell::Cell, ref_energies::Dict) =
+    sum(x -> get(ref_energies, x, 0.0), species(cell))
 
 function eddp_enthalpy(calc::NNCalc; forces=false, rebuild_nl=true)
     eddp_energy(calc; forces, rebuild_nl)
@@ -365,7 +372,7 @@ end
 Return pressure in unit of GPa.
 """
 function eddp_pressure_gpa(vc::AbstractCalc)
-    eVAngToGPa(tr(EDDPotentials.eddp_stress(vc)) / 3.0)
+    eVAngToGPa(tr(eddp_stress(vc)) / 3.0)
 end
 
 """
@@ -546,7 +553,7 @@ for func in [:eddp_energy, :eddp_forces, :eddp_pressure, :eddp_energy_std, :eddp
         @doc """
             $($func)(cell::Cell, cf::CellFeature, itf::AbstractNNInterface;kwargs...)
 
-        Convenient method for calling $(EDDPotentials.$func) with a Calculator constructed ad-hoc.
+        Convenient method for calling $($func) with a Calculator constructed ad-hoc.
         """ $func(cell::Cell, cf::CellFeature, itf::AbstractNNInterface; kwargs...)
     end
 end

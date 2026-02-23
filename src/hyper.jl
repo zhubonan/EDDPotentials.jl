@@ -7,7 +7,7 @@ function hyper_get_calc(cell, bu::Builder)
         bu.cf,
         load_ensemble(bu);
         nmax=500,
-        core=EDDPotentials.CoreRepulsion(bu.state.core_size),
+        core=CoreRepulsion(bu.state.core_size),
         elemental_energies=bu.state.elemental_energies,
     )
 
@@ -57,11 +57,10 @@ function hyper_gen_relax(bu; ndim=3, outfile=nothing, label=nothing,
                     max_iterations=target_iterations,
                     schedule_function=_get_penalty_schedule());
     if outfile !== nothing
-        structure_3d = EDDPotentials.remove_dimensions(structure)
+        structure_3d = remove_dimensions(structure)
         vcalc3d = get_calc(structure_3d, bu)
         @assert !isnothing(label) "label must be set for the output SHELX file"
         write_res(outfile, vcalc3d; label=label)
     end
     results, dnorm
 end
-

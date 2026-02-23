@@ -1,5 +1,6 @@
 using Configurations
 using GarishPrint
+import .EDDPotentialsCore: CellFeature, Embedding, fr, gfr
 
 """
     BuilderState
