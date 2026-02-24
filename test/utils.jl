@@ -2,6 +2,8 @@
 Common functions for helping tests
 =#
 using EDDPotentials
+using EDDPotentials: CellFeature, nfeatures, NNCalc
+using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
 using CellBase
 
 function _h2_cell(l=4.0, factor=1.0)
@@ -52,27 +54,27 @@ end
 
 
 function _generate_cf(cell::Cell)
-    EDDPotentials.CellFeature(unique(species(cell)); p2=[6, 12], q3=[2, 3], p3=[2, 3])
+    CellFeature(unique(species(cell)); p2=[6, 12], q3=[2, 3], p3=[2, 3])
 end
 
 
 function _get_calc()
     cell = _h2_cell()
     cf = _generate_cf(cell)
-    itf = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
-        Chain(Dense(rand(5, EDDPotentials.nfeatures(cf))), Dense(rand(1, 5))),
+    itf = ManualFluxBackPropInterface(
+        Chain(Dense(rand(5, nfeatures(cf))), Dense(rand(1, 5))),
     )
-    calc = EDDPotentials.NNCalc(cell, cf, itf)
+    calc = NNCalc(cell, cf, itf)
     calc
 end
 
 function _get_lco_calc()
     cell = _lco_cell()
     cf = _generate_cf(cell)
-    itf = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
-        Chain(Dense(rand(5, EDDPotentials.nfeatures(cf))), Dense(rand(1, 5))),
+    itf = ManualFluxBackPropInterface(
+        Chain(Dense(rand(5, nfeatures(cf))), Dense(rand(1, 5))),
     )
-    calc = EDDPotentials.NNCalc(cell, cf, itf)
+    calc = NNCalc(cell, cf, itf)
     calc
 end
 

@@ -1,12 +1,17 @@
 using EDDPotentials
 using EDDPotentials:
     CoreRepulsion,
+    nfeatures,
+    get_positions,
+    eddp_forces,
+    eddp_stress,
+    VariableCellCalc,
     eddp_energy,
     get_cell,
     _fd_energy,
     _fd_energy_vc,
     _fd_strain
-using EDDPotentials.EDDPotentialsCore: compute_fv_gv
+using EDDPotentials.EDDPotentialsCore: compute_fv_gv, ManualFluxBackPropInterface
 using EDDPotentials: fd_desc, force_gradient, stress_gradient, test_finite_difference
 using CellBase
 using LinearAlgebra
@@ -68,15 +73,15 @@ end
 @testset "F/S Calculator" begin
 
     calc = _get_lco_calc()
-    ntot = EDDPotentials.nfeatures(calc.cf)
+    ntot = nfeatures(calc.cf)
     model = Chain(Dense(ones(1, ntot)))
-    itf = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(model)
+    itf = ManualFluxBackPropInterface(model)
 
-    forces = copy(EDDPotentials.eddp_forces(calc))
-    stress = copy(EDDPotentials.eddp_stress(calc))
+    forces = copy(eddp_forces(calc))
+    stress = copy(eddp_stress(calc))
 
     # Test the total force
-    p0 = EDDPotentials.get_positions(calc)
+    p0 = get_positions(calc)
     od = OnceDifferentiable(x -> _fd_energy(calc, x), p0, _fd_energy(calc, p0))
     grad = NLSolversBase.gradient(od, p0)
     @test allclose(grad, -forces, atol=1e-6)
@@ -95,9 +100,9 @@ end
 
     # Test wrapper
     # NOTE Somehow this is needed here - possible BUG?
-    vc = EDDPotentials.VariableCellCalc(calc)
-    epos = EDDPotentials.get_positions(vc)
-    eforce = copy(EDDPotentials.eddp_forces(vc))
+    vc = VariableCellCalc(calc)
+    epos = get_positions(vc)
+    eforce = copy(eddp_forces(vc))
 
     od = OnceDifferentiable(
         x -> _fd_energy_vc(vc, x),

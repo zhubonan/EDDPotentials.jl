@@ -1,7 +1,9 @@
 using Flux
 
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore: backward!, forward!, ChainGradients
+using EDDPotentials: generate_chain
+using EDDPotentials.EDDPotentialsCore:
+    backward!, forward!, ChainGradients, setup_fg_backprop, paramvector
 using Test
 
 
@@ -68,14 +70,14 @@ using Test
 
     @testset "jacobian" begin
         ## Compare hand written backprop vs Zytoge
-        chain = EDDPotentials.generate_chain(21, [5])
+        chain = generate_chain(21, [5])
         chain.layers[1].bias .= rand(5)
         chain.layers[2].bias .= rand(1)
         inp = [rand(Float64, 21, 2), rand(Float64, 21, 2)]
         gd = Flux.jacobian(() -> [sum(chain(x)) for x in inp], Flux.params(chain))
-        gp! = EDDPotentials.EDDPotentialsCore.setup_fg_backprop(chain, inp, [1.0, 1.0])
+        gp! = setup_fg_backprop(chain, inp, [1.0, 1.0])
         jmat = zeros(eltype(inp[1]), 2, 116)
-        gp!([0.0, 1.0], jmat, EDDPotentials.EDDPotentialsCore.paramvector(chain))
+        gp!([0.0, 1.0], jmat, paramvector(chain))
 
         @test allclose(jmat[:, 1:105], gd.grads[gd.params[1]])
         @test allclose(jmat[:, 106:110], gd.grads[gd.params[2]])
@@ -83,14 +85,14 @@ using Test
         @test allclose(jmat[:, 116:116], gd.grads[gd.params[4]])
 
         ## Compare hand written backprop vs Zytoge
-        chain = EDDPotentials.generate_chain(21, [5, 10])
+        chain = generate_chain(21, [5, 10])
         chain.layers[1].bias .= rand(5)
         chain.layers[2].bias .= rand(1)
         inp = [rand(Float64, 21, 2), rand(Float64, 21, 2)]
         gd = Flux.jacobian(() -> [sum(chain(x)) for x in inp], Flux.params(chain))
-        gp! = EDDPotentials.EDDPotentialsCore.setup_fg_backprop(chain, inp, [1.0, 1.0])
+        gp! = setup_fg_backprop(chain, inp, [1.0, 1.0])
         jmat = zeros(eltype(inp[1]), length(inp), 181)
-        gp!([0.0, 1.0], jmat, EDDPotentials.EDDPotentialsCore.paramvector(chain))
+        gp!([0.0, 1.0], jmat, paramvector(chain))
         @test allclose(jmat[:, 1:105], gd.grads[gd.params[1]])
         @test allclose(jmat[:, 106:110], gd.grads[gd.params[2]])
         @test allclose(jmat[:, 111:160], gd.grads[gd.params[3]])

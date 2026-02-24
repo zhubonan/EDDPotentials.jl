@@ -3,6 +3,7 @@ Function for running training as a separate process
 =#
 
 using ArgParse
+using .EDDPotentialsCore: ManualFluxBackPropInterface, LinearInterface
 
 const TRAINING_DIR = "training"
 
@@ -112,7 +113,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
         @info "Model initialized"
         # Initialise the model
         if training_mode == "manual_backprop"
-            model = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
+            model = ManualFluxBackPropInterface(
                 bu.cf,
                 tra.n_nodes...;
                 xt=train.xt,
@@ -122,7 +123,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
             )
         elseif training_mode == "linear"
             # Linear model
-            model = EDDPotentials.EDDPotentialsCore.LinearInterface(zeros(size(x_train[1], 1)))
+            model = LinearInterface(zeros(size(x_train[1], 1)))
         else
             throw(ErrorException("Unknown `training_mode`: $(training_mode)"))
         end

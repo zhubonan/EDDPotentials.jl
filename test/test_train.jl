@@ -1,5 +1,25 @@
 using EDDPotentials
-using EDDPotentials: ginit
+using EDDPotentials:
+    ginit,
+    compute_objectives,
+    compute_objectives_diff,
+    levenberg_marquardt,
+    train_lm!,
+    StructureContainer,
+    CellFeature,
+    FeatureContainer,
+    nfeatures,
+    reinit,
+    train!,
+    create_ensemble,
+    predict_energy
+using EDDPotentials.EDDPotentialsCore:
+    ManualFluxBackPropInterface,
+    LinearInterface,
+    FluxInterface,
+    nparams,
+    setup_fj,
+    paramvector
 
 using Test
 using Flux
@@ -15,21 +35,21 @@ using NLSolversBase
         y = rand(length(data))
         yt = StatsBase.fit(StatsBase.ZScoreTransform, reshape(y, 1, length(y)), dims=2)
 
-        model = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
+        model = ManualFluxBackPropInterface(
             Chain(Dense(rand(1, nf), rand(1), tanh)),
             yt=yt,
         )
-        EDDPotentials.compute_objectives(f, model, data, f)
+        compute_objectives(f, model, data, f)
         @test any(f != 0.0)
 
-        jmat = rand(length(data), EDDPotentials.EDDPotentialsCore.nparams(model))
-        EDDPotentials.compute_objectives_diff(f, jmat, model, data, y)
+        jmat = rand(length(data), nparams(model))
+        compute_objectives_diff(f, jmat, model, data, y)
 
         @test any(jmat != 0.0)
 
         # Setting up and minimising
-        f!, j!, fj! = EDDPotentials.EDDPotentialsCore.setup_fj(model, data, y)
-        p0 = EDDPotentials.EDDPotentialsCore.paramvector(model)
+        f!, j!, fj! = setup_fj(model, data, y)
+        p0 = paramvector(model)
 
         # Manual diff
         jmat = zeros(length(y), length(p0))
@@ -52,7 +72,7 @@ using NLSolversBase
             zeros(eltype(data[1]), length(data)),
             inplace=true,
         )
-        opt_res = EDDPotentials.levenberg_marquardt(od2, p0; show_trace=false)
+        opt_res = levenberg_marquardt(od2, p0; show_trace=false)
 
         j!(jmat, opt_res.minimizer)
         @test all(isapprox.(jmat, 0.0, atol=1e-6))
@@ -60,9 +80,9 @@ using NLSolversBase
 
         # Test with training config
         model =
-            EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
+            ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
 
-        EDDPotentials.train_lm!(model, data, y;)
+        train_lm!(model, data, y;)
         out = model(data[2])
         # Check we have successfully performed the fit
         @test sum(out) ≈ y[2] atol = 1e-5
@@ -71,37 +91,37 @@ using NLSolversBase
         nf = 1000
         data = vcat([rand(nf, 3) for _ = 1:10], [rand(nf, 2) for _ = 1:10])
         y = size.(data, 2) ./ 2
-        model = EDDPotentials.EDDPotentialsCore.LinearInterface(rand(1, nf))
+        model = LinearInterface(rand(1, nf))
 
-        opt_res, _, _ = EDDPotentials.train_lm!(model, data, y; earlystop=0)
+        opt_res, _, _ = train_lm!(model, data, y; earlystop=0)
     end
 
     @testset "Ensemble" begin
         path = joinpath(datadir, "training/*.res")
         path = relpath(path, pwd())
-        sc = EDDPotentials.StructureContainer([path])
-        cf = EDDPotentials.CellFeature([:B])
-        fc = EDDPotentials.FeatureContainer(sc, cf)
+        sc = StructureContainer([path])
+        cf = CellFeature([:B])
+        fc = FeatureContainer(sc, cf)
 
         # This gives fix examples
         fc_train, fc_test = split(fc, 5, 5; standardize=true, apply_transform=true)
         models = []
-        model = EDDPotentials.EDDPotentialsCore.ManualFluxBackPropInterface(
-            Chain(Dense(ginit(5, EDDPotentials.nfeatures(fc.feature))), Dense(ginit(1, 5))),
+        model = ManualFluxBackPropInterface(
+            Chain(Dense(ginit(5, nfeatures(fc.feature))), Dense(ginit(1, 5))),
             xt=fc_train.xt,
             yt=fc_train.yt,
             apply_xt=false,
         )
-        model_ = EDDPotentials.reinit(model)
-        @test any(EDDPotentials.EDDPotentialsCore.paramvector(model_) .!= EDDPotentials.EDDPotentialsCore.paramvector(model))
+        model_ = reinit(model)
+        @test any(paramvector(model_) .!= paramvector(model))
         for _ = 1:10
-            model_ = EDDPotentials.reinit(model)
-            res = EDDPotentials.train!(model_, fc_train, fc_test)
+            model_ = reinit(model)
+            res = train!(model_, fc_train, fc_test)
             push!(models, model_)
         end
 
-        emod = EDDPotentials.create_ensemble(models, fc_train)
-        out = EDDPotentials.predict_energy(emod, fc_train[1][1])
+        emod = create_ensemble(models, fc_train)
+        out = predict_energy(emod, fc_train[1][1])
         @test isa(out, Real)
 
     end
@@ -115,17 +135,17 @@ using NLSolversBase
         y = rand(length(data))
         yt = StatsBase.fit(StatsBase.ZScoreTransform, reshape(y, 1, length(y)), dims=2)
 
-        model = EDDPotentials.EDDPotentialsCore.FluxInterface(Chain(Dense(rand(1, nf), rand(1))))
-        EDDPotentials.compute_objectives(f, model, data, f)
+        model = FluxInterface(Chain(Dense(rand(1, nf), rand(1))))
+        compute_objectives(f, model, data, f)
         @test any(f != 0.0)
 
-        jmat = rand(length(data), EDDPotentials.EDDPotentialsCore.nparams(model))
-        EDDPotentials.compute_objectives_diff(f, jmat, model, data, y)
+        jmat = rand(length(data), nparams(model))
+        compute_objectives_diff(f, jmat, model, data, y)
         @test any(jmat != 0.0)
 
         # Setting up and minimising
-        f!, j!, fj! = EDDPotentials.EDDPotentialsCore.setup_fj(model, data, y)
-        p0 = EDDPotentials.EDDPotentialsCore.paramvector(model)
+        f!, j!, fj! = setup_fj(model, data, y)
+        p0 = paramvector(model)
 
         # Manual finite diff
         jmat = zeros(length(y), length(p0))
@@ -148,7 +168,7 @@ using NLSolversBase
             zeros(eltype(data[1]), length(data)),
             inplace=true,
         )
-        opt_res = EDDPotentials.levenberg_marquardt(od2, p0; show_trace=false)
+        opt_res = levenberg_marquardt(od2, p0; show_trace=false)
         #@test_broken opt_res.g_converged
         @test opt_res.x_converged
     end

@@ -14,7 +14,7 @@ using YAML
 using TOML
 using ArgParse
 using Random
-using .EDDPotentialsCore: CellEmbedding
+using .EDDPotentialsCore: CellEmbedding, load_from_jld2, EnsembleNNInterface
 
 # Note: Utils functions will be available from parent module after include
 # using ensure_dir, input_structure_dir, output_structure_dir
@@ -216,9 +216,9 @@ end
 Load the ensemble model for a given iteration.
 """
 function load_ensemble(bu::Builder, iteration=_latest_ensemble_iteration(bu))
-    EDDPotentials.EDDPotentialsCore.load_from_jld2(
+    load_from_jld2(
         ensemble_name(bu, iteration),
-        EDDPotentials.EDDPotentialsCore.EnsembleNNInterface,
+        EnsembleNNInterface,
     )
 end
 
