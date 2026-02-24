@@ -192,7 +192,12 @@ Cutoff radius determines how many neighbors contribute to features.
 
 ### Check Neighbor Statistics
 
-Under constructions...
+Before finalizing cutoffs, inspect neighbor counts on representative structures.
+As a practical target, choose `rcut2`/`rcut3` so the dominant coordination shells
+are included without producing excessively dense neighbor lists.
+
+If train and production structures have very different densities/volumes, increase
+cutoffs conservatively and re-check validation errors.
 
 ### Separate Two-Body and Three-Body Cutoffs
 
@@ -270,7 +275,7 @@ println("Total: ", nfeatures(cf))  # 17
 
 ```julia
 using EDDPotentials, Flux, ExtXYZ
-import EDDPotentials: train!, FluxInterface
+import EDDPotentials: train!, FluxInterface, train_test_split
 
 # Load data
 structures = ExtXYZ.load("<some_dataset>.xyz")

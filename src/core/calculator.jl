@@ -63,6 +63,14 @@ end
     mode::String = "one-pass"
 end
 
+"""
+    NNCalc(cell::Cell, cf::CellFeature, nn::AbstractNNInterface; kwargs...)
+
+Primary calculator for EDDP energy/force/stress evaluation.
+
+`NNCalc` binds a structure (`cell`), feature definition (`cf`), and trained
+model interface (`nn`) into a reusable calculator object.
+"""
 mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface,D} <:
                AbstractCalc
     cell::Cell{T,D}
@@ -565,6 +573,11 @@ eddp_energy_per_atom(cell::Cell, args...; kwargs...) =
     eddp_energy(cell, args...; kwargs...) / length(cell)
 eddp_energy_per_atom(calc::AbstractCalc, args...; kwargs...) =
     eddp_energy(calc, args...; kwargs...) / length(get_cell(calc))
+"""
+    eddp_energy_std_per_atom(calc_or_cell, args...; kwargs...)
+
+Return ensemble energy standard deviation normalized per atom.
+"""
 eddp_energy_std_per_atom(cell::Cell, args...; kwargs...) =
     eddp_energy_std(cell, args...; kwargs...) / length(cell)
 eddp_energy_std_per_atom(calc::AbstractCalc, args...; kwargs...) =

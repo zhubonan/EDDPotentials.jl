@@ -219,15 +219,11 @@ ensemble = load_ensemble(builder)
 After building the potential:
 
 ```julia
-# Run large-scale search
-results = run_production_search(
-    builder;
-    num_structures=10000,
-    parallel_jobs=64
-)
-
-# Analyze results
-analyze_results(results, builder)
+# Configure and run large-scale search
+builder.rss.max = 10_000
+builder.rss.subfolder_name = "production"
+builder.rss.ensemble_id = builder.state.iteration
+run_rss(builder)
 ```
 
 ## Data Management: Packed SHELX Format
@@ -249,6 +245,7 @@ Benefits:
 
 ```julia
 using EDDPotentials
+using CellBase: read_res
 
 # Read packed file (returns array of structures)
 structures = read_res("all_structures.res")

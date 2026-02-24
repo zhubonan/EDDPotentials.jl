@@ -73,6 +73,8 @@ Pkg.add("PlotlyJS")
 
 ```julia
 using EDDPotentials, ExtXYZ
+using Flux: Chain, Dense
+import EDDPotentials: FluxInterface, train!, train_test_split, get_fit_data, create_ensemble
 
 # 1. Load training data (DFT-calculated structures)
 structures = ExtXYZ.load("carbon_data.xyz")
@@ -99,8 +101,11 @@ x_train, y_train = get_fit_data(fc_train)
 ensemble = create_ensemble(models, x_train, y_train)
 
 # 6. Use for predictions and structure optimization
+structure = first(structures)
 calc = NNCalc(structure, cf, ensemble)
-optimise!(calc; fmax=0.01)
+vc_calc = VariableCellCalc(calc)
+opt = opt_fire(vc_calc; f_tol=0.01, itermax=500)
+@assert converged(opt, vc_calc)
 ```
 
 For automated potential building with iterative training, see [AIRSS Workflow](tutorials/airss_workflow.md).

@@ -59,6 +59,7 @@ Once enabled, training automatically uses GPU for forward and backward passes:
 using CUDA
 using EDDPotentials
 using Flux
+import EDDPotentials: FluxInterface, train!, train_test_split
 
 # Enable GPU
 EDDPotentials.USE_CUDA[] = true
@@ -82,6 +83,7 @@ For fine-grained control, you can manually move data to GPU:
 ```julia
 using CUDA
 using EDDPotentials
+import EDDPotentials: train!
 
 EDDPotentials.USE_CUDA[] = true
 

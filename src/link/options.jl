@@ -231,7 +231,7 @@ end
 """
     CellFeature(config::CellFeatureConfig)
 
-Construct a `CellFeature` from `CellFeatureCOnfig`.
+Construct a `CellFeature` from `CellFeatureConfig`.
 """
 function CellFeature(config::CellFeatureConfig)
     args = (config.elements,)

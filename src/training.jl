@@ -455,6 +455,11 @@ function mae_per_atom(itf::AbstractNNInterface, x, y, nat)
     return abs.((predict_energy.(Ref(itf), x) .- y) ./ nat) |> mean
 end
 
+"""
+    max_ae_per_atom(itf::AbstractNNInterface, x, y, nat)
+
+Return the maximum per-atom absolute error.
+"""
 function max_ae_per_atom(itf, x, y, nat)
     return abs.((predict_energy.(Ref(itf), x) .- y) ./ nat) |> maximum
 end

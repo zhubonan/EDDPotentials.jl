@@ -9,11 +9,12 @@ Function and types for generating features
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "feature.jl",
-    "gradient.jl",
-    "embedding.jl",
-    "embedding_rules.jl",
-    "repulsive_core.jl",
+    "core/feature/feature.jl",
+    "core/feature/cell.jl",
+    "core/gradient/gradient.jl",
+    "core/embedding.jl",
+    "core/embedding_rules.jl",
+    "core/gradient/repulsive_core.jl",
 ]
 ```
 
@@ -27,7 +28,7 @@ Pages = [
     "preprocessing.jl",
     "training.jl",
     "lmsolve.jl",
-    "nntools.jl",
+    "core/nntools.jl",
 ]
 ```
 
@@ -36,23 +37,27 @@ Pages = [
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "nn/interface.jl",
-    "nn/linear.jl",
-    "nn/flux.jl",
-    "nn/manual_backprop.jl",
-    "nn/ensemble.jl",
+    "core/nn/interface.jl",
+    "core/nn/linear.jl",
+    "core/nn/flux.jl",
+    "core/nn/manual_backprop.jl",
+    "core/nn/ensemble.jl",
 ]
 ```
 
-## Using potentials 
+## Using potentials
 
 Routines for using the trained potentials for energy/forces/stress calculations.
 
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "calculator.jl",
+    "core/calculator.jl",
+    "core/calculator/metacalculator.jl",
     "opt.jl",
+    "optimizer/abstract.jl",
+    "optimizer/tpsd.jl",
+    "optimizer/fire.jl",
 ]
 ```
 
@@ -63,10 +68,11 @@ Support utilities and tools.
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "/tools.jl",
-    "/records.jl",
-    "/plotting/recipes.jl",
-    "/eddpf90.jl",
+    "tools.jl",
+    "records.jl",
+    "plotting/recipes.jl",
+    "eddpf90.jl",
+    "lazy_res.jl",
 ]
 ```
 
@@ -78,14 +84,17 @@ Function for providing automatic iterative potential building via random structu
 Modules = [EDDPotentials]
 Pages = [
     "link/link.jl",
+    "link/options.jl",
+    "link/workflow.jl",
+    "link/analysis.jl",
     "link/trainer.jl",
 ]
 ```
 
-## None-negative least square routines
+## Non-negative least square routines
 
 Internal routines in the [NNLS.jl](https://github.com/rdeits/NNLS.jl) package embedded in the package.
 
 ```@autodocs
-Modules = [EDDPotentials.NNLS]
+Modules = [EDDPotentials.EDDPotentialsCore.NNLS]
 ```

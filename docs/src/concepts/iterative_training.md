@@ -412,7 +412,7 @@ Train `nmodels` independently in parallel:
 **Step 3: NNLS Ensemble Weighting**
 
 ```julia
-ensemble = create_ensemble(builder)
+ensemble = EDDPotentials.create_ensemble(builder)
 # Uses Non-Negative Least Squares to minimize:
 #   argmin ||A·w - y||²  subject to w ≥ 0
 # where A[i,j] = prediction of model j on structure i

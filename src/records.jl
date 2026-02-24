@@ -16,6 +16,11 @@ function record_comp end
 function record_reduced_comp end
 function record_id end
 
+"""
+    ComputedRecord(composition, energy, record_id="")
+
+Simple phase-diagram record with composition and total energy.
+"""
 struct ComputedRecord <: AbstractRecord
     composition::Composition
     energy::Float64

@@ -21,7 +21,7 @@ This will significantly accelerate the feature generation process at the starts 
 
 # Args
 
-- `fname`: Name of to be used the configuration file (default: link.toml).
+- `fname`: Configuration file name (default: `link.toml`).
 
 # Options
 
@@ -45,11 +45,11 @@ Perform random structure searching.
 
 This function initialise a `Builder` object based on the configuration file passed and run 
 random structure search using the specified ensemble ID which defaults to the latest generation
-of the train model (`ensebmle-gen<id>.jld2`) in the working directory. 
+of the trained model (`ensemble-gen<id>.jld2`) in the working directory.
 
 # Arguments
 
-- `fname`: Name of to be used the configuration file (default: link.toml).
+- `fname`: Configuration file name (default: `link.toml`).
 """
 @cast function run_rss(fname::AbstractString="link.toml";)
     builder = Builder(fname)

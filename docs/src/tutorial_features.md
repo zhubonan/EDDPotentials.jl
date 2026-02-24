@@ -349,7 +349,7 @@ Let's compare different feature choices on carbon structures:
 using EDDPotentials
 using Flux  # For neural network construction
 using ExtXYZ  # For loading .xyz files
-import EDDPotentials: train!, FluxInterface, create_ensemble, get_fit_data
+import EDDPotentials: train!, FluxInterface, train_test_split
 
 # Load data
 structures = ExtXYZ.load("carbon_data.xyz")

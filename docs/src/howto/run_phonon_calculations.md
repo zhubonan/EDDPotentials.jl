@@ -57,6 +57,7 @@ Start with a structure file (e.g., SHELX `.res` format):
 
 ```julia
 using EDDPotentials
+using CellBase: read_res
 
 # Load trained model
 builder = Builder("link.toml")
@@ -70,7 +71,8 @@ calc = NNCalc(structure, builder.cf, load_ensemble(builder))
 
 # Relax with variable cell optimization (important for phonons!)
 vc_calc = VariableCellCalc(calc)
-EDDPotentials.optimise!(vc_calc; fmax=0.01, max_steps=200)
+converged = opt_tpsd(vc_calc; f_tol=0.01, itermax=200)
+@assert converged
 
 # Extract relaxed structure
 relaxed_structure = vc_calc.cell
@@ -218,10 +220,10 @@ If you see negative (imaginary) frequencies:
 **Problem**: Relaxation doesn't converge to `fmax` threshold
 
 **Solutions**:
-- Increase `max_steps`
+- Increase `itermax`
 - Use smaller initial structure (closer to equilibrium)
 - Check EDDP potential quality on this structure type
-- Try `EDDPotentials.relax!` instead of `optimise!` (different optimizer)
+- Try `opt_fire(vc_calc; f_tol=...)` instead of `opt_tpsd(...)`
 
 ### Phonopy Errors
 
@@ -239,6 +241,7 @@ Here's a full example for silicon:
 ```julia
 using EDDPotentials
 using EDDPotentialsTools
+using CellBase: read_res
 
 # 1. Load model and structure
 builder = Builder("si_potential/link.toml")
@@ -247,7 +250,8 @@ structure = read_res("Si.res")
 # 2. Relax structure
 calc = NNCalc(structure, builder.cf, load_ensemble(builder))
 vc_calc = VariableCellCalc(calc)
-EDDPotentials.optimise!(vc_calc; fmax=0.001, max_steps=300)
+converged = opt_tpsd(vc_calc; f_tol=0.001, itermax=300)
+@assert converged
 
 # 3. Calculate phonons
 EDDPotentialsTools.run_phonon(

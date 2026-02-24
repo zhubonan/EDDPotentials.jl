@@ -57,6 +57,8 @@ function walk_forward_tests(
     trs
 end
 
+@doc "Run walk-forward validation across builder iterations." walk_forward_tests
+
 
 """
     summarise(builder::Builder)

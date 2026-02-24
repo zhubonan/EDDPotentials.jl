@@ -8,8 +8,23 @@ const to = TimerOutput()
 # Default to have the timer disabled
 disable_timer!(to)
 
+"""
+    enable_eddp_timer!()
+
+Enable internal timing collection for EDDP operations.
+"""
 enable_eddp_timer!() = enable_timer!(to)
+"""
+    disable_eddp_timer!()
+
+Disable internal timing collection for EDDP operations.
+"""
 disable_eddp_timer!() = disable_timer!(to)
+"""
+    reset_eddp_timer!()
+
+Reset internal timing counters.
+"""
 reset_eddp_timer!() = reset_timer!(to)
 
 # Core evaluation stack

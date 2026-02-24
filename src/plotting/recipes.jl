@@ -73,6 +73,12 @@ resample_mae_rmse(tr::TrainingResults, samples) =
     be used instead.
 """
 fitquality
+"""
+    fitquality!(args...; kwargs...)
+
+Mutating variant of [`fitquality`](@ref).
+"""
+fitquality!
 
 @recipe function f(h::FitQuality)
 
@@ -102,6 +108,12 @@ Plot the absolute error per atom against the relative energy (per atom).
 This can be useful to check that the those with lower energy has smaller errors.
 """
 relativeabsoluteerror
+"""
+    relativeabsoluteerror!(args...; kwargs...)
+
+Mutating variant of [`relativeabsoluteerror`](@ref).
+"""
+relativeabsoluteerror!
 
 
 @recipe function f(h::RelativeAbsoluteError)
@@ -136,6 +148,12 @@ If the first argument is a `TrainingResults` then the predicted enthalpies will
 be used instead.
 """
 enthalpyandvolume
+"""
+    enthalpyandvolume!(args...; kwargs...)
+
+Mutating variant of [`enthalpyandvolume`](@ref).
+"""
+enthalpyandvolume!
 
 @recipe function f(h::EnthalpyAndVolume)
     if isa(h.args[1], StructureContainer)
@@ -174,9 +192,15 @@ This function loads the model trained up to ``i`` iteration and apply it to the 
 The prediction results is hence effectively "out-of-sample".
 
 Ideally, we want the out-of-sample to behave like the in-sample results.
-Unless otherwise stateed, latter refers to the training data and the model at the ``i`` iteration.
+Unless otherwise stated, the latter refers to the training data and the model at the ``i`` iteration.
 """
 inoutsample
+"""
+    inoutsample!(args...; kwargs...)
+
+Mutating variant of [`inoutsample`](@ref).
+"""
+inoutsample!
 
 
 function _get_inoutsample_data(builder, test_iter, iter_start=0)
