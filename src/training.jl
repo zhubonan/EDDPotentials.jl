@@ -364,6 +364,124 @@ function train_lm!(
 end
 
 """
+    train_lm_batched!(itf::AbstractNNInterface, x, y; kwargs...) -> (opt_res, params, history, funcs)
+
+Train a neural network using the batched Levenberg-Marquardt algorithm.
+
+Each LM step operates on a random mini-batch of the training data rather than
+the full dataset, reducing per-iteration cost from O(m·n²) to O(B·n²) where
+B is the batch size.  Data is shuffled at the start of each epoch and the
+callback evaluates on the full dataset for reliable early stopping.
+
+# Arguments
+- `itf::AbstractNNInterface`: Neural network interface to train (modified in-place)
+- `x`: Vector of feature matrices, one per structure
+- `y`: Vector of target total energies (in eV), one per structure
+
+# Keyword Arguments
+- `p0=paramvector(itf)`: Initial parameter vector
+- `maxIter=1000`: Maximum total LM iterations (across all batches/epochs)
+- `show_progress=false`: Print progress each epoch
+- `x_test=x`: Test set feature vectors
+- `y_test=y`: Test set target energies
+- `earlystop=50`: Stop if test RMSE hasn't improved for this many epochs
+- `keep_best=true`: Keep parameters with best test RMSE
+- `log_file=""`: Path to log file (empty = no logging)
+- `p=1.25`: Levenberg-Marquardt damping parameter
+- `weights=nothing`: Optional per-structure weights
+- `batch_size=512`: Number of samples per mini-batch
+- `shuffle_seed=42`: RNG seed for reproducible shuffling
+
+# Returns
+- `opt_res`: Optimization result object
+- `params`: Final parameter vector
+- `history`: Matrix with columns [train_rmse, test_rmse] per epoch
+- `funcs`: Tuple of (fj_batch!, f_full!) closures
+
+# See also
+[`train_lm!`](@ref), [`train!`](@ref)
+"""
+function train_lm_batched!(
+    itf::AbstractNNInterface,
+    x,
+    y;
+    p0=paramvector(itf),
+    maxIter=1000,
+    show_progress=false,
+    x_test=x,
+    y_test=y,
+    earlystop=50,
+    keep_best=true,
+    log_file="",
+    p=1.25,
+    weights=nothing,
+    batch_size=512,
+    shuffle_seed=42,
+    args...,
+)
+    rec = []
+
+    train_natoms = [size(v, 2) for v in x]
+    test_natoms = [size(v, 2) for v in x_test]
+
+    time_start = time()
+    last_time = time()
+    epoch_count = 1
+    function progress_tracker()
+        rmse_train = rmse_per_atom(itf, x, y, train_natoms)
+
+        if x_test === x
+            rmse_test = rmse_train
+        else
+            rmse_test = rmse_per_atom(itf, x_test, y_test, test_natoms)
+        end
+        if show_progress || (log_file != "")
+            tnow = time()
+            elapsed = tnow - time_start
+            loop = tnow - last_time
+            last_time = tnow
+            logline =
+                @sprintf "Epoch: %d %3.3f %3.3f RMSE Train %10.5f eV | Test %10.5f eV (batch=%d)\n" epoch_count loop elapsed rmse_train rmse_test batch_size
+            show_progress && print(logline)
+            if log_file != ""
+                open(log_file, "a") do file
+                    write(file, logline)
+                end
+            end
+        end
+
+        flush(stdout)
+        push!(rec, (rmse_train, rmse_test))
+
+        epoch_count += 1
+
+        rmse_test, paramvector(itf)
+    end
+
+    # Set up batched closures
+    fj_batch!, f_full! = setup_fj_batched(itf, x, y, weights)
+
+    callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
+
+    opt_res = @timeit to "batched lm solve" levenberg_marquardt_batched(
+        fj_batch!,
+        f_full!,
+        p0;
+        n_data=length(x),
+        batch_size=batch_size,
+        maxIter=maxIter,
+        callback=callback,
+        p=p,
+        keep_best=keep_best,
+        earlystop=earlystop,
+        shuffle_seed=shuffle_seed,
+        args...,
+    )
+
+    opt_res, paramvector(itf), [map(x -> x[1], rec) map(x -> x[2], rec)], (fj_batch!, f_full!)
+end
+
+"""
     train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_test::FeatureContainer; kwargs...)
 
 Train a neural network model using training and test datasets.
@@ -378,7 +496,7 @@ training algorithm (Levenberg-Marquardt by default).
 - `fc_test::FeatureContainer`: Test dataset for validation
 
 # Keyword Arguments
-- `train_method="lm"`: Training algorithm ("lm" for Levenberg-Marquardt, "optim" for Optim.jl)
+- `train_method="lm"`: Training algorithm ("lm" for Levenberg-Marquardt, "lm_batched" for batched LM, "optim" for Optim.jl)
 - Additional kwargs are passed to the underlying training function
 
 # Returns
@@ -427,6 +545,10 @@ function train!(
         x_train, y_train = get_fit_data(fc_train)
         x_test, y_test = get_fit_data(fc_test)
         train_lm!(itf, x_train, y_train; x_test, y_test, kwargs...)
+    elseif train_method == "lm_batched"
+        x_train, y_train = get_fit_data(fc_train)
+        x_test, y_test = get_fit_data(fc_test)
+        train_lm_batched!(itf, x_train, y_train; x_test, y_test, kwargs...)
     elseif train_method == "optim"
         model = get_flux_model(itf)
         f, g!, pview, callback = EDDPotentials.generate_f_g_optim(model, fc_train, fc_test)

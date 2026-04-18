@@ -24,6 +24,7 @@ makedocs(
             "Crystal Structure Prediction" => "howto/structure_prediction.md",
             "Run Phonon Calculations" => "howto/run_phonon_calculations.md",
             "Enable GPU Acceleration" => "howto/enable_gpu_acceleration.md",
+            "Batched LM Training" => "howto/batched_lm_training.md",
         ],
 
         "Functions" => "functions.md",

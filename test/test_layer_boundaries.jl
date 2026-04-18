@@ -32,6 +32,7 @@ using Test
     @test top_targets == [
         "core/EDDPotentialsCore.jl",
         "lmsolve.jl",
+        "lmsolve_batched.jl",
         "preprocessing.jl",
         "eddpf90.jl",
         "training.jl",

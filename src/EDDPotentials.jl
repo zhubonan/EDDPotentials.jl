@@ -51,12 +51,14 @@ import .EDDPotentialsCore:
     glob_allow_abs,
     load_from_jld2,
     setup_fj,
+    setup_fj_batched,
     update_feature_vector!,
     reinit,
     reinit!
 
 # Functional layer (training/workflow/analysis)
 include("lmsolve.jl")
+include("lmsolve_batched.jl")
 include("preprocessing.jl")
 include("eddpf90.jl")
 include("training.jl")

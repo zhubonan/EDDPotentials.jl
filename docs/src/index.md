@@ -124,6 +124,7 @@ This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
 - [Crystal Structure Prediction](howto/structure_prediction.md): Large-scale RSS workflows
 - [Run Phonon Calculations](howto/run_phonon_calculations.md): Vibrational properties
 - [Enable GPU Acceleration](howto/enable_gpu_acceleration.md): Training speedup
+- [Batched LM Training](howto/batched_lm_training.md): Stochastic LM for large datasets
 
 **Concepts** - Understanding-oriented explanations
 - [What is EDDP?](concepts/what_is_eddp.md): Design philosophy and use cases

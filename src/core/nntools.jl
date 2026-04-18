@@ -94,6 +94,63 @@ function setup_fj(model::AbstractNNInterface, data::AbstractVector, y, weights=n
 end
 
 
+"""
+    setup_fj_batched(model::AbstractNNInterface, data, y, weights=nothing)
+
+Setup closures for batched LM training.  Returns a tuple
+`(fj_batch!, f_full!)` where:
+
+- `fj_batch!(fvec, jmat, param, batch_indices)` computes the residual and
+  Jacobian for only the data points in `batch_indices`.  `fvec` or `jmat`
+  may be `nothing`.
+- `f_full!(fvec, param)` computes the residual for the full dataset.
+"""
+function setup_fj_batched(
+    model::AbstractNNInterface,
+    data::AbstractVector,
+    y,
+    weights=nothing,
+)
+    jtmp = similar(paramvector(model))
+
+    function fj_batch!(fvec, jmat, param, batch_indices)
+        setparamvector!(model, param)
+        need_jacobian = !(jmat === nothing)
+        for (local_i, global_i) in enumerate(batch_indices)
+            inp = data[global_i]
+            out = forward!(model, inp)
+
+            if need_jacobian
+                backward!(model)
+                gradparam!(jtmp, model)
+                if isnothing(weights)
+                    jmat[local_i, :] .= jtmp
+                else
+                    jmat[local_i, :] .= jtmp .* weights[global_i]
+                end
+            end
+
+            if !(fvec === nothing)
+                if isnothing(weights)
+                    fvec[local_i] = sum(out) - y[global_i]
+                else
+                    fvec[local_i] = (sum(out) - y[global_i]) * weights[global_i]
+                end
+            end
+        end
+        fvec, jmat
+    end
+
+    function f_full!(fvec, param)
+        setparamvector!(model, param)
+        compute_objectives(fvec, model, data, y, weights)
+        fvec
+    end
+
+    return fj_batch!, f_full!
+end
+
+
 function compute_objectives(f, itf, data::AbstractVector, y, weights=nothing)
     for (i, inp) in enumerate(data)
         out = forward!(itf, inp)

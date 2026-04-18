@@ -150,6 +150,8 @@ abstract type AbstractTrainer end
     use_cuda::Bool = false
     cuda_visible_devices::String = ""
     ensemble_error_threshold::Float64 = 0.5
+    "Batch size for batched LM training. 0 means use full (non-batched) LM."
+    batch_size::Int = 0
 end
 
 

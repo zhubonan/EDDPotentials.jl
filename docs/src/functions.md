@@ -28,6 +28,7 @@ Pages = [
     "preprocessing.jl",
     "training.jl",
     "lmsolve.jl",
+    "lmsolve_batched.jl",
     "core/nntools.jl",
 ]
 ```

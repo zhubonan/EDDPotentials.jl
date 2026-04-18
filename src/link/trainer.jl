@@ -130,20 +130,39 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
 
         @info "Starting training"
         # Train one model and save it...
-        train_lm!(
-            model,
-            x_train,
-            y_train;
-            x_test,
-            y_test,
-            maxIter=tra.max_iter,
-            earlystop=tra.earlystop,
-            show_progress=tra.show_progress,
-            p=tra.p,
-            keep_best=tra.keep_best,
-            log_file=tra.log_file,
-            weights,
-        )
+        if tra.batch_size > 0
+            @info "Using batched LM with batch_size=$(tra.batch_size)"
+            train_lm_batched!(
+                model,
+                x_train,
+                y_train;
+                x_test,
+                y_test,
+                maxIter=tra.max_iter,
+                earlystop=tra.earlystop,
+                show_progress=tra.show_progress,
+                p=tra.p,
+                keep_best=tra.keep_best,
+                log_file=tra.log_file,
+                weights,
+                batch_size=tra.batch_size,
+            )
+        else
+            train_lm!(
+                model,
+                x_train,
+                y_train;
+                x_test,
+                y_test,
+                maxIter=tra.max_iter,
+                earlystop=tra.earlystop,
+                show_progress=tra.show_progress,
+                p=tra.p,
+                keep_best=tra.keep_best,
+                log_file=tra.log_file,
+                weights,
+            )
+        end
 
         # Display training results
         if tra.log_file != "" || tra.show_progress
