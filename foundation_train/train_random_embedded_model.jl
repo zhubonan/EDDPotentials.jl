@@ -112,14 +112,14 @@ function main(args=ARGS)
         "max_iter=$(cfg["max_iter"]) earlystop=$(cfg["earlystop"]) " *
         "show_progress=$(cfg["show_progress"])",
     )
-    sc = StructureContainer(dataset; threshold=cfg["threshold"])
-    println("Loaded $(length(sc)) structures after threshold filtering.")
-
     max_structures = cfg["max_structures"]
-    if max_structures > 0 && length(sc) > max_structures
-        sc = sc[1:max_structures]
-        println("Using first $(length(sc)) structures for this run.")
+    dataset_path = if max_structures > 0 && endswith(lowercase(dataset), ".xyz") || endswith(lowercase(dataset), ".extxyz")
+        "$(dataset)@:$(max_structures)"
+    else
+        dataset
     end
+    sc = StructureContainer(dataset_path; threshold=cfg["threshold"])
+    println("Loaded $(length(sc)) structures after threshold filtering.")
 
     symbols = _unique_symbols(sc.structures)
     embedded = RandomEmbeddedCellFeature(

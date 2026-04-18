@@ -84,6 +84,141 @@ function _uniform_direction(rng, ndim::Integer)
     direction ./= normdir
 end
 
+"""
+    _parse_path_slice(path)
+
+Parse `path@slice` syntax for partial extxyz reading.
+Returns `(filepath, slice_string)` if a valid slice is found, otherwise `(path, nothing)`.
+
+A valid slice must contain at least one `:` (e.g., `:2000`, `-1000:`, `::2`).
+"""
+function _parse_path_slice(path::AbstractString)
+    # Find the last '@' that is followed by a slice-like pattern
+    at_pos = findlast('@', path)
+    if at_pos === nothing || at_pos == length(path)
+        return (path, nothing)
+    end
+    slice_part = path[at_pos + 1:end]
+    # A valid slice must contain ':'
+    if !contains(slice_part, ':')
+        return (path, nothing)
+    end
+    # Validate: should only contain digits, '-', and ':'
+    if !all(c -> isdigit(c) || c == '-' || c == ':', slice_part)
+        return (path, nothing)
+    end
+    filepath = path[1:at_pos - 1]
+    # Filepath must look like a real path (not empty)
+    if isempty(filepath)
+        return (path, nothing)
+    end
+    return (filepath, slice_part)
+end
+
+"""
+    _count_extxyz_frames(path)
+
+Fast frame counter for extxyz files. Only reads the atom-count header of each frame,
+skipping the actual data lines.
+"""
+function _count_extxyz_frames(path::AbstractString)
+    count = 0
+    open(path) do io
+        while !eof(io)
+            line = readline(io)
+            strip(line) == "" && continue
+            natoms = parse(Int, strip(line))
+            for _ in 1:(natoms + 1)
+                readline(io)
+            end
+            count += 1
+        end
+    end
+    count
+end
+
+"""
+    _python_slice_to_range(slice_str, total)
+
+Convert a Python-style slice string (`"start:stop:step"`) to a Julia range,
+given the total number of frames. Handles omitted parts and negative indices.
+
+# Examples (with total=20000)
+- `":2000"` → `1:2000` (first 2000)
+- `"-1000:"` → `19001:20000` (last 1000)
+- `"::2"` → `1:2:20000` (every 2nd)
+- `"100:500:3"` → `101:3:500`
+"""
+function _python_slice_to_range(slice_str::AbstractString, total::Int)
+    parts = split(slice_str, ':')
+    # Parse start
+    start_py = if length(parts) >= 1 && !isempty(parts[1])
+        parse(Int, parts[1])
+    else
+        nothing
+    end
+    # Parse stop
+    stop_py = if length(parts) >= 2 && !isempty(parts[2])
+        parse(Int, parts[2])
+    else
+        nothing
+    end
+    # Parse step
+    step_val = if length(parts) >= 3 && !isempty(parts[3])
+        parse(Int, parts[3])
+    else
+        nothing
+    end
+
+    step = step_val === nothing ? 1 : step_val
+
+    # Convert Python start (0-based) to Julia start (1-based inclusive)
+    start_jl = if start_py === nothing
+        step > 0 ? 1 : total
+    elseif start_py >= 0
+        min(start_py + 1, total)
+    else
+        max(total + start_py + 1, 1)
+    end
+
+    # Convert Python stop (0-based exclusive) to Julia stop (1-based inclusive)
+    stop_jl = if stop_py === nothing
+        step > 0 ? total : 1
+    elseif stop_py >= 0
+        min(stop_py, total)
+    else
+        max(total + stop_py + 1, 1)
+    end
+
+    start_jl:step:stop_jl
+end
+
+"""
+    _extxyz_dict_to_cell(data::Dict)
+
+Convert a raw ExtXYZ frame dict (as returned by `ExtXYZ.read_frames`) to a `Cell`.
+"""
+function _extxyz_dict_to_cell(data::Dict)
+    metadata = Dict{Symbol,Any}()
+    for (key, value) in data["info"]
+        metadata[Symbol(key)] = value
+    end
+    arrays = Dict{Symbol,AbstractArray}()
+    for (key, value) in data["arrays"]
+        if !(key in ("species", "pos"))
+            arrays[Symbol(key)] = value
+        end
+    end
+    cell = Cell(
+        Lattice(collect(transpose(data["cell"]))),
+        Symbol.(data["arrays"]["species"]),
+        data["arrays"]["pos"],
+    )
+    cell.arrays = arrays
+    cell.metadata = metadata
+    cell
+end
+
 function _normalize_extxyz_cell!(cell, fallback_label)
     metadata = cell.metadata
     if !haskey(metadata, :enthalpy) && haskey(metadata, :energy)
@@ -102,17 +237,31 @@ function _normalize_extxyz_cell!(cell, fallback_label)
 end
 
 function _load_structures_from_path(path::AbstractString)
-    ext = lowercase(splitext(path)[2])
+    filepath, slice_str = _parse_path_slice(path)
+    ext = lowercase(splitext(filepath)[2])
     if ext in (".xyz", ".extxyz")
         cells = Cell[]
-        loaded = ExtXYZ.load(path)
+        if slice_str !== nothing
+            total = _count_extxyz_frames(filepath)
+            frame_range = _python_slice_to_range(slice_str, total)
+            # ExtXYZ.read_frames only supports contiguous ranges.
+            # Read the full contiguous span, then subsample for step != 1.
+            contiguous = first(frame_range):last(frame_range)
+            raw_dicts = ExtXYZ.read_frames(filepath, contiguous)
+            indices = frame_range .- first(frame_range) .+ 1
+            for (i, idx) in enumerate(indices)
+                push!(cells, _normalize_extxyz_cell!(_extxyz_dict_to_cell(raw_dicts[idx]), "$(stem(filepath))-$i"))
+            end
+            return cells
+        end
+        loaded = ExtXYZ.load(filepath)
         systems = loaded isa AbstractVector ? loaded : [loaded]
         for (i, system) in enumerate(systems)
-            push!(cells, _normalize_extxyz_cell!(Cell(system), "$(stem(path))-$i"))
+            push!(cells, _normalize_extxyz_cell!(Cell(system), "$(stem(filepath))-$i"))
         end
         return cells
     end
-    CellBase.read_res_many(path)
+    CellBase.read_res_many(filepath)
 end
 
 function _structure_enthalpy(cell)
@@ -154,8 +303,15 @@ function StructureContainer(
 )
     resolved_paths = String[]
     for path in paths
-        if contains(path, "*") || contains(path, "?")
-            append!(resolved_paths, glob_allow_abs(path))
+        filepath, _ = _parse_path_slice(path)
+        if contains(filepath, "*") || contains(filepath, "?")
+            # Glob on the file path, keep the full path (with @slice) for loading
+            for resolved in glob_allow_abs(filepath)
+                # Re-attach the slice spec if present
+                _, slice_str = _parse_path_slice(path)
+                full = slice_str !== nothing ? "$(resolved)@$(slice_str)" : resolved
+                push!(resolved_paths, full)
+            end
         else
             push!(resolved_paths, path)
         end
@@ -180,7 +336,7 @@ function StructureContainer(
 end
 
 StructureContainer(path::AbstractString; kwargs...) =
-    StructureContainer(glob_allow_abs(path); kwargs...)
+    StructureContainer([path]; kwargs...)
 
 """
     synthetic_force_data(sc::StructureContainer; kwargs...)
