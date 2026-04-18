@@ -102,12 +102,12 @@ abstract type AbstractTrainer end
 - `nmodels`: The number of models to be trained for forming the ensemble through NNLS.
 - `max_iter`: Maximum number of iterations for training the potential.
 - `n_nodes`: The number of hidden nodes in each layer.
-- `earlystop`: The number of none-improving iterations (on the test set) to wait before early stopping the training.
+- `earlystop`: The number of none-improving iterations (on the validation set) to wait before early stopping the training.
 - `show_progress`: Whether to show the progress of the training.
 - `training_mode`: The mode of training. Currently, only `manual_backprop` and `linear` are supported.
 - `training_kwargs`: The key word arguments to be used for the training function.
-- `train_split`: The split of the training set for training, validation, and test set.
-- `use_test_for_ensemble`: Whether to use the test set for ensemble building.
+- `train_split`: The split ratios for the training set, in the order [train, validation, test].
+- `use_validation_for_ensemble`: Whether to use the validation set for ensemble building.
 - `save_each_model`: Whether to save each trained model during the training (deprecated, only used for multi-thread training which is not efficient).
 - `p`: The power for computing the loss function for the Levernberg-Marquardt algorithm.
 - `keep_best`: Whether to keep the best model during the training using the Levernberg-Marquardt algorithm.
@@ -136,7 +136,7 @@ abstract type AbstractTrainer end
     training_mode::String = "manual_backprop"
     training_kwargs::Dict{String,Any} = Dict{String,Any}()
     train_split::Vector{Float64} = [0.8, 0.1, 0.1]
-    use_test_for_ensemble::Bool = true
+    use_validation_for_ensemble::Bool = true
     save_each_model::Bool = true
     p::Float64 = 1.25
     keep_best::Bool = true

@@ -550,12 +550,12 @@ cf = CellFeature([:C])  # Carbon structures
 fc = FeatureContainer(sc, cf)
 println(size(fc.fvecs[1]), " - feature dimensions for first structure")
 
-# Step 4: Split into train/test
-fc_train, fc_test = split(fc, 450, 50)  # 450 train, 50 test
+# Step 4: Split into train/validation
+fc_train, fc_val = split(fc, 450, 50)  # 450 train, 50 validation
 
 # Step 5: Use for training
 itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
-train!(itf, fc_train, fc_test; maxIter=500)
+train!(itf, fc_train, fc_val; maxIter=500)
 ```
 
 # Notes
@@ -800,47 +800,56 @@ end
 
 
 """
-    train_test_split(v::Union{FeatureContainer,StructureContainer}; ratio_test=0.1, shuffle=true)
+    train_val_split(v::Union{FeatureContainer,StructureContainer}; ratio_val=0.1, shuffle=true)
 
-Split a container into training and test sets.
+Split a container into training and validation sets.
 
-This is a convenience function for creating a simple train/test split with a
+This is a convenience function for creating a simple train/validation split with a
 specified ratio. For more control over split sizes, use `split` instead.
 
 # Arguments
 - `v::Union{FeatureContainer,StructureContainer}`: Container to split
 
 # Keyword Arguments
-- `ratio_test=0.1`: Fraction of data to use for testing (0.0 to 1.0)
+- `ratio_val=0.1`: Fraction of data to use for validation (0.0 to 1.0)
 - `shuffle=true`: Randomly shuffle data before splitting
 
 # Returns
-- `Tuple{typeof(v), typeof(v)}`: (training_set, test_set)
+- `Tuple{typeof(v), typeof(v)}`: (training_set, validation_set)
 
 # Examples
 ```julia
-# Simple 90/10 train/test split
-fc_train, fc_test = train_test_split(fc; ratio_test=0.1)
+# Simple 90/10 train/validation split
+fc_train, fc_val = train_val_split(fc; ratio_val=0.1)
 
 # 80/20 split without shuffling
-sc_train, sc_test = train_test_split(sc; ratio_test=0.2, shuffle=false)
+sc_train, sc_val = train_val_split(sc; ratio_val=0.2, shuffle=false)
 ```
 
 # See also
 [`split`](@ref)
 """
+function train_val_split(
+    v::Union{FeatureContainer,StructureContainer};
+    ratio_val=0.1,
+    shuffle=true,
+)
+    nval = Int(floor(length(v) * ratio_val))
+    ntrain = length(v) - nval
+    if shuffle
+        perm = randperm(length(v))
+        return v[perm[1:ntrain]], v[perm[ntrain+1:end]]
+    end
+    return v[1:ntrain], v[ntrain+1:end]
+end
+
 function train_test_split(
     v::Union{FeatureContainer,StructureContainer};
     ratio_test=0.1,
     shuffle=true,
 )
-    ntest = Int(floor(length(v) * ratio_test))
-    ntrain = length(v) - ntest
-    if shuffle
-        perm = randperm(length(v))
-        return v[perm[1:ntrain]], v[perm[ntrain+1:end]]
-    end
-    return v[1:ntrain], v[train+1:end]
+    Base.depwarn("`train_test_split` is deprecated, use `train_val_split` instead.", :train_test_split)
+    train_val_split(v; ratio_val=ratio_test, shuffle)
 end
 
 """

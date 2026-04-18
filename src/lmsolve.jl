@@ -125,7 +125,7 @@ function levenberg_marquardt(
     JJ = Matrix{T}(undef, n, n)
     n_buffer = Vector{T}(undef, n)
     Jdelta_buffer = similar(value(df))
-    test_rmse = T[]
+    val_rmse = T[]
     DtD = zeros(T, n)
 
     # Initialised weights
@@ -329,13 +329,13 @@ function levenberg_marquardt(
 
         if !isnothing(callback)
             @timeit to "callback eval" rmse_val, xtmp = callback()
-            if length(test_rmse) > 0 && rmse_val < minimum(test_rmse)
+            if length(val_rmse) > 0 && rmse_val < minimum(val_rmse)
                 best_x .= xtmp
             end
-            push!(test_rmse, rmse_val)
+            push!(val_rmse, rmse_val)
         end
         if earlystop > 0
-            earlystopcheck(test_rmse, earlystop) && (converged = true)
+            earlystopcheck(val_rmse, earlystop) && (converged = true)
         end
     end
 

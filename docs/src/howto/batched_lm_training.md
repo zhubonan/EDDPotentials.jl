@@ -40,7 +40,7 @@ using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
 sc = StructureContainer(["data/*.res"])
 cf = CellFeature([:C]; p2=2:8, rcut2=5.0)
 fc = FeatureContainer(sc, cf)
-fc_train, fc_test = split(fc, 450, 50)
+fc_train, fc_val = split(fc, 450, 50)
 
 # Create model
 itf = ManualFluxBackPropInterface(
@@ -50,11 +50,11 @@ itf = ManualFluxBackPropInterface(
 
 # Train with batched LM
 x_train, y_train = get_fit_data(fc_train)
-x_test, y_test = get_fit_data(fc_test)
+x_val, y_val = get_fit_data(fc_val)
 
 opt_res, params, history, funcs = train_lm_batched!(
     itf, x_train, y_train;
-    x_test, y_test,
+    x_val, y_val,
     batch_size=512,
     maxIter=2000,
     earlystop=50,
@@ -65,7 +65,7 @@ opt_res, params, history, funcs = train_lm_batched!(
 ### Via `train!` dispatch
 
 ```julia
-train!(itf, fc_train, fc_test;
+train!(itf, fc_train, fc_val;
     train_method="lm_batched",
     batch_size=512,
     maxIter=2000,
@@ -118,17 +118,17 @@ using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface, reinit
 # Standard LM
 itf_lm = ManualFluxBackPropInterface(cf, 30, 30;
     xt=fc_train.xt, yt=fc_train.yt, apply_xt=false)
-train!(itf_lm, fc_train, fc_test; maxIter=500, show_progress=true)
+train!(itf_lm, fc_train, fc_val; maxIter=500, show_progress=true)
 
 # Batched LM
 itf_blm = reinit(itf_lm)  # fresh copy with same architecture
-train!(itf_blm, fc_train, fc_test;
+train!(itf_blm, fc_train, fc_val;
     train_method="lm_batched", batch_size=2048,
     maxIter=500, show_progress=true)
 
 # Compare
-tr_lm = TrainingResults(itf_lm, fc_test)
-tr_blm = TrainingResults(itf_blm, fc_test)
+tr_lm = TrainingResults(itf_lm, fc_val)
+tr_blm = TrainingResults(itf_blm, fc_val)
 println("Standard LM RMSE: ", rmse_per_atom(tr_lm), " eV/atom")
 println("Batched  LM RMSE: ", rmse_per_atom(tr_blm), " eV/atom")
 ```
@@ -141,7 +141,7 @@ Typical results on datasets with 5,000+ structures show batched LM achieves comp
 |---|---|---|
 | `batch_size` | 512 | Number of samples per mini-batch. Must be positive and ideally ≥ `nparams(model)`. |
 | `maxIter` | 1000 | Maximum total LM iterations (across all batches and epochs). |
-| `earlystop` | 50 | Stop if full-dataset test RMSE hasn't improved for this many epochs. |
+| `earlystop` | 50 | Stop if full-dataset validation RMSE hasn't improved for this many epochs. |
 | `shuffle_seed` | 42 | RNG seed for reproducible data shuffling. |
 | `p` | 1.25 | Power for iterative weight reweighting. Same as standard LM. |
 | `keep_best` | true | Rewind to best parameters at end. |

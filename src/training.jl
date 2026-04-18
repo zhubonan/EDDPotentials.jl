@@ -153,7 +153,7 @@ to minimize prediction error on the provided data.
 models = []
 for i in 1:10
     itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
-    train!(itf, fc_train, fc_test; maxIter=300)
+    train!(itf, fc_train, fc_val; maxIter=300)
     push!(models, itf)
 end
 
@@ -238,10 +238,10 @@ fitting potential energy surfaces.
 - `p0=paramvector(itf)`: Initial parameter vector for optimization
 - `maxIter=1000`: Maximum number of iterations
 - `show_progress=false`: Print progress to stdout during training
-- `x_test=x`: Test set feature vectors (defaults to training set)
-- `y_test=y`: Test set target energies (defaults to training set)
-- `earlystop=50`: Stop if test error doesn't improve for this many iterations
-- `keep_best=true`: Keep parameters with best test error instead of final iteration
+- `x_val=x`: Validation set feature vectors (defaults to training set)
+- `y_val=y`: Validation set target energies (defaults to training set)
+- `earlystop=50`: Stop if validation error doesn't improve for this many iterations
+- `keep_best=true`: Keep parameters with best validation error instead of final iteration
 - `log_file=""`: Path to file for logging progress (empty string = no logging)
 - `p=1.25`: Levenberg-Marquardt damping parameter
 - `weights=nothing`: Optional weights for each structure in the loss function
@@ -249,7 +249,7 @@ fitting potential energy surfaces.
 # Returns
 - `opt_res`: Optimization result object
 - `params`: Final parameter vector
-- `history`: Matrix with columns [train_rmse, test_rmse] for each iteration
+- `history`: Matrix with columns [train_rmse, val_rmse] for each iteration
 - `funcs`: Tuple of (f!, j!, fj!) functions used for optimization
 
 # Examples
@@ -257,12 +257,12 @@ fitting potential energy surfaces.
 # Basic training on carbon structures
 itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
 x_train, y_train = get_fit_data(fc_train)
-x_test, y_test = get_fit_data(fc_test)
+x_val, y_val = get_fit_data(fc_val)
 
 # Train with progress display and early stopping
 opt_res, params, history = train_lm!(
     itf, x_train, y_train;
-    x_test=x_test, y_test=y_test,
+    x_val=x_val, y_val=y_val,
     maxIter=500,
     show_progress=true,
     earlystop=30
@@ -270,13 +270,13 @@ opt_res, params, history = train_lm!(
 
 # Check final RMSE
 final_train_rmse = history[end, 1]
-final_test_rmse = history[end, 2]
+final_val_rmse = history[end, 2]
 ```
 
 # Notes
 - The network parameters in `itf` are updated in-place during training
 - Training minimizes RMSE of total energies, not per-atom energies
-- Early stopping uses test set RMSE to prevent overfitting
+- Early stopping uses validation set RMSE to prevent overfitting
 - GPU acceleration is used automatically if CUDA is available
 
 # See also
@@ -289,8 +289,8 @@ function train_lm!(
     p0=paramvector(itf),
     maxIter=1000,
     show_progress=false,
-    x_test=x,
-    y_test=y,
+    x_val=x,
+    y_val=y,
     earlystop=50,
     keep_best=true,
     log_file="",
@@ -301,7 +301,7 @@ function train_lm!(
     rec = []
 
     train_natoms = [size(v, 2) for v in x]
-    test_natoms = [size(v, 2) for v in x_test]
+    val_natoms = [size(v, 2) for v in x_val]
 
     time_start = time()
     last_time = time()
@@ -309,10 +309,10 @@ function train_lm!(
     function progress_tracker()
         rmse_train = rmse_per_atom(itf, x, y, train_natoms)
 
-        if x_test === x
-            rmse_test = rmse_train
+        if x_val === x
+            rmse_val = rmse_train
         else
-            rmse_test = rmse_per_atom(itf, x_test, y_test, test_natoms)
+            rmse_val = rmse_per_atom(itf, x_val, y_val, val_natoms)
         end
         if show_progress || (log_file != "")
             tnow = time()
@@ -320,7 +320,7 @@ function train_lm!(
             loop = tnow - last_time
             last_time = tnow
             logline =
-                @sprintf "Iter: %d %3.3f %3.3f RMSE Train %10.5f eV | Test %10.5f eV\n" iter_count loop elapsed rmse_train rmse_test
+                @sprintf "Iter: %d %3.3f %3.3f RMSE Train %10.5f eV | Val %10.5f eV\n" iter_count loop elapsed rmse_train rmse_val
             show_progress && print(logline)
             if log_file != ""
                 open(log_file, "a") do file
@@ -330,11 +330,11 @@ function train_lm!(
         end
 
         flush(stdout)
-        push!(rec, (rmse_train, rmse_test))
+        push!(rec, (rmse_train, rmse_val))
 
         iter_count += 1
 
-        rmse_test, paramvector(itf)
+        rmse_val, paramvector(itf)
     end
 
     # Setting up the object for minimization
@@ -382,10 +382,10 @@ callback evaluates on the full dataset for reliable early stopping.
 - `p0=paramvector(itf)`: Initial parameter vector
 - `maxIter=1000`: Maximum total LM iterations (across all batches/epochs)
 - `show_progress=false`: Print progress each epoch
-- `x_test=x`: Test set feature vectors
-- `y_test=y`: Test set target energies
-- `earlystop=50`: Stop if test RMSE hasn't improved for this many epochs
-- `keep_best=true`: Keep parameters with best test RMSE
+- `x_val=x`: Validation set feature vectors
+- `y_val=y`: Validation set target energies
+- `earlystop=50`: Stop if validation RMSE hasn't improved for this many epochs
+- `keep_best=true`: Keep parameters with best validation RMSE
 - `log_file=""`: Path to log file (empty = no logging)
 - `p=1.25`: Levenberg-Marquardt damping parameter
 - `weights=nothing`: Optional per-structure weights
@@ -395,7 +395,7 @@ callback evaluates on the full dataset for reliable early stopping.
 # Returns
 - `opt_res`: Optimization result object
 - `params`: Final parameter vector
-- `history`: Matrix with columns [train_rmse, test_rmse] per epoch
+- `history`: Matrix with columns [train_rmse, val_rmse] per epoch
 - `funcs`: Tuple of (fj_batch!, f_full!) closures
 
 # See also
@@ -408,8 +408,8 @@ function train_lm_batched!(
     p0=paramvector(itf),
     maxIter=1000,
     show_progress=false,
-    x_test=x,
-    y_test=y,
+    x_val=x,
+    y_val=y,
     earlystop=50,
     keep_best=true,
     log_file="",
@@ -422,7 +422,7 @@ function train_lm_batched!(
     rec = []
 
     train_natoms = [size(v, 2) for v in x]
-    test_natoms = [size(v, 2) for v in x_test]
+    val_natoms = [size(v, 2) for v in x_val]
 
     time_start = time()
     last_time = time()
@@ -430,10 +430,10 @@ function train_lm_batched!(
     function progress_tracker()
         rmse_train = rmse_per_atom(itf, x, y, train_natoms)
 
-        if x_test === x
-            rmse_test = rmse_train
+        if x_val === x
+            rmse_val = rmse_train
         else
-            rmse_test = rmse_per_atom(itf, x_test, y_test, test_natoms)
+            rmse_val = rmse_per_atom(itf, x_val, y_val, val_natoms)
         end
         if show_progress || (log_file != "")
             tnow = time()
@@ -441,7 +441,7 @@ function train_lm_batched!(
             loop = tnow - last_time
             last_time = tnow
             logline =
-                @sprintf "Epoch: %d %3.3f %3.3f RMSE Train %10.5f eV | Test %10.5f eV (batch=%d)\n" epoch_count loop elapsed rmse_train rmse_test batch_size
+                @sprintf "Epoch: %d %3.3f %3.3f RMSE Train %10.5f eV | Val %10.5f eV (batch=%d)\n" epoch_count loop elapsed rmse_train rmse_val batch_size
             show_progress && print(logline)
             if log_file != ""
                 open(log_file, "a") do file
@@ -451,11 +451,11 @@ function train_lm_batched!(
         end
 
         flush(stdout)
-        push!(rec, (rmse_train, rmse_test))
+        push!(rec, (rmse_train, rmse_val))
 
         epoch_count += 1
 
-        rmse_test, paramvector(itf)
+        rmse_val, paramvector(itf)
     end
 
     # Set up batched closures
@@ -482,9 +482,9 @@ function train_lm_batched!(
 end
 
 """
-    train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_test::FeatureContainer; kwargs...)
+    train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_val::FeatureContainer; kwargs...)
 
-Train a neural network model using training and test datasets.
+Train a neural network model using training and validation datasets.
 
 This is the main high-level training function that users should call. It automatically
 extracts features and energies from FeatureContainers and dispatches to the appropriate
@@ -493,7 +493,7 @@ training algorithm (Levenberg-Marquardt by default).
 # Arguments
 - `itf::AbstractNNInterface`: Neural network interface to train
 - `fc_train::FeatureContainer`: Training dataset with features and energies
-- `fc_test::FeatureContainer`: Test dataset for validation
+- `fc_val::FeatureContainer`: Validation dataset for monitoring during training
 
 # Keyword Arguments
 - `train_method="lm"`: Training algorithm ("lm" for Levenberg-Marquardt, "lm_batched" for batched LM, "optim" for Optim.jl)
@@ -504,21 +504,21 @@ Returns from underlying training method (`train_lm!` or Optim optimization)
 
 # Examples
 ```julia
-# Load training and test data
+# Load training and validation data
 using ExtXYZ
 structures_train = read("carbon_train.xyz", ExtXYZ)
-structures_test = read("carbon_test.xyz", ExtXYZ)
+structures_val = read("carbon_val.xyz", ExtXYZ)
 
 # Create FeatureContainers
 cf = CellFeature([:C])  # Define features for carbon
 sc_train = StructureContainer(structures_train)
-sc_test = StructureContainer(structures_test)
+sc_val = StructureContainer(structures_val)
 fc_train = FeatureContainer(cf, sc_train)
-fc_test = FeatureContainer(cf, sc_test)
+fc_val = FeatureContainer(cf, sc_val)
 
 # Create and train model
 itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
-train!(itf, fc_train, fc_test; maxIter=500, show_progress=true)
+train!(itf, fc_train, fc_val; maxIter=500, show_progress=true)
 
 # Evaluate performance
 train_results = TrainingResults(itf, fc_train)
@@ -536,22 +536,22 @@ println("Train RMSE: ", rmse_per_atom(train_results), " eV/atom")
 function train!(
     itf::AbstractNNInterface,
     fc_train::FeatureContainer,
-    fc_test::FeatureContainer;
+    fc_val::FeatureContainer;
     train_method="lm",
     kwargs...,
 )
 
     if train_method == "lm"
         x_train, y_train = get_fit_data(fc_train)
-        x_test, y_test = get_fit_data(fc_test)
-        train_lm!(itf, x_train, y_train; x_test, y_test, kwargs...)
+        x_val, y_val = get_fit_data(fc_val)
+        train_lm!(itf, x_train, y_train; x_val, y_val, kwargs...)
     elseif train_method == "lm_batched"
         x_train, y_train = get_fit_data(fc_train)
-        x_test, y_test = get_fit_data(fc_test)
-        train_lm_batched!(itf, x_train, y_train; x_test, y_test, kwargs...)
+        x_val, y_val = get_fit_data(fc_val)
+        train_lm_batched!(itf, x_train, y_train; x_val, y_val, kwargs...)
     elseif train_method == "optim"
         model = get_flux_model(itf)
-        f, g!, pview, callback = EDDPotentials.generate_f_g_optim(model, fc_train, fc_test)
+        f, g!, pview, callback = EDDPotentials.generate_f_g_optim(model, fc_train, fc_val)
         od = OnceDifferentiable(f, g!, collect(pview))
         x0 = collect(pview)
         opt_res = Optim.optimize(od, x0; callback=callback, kwargs...)
@@ -621,7 +621,7 @@ end
 
 Train one model and put the results into a channel
 """
-function worker_train_one(model, train, test, jobs_channel, results_channel; kwargs...)
+function worker_train_one(model, train, val, jobs_channel, results_channel; kwargs...)
     while true
         job_id = take!(jobs_channel)
         # Signals no more work to do
@@ -629,7 +629,7 @@ function worker_train_one(model, train, test, jobs_channel, results_channel; kwa
             break
         end
         new_model = reinit(model)
-        out = train!(new_model, train, test; kwargs...)
+        out = train!(new_model, train, val; kwargs...)
         # Put the output in the channel storing the results
         if isa(model, ManualFluxBackPropInterface)
             clear_transient_gradients!(model)
@@ -873,13 +873,13 @@ function loss_all(model, fvecs, H; pow=2)
 end
 
 """
-    generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
+    generate_f_g_optim(model, fc_train, fc_val; pow=2, earlystop=30)
 
 Generate f, g!, view of the parameters and the callback function for neuron network training using Optim.
 
 This is for 'batch' training where all of the data are included.
 """
-function generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
+function generate_f_g_optim(model, fc_train, fc_val; pow=2, earlystop=30)
 
     X = fc_train.fvecs
     nfeat = size(X[1], 1)
@@ -908,10 +908,10 @@ function generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
 
     # Per-atom data
     Ha = fc_train.H ./ natoms(fc_train)
-    Ha_test = fc_test.H ./ natoms(fc_test)
+    Ha_val = fc_val.H ./ natoms(fc_val)
 
     iter::Int = 1
-    min_test::Float64 = floatmax(Float64)
+    min_val::Float64 = floatmax(Float64)
     min_iter::Int = 1
 
     function f(x)
@@ -940,21 +940,21 @@ function generate_f_g_optim(model, fc_train, fc_test; pow=2, earlystop=30)
             ) .^ 2 |>
             mean |>
             sqrt
-        rmse_test =
+        rmse_val =
             (
-                (mean.(mdl.(fc_test.fvecs)) .* fc_test.yt.scale[1]) .+ fc_test.yt.mean[1] .-
-                Ha_test
+                (mean.(mdl.(fc_val.fvecs)) .* fc_val.yt.scale[1]) .+ fc_val.yt.mean[1] .-
+                Ha_val
             ) .^ 2 |>
             mean |>
             sqrt
-        @info "Iter $(iter) - RMSE $(round(rmse, digits=5)) eV / $(round(rmse_test, digits=5)) eV"
+        @info "Iter $(iter) - RMSE $(round(rmse, digits=5)) eV / $(round(rmse_val, digits=5)) eV"
 
-        if rmse_test < min_test
+        if rmse_val < min_val
             min_iter = iter
         end
 
         if iter - min_iter > earlystop
-            @info "Early stop condition triggered - last best test was $(earlystop) iterations ago"
+            @info "Early stop condition triggered - last best validation was $(earlystop) iterations ago"
             return true
         end
 

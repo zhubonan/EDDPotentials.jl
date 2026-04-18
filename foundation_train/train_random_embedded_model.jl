@@ -41,7 +41,7 @@ function _parse_args(args)
         "p2" => [2,4,6,8,10],
         "p3" => [2,4,6,8,10],
         "q3" => [3,5,7,9],
-        "test_ratio" => 0.1,
+        "val_ratio" => 0.1,
         "train_method" => "lm_batched",
         "batch_size" => 1024,
         "max_iter" => 20,
@@ -68,8 +68,8 @@ function _parse_args(args)
             config["p3"] = _parse_range(value)
         elseif key == "q3"
             config["q3"] = _parse_range(value)
-        elseif key == "test_ratio"
-            config["test_ratio"] = parse(Float64, value)
+        elseif key in ("val_ratio", "test_ratio")
+            config["val_ratio"] = parse(Float64, value)
         elseif key == "train_method"
             config["train_method"] = value
         elseif key == "batch_size"
@@ -108,7 +108,7 @@ function main(args=ARGS)
     println(
         "Config: max_structures=$(cfg["max_structures"]) embedding_size=$(cfg["embedding_size"]) " *
         "hidden_size=$(cfg["hidden_size"]) p2=$(cfg["p2"]) p3=$(cfg["p3"]) q3=$(cfg["q3"]) " *
-        "train_method=$(cfg["train_method"]) batch_size=$(cfg["batch_size"]) test_ratio=$(cfg["test_ratio"]) " *
+        "train_method=$(cfg["train_method"]) batch_size=$(cfg["batch_size"]) val_ratio=$(cfg["val_ratio"]) " *
         "max_iter=$(cfg["max_iter"]) earlystop=$(cfg["earlystop"]) " *
         "show_progress=$(cfg["show_progress"])",
     )
@@ -133,13 +133,13 @@ function main(args=ARGS)
     println("Embedding feature size: $(nfeatures(embedded))")
 
     fc = FeatureContainer(sc, embedded; show_progress=true)
-    ntest = max(1, Int(floor(length(fc) * cfg["test_ratio"])))
-    ntrain = length(fc) - ntest
-    ntrain > 0 || error("Not enough structures after filtering to create a train/test split.")
-    fc_train, fc_test = split(
+    nval = max(1, Int(floor(length(fc) * cfg["val_ratio"])))
+    ntrain = length(fc) - nval
+    ntrain > 0 || error("Not enough structures after filtering to create a train/val split.")
+    fc_train, fc_val = split(
         fc,
         ntrain,
-        ntest;
+        nval;
         shuffle=true,
         seed=cfg["seed"],
         standardize=true,
@@ -158,7 +158,7 @@ function main(args=ARGS)
     )
     println("Model parameter count: $(nparams(model))")
 
-    println("Training with $(length(fc_train)) train / $(length(fc_test)) test structures.")
+    println("Training with $(length(fc_train)) train / $(length(fc_val)) val structures.")
     train_kwargs = (
         train_method=cfg["train_method"],
         maxIter=cfg["max_iter"],
@@ -169,22 +169,22 @@ function main(args=ARGS)
         train!(
             model,
             fc_train,
-            fc_test;
+            fc_val;
             train_kwargs...,
             batch_size=cfg["batch_size"],
         )
     else
-        train!(model, fc_train, fc_test; train_kwargs...)
+        train!(model, fc_train, fc_val; train_kwargs...)
     end
 
     train_results = TrainingResults(model, fc_train)
-    test_results = TrainingResults(model, fc_test)
+    val_results = TrainingResults(model, fc_val)
 
     println()
     println("Train RMSE/atom: $(rmse_per_atom(train_results)) eV")
     println("Train MAE/atom : $(mae_per_atom(train_results)) eV")
-    println("Test RMSE/atom : $(rmse_per_atom(test_results)) eV")
-    println("Test MAE/atom  : $(mae_per_atom(test_results)) eV")
+    println("Val RMSE/atom  : $(rmse_per_atom(val_results)) eV")
+    println("Val MAE/atom   : $(mae_per_atom(val_results)) eV")
 end
 
 main()

@@ -349,7 +349,7 @@ Let's compare different feature choices on carbon structures:
 using EDDPotentials
 using Flux  # For neural network construction
 using ExtXYZ  # For loading .xyz files
-import EDDPotentials: train!, FluxInterface, train_test_split
+import EDDPotentials: train!, FluxInterface, train_val_split
 
 # Load data
 structures = ExtXYZ.load("carbon_data.xyz")
@@ -367,17 +367,17 @@ for (name, cf) in feature_sets
 
     # Create containers and split
     fc = FeatureContainer(cf, sc)
-    fc_train, fc_test = train_test_split(fc)
+    fc_train, fc_val = train_val_split(fc)
 
     # Train single model
     chain = Chain(Dense(nfeatures(cf), 20, tanh), Dense(20, 1))
     model = FluxInterface(chain)
-    train!(model, fc_train, fc_test; maxIter=300, show_progress=false, earlystop=30)
+    train!(model, fc_train, fc_val; maxIter=300, show_progress=false, earlystop=30)
 
     # Evaluate
-    results = TrainingResults(model, fc_test)
-    println("Test RMSE: $(rmse_per_atom(results)) eV/atom")
-    println("Test MAE: $(mae_per_atom(results)) eV/atom")
+    results = TrainingResults(model, fc_val)
+    println("Val RMSE: $(rmse_per_atom(results)) eV/atom")
+    println("Val MAE: $(mae_per_atom(results)) eV/atom")
 end
 ```
 
@@ -423,7 +423,7 @@ This is rarely needed - `CellFeature(elements; kwargs...)` covers most use cases
 - [ ] Default features tried first
 - [ ] Cutoff captures relevant neighbors (check with neighborlist)
 - [ ] Three-body features included
-- [ ] Test RMSE acceptable for application
+- [ ] Validation RMSE acceptable for application
 - [ ] Features don't change between training and prediction
 - [ ] CellFeature saved with model for later use
 

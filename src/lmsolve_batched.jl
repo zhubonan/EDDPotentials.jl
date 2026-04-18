@@ -57,7 +57,7 @@ evaluate on the **full** dataset for reliable early stopping.
 - `min_step_quality`:  Threshold below which trust region shrinks (default `1e-3`).
 - `good_step_quality`: Threshold above which trust region expands (default `0.75`).
 - `show_trace`:      Print status each epoch (default `false`).
-- `callback`:        Called once per epoch, should return `(rmse_test, param_vector)`.
+- `callback`:        Called once per epoch, should return `(rmse_val, param_vector)`.
 - `keep_best`:       Rewind to best parameter vector at end (default `true`).
 - `earlystop`:       Stop if callback RMSE hasn't improved for this many epochs (default `0`).
 - `shuffle_seed`:    RNG seed for reproducibility (default `42`).
@@ -127,7 +127,7 @@ function levenberg_marquardt_batched(
     f_full!(f_full, initial_x)
     best_residual = residual_full = sum(abs2, f_full)
 
-    test_rmse = T[]
+    val_rmse = T[]
 
     # Tau heuristic: scale initial lambda by max diagonal of J'J
     # Use first batch to estimate
@@ -270,15 +270,15 @@ function levenberg_marquardt_batched(
 
         if !isnothing(callback)
             @timeit to "callback eval" rmse_val, xtmp = callback()
-            if length(test_rmse) > 0 && rmse_val < minimum(test_rmse)
+            if length(val_rmse) > 0 && rmse_val < minimum(val_rmse)
                 best_x .= xtmp
             end
-            push!(test_rmse, rmse_val)
-            @info "Epoch $epoch complete" test_rmse=rmse_val lambda iterCt
+            push!(val_rmse, rmse_val)
+            @info "Epoch $epoch complete" val_rmse=rmse_val lambda iterCt
         end
 
-        if earlystop > 0 && !isempty(test_rmse)
-            earlystopcheck(test_rmse, earlystop) && (converged = true)
+        if earlystop > 0 && !isempty(val_rmse)
+            earlystopcheck(val_rmse, earlystop) && (converged = true)
         end
 
         # Show trace

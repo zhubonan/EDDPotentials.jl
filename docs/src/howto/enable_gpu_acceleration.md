@@ -59,21 +59,21 @@ Once enabled, training automatically uses GPU for forward and backward passes:
 using CUDA
 using EDDPotentials
 using Flux
-import EDDPotentials: FluxInterface, train!, train_test_split
+import EDDPotentials: FluxInterface, train!, train_val_split
 
 # Enable GPU
 EDDPotentials.USE_CUDA[] = true
 
 # Load data and create features
 fc = FeatureContainer(cf, sc)
-fc_train, fc_test = train_test_split(fc)
+fc_train, fc_val = train_val_split(fc)
 
 # Create and train model (automatically uses GPU)
 nfeat = nfeatures(cf)
 chain = Chain(Dense(nfeat, 20, tanh), Dense(20, 1))
 model = FluxInterface(chain)
 
-train!(model, fc_train, fc_test; maxIter=300, show_progress=true)
+train!(model, fc_train, fc_val; maxIter=300, show_progress=true)
 ```
 
 ### Advanced: Manual GPU Control
@@ -92,7 +92,7 @@ bu = Builder("link.toml")
 fc = load_features(bu)
 
 # Split data
-train, test, valid = split(fc, 0.8, 0.1, 0.1)
+train, val, test = split(fc, 0.8, 0.1, 0.1)
 
 # Create model with GPU-accelerated training
 model = EDDPotentials.ManualFluxBackPropInterface(
@@ -102,7 +102,7 @@ model = EDDPotentials.ManualFluxBackPropInterface(
 )
 
 # Train (uses GPU)
-train!(model, train, test; show_progress=true)
+train!(model, train, val; show_progress=true)
 ```
 
 ## Performance Benchmarks

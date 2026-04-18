@@ -131,7 +131,7 @@ workdir/
 A potential has converged when adding more iterations does not significantly improve model performance.
 
 **Indicators of convergence:**
-1. Test RMSE plateaus
+1. Validation RMSE plateaus
 2. High Spearman correlation (> 0.98)
 3. Walk-forward test stability
 4. Duplicate structures in RSS (PES well-sampled)
@@ -234,7 +234,7 @@ max_iter = 300                   # Maximum training iterations
 earlystop = 30                   # Stop if no improvement for N iterations
 
 # Data splits
-train_split = [0.8, 0.1, 0.1]    # [train, test, validation] ratios
+train_split = [0.8, 0.1, 0.1]    # [train, validation, test] ratios
 ```
 
 **Key choices:**
@@ -395,11 +395,11 @@ all_structures = load_structures(builder)
 # Compute features
 fc = FeatureContainer(cell_feature, all_structures)
 
-# Split into train/test/validation (default: 80%/10%/10%)
-fc_train, fc_test, fc_valid = split(fc, train_split...)
+# Split into train/validation/test (default: 80%/10%/10%)
+fc_train, fc_val, fc_test = split(fc, train_split...)
 
 # Save to disk
-save("gen-N-dataset.jld2", Dict("train"=>fc_train, "test"=>fc_test, "valid"=>fc_valid))
+save("gen-N-dataset.jld2", Dict("train"=>fc_train, "validate"=>fc_val, "test"=>fc_test))
 ```
 
 **Step 2: Parallel Model Training**

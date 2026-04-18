@@ -74,7 +74,7 @@ Pkg.add("PlotlyJS")
 ```julia
 using EDDPotentials, ExtXYZ
 using Flux: Chain, Dense
-import EDDPotentials: FluxInterface, train!, train_test_split, get_fit_data, create_ensemble
+import EDDPotentials: FluxInterface, train!, train_val_split, get_fit_data, create_ensemble
 
 # 1. Load training data (DFT-calculated structures)
 structures = ExtXYZ.load("carbon_data.xyz")
@@ -85,14 +85,14 @@ cf = CellFeature([:C])
 
 # 3. Compute feature vectors
 fc = FeatureContainer(cf, sc)
-fc_train, fc_test = train_test_split(fc)
+fc_train, fc_val = train_val_split(fc)
 
 # 4. Train ensemble of neural networks
 models = []
 for i in 1:10
     chain = Chain(Dense(nfeatures(cf), 20, tanh), Dense(20, 1))
     model = FluxInterface(chain)
-    train!(model, fc_train, fc_test; maxIter=300)
+    train!(model, fc_train, fc_val; maxIter=300)
     push!(models, model)
 end
 

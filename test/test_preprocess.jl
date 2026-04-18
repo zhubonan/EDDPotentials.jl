@@ -31,12 +31,12 @@ using LinearAlgebra: norm
     @test length(sc1) == 1
     @test length(sc2) == 2
 
-    sc_train, sc_test = EDDPotentials.train_test_split(sc, ratio_test=0.5)
+    sc_train, sc_val = EDDPotentials.train_val_split(sc, ratio_val=0.5)
     @test length(sc_train) == 6
     # Default
     fc = EDDPotentials.FeatureContainer(sc)
     @test length(fc) == 11
-    fc_train, fc_test = EDDPotentials.train_test_split(fc, ratio_test=0.5)
+    fc_train, fc_val = EDDPotentials.train_val_split(fc, ratio_val=0.5)
     @test length(fc_train) == 6
 
     @test isa(fc[[labels[1], labels[2]]], EDDPotentials.FeatureContainer)

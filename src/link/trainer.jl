@@ -36,24 +36,25 @@ end
 """
     write_dataset(builder)
 
-Write the dataset to the disk. These are large JLD2 archive containing the data for training, testing and validation
+Write the dataset to the disk. These are large JLD2 archive containing the data for training, validation, and testing
 """
 function write_dataset(bu::Builder, fc=load_features(bu); name=dataset_name(bu))
     # Save the dataset 
     training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
 
     ensure_dir(splitdir(name)[1])
-    train, test, valid = split(fc, bu.trainer.train_split...)
+    train, val, test = split(fc, bu.trainer.train_split...)
     jldopen(name, "w") do file
+        file["format_version"] = "2"
         file["train"] = train
+        file["validate"] = val
         file["test"] = test
-        file["validate"] = valid
     end
     # Write the labels
     labels = Dict{String,Vector{String}}()
     labels["train"] = train.labels
+    labels["validate"] = val.labels
     labels["test"] = test.labels
-    labels["validate"] = valid.labels
     YAML.write_file(splitext(name)[1] * ".yaml", labels)
     return
 end
@@ -65,13 +66,18 @@ Load dataset saved for training
 """
 function load_training_dataset(bu::Builder, iter=bu.state.iteration; combined=false)
     dataset_path = dataset_name(bu, iter)
-    train, test, validation = jldopen(dataset_path) do file
-        file["train"], file["test"], file["validate"]
+    train, val, test = jldopen(dataset_path) do file
+        if haskey(file, "format_version")
+            file["train"], file["validate"], file["test"]
+        else
+            # Old format: "test" held monitoring data, "validate" held final eval
+            file["train"], file["test"], file["validate"]
+        end
     end
     if combined
-        return train + test + validation
+        return train + val + test
     end
-    return train, test, validation
+    return train, val, test
 end
 
 
@@ -86,17 +92,17 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
     (; training_mode) = tra
     ensure_dir(training_dir)
 
-    train, test, validation = load_training_dataset(bu; combined=false)
+    train, val, test = load_training_dataset(bu; combined=false)
 
     # Linear model does not need standardisation (e.g. the interface does not have this functionality)
     if training_mode == "linear"
         reconstruct_x!(train)
+        reconstruct_x!(val)
         reconstruct_x!(test)
-        reconstruct_x!(validation)
     end
 
     x_train, y_train = get_fit_data(train)
-    x_test, y_test = get_fit_data(test)
+    x_val, y_val = get_fit_data(val)
 
     if tra.boltzmann_kt > 0
         @info "Using Boltzmann weights with kT = $(tra.boltzmann_kt)"
@@ -136,8 +142,8 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
                 model,
                 x_train,
                 y_train;
-                x_test,
-                y_test,
+                x_val,
+                y_val,
                 maxIter=tra.max_iter,
                 earlystop=tra.earlystop,
                 show_progress=tra.show_progress,
@@ -152,8 +158,8 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
                 model,
                 x_train,
                 y_train;
-                x_test,
-                y_test,
+                x_val,
+                y_val,
                 maxIter=tra.max_iter,
                 earlystop=tra.earlystop,
                 show_progress=tra.show_progress,
@@ -167,18 +173,18 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
         # Display training results
         if tra.log_file != "" || tra.show_progress
             rtrain = TrainingResults(model, train)
+            rval = TrainingResults(model, val)
             rtest = TrainingResults(model, test)
-            rvalid = TrainingResults(model, validation)
             if tra.log_file != ""
                 open(tra.log_file, "a") do file
                     println(file, "==== Training ====")
                     show(file, rtrain)
                     print(file, "\n")
+                    println(file, "=== Validation ===")
+                    show(file, rval)
+                    print(file, "\n")
                     println(file, "====== Test ======")
                     show(file, rtest)
-                    print(file, "\n")
-                    println(file, "=== Validation ===")
-                    show(file, rvalid)
                     print(file, "\n")
                 end
             end
@@ -186,11 +192,11 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
                 println("==== Training ====")
                 show(rtrain)
                 print("\n")
+                println("=== Validation ===")
+                show(rval)
+                print("\n")
                 println("====== Test ======")
                 show(rtest)
-                print("\n")
-                println("=== Validation ===")
-                show(rvalid)
                 print("\n")
             end
         end
@@ -213,7 +219,11 @@ Load the training data from a JLD2 archive.
 """
 function load_training_data(file)
     jldopen(file) do handle
-        handle["train"], handle["test"], handle["validate"]
+        if haskey(handle, "format_version")
+            handle["train"], handle["validate"], handle["test"]
+        else
+            handle["train"], handle["test"], handle["validate"]
+        end
     end
 end
 
@@ -230,7 +240,7 @@ function create_ensemble(
     save_ensemble_model=false,
     clean_individual_models=false,
     dataset_path=dataset_name(bu),
-    ensemble_target=:validation,
+    ensemble_target=:test,
     pattern=joinpath(
         bu.state.workdir,
         TRAINING_DIR,
@@ -242,25 +252,25 @@ function create_ensemble(
     @assert !isempty(names) "No model found at $pattern"
     # Load the models
     models = load_from_jld2.(names)
-    train, test, validation = load_training_data(dataset_path)
+    train, val, test = load_training_data(dataset_path)
 
     if isa(models[1], LinearInterface)
         reconstruct_x!(train)
+        reconstruct_x!(val)
         reconstruct_x!(test)
-        reconstruct_x!(validation)
     end
 
     # Select which set of data is used for ensemble creation
-    if ensemble_target == :validation
-        total = validation
-    elseif ensemble_target == :all
-        total = train + test + validation
-    elseif ensemble_target == :training
-        total = training
-    elseif ensemble_target == :test
+    if ensemble_target == :test
         total = test
-    elseif ensemble_target == :trainandtest
-        total = train + test
+    elseif ensemble_target == :all
+        total = train + val + test
+    elseif ensemble_target == :training
+        total = train
+    elseif ensemble_target == :val
+        total = val
+    elseif ensemble_target == :trainandval
+        total = train + val
     end
 
     ensemble =
@@ -271,8 +281,8 @@ function create_ensemble(
         # Write additional metadata
         jldopen(savepath, "r+") do fh
             fh["train_labels"] = train.labels
+            fh["val_labels"] = val.labels
             fh["test_labels"] = test.labels
-            fh["valid_labels"] = validation.labels
             fh["builder_uuid"] = builder_uuid(bu)
             fh["cf"] = bu.cf
         end

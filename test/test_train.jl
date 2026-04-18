@@ -107,7 +107,7 @@ using NLSolversBase
         fc = FeatureContainer(sc, cf)
 
         # This gives fix examples
-        fc_train, fc_test = split(fc, 5, 5; standardize=true, apply_transform=true)
+        fc_train, fc_val = split(fc, 5, 5; standardize=true, apply_transform=true)
         models = []
         model = ManualFluxBackPropInterface(
             Chain(Dense(ginit(5, nfeatures(fc.feature))), Dense(ginit(1, 5))),
@@ -119,7 +119,7 @@ using NLSolversBase
         @test any(paramvector(model_) .!= paramvector(model))
         for _ = 1:10
             model_ = reinit(model)
-            res = train!(model_, fc_train, fc_test)
+            res = train!(model_, fc_train, fc_val)
             push!(models, model_)
         end
 
@@ -231,7 +231,7 @@ using NLSolversBase
         sc = StructureContainer([path])
         cf = CellFeature([:B])
         fc = FeatureContainer(sc, cf)
-        fc_train, fc_test = split(fc, 5, 5; standardize=true, apply_transform=true)
+        fc_train, fc_val = split(fc, 5, 5; standardize=true, apply_transform=true)
 
         model = ManualFluxBackPropInterface(
             Chain(Dense(ginit(5, nfeatures(cf))), Dense(ginit(1, 5))),
@@ -242,7 +242,7 @@ using NLSolversBase
         # batch_size must be >= nparams for well-conditioned normal equations
         # Use batch_size = n_data to effectively test the dispatch path
         opt_res, params, history, funcs = train!(
-            model, fc_train, fc_test;
+            model, fc_train, fc_val;
             train_method="lm_batched",
             batch_size=length(fc_train),
             maxIter=100,

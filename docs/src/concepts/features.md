@@ -275,7 +275,7 @@ println("Total: ", nfeatures(cf))  # 17
 
 ```julia
 using EDDPotentials, Flux, ExtXYZ
-import EDDPotentials: train!, FluxInterface, train_test_split
+import EDDPotentials: train!, FluxInterface, train_val_split
 
 # Load data
 structures = ExtXYZ.load("<some_dataset>.xyz")
@@ -292,14 +292,14 @@ for (name, cf) in feature_sets
     println("\n=== $name ($(nfeatures(cf)) features) ===")
 
     fc = FeatureContainer(cf, sc)
-    fc_train, fc_test = train_test_split(fc)
+    fc_train, fc_val = train_val_split(fc)
 
     chain = Chain(Dense(nfeatures(cf), 20, tanh), Dense(20, 1))
     model = FluxInterface(chain)
-    train!(model, fc_train, fc_test; maxIter=300, show_progress=false, earlystop=30)
+    train!(model, fc_train, fc_val; maxIter=300, show_progress=false, earlystop=30)
 
-    results = TrainingResults(model, fc_test)
-    println("Test RMSE: $(rmse_per_atom(results)) eV/atom")
+    results = TrainingResults(model, fc_val)
+    println("Val RMSE: $(rmse_per_atom(results)) eV/atom")
 end
 ```
 
