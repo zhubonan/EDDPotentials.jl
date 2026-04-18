@@ -273,7 +273,7 @@ train!(itf, fc_train, fc_test; maxIter=500)
 """
 mutable struct FeatureContainer{T,N}
     fvecs::Vector{T}
-    feature::CellFeature
+    feature::AbstractCellFeatureSpec
     H::Vector{N}
     labels::Vector{String}
     metadata::Vector{Dict{Symbol,Any}}
@@ -307,7 +307,7 @@ function Base.show(io::IO, o::MIME"text/plain", v::FeatureContainer)
     println(io, "  $(length(v)) data points ")
     println(io, "  Max size size: $(size_max)")
     println(io, "  Min size size: $(size_min)")
-    println(io, "With CellFeature:")
+    println(io, "With feature spec:")
     show(io, o, v.feature)
 end
 
@@ -330,6 +330,7 @@ function save_fc(fc, fname)
         fhandle["is_x_transformed"] = fc.is_x_transformed
         fhandle["yt"] = fc.yt
         fhandle["xy"] = fc.xt
+        fhandle["elemental_energies"] = fc.elemental_energies
     end
 end
 
@@ -355,7 +356,22 @@ function load_fc(fname)
         end
         yt = fhandle["yt"]
         xt = fhandle["xy"]
-        FeatureContainer(fvecs, feature, H, labels, metadata, is_x_transformed, yt, xt)
+        elemental_energies = if "elemental_energies" in keys(fhandle)
+            Dict{Symbol,Float64}(fhandle["elemental_energies"])
+        else
+            Dict{Symbol,Float64}()
+        end
+        FeatureContainer(
+            fvecs,
+            feature,
+            H,
+            labels,
+            metadata,
+            is_x_transformed,
+            xt,
+            yt,
+            elemental_energies,
+        )
     end
 end
 
@@ -369,7 +385,7 @@ Get a feature container.
 """
 function FeatureContainer(
     sc::StructureContainer,
-    feature::CellFeature;
+    feature::AbstractCellFeatureSpec;
     nmax=500,
     show_progress=true,
     elemental_energies=Dict{Symbol,Any}(),

@@ -4,7 +4,9 @@
 
 Collection of Feature specifications and cell.
 """
-mutable struct CellFeature{T,G,V}
+abstract type AbstractCellFeatureSpec end
+
+mutable struct CellFeature{T,G,V} <: AbstractCellFeatureSpec
     elements::Vector{Symbol}
     two_body::T
     three_body::G
@@ -57,7 +59,8 @@ High-level specification for EDDP features combining two-body and three-body int
 
 CellFeature is the main interface for defining features in EDDP. It automatically
 generates all necessary two-body and three-body feature specifications for the
-given elements, handling symmetry and creating appropriate feature combinations.
+given elements, using ordered two-body channels and ordered-center / unordered-neighbor
+three-body channels.
 
 # Arguments
 - `elements`: Vector of element symbols (e.g., `[:C]`, `[:C, :H]`)
@@ -108,8 +111,9 @@ fc = FeatureContainer(sc, cf)
 ```
 
 # Notes
-- Automatically generates all unique element combinations respecting symmetry
-- For n elements: generates n(n+1)/2 two-body and n(n+1)(n+2)/6 three-body types
+- Automatically generates all ordered two-body combinations and all ordered-center /
+  unordered-neighbor three-body combinations
+- For n elements: generates n^2 two-body and n^2(n+1)/2 three-body types
 - Geometric sequences (`geometry_sequence=true`) recommended for better range coverage
 - Total features = sum of all two-body + three-body features
 - CellFeature objects can be combined with `+` operator

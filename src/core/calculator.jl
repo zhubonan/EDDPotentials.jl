@@ -71,7 +71,7 @@ Primary calculator for EDDP energy/force/stress evaluation.
 `NNCalc` binds a structure (`cell`), feature definition (`cf`), and trained
 model interface (`nn`) into a reusable calculator object.
 """
-mutable struct NNCalc{T,N<:NeighbourList,M<:CellFeature,X<:AbstractNNInterface,D} <:
+mutable struct NNCalc{T,N<:NeighbourList,M<:AbstractCellFeatureSpec,X<:AbstractNNInterface,D} <:
                AbstractCalc
     cell::Cell{T,D}
     last_cell::Cell{T,D}
@@ -128,7 +128,7 @@ end
 
 function NNCalc(
     cell::Cell{T},
-    cf::CellFeature,
+    cf::AbstractCellFeatureSpec,
     nn::AbstractNNInterface;
     shell_size=2.0,
     rcut=suggest_rcut(cf; shell=shell_size),
@@ -346,29 +346,11 @@ function update_feature_vector!(calc::NNCalc; rebuild_nl=true, compute_gradients
 
     # Update the vectors
     one_body_vectors!(calc.v, cell, calc.cf)
-    n1bd, n2bd, _ = feature_size(calc.cf)
+    n1bd, _, _ = feature_size(calc.cf)
     if compute_gradients
-        #if isnothing(gv)
-        @timeit to "compute_fv_gv!" compute_fv_gv!(
-            calc.workspace,
-            calc.cf.two_body,
-            calc.cf.three_body,
-            cell;
-            nl,
-            offset=n1bd,
-        )
-        #else
-        #    @timeit to "compute_fv_gv!" compute_fv_gv!(calc.force_buffer, calc.cf.two_body, calc.cf.three_body, cell, gv;nl, offset=n1bd)
-        #end
+        @timeit to "compute_fv_gv!" compute_fv_gv!(calc.workspace, calc.cf, cell; nl, offset=n1bd)
     else
-        @timeit to "compute_fv!" compute_fv!(
-            calc.workspace,
-            calc.cf.two_body,
-            calc.cf.three_body,
-            cell;
-            nl,
-            offset=n1bd,
-        )
+        @timeit to "compute_fv!" compute_fv!(calc.workspace, calc.cf, cell; nl, offset=n1bd)
     end
     # Construct the combined feature vector that includes onebody interactions
     calc.v

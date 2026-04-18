@@ -25,8 +25,10 @@ const to = EDDPotentialsCore.to
 # Bring selected core symbols into the top-level namespace where
 # functional files extend/use them without qualification.
 import .EDDPotentialsCore:
+    AbstractCellFeatureSpec,
     AbstractNNInterface,
     CellFeature,
+    RandomEmbeddedCellFeature,
     EnsembleNNInterface,
     FluxInterface,
     GPaToeVAng,
@@ -97,6 +99,7 @@ export get_cell,
     eddp_pressure_gpa,
     eddp_enthalpy,
     CellFeature,
+    RandomEmbeddedCellFeature,
     NNCalc,
     VariableCellCalc,
     eddp_energy_std,

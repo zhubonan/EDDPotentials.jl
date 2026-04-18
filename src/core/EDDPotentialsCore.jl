@@ -67,6 +67,7 @@ export eddp_energy,
     eddp_energy_std,
     eddp_energy_std_per_atom
 export CellFeature, nfeatures
+export RandomEmbeddedCellFeature
 export TwoBodyFeature, ThreeBodyFeature, permequal, feature_size
 export NNCalc, VariableCellCalc, MultiCalc, DimPenalty
 export CoreRepulsion

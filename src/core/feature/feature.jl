@@ -130,11 +130,11 @@ end
 """
     permequal(A, i, j) -> Bool
 
-Check if element pair matches considering symmetry.
+Check if an ordered element pair matches exactly.
 
 For two-body features, checks if the element tuple A matches the pair (i, j).
-Only checks A[1] == i and A[2] == j since two-body interactions are symmetric
-under exchange (C-H is equivalent to H-C).
+This code treats the first species as the central atom species and the second
+as the neighbor species, so `(i, j)` and `(j, i)` are different channels.
 
 # Arguments
 - `A`: Tuple of element symbols from feature specification
@@ -146,7 +146,7 @@ under exchange (C-H is equivalent to H-C).
 
 # Examples
 ```julia
-# Check if feature applies to C-C pair
+# Check if feature applies to an ordered pair
 feat = TwoBodyFeature([2, 3], (:C, :C), 4.0)
 permequal(feat.sij_idx, :C, :C)  # true
 permequal(feat.sij_idx, :C, :H)  # false
@@ -168,11 +168,12 @@ end
 """
     permequal(A, i, j, k) -> Bool
 
-Check if element triplet matches considering valid permutations.
+Check if an element triplet matches with a fixed center and exchangeable neighbors.
 
 For three-body features centered on atom i, checks if the element tuple A
-matches the triplet (i, j, k). Since the feature is symmetric with respect
-to exchange of the j and k atoms (but not i), checks both (i, j, k) and (i, k, j).
+matches the triplet (i, j, k). The feature is ordered in the first index and
+unordered in the second and third indices, so it checks both `(i, j, k)` and
+`(i, k, j)`.
 
 # Arguments
 - `A`: Tuple of three element symbols from feature specification
@@ -188,7 +189,7 @@ to exchange of the j and k atoms (but not i), checks both (i, j, k) and (i, k, j
 # Three-body feature for C-C-C triplets
 feat = ThreeBodyFeature([2, 3], [2, 3], (:C, :C, :C), 4.0)
 
-# Both orderings match (symmetric in j, k)
+# Both neighbor orderings match
 permequal(feat.sijk_idx, :C, :C, :C)  # true
 
 # For C-H-H feature
@@ -198,8 +199,8 @@ permequal(feat_ch2.sijk_idx, :H, :C, :H)  # false (H cannot be center)
 ```
 
 # Notes
-- First element (i) is always the central atom - no permutation of this
-- Second and third elements (j, k) can be exchanged
+- First element (i) is always the central atom
+- Second and third elements (j, k) are exchangeable
 - Used internally to match features during computation
 
 # See also
@@ -538,3 +539,4 @@ end
 include("cell.jl")
 include("lookup.jl")
 include("compute.jl")
+include("embedded.jl")

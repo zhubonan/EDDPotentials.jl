@@ -533,6 +533,17 @@ end
 get_workspace(cf::CellFeature, nl, do_grad=true; fvec=nothing) =
     get_workspace(cf.two_body, cf.three_body, nl, do_grad; fvec)
 
+function compute_fv!(
+    workspace::GradientWorkspace,
+    cf::CellFeature,
+    cell::Cell;
+    nl,
+    offset=workspace.one_body_offset,
+    kwargs...,
+)
+    compute_fv!(workspace, cf.two_body, cf.three_body, cell; nl, offset, kwargs...)
+end
+
 """
     compute_fv_gv!(workspace::GradientWorkspace, features2, features3, cell::Cell; nl, offset=0)
 
@@ -598,6 +609,16 @@ function compute_fv_gv!(
         compute_fv_gv_one!(workspace, features2, features3, iat, cell, nl; offset=offset)
     end
     workspace
+end
+
+function compute_fv_gv!(
+    workspace::GradientWorkspace,
+    cf::CellFeature,
+    cell::Cell;
+    nl=NeighbourList(cell, suggest_rcut(cf; shell=0.0); savevec=true),
+    offset=workspace.one_body_offset,
+)
+    compute_fv_gv!(workspace, cf.two_body, cf.three_body, cell; nl, offset)
 end
 
 compute_fv_gv(cf::CellFeature, cell::Cell; kwargs...) =

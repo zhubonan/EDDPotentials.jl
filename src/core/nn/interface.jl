@@ -59,7 +59,7 @@ end
 Obtain an baseline MLP model
 """
 function flux_mlp_model(
-    cf::CellFeature,
+    cf::AbstractCellFeatureSpec,
     nodes...;
     init=glorot_uniform_f64,
     σ=tanh_fast,

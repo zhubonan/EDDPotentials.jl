@@ -399,7 +399,7 @@ end
 nparams(itf::ManualFluxBackPropInterface) = nparams(itf.chain)
 
 function ManualFluxBackPropInterface(
-    cf::CellFeature,
+    cf::AbstractCellFeatureSpec,
     nodes...;
     init=glorot_uniform_f64,
     xt=nothing,
