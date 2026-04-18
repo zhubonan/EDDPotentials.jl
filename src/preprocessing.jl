@@ -4,6 +4,8 @@ import StatsBase: transform!, reconstruct!, ZScoreTransform
 using Random
 using Glob
 using CellBase
+using ExtXYZ
+using LinearAlgebra: norm
 import ProgressMeter
 import CellBase: natoms, reduce, Composition
 import Base
@@ -72,6 +74,56 @@ end
 
 Base.length(v::StructureContainer) = length(v.H)
 
+function _uniform_direction(rng, ndim::Integer)
+    direction = randn(rng, ndim)
+    normdir = norm(direction)
+    while iszero(normdir)
+        direction .= randn(rng, ndim)
+        normdir = norm(direction)
+    end
+    direction ./= normdir
+end
+
+function _normalize_extxyz_cell!(cell, fallback_label)
+    metadata = cell.metadata
+    if !haskey(metadata, :enthalpy) && haskey(metadata, :energy)
+        metadata[:enthalpy] = metadata[:energy]
+    end
+    if !haskey(metadata, :label)
+        metadata[:label] = haskey(metadata, :name) ? string(metadata[:name]) : fallback_label
+    end
+    if haskey(cell.arrays, :forces) && !haskey(metadata, :force)
+        metadata[:force] = cell.arrays[:forces]
+    elseif haskey(cell.arrays, :force) && !haskey(metadata, :force)
+        metadata[:force] = cell.arrays[:force]
+    end
+    metadata[:volume] = get(metadata, :volume, volume(cell))
+    cell
+end
+
+function _load_structures_from_path(path::AbstractString)
+    ext = lowercase(splitext(path)[2])
+    if ext in (".xyz", ".extxyz")
+        cells = Cell[]
+        loaded = ExtXYZ.load(path)
+        systems = loaded isa AbstractVector ? loaded : [loaded]
+        for (i, system) in enumerate(systems)
+            push!(cells, _normalize_extxyz_cell!(Cell(system), "$(stem(path))-$i"))
+        end
+        return cells
+    end
+    CellBase.read_res_many(path)
+end
+
+function _structure_enthalpy(cell)
+    if haskey(cell.metadata, :enthalpy)
+        return cell.metadata[:enthalpy]
+    elseif haskey(cell.metadata, :energy)
+        return cell.metadata[:energy]
+    end
+    throw(ArgumentError("Structure `$(cell.metadata[:label])` is missing `:enthalpy`/`:energy` metadata."))
+end
+
 function StructureContainer(
     structures::Vector{T},
     engs,
@@ -111,14 +163,14 @@ function StructureContainer(
     tmp = []
     actual_labels = String[]
     for path in resolved_paths
-        vres = CellBase.read_res_many(path)
+        vres = _load_structures_from_path(path)
         append!(tmp, vres)
         append!(actual_labels, map(x -> x.metadata[:label], vres))
     end
 
     structures = typeof(tmp[1])[x for x in tmp]
     H = [
-        cell.metadata[:enthalpy] + cell.metadata[:volume] * GPaToeVAng(pressure_gpa) for
+        _structure_enthalpy(cell) + get(cell.metadata, :volume, volume(cell)) * GPaToeVAng(pressure_gpa) for
         cell in structures
     ]
     Ha = H ./ natoms.(structures)
@@ -128,7 +180,95 @@ function StructureContainer(
 end
 
 StructureContainer(path::AbstractString; kwargs...) =
-    StructureContainer(glob(path); kwargs...)
+    StructureContainer(glob_allow_abs(path); kwargs...)
+
+"""
+    synthetic_force_data(sc::StructureContainer; kwargs...)
+
+Generate synthetic energy-only data by uniformly rattling each structure and
+projecting the parent forces onto the applied displacements using a first-order
+Taylor expansion.
+
+# Keyword Arguments
+- `nsynthetic::Int=1`: Number of synthetic structures to generate per parent
+- `max_disp::Real=0.05`: Maximum displacement magnitude per atom in Cartesian coordinates
+- `force_key::Symbol=:force`: Metadata key used to read the parent force matrix
+- `rng=Random.default_rng()`: Random number generator
+- `label_suffix="-force"`: Suffix appended to the parent label before the shake index
+- `keep_original=false`: Whether to include the original structures in the returned container
+- `copy_metadata=true`: Whether to copy parent metadata onto synthetic structures
+"""
+function synthetic_force_data(
+    sc::StructureContainer;
+    nsynthetic::Int=1,
+    max_disp::Real=0.05,
+    force_key::Symbol=:force,
+    rng=Random.default_rng(),
+    label_suffix="-force",
+    keep_original=false,
+    copy_metadata=true,
+)
+    nsynthetic > 0 || throw(ArgumentError("`nsynthetic` must be positive, got $nsynthetic."))
+    max_disp >= 0 || throw(ArgumentError("`max_disp` must be non-negative, got $max_disp."))
+
+    paths = String[]
+    H = eltype(sc.H)[]
+    structures = eltype(sc.structures)[]
+
+    if keep_original
+        append!(paths, sc.paths)
+        append!(H, sc.H)
+        append!(structures, sc.structures)
+    end
+
+    for i in eachindex(sc.structures)
+        parent = sc.structures[i]
+        parent_label = sc.paths[i]
+        parent_energy = sc.H[i]
+
+        haskey(parent.metadata, force_key) ||
+            throw(ArgumentError("Structure `$parent_label` is missing force metadata key `$(force_key)`."))
+
+        forces = parent.metadata[force_key]
+        size(forces) == size(get_positions(parent)) || throw(
+            ArgumentError(
+                "Structure `$parent_label` has force array of size $(size(forces)), expected $(size(get_positions(parent))).",
+            ),
+        )
+
+        for isynth = 1:nsynthetic
+            synthetic = deepcopy(parent)
+            disp = zeros(eltype(get_positions(parent)), size(get_positions(parent)))
+            for iat in axes(disp, 2)
+                direction = _uniform_direction(rng, size(disp, 1))
+                magnitude = rand(rng) * max_disp
+                disp[:, iat] .= direction .* magnitude
+            end
+
+            set_positions!(synthetic, get_positions(parent) .+ disp)
+            energy_delta = -sum(forces .* disp)
+            synthetic_energy = parent_energy + energy_delta
+            label = "$(parent_label)$(label_suffix)-shake-$(isynth)"
+
+            metadata = copy_metadata ? copy(parent.metadata) : Dict{Symbol,Any}()
+            metadata[:label] = label
+            metadata[:synthetic] = true
+            metadata[:synthetic_parent_label] = parent_label
+            metadata[:synthetic_parent_energy] = parent_energy
+            metadata[:synthetic_energy_delta] = energy_delta
+            metadata[:synthetic_displacement_norm] = norm(disp)
+            metadata[:synthetic_max_displacement] = isempty(disp) ? zero(max_disp) :
+                                                    maximum(norm.(eachcol(disp)))
+            synthetic.metadata = metadata
+
+            push!(paths, label)
+            push!(H, synthetic_energy)
+            push!(structures, synthetic)
+        end
+    end
+
+    StructureContainer(paths, H, structures)
+end
 
 
 """

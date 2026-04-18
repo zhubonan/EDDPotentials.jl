@@ -1,11 +1,12 @@
 import Random
 
-struct RandomEmbeddedCellFeature{C,T,V,W,X} <: AbstractCellFeatureSpec
+struct RandomEmbeddedCellFeature{T,V,W,P2,P3,X} <: AbstractCellFeatureSpec
     elements::Vector{Symbol}
-    base::C
     embedding::Matrix{T}
     pair_channels::V
     triplet_channels::W
+    two_body_proto::P2
+    three_body_proto::P3
     constructor_kwargs::X
 end
 
@@ -18,33 +19,41 @@ function Base.:(==)(A::RandomEmbeddedCellFeature, B::RandomEmbeddedCellFeature)
     return true
 end
 
-function _validate_embeddable(cf::CellFeature)
-    if !isempty(cf.two_body)
-        ref = cf.two_body[1]
-        ok = all(
-            f -> f.p == ref.p && f.rcut == ref.rcut && f.f == ref.f && f.g == ref.g,
-            cf.two_body,
-        )
-        ok || error(
-            "RandomEmbeddedCellFeature requires uniform two-body feature settings across species.",
-        )
+function _normalize_embedded_sequences(p2, p3, q3; geometry_sequence=false)
+    if geometry_sequence
+        p2 = genp(p2)
+        p3 = genp(p3)
+        q3 = genp(q3)
     end
-    if !isempty(cf.three_body)
-        ref = cf.three_body[1]
-        ok = all(
-            f ->
-                f.p == ref.p &&
-                    f.q == ref.q &&
-                    f.rcut == ref.rcut &&
-                    f.f == ref.f &&
-                    f.g == ref.g,
-            cf.three_body,
-        )
-        ok || error(
-            "RandomEmbeddedCellFeature requires uniform three-body feature settings across species.",
-        )
-    end
-    cf
+    Tuple(p2), Tuple(p3), Tuple(q3)
+end
+
+function _embedded_prototypes(
+    elements;
+    p2=2:8,
+    p3=p2,
+    q3=p3,
+    rcut2=4.0,
+    rcut3=rcut2,
+    f2=fr,
+    g2=gfr,
+    f3=fr,
+    g3=gfr,
+    geometry_sequence=false,
+)
+    elements = sort(unique(map(Symbol, elements)))
+    isempty(elements) && throw(ArgumentError("RandomEmbeddedCellFeature requires at least one element."))
+
+    p2t, p3t, q3t = _normalize_embedded_sequences(p2, p3, q3; geometry_sequence)
+    dummy = elements[1]
+
+    proto2 = isempty(p2t) ? nothing : TwoBodyFeature(f2, g2, p2t, (dummy, dummy), rcut2)
+    proto3 =
+        isempty(p3t) || isempty(q3t) ? nothing :
+        ThreeBodyFeature(f3, g3, p3t, q3t, (dummy, dummy, dummy), rcut3)
+
+    kwargs = (; nembed=nothing, seed=nothing, T=Float64, p2=p2t, p3=p3t, q3=q3t, rcut2, rcut3, geometry_sequence)
+    elements, proto2, proto3, kwargs
 end
 
 function _random_embedding_matrix(T, nelem::Int, nembed::Int; seed::Integer=0)
@@ -89,32 +98,24 @@ function _triplet_channels(nembed::Int)
 end
 
 function RandomEmbeddedCellFeature(
-    cf::CellFeature;
-    nembed::Int=4,
-    seed::Integer=0,
-    T::DataType=Float64,
-)
-    _validate_embeddable(cf)
-    embedding = _random_embedding_matrix(T, length(cf.elements), nembed; seed)
-    kwargs = (; nembed, seed, T)
-    RandomEmbeddedCellFeature(
-        copy(cf.elements),
-        cf,
-        embedding,
-        _pair_channels(nembed),
-        _triplet_channels(nembed),
-        kwargs,
-    )
-end
-
-function RandomEmbeddedCellFeature(
     elements;
     nembed::Int=4,
     seed::Integer=0,
     T::DataType=Float64,
     kwargs...,
 )
-    RandomEmbeddedCellFeature(CellFeature(elements; kwargs...); nembed, seed, T)
+    proto_elements, proto2, proto3, proto_kwargs = _embedded_prototypes(elements; kwargs...)
+    embedding = _random_embedding_matrix(T, length(proto_elements), nembed; seed)
+    stored_kwargs = merge(proto_kwargs, (; nembed, seed, T))
+    RandomEmbeddedCellFeature(
+        proto_elements,
+        embedding,
+        _pair_channels(nembed),
+        _triplet_channels(nembed),
+        proto2,
+        proto3,
+        stored_kwargs,
+    )
 end
 
 Base.show(io::IO, x::RandomEmbeddedCellFeature) = Base.show(io, MIME("text/plain"), x)
@@ -124,8 +125,12 @@ function Base.show(io::IO, ::MIME"text/plain", x::RandomEmbeddedCellFeature)
     println(io, "  Elements:")
     println(io, "    $(x.elements)")
     println(io, "  Embedded channels: $(embedding_size(x))")
-    println(io, "  Base feature:")
-    show(io, MIME("text/plain"), x.base)
+    println(io, "  Pair channels: $(length(x.pair_channels))")
+    println(io, "  Triplet channels: $(length(x.triplet_channels))")
+    println(io, "  Two-body prototype:")
+    println(io, "    $(x.two_body_proto)")
+    println(io, "  Three-body prototype:")
+    println(io, "    $(x.three_body_proto)")
 end
 
 embedding_size(cf::RandomEmbeddedCellFeature) = size(cf.embedding, 2)
@@ -136,8 +141,8 @@ end
 
 function feature_size(cf::RandomEmbeddedCellFeature)
     nembed = embedding_size(cf)
-    n2proto = isempty(cf.base.two_body) ? 0 : nfeatures(cf.base.two_body[1])
-    n3proto = isempty(cf.base.three_body) ? 0 : nfeatures(cf.base.three_body[1])
+    n2proto = isnothing(cf.two_body_proto) ? 0 : nfeatures(cf.two_body_proto)
+    n3proto = isnothing(cf.three_body_proto) ? 0 : nfeatures(cf.three_body_proto)
     (
         nembed,
         n2proto * length(cf.pair_channels),
@@ -147,7 +152,13 @@ end
 
 nfeatures(cf::RandomEmbeddedCellFeature) = sum(feature_size(cf))
 
-suggest_rcut(cf::RandomEmbeddedCellFeature; shell=1.0) = suggest_rcut(cf.base; shell)
+function suggest_rcut(cf::RandomEmbeddedCellFeature; shell=1.0)
+    vals = Float64[]
+    isnothing(cf.two_body_proto) || push!(vals, cf.two_body_proto.rcut)
+    isnothing(cf.three_body_proto) || push!(vals, cf.three_body_proto.rcut)
+    isempty(vals) && return shell
+    maximum(vals) + shell
+end
 
 function one_body_vectors!(v::AbstractMatrix, cell::Cell, cf::RandomEmbeddedCellFeature; offset=0)
     spec_index = _species_index_map(cf.elements)
@@ -190,87 +201,6 @@ function _triplet_channel_weight(
     return center * (e[sj, b] * e[sk, c] + e[sj, c] * e[sk, b])
 end
 
-function pair_embedding_weights(cf::RandomEmbeddedCellFeature)
-    weights = zeros(eltype(cf.embedding), length(cf.base.two_body), length(cf.pair_channels))
-    spec_index = _species_index_map(cf.elements)
-    for (ife, feat) in enumerate(cf.base.two_body)
-        si = spec_index[feat.sij_idx[1]]
-        sj = spec_index[feat.sij_idx[2]]
-        for (ich, (a, b)) in enumerate(cf.pair_channels)
-            weights[ife, ich] = _pair_channel_weight(cf, si, sj, a, b)
-        end
-    end
-    weights
-end
-
-function triplet_embedding_weights(cf::RandomEmbeddedCellFeature)
-    weights = zeros(eltype(cf.embedding), length(cf.base.three_body), length(cf.triplet_channels))
-    spec_index = _species_index_map(cf.elements)
-    for (ife, feat) in enumerate(cf.base.three_body)
-        si = spec_index[feat.sijk_idx[1]]
-        sj = spec_index[feat.sijk_idx[2]]
-        sk = spec_index[feat.sijk_idx[3]]
-        for (ich, (a, b, c)) in enumerate(cf.triplet_channels)
-            weights[ife, ich] = _triplet_channel_weight(cf, si, sj, sk, a, b, c)
-        end
-    end
-    weights
-end
-
-function _contract_full_feature_matrix(cf::RandomEmbeddedCellFeature, full::AbstractMatrix)
-    n1full, n2full, n3full = feature_size(cf.base)
-    n1, n2, n3 = feature_size(cf)
-    out = zeros(eltype(full), n1 + n2 + n3, size(full, 2))
-
-    out[1:n1, :] .= transpose(cf.embedding) * full[1:n1full, :]
-
-    if n2 > 0
-        n2proto = nfeatures(cf.base.two_body[1])
-        w2 = pair_embedding_weights(cf)
-        for i = axes(full, 2)
-            m2 = reshape(
-                view(full, n1full+1:n1full+n2full, i),
-                n2proto,
-                length(cf.base.two_body),
-            )
-            tmp2 = reshape(
-                view(out, n1+1:n1+n2, i),
-                n2proto,
-                length(cf.pair_channels),
-            )
-            mul!(tmp2, m2, w2)
-        end
-    end
-
-    if n3 > 0
-        n3proto = nfeatures(cf.base.three_body[1])
-        w3 = triplet_embedding_weights(cf)
-        for i = axes(full, 2)
-            m3 = reshape(
-                view(full, n1full+n2full+1:n1full+n2full+n3full, i),
-                n3proto,
-                length(cf.base.three_body),
-            )
-            tmp3 = reshape(
-                view(out, n1+n2+1:n1+n2+n3, i),
-                n3proto,
-                length(cf.triplet_channels),
-            )
-            mul!(tmp3, m3, w3)
-        end
-    end
-
-    return out
-end
-
-function _feature_rcut(features2, features3)
-    vals = Float64[]
-    isempty(features2) || append!(vals, map(x -> x.rcut, features2))
-    isempty(features3) || append!(vals, map(x -> x.rcut, features3))
-    isempty(vals) && return 0.0
-    maximum(vals)
-end
-
 function compute_embedded_fv_gv_one!(
     workspace,
     cf::RandomEmbeddedCellFeature,
@@ -290,17 +220,15 @@ function compute_embedded_fv_gv_one!(
         stotv[:, :, :, iat] .= 0.0
     end
 
-    base2 = cf.base.two_body
-    base3 = cf.base.three_body
+    feat2 = cf.two_body_proto
+    feat3 = cf.three_body_proto
     spec_index = _species_index_map(cf.elements)
     sym = species(cell)
     tiny_dist = 1e-14
-    maxrcut = _feature_rcut(base2, base3)
+    maxrcut = suggest_rcut(cf; shell=0.0)
 
-    n2proto = isempty(base2) ? 0 : nfeatures(base2[1])
-    n3proto = isempty(base3) ? 0 : nfeatures(base3[1])
-    feat2 = isempty(base2) ? nothing : base2[1]
-    feat3 = isempty(base3) ? nothing : base3[1]
+    n2proto = isnothing(feat2) ? 0 : nfeatures(feat2)
+    n3proto = isnothing(feat3) ? 0 : nfeatures(feat3)
 
     neighbour_indices = unique(nl.orig_indices[1:nl.nneigh[iat], iat])
     if do_grad
@@ -311,8 +239,8 @@ function compute_embedded_fv_gv_one!(
 
     si = spec_index[sym[iat]]
 
-    npmax3 = isempty(base3) ? 0 : feat3.np
-    nqmax3 = isempty(base3) ? 0 : feat3.nq
+    npmax3 = isnothing(feat3) ? 0 : feat3.np
+    nqmax3 = isnothing(feat3) ? 0 : feat3.nq
     pij = zeros(eltype(fvec), npmax3)
     inv_fij = zero(eltype(fvec))
     pik = zeros(eltype(fvec), npmax3)
@@ -328,7 +256,7 @@ function compute_embedded_fv_gv_one!(
         ineigh_j = findfirst(isequal(jat), neighbour_indices) + 1
         modvij = vij / rij
 
-        if !isempty(base3)
+        if !isnothing(feat3)
             fijtmp = feat3.f(rij, feat3.rcut)
             inv_fij = 1.0 / fijtmp
             for m = 1:feat3.np
@@ -366,7 +294,7 @@ function compute_embedded_fv_gv_one!(
             end
         end
 
-        isempty(base3) && continue
+        isnothing(feat3) && continue
 
         for (kat, kextend, rik, vik) in CellBase.eachneighbourvector(nl, iat)
             rik > maxrcut && continue

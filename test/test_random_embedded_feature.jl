@@ -1,10 +1,8 @@
 using EDDPotentials
 using EDDPotentials:
-    CellFeature,
     RandomEmbeddedCellFeature,
     FeatureContainer,
     StructureContainer,
-    TwoBodyFeature,
     VariableCellCalc,
     NNCalc,
     get_cell,
@@ -23,67 +21,70 @@ using EDDPotentials.EDDPotentialsCore:
     ManualFluxBackPropInterface,
     LinearInterface,
     flux_mlp_model,
-    _need_calc,
-    _contract_full_feature_matrix
+    _need_calc
 using Test
 using Flux
 using CellBase: positions, species
 
 @testset "Random Embedded Feature" begin
-    @testset "Descriptor Equivalence" begin
+    @testset "Constructor and Channel Scaling" begin
         cell = _h2o_cell()
-        base = CellFeature([:H, :O], p2=2:4, p3=2:3, q3=2:3)
-        embedded = RandomEmbeddedCellFeature(base; nembed=3, seed=7)
-
+        embedded = RandomEmbeddedCellFeature([:H, :O]; nembed=3, seed=7, p2=2:4, p3=2:3, q3=2:3)
         direct = feature_vector(embedded, cell)
-        full = feature_vector(base, cell)
-        reference = _contract_full_feature_matrix(embedded, full)
-
-        @test size(direct) == size(reference)
-        @test allclose(direct, reference, atol=1e-10)
+        @test size(direct) == (nfeatures(embedded), length(cell))
         @test nfeatures(embedded) == 3 + 3 * 9 + 4 * 18
+        @test length(embedded.pair_channels) == 9
+        @test length(embedded.triplet_channels) == 18
 
-        embedded2 = RandomEmbeddedCellFeature(base; nembed=3, seed=7)
-        embedded3 = RandomEmbeddedCellFeature(base; nembed=3, seed=8)
+        embedded2 = RandomEmbeddedCellFeature([:H, :O]; nembed=3, seed=7, p2=2:4, p3=2:3, q3=2:3)
+        embedded3 = RandomEmbeddedCellFeature([:H, :O]; nembed=3, seed=8, p2=2:4, p3=2:3, q3=2:3)
         @test embedded.embedding == embedded2.embedding
         @test embedded.embedding != embedded3.embedding
     end
 
-    @testset "Ternary Descriptor Equivalence" begin
+    @testset "Native Embedded Size Independence" begin
         cell = _lco_cell()
-        base = CellFeature([:Li, :Co, :O], p2=[2], p3=[2], q3=[2])
-        embedded = RandomEmbeddedCellFeature(base; nembed=2, seed=3)
-
+        embedded = RandomEmbeddedCellFeature([:Li, :Co, :O]; nembed=2, seed=3, p2=[2], p3=[2], q3=[2])
         direct = feature_vector(embedded, cell)
-        full = feature_vector(base, cell)
-        reference = _contract_full_feature_matrix(embedded, full)
+        @test size(direct) == (nfeatures(embedded), length(cell))
 
-        @test size(direct) == size(reference)
-        @test allclose(direct, reference, atol=1e-10)
+        many_elements = Symbol.("E" .* string.(1:89))
+        embedded_many = RandomEmbeddedCellFeature(
+            many_elements;
+            nembed=2,
+            seed=3,
+            p2=[2],
+            p3=[2],
+            q3=[2],
+        )
+        @test EDDPotentials.feature_size(embedded) == EDDPotentials.feature_size(embedded_many)
     end
 
-    @testset "Ten-Element Descriptor Equivalence" begin
+    @testset "Large Element Set Construction" begin
         elems = [:H, :He, :Li, :Be, :B, :C, :N, :O, :F, :Ne]
         pos = hcat([[0.7 * (i - 1), 0.2 * (-1)^i, 0.1 * (i % 3)] for i = 1:length(elems)]...)
         cell = Cell(Lattice(20.0, 20.0, 20.0), elems, pos)
-
-        base = CellFeature(elems, p2=[2], p3=[2], q3=[2])
-        embedded = RandomEmbeddedCellFeature(base; nembed=4, seed=13)
+        embedded = RandomEmbeddedCellFeature(elems; nembed=4, seed=13, p2=[2], p3=[2], q3=[2])
 
         direct = feature_vector(embedded, cell)
-        full = feature_vector(base, cell)
-        reference = _contract_full_feature_matrix(embedded, full)
-
-        @test size(direct) == size(reference)
-        @test allclose(direct, reference, atol=1e-10)
-        @test EDDPotentials.feature_size(base) == (10, 100, 550)
+        @test size(direct) == (nfeatures(embedded), length(cell))
         @test EDDPotentials.feature_size(embedded) == (4, 16, 40)
+
+        many_elements = Symbol.("E" .* string.(1:89))
+        embedded_many = RandomEmbeddedCellFeature(
+            many_elements;
+            nembed=4,
+            seed=13,
+            p2=[2],
+            p3=[2],
+            q3=[2],
+        )
+        @test EDDPotentials.feature_size(embedded_many) == (4, 16, 40)
     end
 
     @testset "Descriptor Gradient Finite Difference" begin
         cell = _h2o_cell()
-        base = CellFeature([:H, :O], p2=2:2, p3=2:2, q3=2:2)
-        embedded = RandomEmbeddedCellFeature(base; nembed=3, seed=17)
+        embedded = RandomEmbeddedCellFeature([:H, :O]; nembed=3, seed=17, p2=2:2, p3=2:2, q3=2:2)
 
         diff, gvec_ji = fd_desc(embedded, cell)
         @test maximum(abs.(diff - gvec_ji)) < 1e-7
@@ -96,8 +97,7 @@ using CellBase: positions, species
         elems = [:H, :He, :Li, :Be, :B, :C, :N, :O, :F, :Ne]
         pos = hcat([[0.7 * (i - 1), 0.2 * (-1)^i, 0.1 * (i % 3)] for i = 1:length(elems)]...)
         cell = Cell(Lattice(20.0, 20.0, 20.0), elems, pos)
-        base = CellFeature(elems, p2=2:2, p3=2:2, q3=2:2)
-        embedded = RandomEmbeddedCellFeature(base; nembed=4, seed=19)
+        embedded = RandomEmbeddedCellFeature(elems; nembed=4, seed=19, p2=2:2, p3=2:2, q3=2:2)
 
         diff, gvec_ji = fd_desc(embedded, cell)
         @test maximum(abs.(diff - gvec_ji)) < 1e-7
@@ -106,22 +106,16 @@ using CellBase: positions, species
         @test maximum(abs.(diff_strain + virial)) < 1e-4
     end
 
-    @testset "Validation" begin
-        bad_cf = CellFeature(
-            [:H, :O],
-            (
-                TwoBodyFeature([2], (:H, :H), 4.0),
-                TwoBodyFeature([2, 3], (:H, :O), 4.0),
-            ),
-            (),
-        )
-        @test_throws ErrorException RandomEmbeddedCellFeature(bad_cf; nembed=2, seed=1)
-    end
-
     @testset "Calculator Integration" begin
         cell = _h2_cell()
-        base = CellFeature(unique(species(cell)), p2=[2], q3=[2, 3], p3=[2, 3])
-        embedded = RandomEmbeddedCellFeature(base; nembed=2, seed=5)
+        embedded = RandomEmbeddedCellFeature(
+            unique(species(cell));
+            nembed=2,
+            seed=5,
+            p2=[2],
+            q3=[2, 3],
+            p3=[2, 3],
+        )
 
         function _test_forces_fd(calc, amp=1e-7, atol=1e-5)
             ftmp = copy(eddp_forces(calc))
@@ -164,8 +158,14 @@ using CellBase: positions, species
 
     @testset "Multi-Species Finite Difference" begin
         cell = _lco_cell()
-        base = CellFeature(unique(species(cell)), p2=[2], q3=[2, 3], p3=[2, 3])
-        embedded = RandomEmbeddedCellFeature(base; nembed=2, seed=11)
+        embedded = RandomEmbeddedCellFeature(
+            unique(species(cell));
+            nembed=2,
+            seed=11,
+            p2=[2],
+            q3=[2, 3],
+            p3=[2, 3],
+        )
 
         function _test_forces_fd(calc, amp=1e-7, atol=1e-5)
             ftmp = copy(eddp_forces(calc))

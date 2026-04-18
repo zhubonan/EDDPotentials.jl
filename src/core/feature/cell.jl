@@ -145,40 +145,39 @@ function CellFeature(
 
     # Sort the elements to ensure stability
     elements = sort(unique(map(Symbol, elements)))
-    # Two body terms
-    two_body_features = []
-    existing_comb = []
-    for e1 in elements
-        for e2 in elements
-            if !(any(x -> permequal(x, e1, e2), existing_comb))
-                push!(
-                    two_body_features,
-                    TwoBodyFeature(f2, g2, Tuple(collect(p2)), (e1, e2), rcut2),
-                )
-                push!(existing_comb, (e1, e2))
-            end
+    # Two-body terms are ordered in (i, j), so keep all n^2 channels.
+    two_body_features = TwoBodyFeature[]
+    for i in eachindex(elements)
+        e1 = elements[i]
+        for j in eachindex(elements)
+            e2 = elements[j]
+            push!(
+                two_body_features,
+                TwoBodyFeature(f2, g2, Tuple(collect(p2)), (e1, e2), rcut2),
+            )
         end
     end
 
-    empty!(existing_comb)
-    three_body_features = []
-    for e1 in elements
-        for e2 in elements
-            for e3 in elements
-                if !(any(x -> permequal(x, e1, e2, e3), existing_comb))
-                    push!(
-                        three_body_features,
-                        ThreeBodyFeature(
-                            f3,
-                            g3,
-                            Tuple(collect(p3)),
-                            Tuple(collect(q3)),
-                            (e1, e2, e3),
-                            rcut3,
-                        ),
-                    )
-                    push!(existing_comb, (e1, e2, e3))
-                end
+    # Three-body terms are ordered in the center atom (first index) and
+    # unordered in the two neighbor indices.
+    three_body_features = ThreeBodyFeature[]
+    for i in eachindex(elements)
+        e1 = elements[i]
+        for j in eachindex(elements)
+            e2 = elements[j]
+            for k in j:length(elements)
+                e3 = elements[k]
+                push!(
+                    three_body_features,
+                    ThreeBodyFeature(
+                        f3,
+                        g3,
+                        Tuple(collect(p3)),
+                        Tuple(collect(q3)),
+                        (e1, e2, e3),
+                        rcut3,
+                    ),
+                )
             end
         end
     end

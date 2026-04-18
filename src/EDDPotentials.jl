@@ -127,6 +127,7 @@ export rmse_per_atom, mae_per_atom, max_ae_per_atom
 export nfeatures
 export TrainingResults
 export PhaseDiagram, read_shelx_record, ShelxRecord, ComputedRecord
+export synthetic_force_data
 
 const USE_CUDA = Ref{Bool}(false)
 
