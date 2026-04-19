@@ -1,6 +1,7 @@
 using EDDPotentials
 using EDDPotentials:
     FeatureContainer,
+    FeatureStore,
     RandomEmbeddedCellFeature,
     StructureContainer,
     TrainingResults,
@@ -8,7 +9,11 @@ using EDDPotentials:
     mae_per_atom,
     nfeatures,
     rmse_per_atom,
+    save_feature_store,
+    save_feature_store_streaming,
+    load_feature_store,
     train!
+using EDDPotentials: _prescan_extxyz
 using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface, nparams
 using CellBase: species
 
@@ -49,6 +54,8 @@ function _parse_args(args)
         "seed" => 42,
         "show_progress" => true,
         "threshold" => 10.0,
+        "feature_store" => "",
+        "threaded" => true,
     )
 
     for arg in args
@@ -84,6 +91,10 @@ function _parse_args(args)
             config["show_progress"] = _parse_bool(value)
         elseif key == "threshold"
             config["threshold"] = parse(Float64, value)
+        elseif key in ("feature_store", "store", "save_features")
+            config["feature_store"] = value
+        elseif key in ("threaded", "threads")
+            config["threaded"] = _parse_bool(value)
         else
             error("Unknown argument `$key`.")
         end
@@ -109,8 +120,9 @@ function main(args=ARGS)
         "Config: max_structures=$(cfg["max_structures"]) embedding_size=$(cfg["embedding_size"]) " *
         "hidden_size=$(cfg["hidden_size"]) p2=$(cfg["p2"]) p3=$(cfg["p3"]) q3=$(cfg["q3"]) " *
         "train_method=$(cfg["train_method"]) batch_size=$(cfg["batch_size"]) val_ratio=$(cfg["val_ratio"]) " *
-        "max_iter=$(cfg["max_iter"]) earlystop=$(cfg["earlystop"]) " *
-        "show_progress=$(cfg["show_progress"])",
+        "max_iter=$(cfg["max_iter"]) earlystop=$(cfg["earlystop"]) threaded=$(cfg["threaded"]) " *
+        "show_progress=$(cfg["show_progress"]) " *
+        "feature_store=$(isempty(cfg["feature_store"]) ? "(in-memory)" : cfg["feature_store"])",
     )
     max_structures = cfg["max_structures"]
     dataset_path = if max_structures > 0 && endswith(lowercase(dataset), ".xyz") || endswith(lowercase(dataset), ".extxyz")
@@ -118,10 +130,21 @@ function main(args=ARGS)
     else
         dataset
     end
-    sc = StructureContainer(dataset_path; threshold=cfg["threshold"])
-    println("Loaded $(length(sc)) structures after threshold filtering.")
 
-    symbols = _unique_symbols(sc.structures)
+    store_path = cfg["feature_store"]
+    use_store = !isempty(store_path)
+
+    if use_store
+        # --- Streaming path: no full FeatureContainer in memory ---
+        # Get species from lightweight prescan (no Cell construction)
+        _, _, symbols = _prescan_extxyz(dataset_path; threshold=cfg["threshold"],
+                                        max_structures=cfg["max_structures"])
+    else
+        sc = StructureContainer(dataset_path; threshold=cfg["threshold"])
+        println("Loaded $(length(sc)) structures after threshold filtering.")
+        symbols = _unique_symbols(sc.structures)
+    end
+
     embedded = RandomEmbeddedCellFeature(
         symbols;
         nembed=cfg["embedding_size"],
@@ -132,18 +155,36 @@ function main(args=ARGS)
     )
     println("Embedding feature size: $(nfeatures(embedded))")
 
-    fc = FeatureContainer(sc, embedded; show_progress=true)
-    nval = max(1, Int(floor(length(fc) * cfg["val_ratio"])))
-    ntrain = length(fc) - nval
-    ntrain > 0 || error("Not enough structures after filtering to create a train/val split.")
-    fc_train, fc_val = split(
-        fc,
-        ntrain,
-        nval;
-        shuffle=true,
-        seed=cfg["seed"],
-        standardize=true,
-    )
+    if use_store
+        # Streaming: compute features chunk-by-chunk, write to disk
+        println("Streaming features to FeatureStore: $store_path")
+        train_data, fc_val = save_feature_store_streaming(
+            dataset_path, embedded, store_path;
+            batch_size=cfg["batch_size"],
+            val_ratio=cfg["val_ratio"],
+            seed=cfg["seed"],
+            threshold=cfg["threshold"],
+            max_structures=cfg["max_structures"],
+            show_progress=cfg["show_progress"],
+        )
+        xt, yt = train_data.xt, train_data.yt
+    else
+        # In-memory path
+        fc = FeatureContainer(sc, embedded; show_progress=true)
+        nval = max(1, Int(floor(length(fc) * cfg["val_ratio"])))
+        ntrain = length(fc) - nval
+        ntrain > 0 || error("Not enough structures after filtering to create a train/val split.")
+        fc_train, fc_val = split(
+            fc,
+            ntrain,
+            nval;
+            shuffle=true,
+            seed=cfg["seed"],
+            standardize=true,
+        )
+        train_data = fc_train
+        xt, yt = fc_train.xt, fc_train.yt
+    end
 
     nh = cfg["hidden_size"]
     model = ManualFluxBackPropInterface(
@@ -151,12 +192,12 @@ function main(args=ARGS)
         nh;
         init=ginit,
         σ=tanh,
-        xt=fc_train.xt,
-        yt=fc_train.yt,
+        xt=xt,
+        yt=yt,
     )
     println("Model parameter count: $(nparams(model))")
 
-    println("Training with $(length(fc_train)) train / $(length(fc_val)) val structures.")
+    println("Training with $(length(train_data)) train / $(length(fc_val)) val structures.")
     train_kwargs = (
         train_method=cfg["train_method"],
         maxIter=cfg["max_iter"],
@@ -166,21 +207,24 @@ function main(args=ARGS)
     if cfg["train_method"] == "lm_batched"
         train!(
             model,
-            fc_train,
+            train_data,
             fc_val;
             train_kwargs...,
             batch_size=cfg["batch_size"],
+            threaded=cfg["threaded"],
         )
     else
-        train!(model, fc_train, fc_val; train_kwargs...)
+        train!(model, train_data, fc_val; train_kwargs...)
     end
 
-    train_results = TrainingResults(model, fc_train)
     val_results = TrainingResults(model, fc_val)
 
     println()
-    println("Train RMSE/atom: $(rmse_per_atom(train_results)) eV")
-    println("Train MAE/atom : $(mae_per_atom(train_results)) eV")
+    if !use_store
+        train_results = TrainingResults(model, fc_train)
+        println("Train RMSE/atom: $(rmse_per_atom(train_results)) eV")
+        println("Train MAE/atom : $(mae_per_atom(train_results)) eV")
+    end
     println("Val RMSE/atom  : $(rmse_per_atom(val_results)) eV")
     println("Val MAE/atom   : $(mae_per_atom(val_results)) eV")
 end

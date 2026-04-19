@@ -61,6 +61,7 @@ import .EDDPotentialsCore:
     save_model_json,
     setup_fj,
     setup_fj_batched,
+    setup_fj_batched_threaded,
     update_feature_vector!,
     reinit,
     reinit!
@@ -128,6 +129,12 @@ export initialize!, step!, converged, reset!, get_iteration, optimize!
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer,
     FeatureContainer,
+    FeatureStore,
+    save_feature_store,
+    save_feature_store_streaming,
+    load_feature_store,
+    load_batch,
+    get_fit_data,
     load_from_jld2,
     load_model,
     load_model_json,

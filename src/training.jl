@@ -417,12 +417,14 @@ function train_lm_batched!(
     weights=nothing,
     batch_size=512,
     shuffle_seed=42,
+    threaded=false,
+    batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing,
     args...,
 )
     rec = []
 
-    train_natoms = [size(v, 2) for v in x]
-    val_natoms = [size(v, 2) for v in x_val]
+    train_natoms = x isa FeatureStore ? natoms(x) : [size(v, 2) for v in x]
+    val_natoms = x_val isa FeatureStore ? natoms(x_val) : [size(v, 2) for v in x_val]
 
     time_start = time()
     last_time = time()
@@ -459,7 +461,11 @@ function train_lm_batched!(
     end
 
     # Set up batched closures
-    fj_batch!, f_full! = setup_fj_batched(itf, x, y, weights)
+    if threaded
+        fj_batch!, f_full! = setup_fj_batched_threaded(itf, x, y, weights)
+    else
+        fj_batch!, f_full! = setup_fj_batched(itf, x, y, weights)
+    end
 
     callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
 
@@ -469,6 +475,7 @@ function train_lm_batched!(
         p0;
         n_data=length(x),
         batch_size=batch_size,
+        batch_ranges=batch_ranges,
         maxIter=maxIter,
         callback=callback,
         p=p,
@@ -557,6 +564,46 @@ function train!(
         opt_res = Optim.optimize(od, x0; callback=callback, kwargs...)
         opt_res, collect(pview)
     end
+end
+
+"""
+    train!(itf::AbstractNNInterface, store::FeatureStore, fc_val; kwargs...)
+
+Train a neural network using a `FeatureStore` (disk-backed features) as the
+training data.  Uses the batched LM algorithm with fixed-batch shuffle for
+efficient sequential I/O.
+
+When `store` is a `FeatureStore`, the training data is loaded from disk on
+demand with per-batch caching.  The `batch_ranges` from the store are passed
+to the LM solver so that only the batch order is shuffled each epoch (not the
+per-structure indices), enabling sequential reads within each batch.
+
+# Keyword Arguments
+- `train_method`: Only `"lm_batched"` is supported for `FeatureStore`.
+- `batch_size`: Ignored — the store's pre-computed `batch_ranges` are used
+  directly.  To change the batch size, regenerate the `FeatureStore` with
+  a different `batch_size`.
+- All other kwargs are passed to `train_lm_batched!`.
+
+# See also
+[`FeatureStore`](@ref), [`train_lm_batched!`](@ref), [`train!`](@ref)
+"""
+function train!(
+    itf::AbstractNNInterface,
+    store::FeatureStore,
+    fc_val::FeatureContainer;
+    train_method="lm_batched",
+    kwargs...,
+)
+    train_method == "lm_batched" || error("FeatureStore only supports train_method=\"lm_batched\"")
+    x_train, y_train = get_fit_data(store)
+    x_val, y_val = get_fit_data(fc_val)
+    train_lm_batched!(
+        itf, x_train, y_train;
+        x_val=x_val, y_val=y_val,
+        batch_ranges=store.batch_ranges,
+        kwargs...,
+    )
 end
 
 """

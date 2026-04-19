@@ -984,3 +984,623 @@ function Base.:+(a::FeatureContainer, b::FeatureContainer)
         a.elemental_energies,
     )
 end
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FeatureStore — out-of-core feature storage with fixed-batch layout
+# ═══════════════════════════════════════════════════════════════════════════
+
+"""
+    FeatureStore
+
+On-disk feature storage organised in fixed consecutive batches for efficient
+sequential I/O.  Features are loaded on demand and cached per-batch.
+
+Structures within each batch are stored contiguously in a JLD2 file, so that
+reading an entire batch requires only a single seek + sequential read.  This
+is critical for training on datasets that exceed available RAM (<128 GB).
+
+# Fields
+- `path::String` — path to the JLD2 file
+- `n_data::Int` — total number of structures
+- `n_batches::Int` — number of fixed batches
+- `batch_size::Int` — target structures per batch (last batch may be smaller)
+- `batch_ranges::Vector{UnitRange{Int}}` — global structure index range per batch
+- `sizes::Vector{Int}` — number of atoms per structure
+- `H::Vector{Float64}` — target energies (kept in memory)
+- `labels::Vector{String}`
+- `metadata::Vector{Dict{Symbol,Any}}`
+- `feature::AbstractCellFeatureSpec`
+- `xt`, `yt` — standardisation transforms
+- `elemental_energies::Dict{Symbol,Float64}`
+
+# See also
+[`FeatureContainer`](@ref), [`save_feature_store`](@ref), [`load_feature_store`](@ref)
+"""
+mutable struct FeatureStore
+    path::String
+    n_data::Int
+    n_batches::Int
+    batch_size::Int
+    batch_ranges::Vector{UnitRange{Int}}
+    sizes::Vector{Int}
+    H::Vector{Float64}
+    labels::Vector{String}
+    metadata::Vector{Dict{Symbol,Any}}
+    feature::Any
+    xt::Any
+    yt::Any
+    elemental_energies::Dict{Symbol,Float64}
+    # Batch cache (mutable)
+    cached_batch_id::Int
+    cached_batch::Vector{Matrix{Float64}}
+end
+
+function FeatureStore(
+    path::AbstractString,
+    n_data::Int,
+    n_batches::Int,
+    batch_size::Int,
+    batch_ranges::Vector{UnitRange{Int}},
+    sizes::Vector{Int},
+    H::Vector{Float64},
+    labels::Vector{String},
+    metadata::Vector{Dict{Symbol,Any}},
+    feature,
+    xt,
+    yt,
+    elemental_energies::Dict{Symbol,Float64},
+)
+    FeatureStore(
+        path, n_data, n_batches, batch_size, batch_ranges, sizes,
+        H, labels, metadata, feature, xt, yt, elemental_energies,
+        0, Matrix{Float64}[],  # empty cache
+    )
+end
+
+Base.length(s::FeatureStore) = s.n_data
+Base.eltype(::Type{FeatureStore}) = Matrix{Float64}
+
+natoms(s::FeatureStore) = s.sizes
+
+"""
+    batch_id_for_index(s::FeatureStore, i::Int) -> Int
+
+Return the fixed-batch ID containing global structure index `i`.
+"""
+batch_id_for_index(s::FeatureStore, i::Int) = cld(i, s.batch_size)
+
+"""
+    load_batch(s::FeatureStore, batch_id::Int) -> Vector{Matrix{Float64}}
+
+Load all feature matrices for a fixed batch from disk.  Results are cached
+so that repeated accesses to the same batch do not re-read the file.
+"""
+function load_batch(s::FeatureStore, batch_id::Int)
+    if batch_id == s.cached_batch_id
+        return s.cached_batch
+    end
+    batch_data = Vector{Matrix{Float64}}(jldopen(s.path, "r") do f
+        f["batch_$(batch_id)"]
+    end)
+    s.cached_batch_id = batch_id
+    s.cached_batch = batch_data
+    return batch_data
+end
+
+"""
+    load_batch_H(s::FeatureStore, batch_id::Int) -> Vector{Float64}
+
+Return the target energies for structures in a given batch.
+"""
+function load_batch_H(s::FeatureStore, batch_id::Int)
+    rng = s.batch_ranges[batch_id]
+    s.H[rng]
+end
+
+"""
+    Base.getindex(s::FeatureStore, i::Int) -> Matrix{Float64}
+
+Load the feature matrix for a single structure (uses batch cache).
+"""
+function Base.getindex(s::FeatureStore, i::Int)
+    bid = batch_id_for_index(s, i)
+    batch = load_batch(s, bid)
+    local_idx = i - first(s.batch_ranges[bid]) + 1
+    batch[local_idx]
+end
+
+Base.getindex(s::FeatureStore, idx::UnitRange{Int}) = [s[i] for i in idx]
+Base.getindex(s::FeatureStore, idx::Vector{Int}) = [s[i] for i in idx]
+
+Base.iterate(s::FeatureStore, state=1) =
+    state > length(s) ? nothing : (s[state], state + 1)
+
+function Base.show(io::IO, o::MIME"text/plain", s::FeatureStore)
+    println(io, "FeatureStore:")
+    println(io, "  $(s.n_data) structures in $(s.n_batches) batches (batch_size=$(s.batch_size))")
+    println(io, "  File: $(s.path)")
+    println(io, "  Max atoms: $(maximum(s.sizes)), Min atoms: $(minimum(s.sizes))")
+    println(io, "With feature spec:")
+    show(io, o, s.feature)
+end
+
+Base.show(io::IO, s::FeatureStore) = Base.show(io, MIME("text/plain"), s)
+
+
+"""
+    save_feature_store(fc::FeatureContainer, path; batch_size=2048)
+
+Save a `FeatureContainer` to a JLD2 file organised in fixed consecutive batches.
+
+Each batch is stored as a single JLD2 dataset containing a `Vector{Matrix}`,
+so that reading a batch requires one file seek + sequential read.  This is
+essential for efficient training on datasets larger than available RAM.
+
+# Arguments
+- `fc::FeatureContainer` — feature container to save
+- `path::String` — output file path
+- `batch_size::Int` — number of structures per batch (default 2048)
+
+# See also
+[`load_feature_store`](@ref), [`FeatureStore`](@ref)
+"""
+function save_feature_store(fc::FeatureContainer, path; batch_size=2048)
+    n_data = length(fc)
+    n_batches = cld(n_data, batch_size)
+    sizes = Int[size(v, 2) for v in fc.fvecs]
+
+    jldopen(path, "w") do f
+        f["version"] = "feature_store_v1"
+        f["n_data"] = n_data
+        f["batch_size"] = batch_size
+        f["n_batches"] = n_batches
+        f["H"] = fc.H
+        f["labels"] = fc.labels
+        f["metadata"] = fc.metadata
+        f["feature"] = fc.feature
+        f["xt"] = fc.xt
+        f["yt"] = fc.yt
+        f["elemental_energies"] = fc.elemental_energies
+        f["sizes"] = sizes
+
+        for b in 1:n_batches
+            rng = ((b - 1) * batch_size + 1):min(b * batch_size, n_data)
+            f["batch_$(b)"] = fc.fvecs[rng]
+        end
+    end
+    path
+end
+
+
+"""
+    load_feature_store(path) -> FeatureStore
+
+Load a `FeatureStore` from a JLD2 file created by `save_feature_store`.
+
+The file is **not** held open — features are loaded on demand via `getindex`
+or `load_batch`, with per-batch caching to avoid redundant disk reads.
+
+# See also
+[`save_feature_store`](@ref), [`FeatureStore`](@ref)
+"""
+function load_feature_store(path)
+    jldopen(path, "r") do f
+        n_data = f["n_data"]
+        batch_size = f["batch_size"]
+        n_batches = f["n_batches"]
+        sizes = Vector{Int}(f["sizes"])
+        batch_ranges = UnitRange{Int}[
+            ((b - 1) * batch_size + 1):min(b * batch_size, n_data)
+            for b in 1:n_batches
+        ]
+        elemental_energies = if haskey(f, "elemental_energies")
+            Dict{Symbol,Float64}(f["elemental_energies"])
+        else
+            Dict{Symbol,Float64}()
+        end
+
+        FeatureStore(
+            path,
+            n_data,
+            n_batches,
+            batch_size,
+            batch_ranges,
+            sizes,
+            f["H"],
+            f["labels"],
+            f["metadata"],
+            f["feature"],
+            f["xt"],
+            f["yt"],
+            elemental_energies,
+        )
+    end
+end
+
+
+"""
+    get_fit_data(s::FeatureStore) -> (FeatureStore, Vector{Float64})
+
+Return `(store, store.H)` so that `FeatureStore` can be used as a drop-in
+replacement for `FeatureContainer` in `train!` and related functions.
+"""
+get_fit_data(s::FeatureStore) = (s, s.H)
+
+
+"""
+    FeatureContainer(s::FeatureStore) -> FeatureContainer
+
+Materialise a `FeatureStore` into an in-memory `FeatureContainer` by loading
+all batches.  Useful for smaller datasets or when full in-memory access is needed.
+"""
+function FeatureContainer(s::FeatureStore)
+    fvecs = Matrix{Float64}[s[i] for i in 1:length(s)]
+    FeatureContainer(
+        fvecs,
+        s.feature,
+        s.H,
+        s.labels,
+        s.metadata,
+        s.xt,
+        s.yt,
+        s.elemental_energies,
+    )
+end
+
+
+# ========== Streaming FeatureStore (out-of-core) ==========
+
+"""
+    OnlineStats{T}
+
+Welford's online algorithm for computing mean and variance in a single pass.
+"""
+mutable struct OnlineStats{T}
+    n::Int
+    mean::Vector{T}
+    M2::Vector{T}
+end
+
+OnlineStats(n::Int) = OnlineStats{Float64}(0, zeros(n), zeros(n))
+
+function _welford_update!(s::OnlineStats, values::AbstractVector)
+    s.n += 1
+    for d in eachindex(values)
+        delta = values[d] - s.mean[d]
+        s.mean[d] += delta / s.n
+        delta2 = values[d] - s.mean[d]
+        s.M2[d] += delta * delta2
+    end
+    s
+end
+
+_mean(s::OnlineStats) = copy(s.mean)
+
+function _std(s::OnlineStats)
+    s.n < 2 ? ones(length(s.mean)) : sqrt.(s.M2 ./ (s.n - 1))
+end
+
+
+"""
+    _prescan_extxyz(path; threshold, max_structures) -> (valid_indices, valid_energies, all_species)
+
+Scan an extxyz file to find valid structures without constructing Cell objects.
+Extracts the energy from the info dict of each frame and filters by
+`abs(energy) / natoms < threshold`.  Also collects all unique species symbols.
+
+Returns `(valid_frame_indices, valid_energies, sorted_unique_symbols)`.
+"""
+function _prescan_extxyz(path; threshold=10.0, max_structures=0)
+    filepath, slice_str = _parse_path_slice(path)
+    ext = lowercase(splitext(filepath)[2])
+
+    if ext in (".xyz", ".extxyz")
+        # Determine the frame range to scan
+        if slice_str !== nothing
+            total = _count_extxyz_frames(filepath)
+            frame_range = _python_slice_to_range(slice_str, total)
+        else
+            frame_range = nothing
+        end
+
+        valid = Int[]
+        energies = Float64[]
+        all_species = Set{Symbol}()
+
+        # Use ExtXYZ.read_frames in chunks for robustness
+        if frame_range !== nothing
+            scan_range = frame_range
+        else
+            total = _count_extxyz_frames(filepath)
+            scan_range = 1:total
+        end
+
+        chunk_size = 10_000
+        n_scanned = 0
+        n_total = length(scan_range)
+        prog = ProgressMeter.Progress(n_total; desc="Prescanning frames: ", showspeed=true)
+        for chunk_start in first(scan_range):chunk_size:last(scan_range)
+            chunk_end = min(chunk_start + chunk_size - 1, last(scan_range))
+            chunk = chunk_start:chunk_end
+            raw_dicts = ExtXYZ.read_frames(filepath, chunk)
+            for (i, dict) in enumerate(raw_dicts)
+                frame_id = chunk[i]
+                info = dict["info"]
+                energy = if haskey(info, "enthalpy")
+                    Float64(info["enthalpy"])
+                elseif haskey(info, "energy")
+                    Float64(info["energy"])
+                else
+                    nothing
+                end
+                natoms = size(dict["arrays"]["pos"], 2)
+                # Collect species
+                species_arr = dict["arrays"]["species"]
+                if species_arr isa AbstractVector
+                    union!(all_species, Symbol.(species_arr))
+                end
+                if energy !== nothing && abs(energy) / natoms < threshold
+                    push!(valid, frame_id)
+                    push!(energies, energy)
+                    if max_structures > 0 && length(valid) >= max_structures
+                        ProgressMeter.finish!(prog)
+                        return valid, energies, sort!(collect(all_species))
+                    end
+                end
+                n_scanned += 1
+            end
+            ProgressMeter.update!(prog, n_scanned)
+        end
+        ProgressMeter.finish!(prog)
+        return valid, energies, sort!(collect(all_species))
+    else
+        error("Streaming prescan only supports .xyz/.extxyz files, got `$path`.")
+    end
+end
+
+
+"""
+    _contiguous_chunks(indices::Vector{Int}; chunk_size=256)
+
+Split a **sorted** vector of indices into contiguous ranges for efficient I/O.
+Each returned range is a maximal contiguous block, split at `chunk_size` boundaries.
+"""
+function _contiguous_chunks(indices::Vector{Int}; chunk_size=256)
+    isempty(indices) && return UnitRange{Int}[]
+    ranges = UnitRange{Int}[]
+    i = 1
+    while i <= length(indices)
+        start = indices[i]
+        # Extend while consecutive and within chunk_size
+        j = i
+        n_extensions = 0  # number of times we extended past the start index
+        while j < length(indices) && indices[j + 1] == indices[j] + 1 && n_extensions < chunk_size - 1
+            j += 1
+            n_extensions += 1
+        end
+        push!(ranges, indices[i]:indices[j])
+        i = j + 1
+    end
+    ranges
+end
+
+
+"""
+    save_feature_store_streaming(path, feature, output_path; kwargs...)
+
+Stream features from an extxyz file to a `FeatureStore` on disk without ever
+holding all features in memory.  Suitable for datasets exceeding available RAM.
+
+Uses a single streaming pass with Welford's algorithm for online standardization
+statistics.  Only one chunk of structures (~256) and one batch buffer
+(`batch_size` structures) are in memory at any time.
+
+# Algorithm
+1. **Prescan**: read energies from extxyz info lines, filter by `threshold`
+2. **Split**: shuffle valid indices, assign to train/val
+3. **Stream**: read training frames in contiguous chunks, compute features,
+   accumulate online stats, write batches to JLD2
+4. **Val**: compute val features in memory (small set), apply same transforms
+
+# Arguments
+- `path`: extxyz file path (supports `@:N` slice syntax)
+- `feature`: feature specification (e.g. `RandomEmbeddedCellFeature`)
+- `output_path`: output JLD2 file path
+
+# Returns
+`(store::FeatureStore, fc_val::FeatureContainer)` — the training FeatureStore
+loaded from disk and the validation FeatureContainer (in memory).
+"""
+function save_feature_store_streaming(
+    path::AbstractString,
+    feature::AbstractCellFeatureSpec,
+    output_path::AbstractString;
+    batch_size::Int=2048,
+    val_ratio::Float64=0.1,
+    seed::Int=42,
+    threshold::Float64=10.0,
+    max_structures::Int=0,
+    nmax::Int=500,
+    skin::Float64=1.0,
+    show_progress::Bool=true,
+)
+    filepath, _ = _parse_path_slice(path)
+
+    # ---- Phase 1: Prescan ----
+    println("Prescanning $path for valid structures...")
+    valid_indices, valid_energies, _ = _prescan_extxyz(path; threshold, max_structures)
+    n_valid = length(valid_indices)
+    println("Found $n_valid valid structures (threshold=$threshold eV/atom).")
+
+    n_valid > 0 || error("No valid structures found in `$path`.")
+
+    # ---- Phase 2: Split ----
+    rng = MersenneTwister(seed)
+    perm = randperm(rng, n_valid)
+    n_val = max(1, floor(Int, n_valid * val_ratio))
+    n_train = n_valid - n_val
+    train_perm = perm[n_val+1:end]
+    val_perm = perm[1:n_val]
+    train_indices = sort(valid_indices[train_perm])
+    val_indices = sort(valid_indices[val_perm])
+
+    println("Split: $n_train train / $n_val val structures.")
+
+    # ---- Phase 3: Single streaming pass ----
+    fsizes = feature_size(feature)
+    n1 = fsizes[1]               # one-body features (not standardized)
+    n_std = sum(fsizes) - n1     # features to standardize
+    n_feat = sum(fsizes)
+    stats_x = OnlineStats(n_std)
+    stats_y = OnlineStats(1)
+
+    # These will be updated inside the jldopen closure and read after
+    local n_batches, n_train_actual
+    local xt, yt_mean, yt_scale
+
+    # Allocate reusable buffers
+    batch_buffer = Matrix{Float64}[]
+    all_H = Float64[]
+    all_sizes = Int[]
+    all_labels = String[]
+    all_metadata = Dict{Symbol,Any}[]
+    batch_id = 1
+
+    # Val data (in-memory)
+    val_fvecs = Matrix{Float64}[]
+    val_H = Float64[]
+    val_labels = String[]
+    val_metadata = Dict{Symbol,Any}[]
+
+    # Build lookup for val indices
+    val_set = Set(val_indices)
+
+    progress = show_progress ? ProgressMeter.Progress(
+        n_train + n_val;
+        desc="Computing features: ",
+    ) : nothing
+
+    # Collect all frames sorted for contiguous I/O
+    all_indices_sorted = sort(vcat(train_indices, val_indices))
+    chunks = _contiguous_chunks(all_indices_sorted; chunk_size=256)
+
+    jldopen(output_path, "w") do f
+        for chunk_range in chunks
+            raw_dicts = try
+                ExtXYZ.read_frames(filepath, chunk_range)
+            catch e
+                @warn "Failed to read frames $chunk_range" exception = (e, catch_backtrace())
+                continue
+            end
+
+            for (local_i, dict) in enumerate(raw_dicts)
+                frame_id = chunk_range[local_i]
+                cell = _normalize_extxyz_cell!(
+                    _extxyz_dict_to_cell(dict),
+                    "$(first(chunk_range))-$local_i",
+                )
+                fvec = feature_vector(feature, cell; nmax, skin)
+                nat = size(fvec, 2)
+                H_i = _structure_enthalpy(cell)
+
+                is_val = frame_id in val_set
+
+                if !is_val
+                    # Update Welford stats (skip one-body features)
+                    for j in 1:nat
+                        _welford_update!(stats_x, @view fvec[n1+1:end, j])
+                    end
+                    _welford_update!(stats_y, [H_i / nat])
+
+                    # Buffer for JLD2 batch
+                    push!(batch_buffer, fvec)
+                    push!(all_H, H_i)
+                    push!(all_sizes, nat)
+                    push!(all_labels, "structure_$(length(all_H))")
+                    push!(all_metadata, Dict{Symbol,Any}())
+
+                    # Flush batch when full
+                    if length(batch_buffer) >= batch_size
+                        # copy: JLD2 may hold a reference; we reuse batch_buffer after flushing
+                        f["batch_$batch_id"] = copy(batch_buffer)
+                        empty!(batch_buffer)
+                        batch_id += 1
+                    end
+                else
+                    # Val: store in memory
+                    push!(val_fvecs, fvec)
+                    push!(val_H, H_i)
+                    push!(val_labels, "structure_$(length(val_H))")
+                    push!(val_metadata, Dict{Symbol,Any}())
+                end
+
+                if progress !== nothing
+                    ProgressMeter.next!(progress)
+                end
+            end
+        end
+
+        # Flush remaining training buffer
+        if !isempty(batch_buffer)
+            # copy: JLD2 may hold a reference; we reuse batch_buffer after flushing
+            f["batch_$batch_id"] = copy(batch_buffer)
+            empty!(batch_buffer)
+        else
+            batch_id -= 1
+        end
+
+        # ---- Compute transforms from online stats ----
+        n_batches = max(batch_id, 1)
+        n_train_actual = length(all_H)
+        batch_ranges = if n_train_actual > 0
+            [((b - 1) * batch_size + 1):min(b * batch_size, n_train_actual)
+             for b in 1:n_batches]
+        else
+            UnitRange{Int}[]
+        end
+
+        xt = ZScoreTransform(n_std, 2, _mean(stats_x), _std(stats_x))
+        yt_mean = _mean(stats_y)
+        yt_scale = _std(stats_y)
+        yt = ZScoreTransform(1, 2, yt_mean, yt_scale)
+
+        # ---- Write metadata ----
+        f["version"] = "feature_store_v1"
+        f["n_data"] = n_train_actual
+        f["batch_size"] = batch_size
+        f["n_batches"] = n_batches
+        f["H"] = all_H
+        f["sizes"] = all_sizes
+        f["labels"] = all_labels
+        f["metadata"] = all_metadata
+        f["feature"] = feature
+        f["xt"] = xt
+        f["yt"] = yt
+        f["elemental_energies"] = Dict{Symbol,Float64}()
+    end
+
+    println("Wrote $n_train_actual training structures in $n_batches batches to $output_path")
+
+    # ---- Build val FeatureContainer ----
+    fc_val = FeatureContainer(
+        val_fvecs,
+        feature,
+        val_H,
+        val_labels,
+        val_metadata,
+        nothing,    # xt — set below
+        nothing,    # yt — set below
+        Dict{Symbol,Float64}(),
+    )
+    # Apply the same transforms from training stats
+    standardize!(fc_val;
+        xt=ZScoreTransform(n_std, 2, _mean(stats_x), _std(stats_x)),
+        yt=ZScoreTransform(1, 2, yt_mean, yt_scale),
+    )
+
+    store = load_feature_store(output_path)
+    println("Val set: $(length(fc_val)) structures.")
+
+    return store, fc_val
+end

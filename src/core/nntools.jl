@@ -107,7 +107,7 @@ Setup closures for batched LM training.  Returns a tuple
 """
 function setup_fj_batched(
     model::AbstractNNInterface,
-    data::AbstractVector,
+    data,
     y,
     weights=nothing,
 )
@@ -151,7 +151,101 @@ function setup_fj_batched(
 end
 
 
-function compute_objectives(f, itf, data::AbstractVector, y, weights=nothing)
+"""
+    setup_fj_batched_threaded(model, data, y, weights=nothing; ngps=10)
+
+Threaded variant of `setup_fj_batched`.  Each thread gets a `deepcopy` of the
+model and a local gradient buffer, following the same pattern as
+`_compute_objectives_diff_threaded`.
+
+Threads write to disjoint rows of `jmat` and `fvec`, so no synchronisation
+is needed.  Falls back to the sequential path when `nthreads() == 1` or the
+batch is too small to benefit from threading.
+"""
+function setup_fj_batched_threaded(
+    model::AbstractNNInterface,
+    data,
+    y,
+    weights=nothing;
+    ngps=10,
+)
+    jtmp = similar(paramvector(model))
+
+    function fj_batch!(fvec, jmat, param, batch_indices)
+        setparamvector!(model, param)
+        need_jacobian = !(jmat === nothing)
+        nt = nthreads()
+
+        if nt > 1 && length(batch_indices) > nt * 5
+            # Threaded path: chunk the batch indices across threads
+            batch_vec = collect(batch_indices)
+            chunks = _chunk_ranges(length(batch_vec); ngps)
+            Threads.@threads for chunk in chunks
+                itf_ = deepcopy(model)
+                jtmp_ = copy(jtmp)
+                for (local_i, gi) in enumerate(chunk)
+                    global_i = batch_vec[gi]
+                    inp = data[global_i]
+                    out = forward!(itf_, inp)
+
+                    if need_jacobian
+                        backward!(itf_)
+                        gradparam!(jtmp_, itf_)
+                        if isnothing(weights)
+                            jmat[gi, :] .= jtmp_
+                        else
+                            jmat[gi, :] .= jtmp_ .* weights[global_i]
+                        end
+                    end
+
+                    if !(fvec === nothing)
+                        if isnothing(weights)
+                            fvec[gi] = sum(out) - y[global_i]
+                        else
+                            fvec[gi] = (sum(out) - y[global_i]) * weights[global_i]
+                        end
+                    end
+                end
+            end
+        else
+            # Sequential fallback
+            for (local_i, global_i) in enumerate(batch_indices)
+                inp = data[global_i]
+                out = forward!(model, inp)
+
+                if need_jacobian
+                    backward!(model)
+                    gradparam!(jtmp, model)
+                    if isnothing(weights)
+                        jmat[local_i, :] .= jtmp
+                    else
+                        jmat[local_i, :] .= jtmp .* weights[global_i]
+                    end
+                end
+
+                if !(fvec === nothing)
+                    if isnothing(weights)
+                        fvec[local_i] = sum(out) - y[global_i]
+                    else
+                        fvec[local_i] = (sum(out) - y[global_i]) * weights[global_i]
+                    end
+                end
+            end
+        end
+        fvec, jmat
+    end
+
+    function f_full!(fvec, param)
+        setparamvector!(model, param)
+        compute_objectives(fvec, model, data, y, weights)
+        fvec
+    end
+
+    return fj_batch!, f_full!
+end
+
+
+function compute_objectives(f, itf, data, y, weights=nothing)
     for (i, inp) in enumerate(data)
         out = forward!(itf, inp)
         if isnothing(weights)
@@ -167,7 +261,7 @@ function compute_objectives_diff(
     f,
     jmat,
     itf,
-    data::AbstractVector,
+    data,
     y,
     weights=nothing,
     ;
