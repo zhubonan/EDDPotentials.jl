@@ -279,15 +279,14 @@ mutable struct ManualFluxBackPropInterface{T,G,X,Z} <: AbstractNNInterface
     last_id::Int
     xt::X
     yt::Z
-    apply_xt::Bool
 end
 
 
 get_flux_model(itf::ManualFluxBackPropInterface) = itf.chain
 
-function ManualFluxBackPropInterface(chain::Chain; xt=nothing, yt=nothing, apply_xt=true)
+function ManualFluxBackPropInterface(chain::Chain; xt=nothing, yt=nothing)
     g = ChainGradients(chain, 1)
-    ManualFluxBackPropInterface(chain, typeof(g)[], 1, xt, yt, apply_xt)
+    ManualFluxBackPropInterface(chain, typeof(g)[], 1, xt, yt)
 end
 
 function Base.show(io::IO, m::MIME"text/plain", x::ManualFluxBackPropInterface)
@@ -341,7 +340,7 @@ function forward!(
 )
     gchain = _get_or_create_chaingradients(itf, inp)
     # Apply x transformation
-    if !isnothing(itf.xt) && itf.apply_xt
+    if !isnothing(itf.xt)
         nl = itf.xt.len
         inptmp .= inp
         transform!(itf.xt, @view(inptmp[end-nl+1:end, :]))
@@ -372,10 +371,10 @@ end
 Return the gradient of the input matrix ``X`` against the sum of the output ``sum(G(X))``.
 """
 function gradinp!(gvec::AbstractVecOrMat, itf::ManualFluxBackPropInterface)
-    # Collect 
+    # Collect
     gvec .= input_gradient(itf.gchains[itf.last_id].layers[1])
     # If transform is applied then we have to scale the gradient
-    if !isnothing(itf.xt) && itf.apply_xt
+    if !isnothing(itf.xt)
         nl = itf.xt.len
         gvec[end-nl+1:end, :] ./= itf.xt.scale
     end
@@ -405,12 +404,11 @@ function ManualFluxBackPropInterface(
     xt=nothing,
     yt=nothing,
     σ=tanh,
-    apply_xt=true,
     σs=nothing,
     embedding=nothing,
 )
     chain = flux_mlp_model(cf, nodes...; init, σ, σs, embedding)
-    ManualFluxBackPropInterface(chain; xt, yt, apply_xt)
+    ManualFluxBackPropInterface(chain; xt, yt)
 end
 
 # JLD2 custom serialization - we do not need to store ChainGradients which are 
@@ -428,7 +426,6 @@ function save_as_jld2(f::Union{JLD2.JLDFile,JLD2.Group}, obj::ManualFluxBackProp
     f["xt"] = obj.xt
     f["yt"] = obj.yt
     f["is_manual_flux_itf"] = true
-    f["apply_xt"] = obj.apply_xt
     f
 end
 
@@ -445,6 +442,6 @@ function load_from_jld2(
     chain = f["chain"]
     xt = f["xt"]
     yt = f["yt"]
-    apply_xt = f["apply_xt"]
-    ManualFluxBackPropInterface(chain; xt, yt, apply_xt)
+    # Ignore legacy apply_xt key if present
+    ManualFluxBackPropInterface(chain; xt, yt)
 end

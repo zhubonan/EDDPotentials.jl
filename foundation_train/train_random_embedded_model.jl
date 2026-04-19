@@ -143,7 +143,6 @@ function main(args=ARGS)
         shuffle=true,
         seed=cfg["seed"],
         standardize=true,
-        apply_transform=true,
     )
 
     nh = cfg["hidden_size"]
@@ -154,7 +153,6 @@ function main(args=ARGS)
         σ=tanh,
         xt=fc_train.xt,
         yt=fc_train.yt,
-        apply_xt=false,
     )
     println("Model parameter count: $(nparams(model))")
 

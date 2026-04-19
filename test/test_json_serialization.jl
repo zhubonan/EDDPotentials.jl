@@ -120,7 +120,7 @@ end
         xt = fit(ZScoreTransform, rand(nfeatures(cf) - feature_size(cf)[1], 6), dims=2)
         yt = fit(ZScoreTransform, rand(1, 6), dims=2)
         chain = Chain(Dense(rand(4, nfeatures(cf)), rand(4), tanh), Dense(rand(1, 4), rand(1)))
-        model = ManualFluxBackPropInterface(chain; xt, yt, apply_xt=false)
+        model = ManualFluxBackPropInterface(chain; xt, yt)
         elemental_energies = Dict(:H => -1.1, :O => -7.7)
 
         mktempdir() do dir
@@ -134,7 +134,6 @@ end
             )
 
             @test artifact.model isa ManualFluxBackPropInterface
-            @test artifact.model.apply_xt == false
             @test artifact.model.xt.mean == xt.mean
             @test artifact.model.xt.scale == xt.scale
             @test artifact.model.yt.mean == yt.mean
@@ -168,7 +167,7 @@ end
             Dense(rand(Float32, 3, ninp), rand(Float32, 3), tanh),
             Dense(rand(Float32, 1, 3), rand(Float32, 1)),
         )
-        model = ManualFluxBackPropInterface(chain; apply_xt=true)
+        model = ManualFluxBackPropInterface(chain)
 
         mktempdir() do dir
             path = joinpath(dir, "embedded.json")
@@ -259,7 +258,7 @@ end
         end
     end
 
-    @testset "Legacy JLD2 Ensemble Preserves apply_xt" begin
+    @testset "Legacy JLD2 Ensemble Round-Trip" begin
         cf = CellFeature([:H]; p2=[2.0, 3.0], p3=Float64[], q3=Float64[])
         xt = fit(ZScoreTransform, rand(nfeatures(cf) - feature_size(cf)[1], 6), dims=2)
         yt = fit(ZScoreTransform, rand(1, 6), dims=2)
@@ -267,7 +266,6 @@ end
             Chain(Dense(rand(4, nfeatures(cf)), rand(4), tanh), Dense(rand(1, 4), rand(1)));
             xt,
             yt,
-            apply_xt=false,
         )
         ensemble = EnsembleNNInterface((model,), [1.0])
         cell = _h2_cell()
@@ -281,7 +279,6 @@ end
 
             @test artifact.model isa EnsembleNNInterface
             @test artifact.model.models[1] isa ManualFluxBackPropInterface
-            @test artifact.model.models[1].apply_xt == false
             @test forward!(artifact.model, input) == expected
         end
     end
@@ -298,7 +295,6 @@ end
                 "feature_spec" => payload["model"]["feature_spec"],
                 "elemental_energies" => payload["model"]["elemental_energies"],
                 "metadata" => Dict{String,Any}(),
-                "apply_xt" => true,
                 "xt" => nothing,
                 "yt" => nothing,
                 "layers" => [Dict(

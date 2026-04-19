@@ -20,7 +20,6 @@ mutable struct FluxInterface{T,N} <: AbstractNNInterface
     xt::Any
     yt::Any
     training_mode::Bool
-    apply_xt::Bool
 end
 
 function Base.show(io::IO, m::MIME"text/plain", x::FluxInterface)
@@ -40,7 +39,6 @@ FluxInterface(model) = FluxInterface(
     nothing,
     nothing,
     true,
-    false,
 )
 
 

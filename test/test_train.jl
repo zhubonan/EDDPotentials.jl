@@ -107,13 +107,12 @@ using NLSolversBase
         fc = FeatureContainer(sc, cf)
 
         # This gives fix examples
-        fc_train, fc_val = split(fc, 5, 5; standardize=true, apply_transform=true)
+        fc_train, fc_val = split(fc, 5, 5; standardize=true)
         models = []
         model = ManualFluxBackPropInterface(
             Chain(Dense(ginit(5, nfeatures(fc.feature))), Dense(ginit(1, 5))),
             xt=fc_train.xt,
             yt=fc_train.yt,
-            apply_xt=false,
         )
         model_ = reinit(model)
         @test any(paramvector(model_) .!= paramvector(model))
@@ -231,13 +230,12 @@ using NLSolversBase
         sc = StructureContainer([path])
         cf = CellFeature([:B])
         fc = FeatureContainer(sc, cf)
-        fc_train, fc_val = split(fc, 5, 5; standardize=true, apply_transform=true)
+        fc_train, fc_val = split(fc, 5, 5; standardize=true)
 
         model = ManualFluxBackPropInterface(
             Chain(Dense(ginit(5, nfeatures(cf))), Dense(ginit(1, 5))),
             xt=fc_train.xt,
             yt=fc_train.yt,
-            apply_xt=false,
         )
         # batch_size must be >= nparams for well-conditioned normal equations
         # Use batch_size = n_data to effectively test the dispatch path

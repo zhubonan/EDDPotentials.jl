@@ -524,7 +524,6 @@ and CellFeature specification, and is directly used for training EDDP models.
 - `H::Vector{N}`: Target total energies (in eV), one per structure
 - `labels::Vector{String}`: Structure identifiers
 - `metadata::Vector{Dict{Symbol,Any}}`: Per-structure metadata (formula, etc.)
-- `is_x_transformed::Bool`: Whether features have been standardized
 - `xt::Any`: Feature standardization transformation (ZScoreTransform)
 - `yt::Any`: Energy standardization transformation
 - `elemental_energies::Dict{Symbol,Float64}`: Reference energies per element
@@ -573,7 +572,6 @@ mutable struct FeatureContainer{T,N}
     H::Vector{N}
     labels::Vector{String}
     metadata::Vector{Dict{Symbol,Any}}
-    is_x_transformed::Bool
     xt::Any
     yt::Any
     elemental_energies::Dict{Symbol,Float64}
@@ -617,13 +615,12 @@ Save FeatureContainer into a file.
 """
 function save_fc(fc, fname)
     jldopen(fname, "w") do fhandle
-        fhandle["version"] = "1.0"
+        fhandle["version"] = "2.0"
         fhandle["fvecs"] = fc.fvecs
         fhandle["feature"] = fc.feature
         fhandle["H"] = fc.H
         fhandle["labels"] = fc.labels
         fhandle["metadata"] = fc.metadata
-        fhandle["is_x_transformed"] = fc.is_x_transformed
         fhandle["yt"] = fc.yt
         fhandle["xy"] = fc.xt
         fhandle["elemental_energies"] = fc.elemental_energies
@@ -636,20 +633,12 @@ end
 Load FeatureContainer from a file.
 """
 function load_fc(fname)
-    vreq = "1.0"
     jldopen(fname, "r") do fhandle
-        ver = fhandle["version"]
-        @assert fhandle["version"] == vreq "Inconsistent FeatureContainer version current $(ver) required $(vreq)."
         fvecs = fhandle["fvecs"]
         feature = fhandle["feature"]
         H = fhandle["H"]
         labels = fhandle["labels"]
         metadata = fhandle["metadata"]
-        if "is_x_transformed" in keys(fhandle)
-            is_x_transformed = fhandle["is_x_transformed"]
-        else
-            is_x_transformed = false
-        end
         yt = fhandle["yt"]
         xt = fhandle["xy"]
         elemental_energies = if "elemental_energies" in keys(fhandle)
@@ -663,7 +652,6 @@ function load_fc(fname)
             H,
             labels,
             metadata,
-            is_x_transformed,
             xt,
             yt,
             elemental_energies,
@@ -722,7 +710,6 @@ function FeatureContainer(
         H,
         labels,
         metadata,
-        false,
         nothing,
         nothing,
         Dict{Symbol,Float64}(elemental_energies),
@@ -766,7 +753,6 @@ function Base.getindex(v::FeatureContainer, idx::Union{UnitRange,Vector{T}}) whe
         v.H[idx],
         v.labels[idx],
         v.metadata[idx],
-        v.is_x_transformed,
         v.xt,
         v.yt,
         v.elemental_energies,
@@ -856,14 +842,13 @@ end
     split(c::Container, n1, n2, ...;shuffle=true)
 
 Split the container into multiple parts, each with N number of structures.
-By default, the output container will have their feature vectors standardized.
+By default, the output container will have their standardization transforms fitted.
 """
 function Base.split(
     c::Union{StructureContainer,FeatureContainer},
     nsplit::Vararg;
     shuffle=true,
     standardize=true,
-    apply_transform=true,
     seed=42,
     respect_shakes=false,
 )
@@ -889,7 +874,7 @@ function Base.split(
     else
         out = _split_vector(c, nsplit...; shuffle, seed)
     end
-    isa(c, FeatureContainer) && standardize && standardize!(out...; apply_transform)
+    isa(c, FeatureContainer) && standardize && standardize!(out...)
     out
 end
 
@@ -904,39 +889,21 @@ natoms(fc::StructureContainer) = natoms.(fc.structures)
 """
     standardize!(fc::FeatureContainer)
 
-Standardize the data in the `FeatureContainer`. The feature vectors are modified.
-Note that only the input features are fitted and scaled, the outputs are only fitted
-but the standardisation is not applied.
+Fit standardization transforms for the `FeatureContainer`. The feature vectors
+are **not** modified — transforms are stored in `fc.xt` and `fc.yt` and applied
+on-the-fly by the NN interface during `forward!`.
 """
-function standardize!(fc::FeatureContainer; xt=nothing, yt=nothing, apply_transform=true)
+function standardize!(fc::FeatureContainer; xt=nothing, yt=nothing)
 
     if xt === nothing
         if isnothing(fc.xt)
             total_x_train = reduce(hcat, fc.fvecs)
             n1 = feature_size(fc.feature)[1]
             xt = fit(StatsBase.ZScoreTransform, @view(total_x_train[n1+1:end, :]), dims=2)
-            if apply_transform && !fc.is_x_transformed
-                # We have to make copy to avoid affect the original data which may present in other objects
-                fvecs = copy.(fc.fvecs)
-                transform_x!(xt, fvecs)
-                fc.fvecs .= fvecs
-                fc.is_x_transformed = true
-            end
             fc.xt = xt
         end
     else
-        if !(fc.xt === nothing)
-            @warn "FeatureContainer already has x transformation...."
-            reconstruct_x!(fc)
-        end
         fc.xt = xt
-        # Make copy
-        if apply_transform
-            fvecs = copy.(fc.fvecs)
-            transform_x!(xt, fvecs)
-            fc.fvecs .= fvecs
-            fc.is_x_transformed = true
-        end
     end
     if yt === nothing
         if isnothing(fc.yt)
@@ -945,7 +912,6 @@ function standardize!(fc::FeatureContainer; xt=nothing, yt=nothing, apply_transf
             fc.yt = yt
         end
     else
-        # No checks is needed here
         fc.yt = yt
     end
     fc
@@ -968,16 +934,17 @@ function standardize!(fc_train, fc1, fcs...; kwargs...)
 end
 
 """
-    standardize(fc_train, fcs...) 
+    standardize(fc_train, fcs...)
 
 Standardise multiple feature containers. Only the first argument is used for fitting.
+Returns deep copies with transforms fitted.
 """
-function standardize(fc_train, fcs...; kwargs...)
+function standardize(fc_train, fcs...)
     _fc_train = deepcopy(fc_train)
     _fcs = deepcopy.(fcs)
-    standardize!(_fc_train; kwargs...)
+    standardize!(_fc_train)
     for fc in _fcs
-        standardize!(fc; xt=fc_train.xt, yt=fc_train.yt, kwargs...)
+        standardize!(fc; xt=_fc_train.xt, yt=_fc_train.yt)
     end
     (_fc_train, _fcs...)
 end
@@ -987,56 +954,11 @@ function get_fit_data(fc::FeatureContainer)
     fc.fvecs, fc.H
 end
 
-"""
-Apply transformation for training X inputs
-"""
-function transform_x!(xt, x_train)
-    for data in x_train
-        if size(data, 1) > xt.len
-            transform!(xt, @view(data[end-xt.len+1:end, :]))
-        else
-            transform!(xt, data)
-        end
-    end
-    x_train
-end
-
-function transform_x!(fc::FeatureContainer; xt=fc.xt)
-    fvecs = copy.(fc.fvecs)
-    @assert !fc.is_x_transformed
-    transform_x!(xt, fvecs)
-    fc.fvecs .= fvecs
-    fc.is_x_transformed = true
-end
-
 function transform_y(fc::FeatureContainer; yt=fc.yt)
     Hps = fc.H ./ natoms(fc)
     Hps .-= yt.mean[1]
     Hps ./= yt.scale[1]
     Hps .* natoms(fc)
-end
-
-"""
-Recover training X inputs before standardisation
-"""
-function reconstruct_x!(xt, x_train)
-    for data in x_train
-        if size(data, 1) > xt.len
-            reconstruct!(xt, @view(data[end-xt.len+1:end, :]))
-        end
-    end
-    x_train
-end
-
-"""
-Recover training X inputs before standardisation
-"""
-function reconstruct_x!(fc::FeatureContainer; xt=fc.xt)
-    fvecs = copy.(fc.fvecs)
-    @assert fc.is_x_transformed
-    reconstruct_x!(xt, fvecs)
-    fc.fvecs .= fvecs
-    fc.is_x_transformed = false
 end
 
 function Base.:+(a::StructureContainer, b::StructureContainer)
@@ -1050,9 +972,6 @@ end
 
 function Base.:+(a::FeatureContainer, b::FeatureContainer)
     @assert a.feature == b.feature
-    #@assert a.xt == b.xt
-    #@assert a.yt == b.yt
-    @assert a.is_x_transformed == b.is_x_transformed
     @assert a.elemental_energies == b.elemental_energies
     FeatureContainer(
         vcat(a.fvecs, b.fvecs),
@@ -1060,7 +979,6 @@ function Base.:+(a::FeatureContainer, b::FeatureContainer)
         vcat(a.H, b.H),
         vcat(a.labels, b.labels),
         vcat(a.metadata, b.metadata),
-        a.is_x_transformed,
         a.xt,
         b.yt,
         a.elemental_energies,

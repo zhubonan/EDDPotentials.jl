@@ -42,28 +42,31 @@ using LinearAlgebra: norm
     @test isa(fc[[labels[1], labels[2]]], EDDPotentials.FeatureContainer)
     @test isa(collect(fc)[1], Tuple)
 
-    # Test standardisation
+    # Test standardisation — transforms are fitted but fvecs are NOT mutated
     fc1, fc2 = split(fc[1:10], 5, 3; shuffle=false, standardize=false)
     fc11, fc12 = EDDPotentials.standardize(fc1, fc2)
-    @test mean(reduce(hcat, fc11.fvecs)[2, :]) ≈ 0.0 atol = 1e-8
-    @test fc11.fvecs != fc1.fvecs
-    @test !isapprox(mean(reduce(hcat, fc1.fvecs)[2, :]), 0, atol=1e-8)
+    # fvecs should be unchanged (deep copies, not transformed)
+    @test fc11.fvecs[1] ≈ fc1.fvecs[1]
+    @test !isnothing(fc11.xt)
+    @test !isnothing(fc11.yt)
+    # Bug fix: verify second container uses the same transform from the first
+    @test fc11.xt === fc12.xt
+    @test fc11.yt === fc12.yt
 
     # Combine
     fc3 = fc1 + fc2
     @test length(fc3) == length(fc1) + length(fc2)
 
-    @test fc11.fvecs != fc1.fvecs
+    # In-place standardize! also does not mutate fvecs
     EDDPotentials.standardize!(fc1, fc2)
     @test fc.xt === nothing
     @test fc.yt === nothing
-    @test fc1.fvecs[1] != fc.fvecs[1]
     @test !isnothing(fc1.xt)
     @test !isnothing(fc2.xt)
     @test fc1.xt === fc2.xt
     @test fc1.yt === fc2.yt
-    @test mean(reduce(hcat, fc1.fvecs)[2, :]) ≈ 0.0 atol = 1e-8
-    @test !isapprox(mean(reduce(hcat, fc2.fvecs)[2, :]), 0.0; atol=1e-8)
+    # fvecs remain untransformed
+    @test fc1.fvecs[1] ≈ fc.fvecs[1]
 
 end
 

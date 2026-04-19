@@ -108,13 +108,6 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
 
     train, val, test = load_training_dataset(bu; combined=false)
 
-    # Linear model does not need standardisation (e.g. the interface does not have this functionality)
-    if training_mode == "linear"
-        reconstruct_x!(train)
-        reconstruct_x!(val)
-        reconstruct_x!(test)
-    end
-
     x_train, y_train = get_fit_data(train)
     x_val, y_val = get_fit_data(val)
 
@@ -138,7 +131,6 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
                 tra.n_nodes...;
                 xt=train.xt,
                 yt=train.yt,
-                apply_xt=false,
                 embedding=bu.cf_embedding,
             )
         elseif training_mode == "linear"
@@ -268,12 +260,6 @@ function create_ensemble(
     # Load the models
     models = load_model.(names)
     train, val, test = load_training_data(dataset_path)
-
-    if isa(models[1], LinearInterface)
-        reconstruct_x!(train)
-        reconstruct_x!(val)
-        reconstruct_x!(test)
-    end
 
     # Select which set of data is used for ensemble creation
     if ensemble_target == :test

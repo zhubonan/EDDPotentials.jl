@@ -25,7 +25,7 @@ end
 
 const _MODEL_FORMAT = "eddp-model"
 const _FEATURE_FORMAT = "eddp-feature"
-const _FORMAT_VERSION = 1
+const _FORMAT_VERSION = 2
 
 _model_producer() = Dict(
     "package" => "EDDPotentials",
@@ -422,7 +422,6 @@ function _model_to_data(
         "feature_spec" => _feature_to_data(feature_spec),
         "elemental_energies" => _elemental_energies_to_data(elemental_energies),
         "metadata" => _json_compatible(metadata),
-        "apply_xt" => model.apply_xt,
         "xt" => _transform_to_data(model.xt),
         "yt" => _transform_to_data(model.yt),
         "layers" => [_layer_to_data(layer) for layer in model.chain.layers],
@@ -460,7 +459,6 @@ _submodel_to_data(model::LinearInterface) =
 function _submodel_to_data(model::ManualFluxBackPropInterface)
     Dict(
         "interface_type" => "manual_flux_backprop",
-        "apply_xt" => model.apply_xt,
         "xt" => _transform_to_data(model.xt),
         "yt" => _transform_to_data(model.yt),
         "layers" => [_layer_to_data(layer) for layer in model.chain.layers],
@@ -482,7 +480,6 @@ function _submodel_from_data(data, feature_spec)
             chain;
             xt=_transform_from_data(get(data, "xt", nothing)),
             yt=_transform_from_data(get(data, "yt", nothing)),
-            apply_xt=Bool(get(data, "apply_xt", true)),
         )
     end
     throw(ArgumentError("Unsupported ensemble submodel interface_type `$interface_type`."))
@@ -505,7 +502,6 @@ function _model_from_data(data)
             chain;
             xt=_transform_from_data(get(data, "xt", nothing)),
             yt=_transform_from_data(get(data, "yt", nothing)),
-            apply_xt=Bool(get(data, "apply_xt", true)),
         )
     elseif interface_type == "ensemble"
         models = [
@@ -565,7 +561,7 @@ function load_model_artifact(path::AbstractString)
         data = JSON.parsefile(path)
         _require_key(data, "format") == _MODEL_FORMAT ||
             throw(ArgumentError("File `$path` is not an EDDP model JSON artifact."))
-        Int(_require_key(data, "format_version")) == _FORMAT_VERSION ||
+        Int(_require_key(data, "format_version")) <= _FORMAT_VERSION ||
             throw(ArgumentError("Unsupported EDDP model JSON format version in `$path`."))
         return _model_from_data(_require_key(data, "model"))
     elseif endswith(path, ".jld2")

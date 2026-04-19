@@ -106,7 +106,7 @@ end
 Obtain an transformed the input array
 """
 function transformed_inp(itf, inp)
-    if (itf.xt !== nothing) && (itf.apply_xt)
+    if itf.xt !== nothing
         inptmp = copy(inp)
         transform!(itf.xt, @view(inptmp[end-itf.xt.len+1:end, :]))
         return inptmp

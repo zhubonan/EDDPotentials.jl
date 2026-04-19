@@ -241,7 +241,6 @@ function main(args=ARGS)
         σ=tanh,
         xt=fc_train.xt,
         yt=fc_train.yt,
-        apply_xt=false,
     )
 
     println("Model parameter count: $(nparams(model))")

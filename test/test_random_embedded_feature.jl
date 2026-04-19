@@ -208,12 +208,11 @@ using CellBase: positions, species
         @test length(fc.fvecs) == length(sc)
         @test size(fc.fvecs[1], 1) == nfeatures(embedded)
 
-        fc_train, fc_val = split(fc, 3, 1; standardize=true, apply_transform=true)
+        fc_train, fc_val = split(fc, 3, 1; standardize=true)
         model = ManualFluxBackPropInterface(
             Chain(Dense(ginit(4, nfeatures(embedded))), Dense(ginit(1, 4))),
             xt=fc_train.xt,
             yt=fc_train.yt,
-            apply_xt=false,
         )
         train!(model, fc_train, fc_val; maxIter=2, show_progress=false, earlystop=0)
         @test isfinite(sum(model(fc_train[1][1])))

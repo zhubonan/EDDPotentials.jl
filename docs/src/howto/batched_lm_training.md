@@ -45,7 +45,7 @@ fc_train, fc_val = split(fc, 450, 50)
 # Create model
 itf = ManualFluxBackPropInterface(
     cf, 30, 30;
-    xt=fc_train.xt, yt=fc_train.yt, apply_xt=false
+    xt=fc_train.xt, yt=fc_train.yt
 )
 
 # Train with batched LM
@@ -117,7 +117,7 @@ using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface, reinit
 
 # Standard LM
 itf_lm = ManualFluxBackPropInterface(cf, 30, 30;
-    xt=fc_train.xt, yt=fc_train.yt, apply_xt=false)
+    xt=fc_train.xt, yt=fc_train.yt)
 train!(itf_lm, fc_train, fc_val; maxIter=500, show_progress=true)
 
 # Batched LM
