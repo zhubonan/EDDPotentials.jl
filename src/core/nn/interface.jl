@@ -121,6 +121,7 @@ include("manual_backprop.jl")
 include("linear.jl")
 include("ensemble.jl")
 include("flux.jl")
+include("json_serialization.jl")
 
 """
     load_from_jld2(f)

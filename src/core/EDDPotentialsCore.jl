@@ -69,6 +69,15 @@ export eddp_energy,
 export CellFeature, nfeatures
 export RandomEmbeddedCellFeature
 export TwoBodyFeature, ThreeBodyFeature, permequal, feature_size
+export ModelArtifact,
+    FeatureArtifact,
+    load_model,
+    load_model_json,
+    load_model_artifact,
+    save_model_json,
+    load_feature_json,
+    load_feature_artifact,
+    save_feature_json
 export NNCalc, VariableCellCalc, MultiCalc, DimPenalty
 export CoreRepulsion
 export calculate!

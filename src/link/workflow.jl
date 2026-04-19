@@ -14,7 +14,7 @@ using YAML
 using TOML
 using ArgParse
 using Random
-using .EDDPotentialsCore: CellEmbedding, load_from_jld2, EnsembleNNInterface
+using .EDDPotentialsCore: CellEmbedding, EnsembleNNInterface, load_model_artifact
 
 # Note: Utils functions will be available from parent module after include
 # using ensure_dir, input_structure_dir, output_structure_dir
@@ -206,7 +206,7 @@ end
 Check if an ensemble file exists for the given iteration.
 """
 function has_ensemble(bu::Builder, iteration=bu.state.iteration)
-    isfile(joinpath(bu.state.workdir, "$(bu.trainer.prefix)ensemble-gen$(iteration).jld2"))
+    isfile(_ensemble_existing_path(bu, iteration))
 end
 
 
@@ -216,10 +216,10 @@ end
 Load the ensemble model for a given iteration.
 """
 function load_ensemble(bu::Builder, iteration=_latest_ensemble_iteration(bu))
-    load_from_jld2(
-        ensemble_name(bu, iteration),
-        EnsembleNNInterface,
-    )
+    artifact = load_model_artifact(_ensemble_existing_path(bu, iteration))
+    artifact.model isa EnsembleNNInterface ||
+        throw(ArgumentError("Artifact `$(_ensemble_existing_path(bu, iteration))` is not an ensemble model."))
+    artifact.model
 end
 
 
@@ -229,7 +229,15 @@ end
 Get the file path for the ensemble at a given iteration.
 """
 ensemble_name(bu::Builder, iteration=bu.state.iteration) =
-    joinpath(bu.state.workdir, "$(bu.trainer.prefix)ensemble-gen$(iteration).jld2")
+    joinpath(bu.state.workdir, "$(bu.trainer.prefix)ensemble-gen$(iteration).json")
+
+function _ensemble_existing_path(bu::Builder, iteration=bu.state.iteration)
+    json_path = ensemble_name(bu, iteration)
+    isfile(json_path) && return json_path
+    legacy_path = joinpath(bu.state.workdir, "$(bu.trainer.prefix)ensemble-gen$(iteration).jld2")
+    isfile(legacy_path) && return legacy_path
+    json_path
+end
 
 
 """

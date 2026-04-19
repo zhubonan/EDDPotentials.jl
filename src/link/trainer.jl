@@ -3,7 +3,11 @@ Function for running training as a separate process
 =#
 
 using ArgParse
-using .EDDPotentialsCore: ManualFluxBackPropInterface, LinearInterface
+using .EDDPotentialsCore:
+    LinearInterface,
+    ManualFluxBackPropInterface,
+    load_model,
+    save_model_json
 
 const TRAINING_DIR = "training"
 
@@ -16,19 +20,29 @@ function dataset_name(bu::Builder, i=bu.state.iteration)
     joinpath(bu.state.workdir, TRAINING_DIR, "gen-$i-dataset.jld2")
 end
 
+function _is_saved_model_name(name::AbstractString, prefix::AbstractString)
+    startswith(name, prefix) && (endswith(name, ".json") || endswith(name, ".jld2"))
+end
+
+function _saved_model_paths(bu::Builder, tra::TrainingOption=bu.trainer; pattern=nothing)
+    if pattern !== nothing
+        return sort(glob_allow_abs(pattern))
+    end
+    training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
+    prefix = tra.prefix * "gen-$(bu.state.iteration)-model-"
+    sort([
+        joinpath(training_dir, name) for
+        name in readdir(training_dir) if _is_saved_model_name(name, prefix)
+    ])
+end
+
 """
     num_existing_models(bu::Builder, tra::TrainingOption=bu.trainer)
 
 Return the number of existing models in the training directory.
 """
 function num_existing_models(bu::Builder, tra::TrainingOption=bu.trainer)
-    training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
-    count(
-        x ->
-            endswith(x, ".jld2") &&
-                startswith(x, tra.prefix * "gen-$(bu.state.iteration)-model"),
-        readdir(training_dir),
-    )
+    length(_saved_model_paths(bu, tra))
 end
 
 
@@ -84,7 +98,7 @@ end
 """
     run_trainer(trainer::TrainingOption, builder::Builder)
 
-Train the model and write the result to the disk as a JLD2 archive.
+Train the model and write the result to the disk as a JSON archive.
 """
 function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
 
@@ -204,8 +218,13 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
         # Save the model
         clear_transient_gradients!(model)
         model_name =
-            tra.prefix * "gen-$(bu.state.iteration)-model-" * string(uuid4())[1:8] * ".jld2"
-        save_as_jld2(joinpath(training_dir, model_name), model)
+            tra.prefix * "gen-$(bu.state.iteration)-model-" * string(uuid4())[1:8] * ".json"
+        save_model_json(
+            joinpath(training_dir, model_name),
+            model;
+            feature_spec=bu.cf,
+            elemental_energies=make_symbol_keys(bu.state.elemental_energies),
+        )
         @info "Model save $model_name"
         i_trained += 1
     end # End the while loop
@@ -241,17 +260,13 @@ function create_ensemble(
     clean_individual_models=false,
     dataset_path=dataset_name(bu),
     ensemble_target=:test,
-    pattern=joinpath(
-        bu.state.workdir,
-        TRAINING_DIR,
-        tra.prefix * "gen-$(bu.state.iteration)-model-*.jld2",
-    ),
+    pattern=nothing,
     alg=:fnnls,
 )
-    names = glob_allow_abs(pattern)
-    @assert !isempty(names) "No model found at $pattern"
+    names = _saved_model_paths(bu, tra; pattern)
+    @assert !isempty(names) "No model found for iteration $(bu.state.iteration)."
     # Load the models
-    models = load_from_jld2.(names)
+    models = load_model.(names)
     train, val, test = load_training_data(dataset_path)
 
     if isa(models[1], LinearInterface)
@@ -277,15 +292,18 @@ function create_ensemble(
         create_ensemble(models, total; alg, error_threshold=tra.ensemble_error_threshold)
     if save_ensemble_model
         savepath = joinpath(bu.state.workdir, ensemble_name(bu))
-        save_as_jld2(savepath, ensemble)
-        # Write additional metadata
-        jldopen(savepath, "r+") do fh
-            fh["train_labels"] = train.labels
-            fh["val_labels"] = val.labels
-            fh["test_labels"] = test.labels
-            fh["builder_uuid"] = builder_uuid(bu)
-            fh["cf"] = bu.cf
-        end
+        save_model_json(
+            savepath,
+            ensemble;
+            feature_spec=bu.cf,
+            elemental_energies=make_symbol_keys(bu.state.elemental_energies),
+            metadata=Dict(
+                "train_labels" => train.labels,
+                "val_labels" => val.labels,
+                "test_labels" => test.labels,
+                "builder_uuid" => builder_uuid(bu),
+            ),
+        )
     end
     clean_individual_models && rm.(names)
     ensemble

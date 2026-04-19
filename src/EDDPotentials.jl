@@ -51,7 +51,14 @@ import .EDDPotentialsCore:
     get_elemental_energy,
     feature_vector,
     glob_allow_abs,
+    load_feature_artifact,
+    load_feature_json,
+    load_model,
+    load_model_artifact,
+    load_model_json,
     load_from_jld2,
+    save_feature_json,
+    save_model_json,
     setup_fj,
     setup_fj_batched,
     update_feature_vector!,
@@ -119,7 +126,16 @@ export opt_tpsd, opt_fire  # Explicit optimization functions
 export AbstractOptimizer, NativeTPSD, NativeFIRE
 export initialize!, step!, converged, reset!, get_iteration, optimize!
 export get_positions, set_positions!, set_cell!, set_cellmat!
-export StructureContainer, FeatureContainer, load_from_jld2
+export StructureContainer,
+    FeatureContainer,
+    load_from_jld2,
+    load_model,
+    load_model_json,
+    load_model_artifact,
+    save_model_json,
+    load_feature_json,
+    load_feature_artifact,
+    save_feature_json
 export BuilderState, TrainingOption, link!
 export Builder,
     walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss

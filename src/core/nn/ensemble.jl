@@ -120,9 +120,6 @@ function load_from_jld2(f::Union{JLD2.Group,JLD2.JLDFile}, ::Type{<:EnsembleNNIn
         i = parse(Int, split(key, "-")[2])
         push!(ids, i)
         model = load_from_jld2(group[key])
-        if isa(model, ManualFluxBackPropInterface)
-            model.apply_xt = true
-        end
         push!(models, model)
     end
     weights = topgroup["weights"]
