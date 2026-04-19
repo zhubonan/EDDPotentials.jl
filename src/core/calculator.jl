@@ -12,19 +12,61 @@ import CellBase:
     remove_dimensions,
     distance_squared_between
 using StatsBase: ZScoreTransform, transform!
+"""
+    AbstractCalc
+
+Abstract supertype for all EDDP calculators. Concrete subtypes must implement:
+- `get_cell(calc)` — return the `Cell` object
+- `calculate!(calc; forces=true, rebuild_nl=true)` — trigger energy/force/stress computation
+- `eddp_energy(calc)` — total energy
+- `eddp_forces(calc)` — atomic forces matrix
+- `eddp_stress(calc)` — 3×3 stress tensor
+
+See [`NNCalc`](@ref), [`VariableCellCalc`](@ref), [`MetaCalculator`](@ref), [`MultiCalc`](@ref).
+"""
 abstract type AbstractCalc end
 const AC = AbstractCalc
 
 ## Methods to be implemented for the Abstract type
 
+"""
+    get_cell(calc::AbstractCalc) -> Cell
+
+Return the `Cell` object associated with the calculator.
+"""
 function get_cell end
 
+"""
+    eddp_energy(calc::AbstractCalc) -> Number
+
+Return the total energy (eV) of the system.
+"""
 function eddp_energy end
 
+"""
+    calculate!(calc::AbstractCalc; forces=true, rebuild_nl=true)
+
+Compute energy, forces, and stress. Results are cached internally — subsequent
+calls with an unchanged cell are no-ops unless `forces=true` is requested after
+an energy-only call. Set `rebuild_nl=false` to skip neighbor list rebuild and
+instead update incrementally.
+"""
 function calculate! end
 
+"""
+    eddp_forces(calc::AbstractCalc) -> Matrix
+
+Return the atomic forces as a `D×N` matrix where `D` is the number of spatial
+dimensions and `N` is the number of atoms. Forces are in eV/Å.
+"""
 function eddp_forces end
 
+"""
+    eddp_stress(calc::AbstractCalc) -> Matrix
+
+Return the 3×3 stress tensor (eV/Å³). The stress is the virial stress divided
+by the cell volume.
+"""
 function eddp_stress end
 
 
@@ -169,7 +211,8 @@ end
 """
     eddp_energy(calc::NNCalc; forces=false, rebuild_nl=true)
 
-Return the total energy of the calculator.
+Return the total energy (eV) including elemental reference energies.
+Triggers `calculate!` if the cell has changed since the last call.
 """
 function eddp_energy(calc::NNCalc; forces=false, rebuild_nl=true)
     calculate!(calc; forces, rebuild_nl)
@@ -179,10 +222,22 @@ end
 get_elemental_energy(cell::Cell, ref_energies::Dict) =
     sum(x -> get(ref_energies, x, 0.0), species(cell))
 
+"""
+    eddp_enthalpy(calc::AbstractCalc) -> Number
+
+Return the enthalpy `H = E + PV`. For `VariableCellCalc` this includes the
+external pressure contribution. For other calculators, returns the energy.
+"""
 function eddp_enthalpy(calc::NNCalc; forces=false, rebuild_nl=true)
     eddp_energy(calc; forces, rebuild_nl)
 end
 
+"""
+    eddp_forces(calc::NNCalc; rebuild_nl=true, make_copy=true) -> Matrix
+
+Return the `D×N` forces matrix (eV/Å). Set `make_copy=false` to get a
+reference to the internally cached matrix instead of a copy.
+"""
 function eddp_forces(calc::NNCalc; rebuild_nl=true, make_copy=true)
     calculate!(calc; forces=true, rebuild_nl)
     if make_copy
@@ -191,6 +246,12 @@ function eddp_forces(calc::NNCalc; rebuild_nl=true, make_copy=true)
     calc.forces
 end
 
+"""
+    eddp_stress(calc::NNCalc; rebuild_nl=true, make_copy=true) -> Matrix
+
+Return the 3×3 virial stress tensor (eV/Å³), divided by cell volume.
+Set `make_copy=false` to get a reference to the internally cached matrix.
+"""
 function eddp_stress(calc::NNCalc; rebuild_nl=true, make_copy=true)
     calculate!(calc; forces=true, rebuild_nl)
     if make_copy
@@ -213,7 +274,9 @@ end
 """
     calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
 
-Core function used to compute energy, forces and stress.
+Core computation function for energy, forces, and stress. Results are cached —
+subsequent calls with an unchanged cell are no-ops. Set `rebuild_nl=false` to
+use incremental neighbor list updates instead of full rebuilds.
 """
 @timeit to function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
     # Nothing to do if the cell has not changed since last time
@@ -257,8 +320,11 @@ function _rebuild_on_demand(calc; rebuild_nl)
 end
 
 """
-Return standard deviation of the predicted total energy
-Note: must be run after a energy call!
+    eddp_energy_std(calc::NNCalc{<:Any,<:Any,<:Any,<:EnsembleNNInterface}) -> Number
+
+Return the standard deviation of the predicted total energy across all models
+in the ensemble. Requires the calculator to use an [`EnsembleNNInterface`](@ref).
+Call [`eddp_energy`](@ref) first if the cell has changed.
 """
 function eddp_energy_std(calc::NNCalc{T,N,M,X}) where {T,N,M,X<:EnsembleNNInterface}
     eddp_energy(calc)
@@ -551,14 +617,20 @@ for func in [:eddp_energy, :eddp_forces, :eddp_pressure, :eddp_energy_std, :eddp
     end
 end
 
+"""
+    eddp_energy_per_atom(calc_or_cell, args...; kwargs...) -> Number
+
+Total energy normalized by the number of atoms (eV/atom).
+"""
 eddp_energy_per_atom(cell::Cell, args...; kwargs...) =
     eddp_energy(cell, args...; kwargs...) / length(cell)
 eddp_energy_per_atom(calc::AbstractCalc, args...; kwargs...) =
     eddp_energy(calc, args...; kwargs...) / length(get_cell(calc))
 """
-    eddp_energy_std_per_atom(calc_or_cell, args...; kwargs...)
+    eddp_energy_std_per_atom(calc_or_cell, args...; kwargs...) -> Number
 
-Return ensemble energy standard deviation normalized per atom.
+Ensemble energy standard deviation normalized per atom (eV/atom).
+Useful for assessing model confidence independently of system size.
 """
 eddp_energy_std_per_atom(cell::Cell, args...; kwargs...) =
     eddp_energy_std(cell, args...; kwargs...) / length(cell)
@@ -625,6 +697,22 @@ end
 get_cell(calc::DimPenalty) = calc.cell
 
 
+"""
+    MultiCalc(calcs...)
+
+Combine multiple calculators by summing their energies, forces, and stresses.
+This is useful for adding repulsive core corrections or external potentials
+on top of an ML calculator.
+
+```julia
+calc = NNCalc(cell, cf, ensemble)
+repulsion = CoreRepulsion(...)
+combined = MultiCalc(calc, repulsion)
+```
+
+A `VariableCellCalc` in the input is automatically moved to the first position
+so that its `get_cell`/`set_positions!` methods are used.
+"""
 struct MultiCalc{T} <: AbstractCalc
     calcs::T
     function MultiCalc(calcs)
