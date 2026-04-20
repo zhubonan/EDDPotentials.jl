@@ -225,4 +225,74 @@ using CellBase: positions, species
             @test allclose(fc_loaded.fvecs[1], fc.fvecs[1], atol=1e-12)
         end
     end
+
+    @testset "Learnable Embedding Gradient" begin
+        using EDDPotentials.EDDPotentialsCore:
+            grad_embedding!,
+            recompute_features!,
+            get_workspace,
+            suggest_rcut,
+            paramvector,
+            nparams,
+            forward!,
+            backward!,
+            gradinp!,
+            setparamvector!,
+            gradparam!
+
+        cell = _h2o_cell(5.0)
+        cf = RandomEmbeddedCellFeature([:H, :O]; nembed=3, seed=42, p2=2:3, p3=2:2, q3=2:2)
+
+        # Create a simple NN model
+        model = ManualFluxBackPropInterface(cf, 4)
+        nn_params = paramvector(model)
+
+        # Compute features and NN output
+        rcut = suggest_rcut(cf; shell=0.0)
+        nl = CellBase.NeighbourList(cell, rcut, 500; savevec=true)
+        wk = get_workspace(cf, nl, false)
+        recompute_features!(wk.fvec, cf, cell, wk, nl)
+        out = forward!(model, wk.fvec)
+        energy = sum(out)
+
+        # Backward pass to get dE/dfvec
+        backward!(model)
+        nat = natoms(cell)
+        nf = nfeatures(cf)
+        gv = zeros(Float64, nf, nat)
+        gradinp!(gv, model)
+
+        # Analytical embedding gradient
+        gE = zeros(Float64, size(cf.embedding))
+        grad_embedding!(gE, cf, cell, nl, gv)
+
+        # Finite-difference verification
+        eps = 1e-7
+        gE_fd = zeros(Float64, size(cf.embedding))
+        for s in 1:size(cf.embedding, 1)
+            for d in 1:size(cf.embedding, 2)
+                # Perturb +eps
+                cf.embedding[s, d] += eps
+                recompute_features!(wk.fvec, cf, cell, wk, nl)
+                out_plus = forward!(model, wk.fvec)
+                e_plus = sum(out_plus)
+
+                # Perturb -eps
+                cf.embedding[s, d] -= 2eps
+                recompute_features!(wk.fvec, cf, cell, wk, nl)
+                out_minus = forward!(model, wk.fvec)
+                e_minus = sum(out_minus)
+
+                # Restore
+                cf.embedding[s, d] += eps
+
+                gE_fd[s, d] = (e_plus - e_minus) / (2eps)
+            end
+        end
+
+        # Restore features with original embedding
+        recompute_features!(wk.fvec, cf, cell, wk, nl)
+
+        @test allclose(gE, gE_fd, atol=1e-5)
+    end
 end

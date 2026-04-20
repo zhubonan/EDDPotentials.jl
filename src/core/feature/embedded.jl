@@ -423,3 +423,254 @@ function compute_fv_gv(cf::RandomEmbeddedCellFeature, cell::Cell; kwargs...)
     workspace = get_workspace(cf, nl, true)
     return compute_fv_gv!(workspace, cf, cell; kwargs...)
 end
+
+#=
+Learnable embedding gradient computation.
+
+Computes dE_total / d(embedding) given gv = dE_total / d(fvec) (from gradinp!).
+
+The embedding gradient for species s and embedding dimension d is:
+
+    gE[s, d] = Σ_{iat, j} gv[j, iat] * ∂fvec[j, iat] / ∂E[s, d]
+
+The chain rule splits into one-body, two-body, and three-body contributions
+that mirror the feature computation loops.
+=#
+
+"""
+    grad_embedding_one!(gE, cf, iat, cell, nl, gv; offset)
+
+Accumulate the embedding gradient contribution from a single center atom `iat`.
+
+This mirrors `compute_embedded_fv_gv_one!` but accumulates into `gE` instead of
+`fvec`/`gvec`.  Only the embedding gradient is computed — no position/strain
+gradients.
+
+# Arguments
+- `gE`: Embedding gradient matrix `(n_elem, n_embed)`, accumulated in-place
+- `cf`: The `RandomEmbeddedCellFeature` with current embedding
+- `iat`: Center atom index
+- `cell`: Crystal structure
+- `nl`: Neighbour list
+- `gv`: Upstream gradient `dE_total/d(fvec)`, shape `(nfeatures, natoms)`
+"""
+function grad_embedding_one!(
+    gE::Matrix{T},
+    cf::RandomEmbeddedCellFeature,
+    iat::Int,
+    cell::Cell,
+    nl::NeighbourList,
+    gv::AbstractMatrix{T};
+    offset=embedding_size(cf),
+) where {T}
+    feat2 = cf.two_body_proto
+    feat3 = cf.three_body_proto
+    spec_index = _species_index_map(cf.elements)
+    sym = species(cell)
+    e = cf.embedding
+    tiny_dist = 1e-14
+    maxrcut = suggest_rcut(cf; shell=0.0)
+
+    n2proto = isnothing(feat2) ? 0 : nfeatures(feat2)
+    n3proto = isnothing(feat3) ? 0 : nfeatures(feat3)
+
+    si = spec_index[sym[iat]]
+
+    # --- One-body contribution ---
+    # fvec[d, iat] = E[si, d]  =>  ∂fvec[d, iat]/∂E[si, d] = 1
+    for d in 1:embedding_size(cf)
+        gE[si, d] += gv[d, iat]
+    end
+
+    # --- Pre-compute three-body caches ---
+    npmax3 = isnothing(feat3) ? 0 : feat3.np
+    nqmax3 = isnothing(feat3) ? 0 : feat3.nq
+    pij = zeros(T, npmax3)
+    inv_fij = zero(T)
+    pik = zeros(T, npmax3)
+    inv_fik = zero(T)
+    qjk = zeros(T, nqmax3)
+
+    # --- Two-body and three-body loops ---
+    for (jat, jextend, rij, vij) in CellBase.eachneighbourvector(nl, iat)
+        rij > maxrcut && continue
+        @assert rij > tiny_dist
+
+        sj = spec_index[sym[jat]]
+
+        if !isnothing(feat3)
+            fijtmp = feat3.f(rij, feat3.rcut)
+            inv_fij = 1.0 / fijtmp
+            for m = 1:feat3.np
+                pij[m] = fast_pow(fijtmp, feat3.p[m])
+            end
+        end
+
+        # --- Two-body embedding gradient ---
+        # fvec[i, iat] += raw * E[si, a] * E[sj, b]
+        # => gE[si, a] += gv[i, iat] * raw * E[sj, b]
+        # => gE[sj, b] += gv[i, iat] * raw * E[si, a]
+        if n2proto > 0
+            fij2 = feat2.f(rij, feat2.rcut)
+            for (ich, (a, b)) in enumerate(cf.pair_channels)
+                base_i = offset + 1 + (ich - 1) * n2proto
+                for m = 1:feat2.np
+                    raw = fast_pow(fij2, feat2.p[m])
+                    idx = base_i + (m - 1)
+                    ggv = gv[idx, iat] * raw
+                    if ggv != zero(T)
+                        gE[si, a] += ggv * e[sj, b]
+                        gE[sj, b] += ggv * e[si, a]
+                    end
+                end
+            end
+        end
+
+        isnothing(feat3) && continue
+
+        # --- Three-body embedding gradient ---
+
+        for (kat, kextend, rik, vik) in CellBase.eachneighbourvector(nl, iat)
+            rik > maxrcut && continue
+            @assert rik > tiny_dist
+            kextend <= jextend && continue
+
+            vjk = nl.ea.positions[kextend] .- nl.ea.positions[jextend]
+            rjk = norm(vjk)
+            rjk > maxrcut && continue
+            @assert rjk > tiny_dist
+
+            sk = spec_index[sym[kat]]
+
+            fiktmp = feat3.f(rik, feat3.rcut)
+            fjktmp = feat3.f(rjk, feat3.rcut)
+            inv_fik = 1.0 / fiktmp
+            for m = 1:feat3.np
+                pik[m] = fast_pow(fiktmp, feat3.p[m])
+            end
+            for o = 1:feat3.nq
+                qjk[o] = fast_pow(fjktmp, feat3.q[o])
+            end
+
+            block0 = offset + n2proto * length(cf.pair_channels)
+            for (ich, (a, b, c)) in enumerate(cf.triplet_channels)
+                base_i = block0 + 1 + (ich - 1) * n3proto
+                for m = 1:feat3.np
+                    ijkp = pij[m] * pik[m]
+                    for o = 1:feat3.nq
+                        raw = ijkp * qjk[o]
+                        idx = base_i + (m - 1) * feat3.nq + (o - 1)
+                        ggv = gv[idx, iat] * raw
+                        ggv == zero(T) && continue
+
+                        if b == c
+                            # wtrip = E[si, a] * E[sj, b] * E[sk, b]
+                            gE[si, a] += ggv * e[sj, b] * e[sk, b]
+                            gE[sj, b] += ggv * e[si, a] * e[sk, b]
+                            gE[sk, b] += ggv * e[si, a] * e[sj, b]
+                        else
+                            # wtrip = E[si, a] * (E[sj, b]*E[sk, c] + E[sj, c]*E[sk, b])
+                            gE[si, a] += ggv * (e[sj, b] * e[sk, c] + e[sj, c] * e[sk, b])
+                            gE[sj, b] += ggv * e[si, a] * e[sk, c]
+                            gE[sj, c] += ggv * e[si, a] * e[sk, b]
+                            gE[sk, b] += ggv * e[si, a] * e[sj, c]
+                            gE[sk, c] += ggv * e[si, a] * e[sj, b]
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return gE
+end
+
+"""
+    grad_embedding!(gE, cf, cell, nl, gv)
+
+Compute the gradient of the total energy with respect to the embedding matrix.
+
+    gE[s, d] = dE_total / d(embedding[s, d])
+
+given `gv = dE_total / d(fvec)` from `gradinp!`.
+"""
+function grad_embedding!(
+    gE::Matrix{T},
+    cf::RandomEmbeddedCellFeature,
+    cell::Cell,
+    nl::NeighbourList,
+    gv::AbstractMatrix{T};
+    offset=embedding_size(cf),
+) where {T}
+    fill!(gE, zero(T))
+    for iat in 1:natoms(cell)
+        grad_embedding_one!(gE, cf, iat, cell, nl, gv; offset)
+    end
+    return gE
+end
+
+"""
+    recompute_features!(fvec_out, cf, cell, workspace, nl)
+
+Recompute features for a single structure with the current embedding.
+"""
+function recompute_features!(
+    fvec_out,
+    cf::RandomEmbeddedCellFeature,
+    cell::Cell,
+    workspace,
+    nl,
+)
+    compute_fv!(workspace, cf, cell; nl)
+    one_body_vectors!(workspace.fvec, cell, cf)
+    if fvec_out !== workspace.fvec
+        fvec_out .= workspace.fvec
+    end
+    return fvec_out
+end
+
+"""
+    compute_feature_stats!(mean_vec, std_vec, structures, cf, workspaces, nls)
+
+Compute per-feature mean and standard deviation across all structures
+using the current embedding in `cf`.
+"""
+function compute_feature_stats!(
+    mean_vec::AbstractVector{T},
+    std_vec::AbstractVector{T},
+    structures,
+    cf::RandomEmbeddedCellFeature,
+    workspaces,
+    nls,
+) where {T}
+    nf = nfeatures(cf)
+    fill!(mean_vec, zero(T))
+    fill!(std_vec, zero(T))
+    n_atoms_total = 0
+
+    # Welford's online algorithm
+    for i in eachindex(structures)
+        recompute_features!(workspaces[i].fvec, cf, structures[i], workspaces[i], nls[i])
+        fvec = workspaces[i].fvec
+        nat = size(fvec, 2)
+        for iat in 1:nat
+            n_atoms_total += 1
+            delta_n = 1.0 / n_atoms_total
+            for j in 1:nf
+                val = fvec[j, iat]
+                delta = val - mean_vec[j]
+                mean_vec[j] += delta * delta_n
+                delta2 = val - mean_vec[j]
+                std_vec[j] += delta * delta2
+            end
+        end
+    end
+
+    if n_atoms_total > 1
+        std_vec .= sqrt.(std_vec ./ (n_atoms_total - 1))
+    end
+    # Avoid division by zero
+    for j in eachindex(std_vec)
+        std_vec[j] = max(std_vec[j], 1e-8)
+    end
+    return mean_vec, std_vec
+end

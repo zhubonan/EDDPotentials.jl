@@ -444,6 +444,249 @@ function reinit!(chain::Chain, init=ginit)
     chain
 end
 
+#=
+Learnable embedding training closures.
+
+These closures handle the combined parameter vector [nn_params; vec(embedding)]
+and recompute features each LM step, producing a Jacobian with columns for both
+NN and embedding parameters.
+=#
+
+"""
+    setup_fj_with_embedding(model, structures, cf, y, weights=nothing;
+        nmax=500, recompute_xt=false)
+
+Create closures for full LM training with learnable species embedding.
+
+The combined parameter vector is `[nn_params; vec(cf.embedding)]`.
+"""
+function setup_fj_with_embedding(
+    model::AbstractNNInterface,
+    structures::AbstractVector{<:Cell},
+    cf::RandomEmbeddedCellFeature,
+    y::AbstractVector,
+    weights=nothing;
+    nmax::Int=500,
+    recompute_xt::Bool=false,
+)
+    n_nn = nparams(model)
+    n_emb = length(cf.embedding)
+    n_total = n_nn + n_emb
+
+    jtmp_nn = zeros(eltype(paramvector(model)), n_nn)
+    gE = zeros(eltype(cf.embedding), size(cf.embedding))
+
+    # Precompute NLs and workspaces for each structure
+    rcut = suggest_rcut(cf; shell=0.0)
+    nls = [NeighbourList(s, rcut, nmax; savevec=true) for s in structures]
+    workspaces = [get_workspace(cf, nl, false) for nl in nls]
+
+    # Allocate a gv buffer large enough for the largest structure
+    max_nat = maximum(natoms, structures)
+    gv_mat = zeros(eltype(cf.embedding), nfeatures(cf), max_nat)
+
+    function _update_params(param)
+        nn_params = view(param, 1:n_nn)
+        emb_params = view(param, n_nn+1:n_total)
+        setparamvector!(model, nn_params)
+        copyto!(cf.embedding, emb_params)
+    end
+
+    function _recompute_and_forward(i)
+        @timeit to "embed: feature" recompute_features!(workspaces[i].fvec, cf, structures[i], workspaces[i], nls[i])
+        @timeit to "embed: forward" forward!(model, workspaces[i].fvec)
+    end
+
+    function _update_xt()
+        nf = nfeatures(cf)
+        mean_vec = zeros(eltype(cf.embedding), nf)
+        std_vec = zeros(eltype(cf.embedding), nf)
+        compute_feature_stats!(mean_vec, std_vec, structures, cf, workspaces, nls)
+        # Apply only to the non-one-body features (offset by nembed)
+        n1 = embedding_size(cf)
+        model.xt = ZScoreTransform(nf - n1, 2, mean_vec[n1+1:end], std_vec[n1+1:end])
+    end
+
+    function f!(fvec, param)
+        _update_params(param)
+        if recompute_xt
+            _update_xt()
+        end
+        for i in eachindex(structures)
+            out = _recompute_and_forward(i)
+            if isnothing(weights)
+                fvec[i] = sum(out) - y[i]
+            else
+                fvec[i] = (sum(out) - y[i]) * weights[i]
+            end
+        end
+        fvec
+    end
+
+    function j!(jmat, param)
+        fj!(nothing, jmat, param)[2]
+    end
+
+    function fj!(fvec, jmat, param)
+        _update_params(param)
+        if recompute_xt
+            _update_xt()
+        end
+        for i in eachindex(structures)
+            out = _recompute_and_forward(i)
+            @timeit to "embed: backward" backward!(model)
+
+            if jmat !== nothing
+                # NN parameter gradient
+                @timeit to "embed: gradparam" gradparam!(jtmp_nn, model)
+                if isnothing(weights)
+                    jmat[i, 1:n_nn] .= jtmp_nn
+                else
+                    jmat[i, 1:n_nn] .= jtmp_nn .* weights[i]
+                end
+
+                # Embedding gradient
+                nat = natoms(structures[i])
+                gv_view = view(gv_mat, 1:nfeatures(cf), 1:nat)
+                @timeit to "embed: gradinp" gradinp!(gv_view, model)
+                fill!(gE, zero(eltype(gE)))
+                @timeit to "embed: grad_emb" grad_embedding!(gE, cf, structures[i], nls[i], gv_view)
+                if isnothing(weights)
+                    jmat[i, n_nn+1:n_total] .= vec(gE)
+                else
+                    jmat[i, n_nn+1:n_total] .= vec(gE) .* weights[i]
+                end
+            end
+
+            if fvec !== nothing
+                if isnothing(weights)
+                    fvec[i] = sum(out) - y[i]
+                else
+                    fvec[i] = (sum(out) - y[i]) * weights[i]
+                end
+            end
+        end
+        fvec, jmat
+    end
+
+    return f!, j!, fj!
+end
+
+"""
+    setup_fj_batched_with_embedding(model, structures, cf, y, weights=nothing;
+        nmax=500, recompute_xt=false)
+
+Create closures for batched LM training with learnable species embedding.
+
+Returns `(fj_batch!, f_full!)` where `fj_batch!` operates on batch indices
+and `f_full!` evaluates the full dataset.
+"""
+function setup_fj_batched_with_embedding(
+    model::AbstractNNInterface,
+    structures::AbstractVector{<:Cell},
+    cf::RandomEmbeddedCellFeature,
+    y::AbstractVector,
+    weights=nothing;
+    nmax::Int=500,
+    recompute_xt::Bool=false,
+)
+    n_nn = nparams(model)
+    n_emb = length(cf.embedding)
+    n_total = n_nn + n_emb
+
+    jtmp_nn = zeros(eltype(paramvector(model)), n_nn)
+    gE = zeros(eltype(cf.embedding), size(cf.embedding))
+
+    # Precompute NLs and workspaces for each structure
+    rcut = suggest_rcut(cf; shell=0.0)
+    nls = [NeighbourList(s, rcut, nmax; savevec=true) for s in structures]
+    workspaces = [get_workspace(cf, nl, false) for nl in nls]
+
+    max_nat = maximum(natoms, structures)
+    gv_mat = zeros(eltype(cf.embedding), nfeatures(cf), max_nat)
+
+    function _update_params(param)
+        nn_params = view(param, 1:n_nn)
+        emb_params = view(param, n_nn+1:n_total)
+        setparamvector!(model, nn_params)
+        copyto!(cf.embedding, emb_params)
+    end
+
+    function _recompute_and_forward(i)
+        @timeit to "embed: feature" recompute_features!(workspaces[i].fvec, cf, structures[i], workspaces[i], nls[i])
+        @timeit to "embed: forward" forward!(model, workspaces[i].fvec)
+    end
+
+    function _update_xt()
+        nf = nfeatures(cf)
+        mean_vec = zeros(eltype(cf.embedding), nf)
+        std_vec = zeros(eltype(cf.embedding), nf)
+        compute_feature_stats!(mean_vec, std_vec, structures, cf, workspaces, nls)
+        n1 = embedding_size(cf)
+        model.xt = ZScoreTransform(nf - n1, 2, mean_vec[n1+1:end], std_vec[n1+1:end])
+    end
+
+    function fj_batch!(fvec, jmat, param, batch_indices)
+        _update_params(param)
+        if recompute_xt
+            _update_xt()
+        end
+        need_jacobian = !(jmat === nothing)
+
+        for (local_i, global_i) in enumerate(batch_indices)
+            out = _recompute_and_forward(global_i)
+
+            if need_jacobian
+                @timeit to "embed: backward" backward!(model)
+                @timeit to "embed: gradparam" gradparam!(jtmp_nn, model)
+                if isnothing(weights)
+                    jmat[local_i, 1:n_nn] .= jtmp_nn
+                else
+                    jmat[local_i, 1:n_nn] .= jtmp_nn .* weights[global_i]
+                end
+
+                nat = natoms(structures[global_i])
+                gv_view = view(gv_mat, 1:nfeatures(cf), 1:nat)
+                @timeit to "embed: gradinp" gradinp!(gv_view, model)
+                fill!(gE, zero(eltype(gE)))
+                @timeit to "embed: grad_emb" grad_embedding!(gE, cf, structures[global_i], nls[global_i], gv_view)
+                if isnothing(weights)
+                    jmat[local_i, n_nn+1:end] .= vec(gE)
+                else
+                    jmat[local_i, n_nn+1:end] .= vec(gE) .* weights[global_i]
+                end
+            end
+
+            if fvec !== nothing
+                if isnothing(weights)
+                    fvec[local_i] = sum(out) - y[global_i]
+                else
+                    fvec[local_i] = (sum(out) - y[global_i]) * weights[global_i]
+                end
+            end
+        end
+        fvec, jmat
+    end
+
+    function f_full!(fvec, param)
+        _update_params(param)
+        if recompute_xt
+            _update_xt()
+        end
+        for i in eachindex(structures)
+            out = _recompute_and_forward(i)
+            if isnothing(weights)
+                fvec[i] = sum(out) - y[i]
+            else
+                fvec[i] = (sum(out) - y[i]) * weights[i]
+            end
+        end
+        fvec
+    end
+
+    return fj_batch!, f_full!
+end
+
 
 function reinit!(layer::Dense, init=ginit)
     layer.weight .= init(size(layer.weight)...)

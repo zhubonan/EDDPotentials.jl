@@ -1044,3 +1044,308 @@ function loss_stacked(model, datasets; pow=2)
         abs.(pred .- y) .^ pow |> sum
     end
 end
+
+#=
+Training with learnable species embedding.
+
+These entry points co-optimize the NN parameters and the species embedding
+matrix in a single LM loop. Features are recomputed every step using the
+current embedding. The combined parameter vector is [nn_params; vec(embedding)].
+=#
+
+"""
+    train_lm_with_embedding!(itf, structures, cf, y; kwargs...) ->
+        (opt_res, params, history, funcs)
+
+Train a model using full-dataset LM with learnable species embedding.
+
+The embedding matrix in `cf` is updated in-place during training. The combined
+parameter vector `[nn_params; vec(cf.embedding)]` is optimized jointly.
+
+# Arguments
+- `itf::AbstractNNInterface`: Neural network interface
+- `structures::AbstractVector{<:Cell}`: Training structures
+- `cf::RandomEmbeddedCellFeature`: Feature spec with mutable embedding
+- `y::AbstractVector`: Target total energies
+
+# Keyword Arguments
+- `p0_nn=paramvector(itf)`: Initial NN parameters
+- `structures_val=structures`: Validation structures
+- `y_val=y`: Validation target energies
+- `normalize_embedding=false`: Normalize embedding rows after training
+- `recompute_xt=false`: Recompute feature standardization each iteration
+- Remaining kwargs passed to `levenberg_marquardt`
+"""
+function train_lm_with_embedding!(
+    itf::AbstractNNInterface,
+    structures::AbstractVector{<:Cell},
+    cf::RandomEmbeddedCellFeature,
+    y::AbstractVector;
+    p0_nn=paramvector(itf),
+    structures_val=structures,
+    y_val=y,
+    normalize_embedding::Bool=false,
+    recompute_xt::Bool=false,
+    maxIter=1000,
+    show_progress=false,
+    earlystop=50,
+    keep_best=true,
+    log_file="",
+    p=1.25,
+    weights=nothing,
+    args...,
+)
+    rec = []
+    n_nn = length(p0_nn)
+    n_emb = length(cf.embedding)
+    n_total = n_nn + n_emb
+
+    # Combined initial parameter vector
+    p0 = vcat(p0_nn, vec(cf.embedding))
+
+    train_natoms = [natoms(s) for s in structures]
+    val_natoms = [natoms(s) for s in structures_val]
+
+    # Pre-build NLs/workspaces for RMSE callback (avoids rebuilding each iteration)
+    train_nls, train_wks = _precompute_nl_workspace(structures, cf)
+    if structures_val !== structures
+        val_nls, val_wks = _precompute_nl_workspace(structures_val, cf)
+    else
+        val_nls, val_wks = train_nls, train_wks
+    end
+
+    time_start = time()
+    last_time = time()
+    iter_count = 1
+
+    function progress_tracker()
+        rmse_train = rmse_per_atom_with_embedding(itf, structures, y, train_natoms, cf, train_nls, train_wks)
+        if structures_val === structures
+            rmse_val = rmse_train
+        else
+            rmse_val = rmse_per_atom_with_embedding(itf, structures_val, y_val, val_natoms, cf, val_nls, val_wks)
+        end
+        if show_progress || (log_file != "")
+            tnow = time()
+            elapsed = tnow - time_start
+            loop = tnow - last_time
+            last_time = tnow
+            logline = @sprintf "Iter: %d %3.3f %3.3f RMSE Train %10.5f eV | Val %10.5f eV\n" iter_count loop elapsed rmse_train rmse_val
+            show_progress && print(logline)
+            if log_file != ""
+                open(log_file, "a") do file
+                    write(file, logline)
+                end
+            end
+        end
+
+        flush(stdout)
+        push!(rec, (rmse_train, rmse_val))
+        iter_count += 1
+
+        rmse_val, paramvector(itf)
+    end
+
+    # Setup closures for training data
+    f!, j!, fj! = EDDPotentialsCore.setup_fj_with_embedding(
+        itf, structures, cf, y, weights; recompute_xt
+    )
+
+    # For validation RMSE, use the training closures (they share model + cf state)
+    od2 = OnceDifferentiable(f!, j!, fj!, p0, zeros(eltype(p0), length(y)), inplace=true)
+
+    callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
+
+    opt_res = @timeit EDDPotentialsCore.to "lm solve with embedding" levenberg_marquardt(
+        od2,
+        p0;
+        show_trace=false,
+        callback=callback,
+        p=p,
+        maxIter=maxIter,
+        keep_best=keep_best,
+        earlystop,
+        args...,
+    )
+
+    # Update model and embedding from final parameters
+    final_params = keep_best ? opt_res.minimizer : paramvector(itf)
+    # Also update from the final paramvector
+    final_nn = view(final_params, 1:n_nn)
+    final_emb = view(final_params, n_nn+1:n_total)
+    EDDPotentialsCore.setparamvector!(itf, final_nn)
+    copyto!(cf.embedding, final_emb)
+
+    if normalize_embedding
+        for i in 1:size(cf.embedding, 1)
+            rownorm = sqrt(sum(abs2, @view cf.embedding[i, :]))
+            rownorm > 0 && (@views cf.embedding[i, :] ./= rownorm)
+        end
+    end
+
+    opt_res, vcat(paramvector(itf), vec(cf.embedding)), [map(x -> x[1], rec) map(x -> x[2], rec)], (f!, j!, fj!)
+end
+
+"""
+    train_lm_batched_with_embedding!(itf, structures, cf, y; kwargs...) ->
+        (opt_res, params, history, funcs)
+
+Train a model using batched LM with learnable species embedding.
+"""
+function train_lm_batched_with_embedding!(
+    itf::AbstractNNInterface,
+    structures::AbstractVector{<:Cell},
+    cf::RandomEmbeddedCellFeature,
+    y::AbstractVector;
+    p0_nn=paramvector(itf),
+    structures_val=structures,
+    y_val=y,
+    normalize_embedding::Bool=false,
+    recompute_xt::Bool=false,
+    max_epochs=300,
+    maxIter::Union{Integer,Nothing}=nothing,
+    show_progress=false,
+    earlystop=50,
+    keep_best=true,
+    log_file="",
+    p=1.25,
+    weights=nothing,
+    batch_size=512,
+    shuffle_seed=42,
+    damping_mode::Symbol=:fletcher,
+    attempts_per_step::Int=1,
+    solver::Symbol=:direct,
+    args...,
+)
+    if maxIter !== nothing
+        @warn "maxIter is deprecated, use max_epochs instead" maxIter max_epochs
+        max_epochs = maxIter
+    end
+    args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
+
+    rec = []
+    n_nn = length(p0_nn)
+    n_emb = length(cf.embedding)
+    n_total = n_nn + n_emb
+
+    p0 = vcat(p0_nn, vec(cf.embedding))
+
+    train_natoms = [natoms(s) for s in structures]
+    val_natoms = [natoms(s) for s in structures_val]
+
+    # Pre-build NLs/workspaces for RMSE callback
+    train_nls, train_wks = _precompute_nl_workspace(structures, cf)
+    if structures_val !== structures
+        val_nls, val_wks = _precompute_nl_workspace(structures_val, cf)
+    else
+        val_nls, val_wks = train_nls, train_wks
+    end
+
+    time_start = time()
+    last_time = time()
+    epoch_count = 1
+
+    function progress_tracker()
+        rmse_train = rmse_per_atom_with_embedding(itf, structures, y, train_natoms, cf, train_nls, train_wks)
+        if structures_val === structures
+            rmse_val = rmse_train
+        else
+            rmse_val = rmse_per_atom_with_embedding(itf, structures_val, y_val, val_natoms, cf, val_nls, val_wks)
+        end
+        if show_progress || (log_file != "")
+            tnow = time()
+            elapsed = tnow - time_start
+            loop = tnow - last_time
+            last_time = tnow
+            logline = @sprintf "Epoch: %d %3.3f %3.3f RMSE Train %10.5f eV | Val %10.5f eV (batch=%d)\n" epoch_count loop elapsed rmse_train rmse_val batch_size
+            show_progress && print(logline)
+            if log_file != ""
+                open(log_file, "a") do file
+                    write(file, logline)
+                end
+            end
+        end
+
+        flush(stdout)
+        push!(rec, (rmse_train, rmse_val))
+        epoch_count += 1
+
+        rmse_val, vcat(paramvector(itf), vec(cf.embedding))
+    end
+
+    # Set up batched closures
+    fj_batch!, f_full! = EDDPotentialsCore.setup_fj_batched_with_embedding(
+        itf, structures, cf, y, weights; recompute_xt
+    )
+
+    callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
+
+    opt_res = @timeit EDDPotentialsCore.to "batched lm solve with embedding" levenberg_marquardt_batched(
+        fj_batch!,
+        f_full!,
+        p0;
+        n_data=length(structures),
+        batch_size=batch_size,
+        max_epochs=max_epochs,
+        callback=callback,
+        p=p,
+        keep_best=keep_best,
+        earlystop=earlystop,
+        damping_mode=damping_mode,
+        attempts_per_step=attempts_per_step,
+        solver=solver,
+        shuffle_seed=shuffle_seed,
+        args...,
+    )
+
+    # Update model and embedding from final parameters
+    final_params = keep_best ? opt_res.minimizer : p0
+    final_nn = view(final_params, 1:n_nn)
+    final_emb = view(final_params, n_nn+1:n_total)
+    EDDPotentialsCore.setparamvector!(itf, final_nn)
+    copyto!(cf.embedding, final_emb)
+
+    if normalize_embedding
+        for i in 1:size(cf.embedding, 1)
+            rownorm = sqrt(sum(abs2, @view cf.embedding[i, :]))
+            rownorm > 0 && (@views cf.embedding[i, :] ./= rownorm)
+        end
+    end
+
+    opt_res, vcat(paramvector(itf), vec(cf.embedding)), [map(x -> x[1], rec) map(x -> x[2], rec)], (fj_batch!, f_full!)
+end
+
+"""
+    rmse_per_atom_with_embedding(itf, structures, y, natoms_vec, cf)
+    rmse_per_atom_with_embedding(itf, structures, y, natoms_vec, cf, nls, workspaces)
+
+Compute RMSE per atom using the current embedding to recompute features.
+When `nls` and `workspaces` are provided, they are reused instead of rebuilt.
+"""
+function rmse_per_atom_with_embedding(itf, structures, y, natoms_vec, cf, nls, workspaces)
+    total_sq = 0.0
+    total_nat = 0
+    for i in eachindex(structures)
+        @timeit to "rmse: feature recompute" recompute_features!(workspaces[i].fvec, cf, structures[i], workspaces[i], nls[i])
+        @timeit to "rmse: forward!" out = EDDPotentialsCore.forward!(itf, workspaces[i].fvec)
+        pred = sum(out)
+        total_sq += (pred - y[i])^2
+        total_nat += natoms_vec[i]
+    end
+    sqrt(total_sq / total_nat)
+end
+
+function rmse_per_atom_with_embedding(itf, structures, y, natoms_vec, cf)
+    rcut = suggest_rcut(cf; shell=0.0)
+    nls = [CellBase.NeighbourList(s, rcut, 500; savevec=true) for s in structures]
+    workspaces = [EDDPotentialsCore.get_workspace(cf, nl, false) for nl in nls]
+    rmse_per_atom_with_embedding(itf, structures, y, natoms_vec, cf, nls, workspaces)
+end
+
+"""Pre-build neighbour lists and workspaces for a set of structures."""
+function _precompute_nl_workspace(structures, cf; nmax=500)
+    rcut = suggest_rcut(cf; shell=0.0)
+    nls = [CellBase.NeighbourList(s, rcut, nmax; savevec=true) for s in structures]
+    workspaces = [EDDPotentialsCore.get_workspace(cf, nl, false) for nl in nls]
+    nls, workspaces
+end
