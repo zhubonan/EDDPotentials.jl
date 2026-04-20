@@ -42,7 +42,7 @@ function _parse_args(args)
         "dataset" => DEFAULT_DATASET,
         "max_structures" => 10000,
         "embedding_size" => 4,
-        "hidden_size" => 8,
+        "hidden_size" => [10, 10, 10],
         "p2" => [2,4,6,8,10],
         "p3" => [2,4,6,8,10],
         "q3" => [3,5,7,9],
@@ -50,7 +50,7 @@ function _parse_args(args)
         "train_method" => "lm_batched",
         "batch_size" => 1024,
         "max_iter" => 20,
-        "earlystop" => 5,
+        "earlystop" => 20,
         "seed" => 42,
         "show_progress" => true,
         "threshold" => 10.0,
@@ -189,7 +189,7 @@ function main(args=ARGS)
     nh = cfg["hidden_size"]
     model = ManualFluxBackPropInterface(
         embedded,
-        nh;
+        nh...;
         init=ginit,
         σ=tanh,
         xt=xt,
