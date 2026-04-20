@@ -100,7 +100,7 @@ abstract type AbstractTrainer end
 - `energy_threshold`: Threshold (per atom) energy to filter away high energy structures.
 - `nmax`: Maximum number of neighbours when building the neighbour list.
 - `nmodels`: The number of models to be trained for forming the ensemble through NNLS.
-- `max_iter`: Maximum number of iterations for training the potential.
+- `max_iter`: Maximum number of epochs (batched LM) or iterations (full LM) for training.
 - `n_nodes`: The number of hidden nodes in each layer.
 - `earlystop`: The number of none-improving iterations (on the validation set) to wait before early stopping the training.
 - `show_progress`: Whether to show the progress of the training.

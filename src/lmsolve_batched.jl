@@ -25,6 +25,66 @@ struct BatchedLevenbergMarquardt <: Optimizer end
 Base.summary(::BatchedLevenbergMarquardt) = "Batched Levenberg-Marquardt"
 
 """
+    _apply_damping!(JJ, lambda, DtD, n, mode)
+
+Add damping to the Gauss-Newton Hessian approximation `JJ` in-place.
+
+# Modes
+- `:fletcher`  — `JJ + λ·diag(DtD)` (scale-aware, default)
+- `:standard`  — `JJ + λ·I`
+- `:adaptive`  — `JJ + λ·max(DtD)·I`
+"""
+function _apply_damping!(JJ, lambda, DtD, n, mode::Symbol)
+    if mode === :fletcher
+        for i in 1:n
+            @inbounds JJ[i, i] += lambda * DtD[i]
+        end
+    elseif mode === :standard
+        for i in 1:n
+            @inbounds JJ[i, i] += lambda
+        end
+    elseif mode === :adaptive
+        scale = maximum(DtD)
+        for i in 1:n
+            @inbounds JJ[i, i] += lambda * scale
+        end
+    else
+        throw(ArgumentError("Unknown damping_mode: $mode. Use :standard, :fletcher, or :adaptive."))
+    end
+    JJ
+end
+
+"""
+    _solve_normal!(delta_x, JJ, rhs, solver)
+
+Solve the damped normal equations `JJ * delta_x = rhs` using the specified method.
+
+# Solvers
+- `:direct`    — LU decomposition via `\\` (default)
+- `:cholesky`  — Cholesky factorisation (fast, requires positive-definite JJ)
+- `:qr`        — QR decomposition (robust for ill-conditioned systems)
+"""
+function _solve_normal!(delta_x, JJ, rhs, solver::Symbol)
+    if solver === :direct
+        delta_x .= JJ \ rhs
+    elseif solver === :cholesky
+        try
+            C = cholesky!(Hermitian(JJ))
+            ldiv!(delta_x, C, rhs)
+        catch
+            # Fall back to direct solve if Cholesky fails (non-PD matrix)
+            delta_x .= JJ \ rhs
+        end
+    elseif solver === :qr
+        F = qr(JJ)
+        ldiv!(delta_x, F, rhs)
+    else
+        throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, or :qr."))
+    end
+    delta_x
+end
+
+"""
     levenberg_marquardt_batched(fj_batch!, f_full!, initial_x; kwargs...)
 
 Batched variant of the Levenberg-Marquardt algorithm for large datasets.
@@ -53,7 +113,8 @@ each batch, which is critical when features are stored on disk.
 - `batch_ranges`:    Optional `Vector{UnitRange{Int}}` of pre-computed fixed batch
   index ranges.  When provided, shuffles batch order instead of per-structure
   indices, enabling sequential I/O for disk-backed features.  Overrides `n_data`.
-- `maxIter`:         Maximum total LM iterations **across all batches and epochs** (default 1000).
+- `max_epochs`:      Maximum number of training epochs (default 300). Each epoch processes
+  all batches once.  Deprecated alias `maxIter` counts epoch-equivalents for backward compat.
 - `p`:               Power for iterative weight update (default 2.0).
 - `update_weights`:  Whether to update weights (default `true`).
 - `x_tol`:           Step-size convergence tolerance (default `1e-8`).
@@ -77,7 +138,8 @@ function levenberg_marquardt_batched(
     n_data::Union{Int,Nothing}=nothing,
     batch_size::Int=512,
     batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing,
-    maxIter::Integer=1000,
+    max_epochs::Integer=300,
+    maxIter::Union{Integer,Nothing}=nothing,
     p=2.0,
     update_weights=true,
     x_tol::Real=1e-8,
@@ -88,12 +150,27 @@ function levenberg_marquardt_batched(
     lambda_decrease::Real=0.2,
     min_step_quality::Real=1e-3,
     good_step_quality::Real=0.75,
+    damping_mode::Symbol=:fletcher,
+    attempts_per_step::Int=1,
+    solver::Symbol=:direct,
     show_trace::Bool=false,
     callback=nothing,
     keep_best=true,
     earlystop=0,
     shuffle_seed::Int=42,
 ) where {T}
+
+    # --- Deprecated alias ---
+    if maxIter !== nothing
+        @warn "maxIter is deprecated, use max_epochs instead" maxIter max_epochs
+        max_epochs = maxIter
+    end
+
+    # --- Validate parameters ---
+    max_epochs > 0 || throw(ArgumentError("max_epochs must be positive, got $max_epochs"))
+    attempts_per_step > 0 || throw(ArgumentError("attempts_per_step must be positive, got $attempts_per_step"))
+    damping_mode in (:standard, :fletcher, :adaptive) || throw(ArgumentError("Unknown damping_mode: $damping_mode"))
+    solver in (:direct, :cholesky, :qr) || throw(ArgumentError("Unknown solver: $solver"))
 
     # --- Resolve batch ranges ---
     use_fixed_batches = batch_ranges !== nothing
@@ -142,6 +219,7 @@ function levenberg_marquardt_batched(
 
     # Normal-equation buffers (n × n, independent of batch size)
     JJ = Matrix{T}(undef, n, n)
+    JJ_base = Matrix{T}(undef, n, n)  # cached J'WJ (undamped) for multi-attempt
     J2 = similar(J_b)
     n_buffer = Vector{T}(undef, n)
     DtD = zeros(T, n)
@@ -166,9 +244,9 @@ function levenberg_marquardt_batched(
     # Trace
     tr = OptimBase.OptimizationTrace{BatchedLevenbergMarquardt}()
 
-    @debug "Batched LM starting" _n_data _n_batches _B_max nparams=n maxIter lambda use_fixed_batches
+    @debug "Batched LM starting" _n_data _n_batches _B_max nparams=n max_epochs lambda damping_mode solver attempts_per_step use_fixed_batches
 
-    while ~converged && iterCt < maxIter
+    while ~converged && epoch < max_epochs
         epoch += 1
         x_converged = false
         g_converged = false
@@ -184,8 +262,6 @@ function levenberg_marquardt_batched(
         @debug "Epoch $epoch" _n_batches lambda
 
         for bi in 1:_n_batches
-            iterCt >= maxIter && break
-
             if use_fixed_batches
                 batch_idx = _batch_ranges[batch_perm[bi]]
             else
@@ -227,54 +303,57 @@ function levenberg_marquardt_batched(
                 end
             end
 
-            # J'WJ via sqrt(W).*J trick
+            # J'WJ via sqrt(W).*J trick — computed once, cached for retries
             @timeit to "JJ" begin
                 J2v = (B <= _B_max) ? view(J2, 1:B, :) : J2
                 J2v .= sqrt.(wv) .* Jv
-                mul!(JJ, transpose(J2v), J2v)
+                mul!(JJ_base, transpose(J2v), J2v)
             end
 
-            # Add damping diagonal
-            for i in 1:n
-                @inbounds JJ[i, i] += lambda * DtD[i]
-            end
-
-            # Right-hand side: -J' W f
+            # Right-hand side: -J' W f (constant across attempts)
             mul!(n_buffer, transpose(Jv), wv .* fv)
             rmul!(n_buffer, -one(T))
 
-            # Solve
-            @timeit to "matinv" delta_x .= JJ \ n_buffer
+            # ---- Attempt loop ----
+            for attempt in 1:attempts_per_step
+                # Restore undamped J'WJ and apply current damping
+                copyto!(JJ, JJ_base)
+                _apply_damping!(JJ, lambda, DtD, n, damping_mode)
 
-            # ---- Predicted residual ----
-            Jdelta = Jv * delta_x .+ fv
-            predicted_residual = dot(Jdelta, wv .* Jdelta)
+                # Solve
+                @timeit to "matinv" _solve_normal!(delta_x, JJ, n_buffer, solver)
 
-            # ---- Trial step ----
-            x_trial .= x .+ delta_x
+                # ---- Predicted residual ----
+                Jdelta = Jv * delta_x .+ fv
+                predicted_residual = dot(Jdelta, wv .* Jdelta)
 
-            # Evaluate trial on same batch
-            trial_fv = (B <= _B_max) ? view(trial_f_b, 1:B) : trial_f_b
-            @timeit to "trial eval" fj_batch!(trial_fv, nothing, x_trial, batch_idx)
-            trial_residual = sum(i -> wv[i] * trial_fv[i]^2, 1:B)
+                # ---- Trial step ----
+                x_trial .= x .+ delta_x
 
-            # Step quality
-            denom = predicted_residual - residual_b
-            rho = abs(denom) < eps(T) ? zero(T) : (trial_residual - residual_b) / denom
+                # Evaluate trial on same batch
+                trial_fv = (B <= _B_max) ? view(trial_f_b, 1:B) : trial_f_b
+                @timeit to "trial eval" fj_batch!(trial_fv, nothing, x_trial, batch_idx)
+                trial_residual = sum(i -> wv[i] * trial_fv[i]^2, 1:B)
 
-            @debug "  Batch $bi" B lambda rho residual_b trial_residual
+                # Step quality
+                denom = predicted_residual - residual_b
+                rho = abs(denom) < eps(T) ? zero(T) : (trial_residual - residual_b) / denom
 
-            if trial_residual < residual_b && rho > min_step_quality
-                x .= x_trial
+                @debug "  Batch $bi attempt $attempt" B lambda rho residual_b trial_residual
 
-                if rho > good_step_quality
-                    lambda = max(lambda_decrease * lambda, MIN_LAMBDA)
-                    @debug "  Lambda decreased: $lambda"
+                if trial_residual < residual_b && rho > min_step_quality
+                    x .= x_trial
+                    if rho > good_step_quality
+                        lambda = max(lambda_decrease * lambda, MIN_LAMBDA)
+                        @debug "  Lambda decreased: $lambda"
+                    end
+                    break  # accepted — move to next batch
+                else
+                    lambda = min(lambda_increase * lambda, MAX_LAMBDA)
+                    @debug "  Step rejected, lambda increased: $lambda"
+                    # If not last attempt, loop will re-dampen and re-solve
                 end
-            else
-                lambda = min(lambda_increase * lambda, MAX_LAMBDA)
-                @debug "  Step rejected, lambda increased: $lambda"
-            end
+            end # attempt loop
 
             iterCt += 1
 

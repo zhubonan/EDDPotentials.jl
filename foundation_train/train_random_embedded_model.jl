@@ -200,7 +200,7 @@ function main(args=ARGS)
     println("Training with $(length(train_data)) train / $(length(fc_val)) val structures.")
     train_kwargs = (
         train_method=cfg["train_method"],
-        maxIter=cfg["max_iter"],
+        max_epochs=cfg["max_iter"],
         show_progress=cfg["show_progress"],
         earlystop=cfg["earlystop"],
     )

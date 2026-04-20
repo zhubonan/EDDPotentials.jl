@@ -380,7 +380,7 @@ callback evaluates on the full dataset for reliable early stopping.
 
 # Keyword Arguments
 - `p0=paramvector(itf)`: Initial parameter vector
-- `maxIter=1000`: Maximum total LM iterations (across all batches/epochs)
+- `max_epochs=300`: Maximum number of training epochs
 - `show_progress=false`: Print progress each epoch
 - `x_val=x`: Validation set feature vectors
 - `y_val=y`: Validation set target energies
@@ -406,7 +406,8 @@ function train_lm_batched!(
     x,
     y;
     p0=paramvector(itf),
-    maxIter=1000,
+    max_epochs=300,
+    maxIter::Union{Integer,Nothing}=nothing,
     show_progress=false,
     x_val=x,
     y_val=y,
@@ -418,9 +419,20 @@ function train_lm_batched!(
     batch_size=512,
     shuffle_seed=42,
     threaded=false,
+    damping_mode::Symbol=:fletcher,
+    attempts_per_step::Int=1,
+    solver::Symbol=:direct,
     batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing,
     args...,
 )
+    # --- Deprecated alias ---
+    if maxIter !== nothing
+        @warn "maxIter is deprecated, use max_epochs instead" maxIter max_epochs
+        max_epochs = maxIter
+    end
+    # Filter maxIter from args to avoid double deprecation warning downstream
+    args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
+
     rec = []
 
     train_natoms = x isa FeatureStore ? natoms(x) : [size(v, 2) for v in x]
@@ -476,11 +488,14 @@ function train_lm_batched!(
         n_data=length(x),
         batch_size=batch_size,
         batch_ranges=batch_ranges,
-        maxIter=maxIter,
+        max_epochs=max_epochs,
         callback=callback,
         p=p,
         keep_best=keep_best,
         earlystop=earlystop,
+        damping_mode=damping_mode,
+        attempts_per_step=attempts_per_step,
+        solver=solver,
         shuffle_seed=shuffle_seed,
         args...,
     )

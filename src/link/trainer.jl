@@ -11,6 +11,29 @@ using .EDDPotentialsCore:
 
 const TRAINING_DIR = "training"
 
+# Symbol-typed parameters that need String→Symbol coercion from TOML
+const _SYMBOL_PARAMS = (:damping_mode, :solver)
+
+"""
+    _symbolize_kwargs(kwargs::Dict{String,Any}) -> NamedTuple
+
+Convert a `Dict{String,Any}` to a NamedTuple suitable for keyword splatting.
+String values for known Symbol-typed parameters (e.g. `damping_mode`, `solver`)
+are coerced to `Symbol`.
+"""
+function _symbolize_kwargs(kwargs::Dict{String,Any})
+    nt = NamedTuple()
+    for (k, v) in kwargs
+        sk = Symbol(k)
+        if v isa AbstractString && sk in _SYMBOL_PARAMS
+            nt = merge(nt, NamedTuple{(sk,)}((Symbol(v),)))
+        else
+            nt = merge(nt, NamedTuple{(sk,)}((v,)))
+        end
+    end
+    nt
+end
+
 """
     dataset_name(bu::Builder, i=bu.state.iteration)
 
@@ -150,7 +173,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
                 y_train;
                 x_val,
                 y_val,
-                maxIter=tra.max_iter,
+                max_epochs=tra.max_iter,
                 earlystop=tra.earlystop,
                 show_progress=tra.show_progress,
                 p=tra.p,
@@ -158,6 +181,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
                 log_file=tra.log_file,
                 weights,
                 batch_size=tra.batch_size,
+                _symbolize_kwargs(tra.training_kwargs)...,
             )
         else
             train_lm!(
@@ -173,6 +197,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
                 keep_best=tra.keep_best,
                 log_file=tra.log_file,
                 weights,
+                _symbolize_kwargs(tra.training_kwargs)...,
             )
         end
 

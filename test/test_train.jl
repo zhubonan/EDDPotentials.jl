@@ -210,7 +210,7 @@ using NLSolversBase
         model2 = ManualFluxBackPropInterface(
             Chain(Dense(rand(1, nf), rand(1))),
         )
-        train_lm_batched!(model2, data, y; batch_size=length(data), maxIter=200, earlystop=0)
+        train_lm_batched!(model2, data, y; batch_size=length(data), max_epochs=200, earlystop=0)
         out = model2(data[2])
         @test sum(out) ≈ y[2] atol = 1e-4
 
@@ -218,7 +218,7 @@ using NLSolversBase
         model3 = ManualFluxBackPropInterface(
             Chain(Dense(rand(1, nf), rand(1))),
         )
-        train_lm_batched!(model3, data, y; batch_size=4, maxIter=500, earlystop=0)
+        train_lm_batched!(model3, data, y; batch_size=4, max_epochs=500, earlystop=0)
         # With small batches, convergence is not guaranteed but should not crash
         out = model3(data[2])
         @test isfinite(sum(out))
@@ -243,7 +243,7 @@ using NLSolversBase
             model, fc_train, fc_val;
             train_method="lm_batched",
             batch_size=length(fc_train),
-            maxIter=100,
+            max_epochs=100,
             earlystop=10,
         )
         @test length(params) > 0
