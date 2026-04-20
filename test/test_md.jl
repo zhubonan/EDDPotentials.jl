@@ -23,16 +23,16 @@ HarmonicCalc(cell::Cell; k=1.0) = HarmonicCalc(cell, Float64(k), copy(positions(
 
 EDDPotentials.get_cell(hc::HarmonicCalc) = hc.cell
 
-function EDDPotentials.get_energy(hc::HarmonicCalc; kwargs...)
+function EDDPotentials.eddp_energy(hc::HarmonicCalc; kwargs...)
     pos = positions(hc.cell)
     0.5 * hc.k * sum(abs2, pos .- hc.r0)
 end
 
-function EDDPotentials.get_forces(hc::HarmonicCalc; kwargs...)
+function EDDPotentials.eddp_forces(hc::HarmonicCalc; kwargs...)
     -hc.k .* (positions(hc.cell) .- hc.r0)
 end
 
-function EDDPotentials.get_stress(hc::HarmonicCalc; kwargs...)
+function EDDPotentials.eddp_stress(hc::HarmonicCalc; kwargs...)
     zeros(3, 3)
 end
 

@@ -12,6 +12,17 @@ using Random
 using LinearAlgebra
 using Printf
 using Unitful: ustrip
+using ..EDDPotentialsCore: get_cell, eddp_energy, eddp_forces, eddp_stress
+
+# ─────────────────────────────────────────────────────────────
+# Constants
+# ─────────────────────────────────────────────────────────────
+
+# Boltzmann constant in eV/K
+const KB = 8.617333262e-5
+
+# Internal time unit: √(AMU·Å²/eV) ≈ 10.18 fs
+const TIME_UNIT_FS = 10.17786336
 
 # ─────────────────────────────────────────────────────────────
 # Integrator types
@@ -241,7 +252,7 @@ function MDState(
     end
 
     # Get initial forces
-    forces = get_forces(calc)
+    forces = eddp_forces(calc)
     ke = compute_kinetic_energy(vel, m)
     T = compute_temperature(vel, m)
 
@@ -300,12 +311,12 @@ temperature(state::MDState) = state.temperature
 
 """Return total energy (potential + kinetic) in eV."""
 function total_energy(calc::AbstractCalc, state::MDState)
-    get_energy(calc) + state.kinetic_energy
+    eddp_energy(calc) + state.kinetic_energy
 end
 
 """Return instantaneous pressure in GPa (positive = compressive)."""
 function instantaneous_pressure(calc::AbstractCalc, state::MDState)
-    stress = get_stress(calc)
+    stress = eddp_stress(calc)
     # Use the same sign convention as get_pressure_gpa: tr(stress)/3
     # For the full virial pressure including kinetic contribution:
     # P_virial = (tr(stress) + 2*E_kin/V) / 3
@@ -356,7 +367,7 @@ function _step!(runner::MDRunner{C,<:VelocityVerlet}) where {C}
     set_positions!(calc, pos)
 
     # Get new forces
-    new_forces = get_forces(calc)
+    new_forces = eddp_forces(calc)
 
     # Velocity update: v += 0.5 * dt * (F_old + F_new) / m
     for i in axes(vel, 2)
@@ -470,7 +481,7 @@ function _step!(runner::MDRunner{C,<:Langevin}) where {C}
     set_positions!(calc, pos)
 
     # New forces
-    new_forces = get_forces(calc)
+    new_forces = eddp_forces(calc)
 
     # Second half-step in velocity
     for i in 1:N
@@ -522,7 +533,7 @@ function _step!(runner::MDRunner{C,<:BerendsenNVT}) where {C}
     runner.wrap_atoms && wrap!(get_cell(calc))
     set_positions!(calc, pos)
 
-    new_forces = get_forces(calc)
+    new_forces = eddp_forces(calc)
 
     # Velocity update
     for i in axes(vel, 2)
