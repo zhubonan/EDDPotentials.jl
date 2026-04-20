@@ -1,9 +1,14 @@
 import Base
 
 """
-    EnsembleNNInterface{T<:Tuple} 
+    EnsembleNNInterface(models::Tuple, weights::Vector{Float64})
 
-Ensemble of many models
+Weighted ensemble of multiple `AbstractNNInterface` models. The forward pass
+computes `sum(w_i * model_i(input) for i in 1:length(models))`. Weights are
+typically obtained via non-negative least squares ([`create_ensemble`](@ref)).
+
+Ensemble predictions are more robust than single-model predictions and provide
+uncertainty estimates via [`eddp_energy_std`](@ref).
 """
 struct EnsembleNNInterface{T<:Tuple} <: AbstractNNInterface
     models::T

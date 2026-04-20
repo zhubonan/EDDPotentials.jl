@@ -6,6 +6,12 @@ using CellBase
 using StaticArrays
 using Parameters
 
+"""
+    AbstractNBodyFeature
+
+Abstract supertype for N-body atomic environment descriptors.
+Concrete subtypes: [`TwoBodyFeature`](@ref), [`ThreeBodyFeature`](@ref).
+"""
 abstract type AbstractNBodyFeature end
 
 """

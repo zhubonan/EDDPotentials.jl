@@ -1,26 +1,22 @@
 # Functions
 
-Documentation for the functions included in the package.
+Reference documentation for all public functions and types in EDDPotentials.jl.
 
 ## Feature Generation
 
-Function and types for generating features 
+Types and functions for defining and computing atomic environment descriptors. See [Understanding Features](concepts/features.md) for a conceptual introduction.
 
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
     "core/feature/feature.jl",
     "core/feature/cell.jl",
-    "core/gradient/gradient.jl",
-    "core/embedding.jl",
-    "core/embedding_rules.jl",
-    "core/gradient/repulsive_core.jl",
 ]
 ```
 
 ## Training
 
-Routines for training models feature vectors 
+Functions for training models from feature vectors, evaluating accuracy, and building ensembles.
 
 ```@autodocs
 Modules = [EDDPotentials]
@@ -29,11 +25,12 @@ Pages = [
     "training.jl",
     "lmsolve.jl",
     "lmsolve_batched.jl",
-    "core/nntools.jl",
 ]
 ```
 
-## Model interfaces
+## Model Interfaces
+
+Neural network interfaces for energy prediction. [`ManualFluxBackPropInterface`](@ref) is the default for training; [`EnsembleNNInterface`](@ref) is used for prediction with uncertainty.
 
 ```@autodocs
 Modules = [EDDPotentials]
@@ -46,15 +43,39 @@ Pages = [
 ]
 ```
 
-## Using potentials
+## Calculators
 
-Routines for using the trained potentials for energy/forces/stress calculations.
+Calculator types for energy, force, and stress evaluation. [`NNCalc`](@ref) is the primary calculator; [`VariableCellCalc`](@ref) adds lattice degrees of freedom for cell optimization.
 
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
     "core/calculator.jl",
     "core/calculator/metacalculator.jl",
+]
+```
+
+## Calculator Modifiers
+
+Modifiers extend calculator behavior through pre/post-calculate hooks in the [`MetaCalculator`](@ref) pipeline.
+
+```@autodocs
+Modules = [EDDPotentials]
+Pages = [
+    "core/calculator/modifiers/abstract.jl",
+    "core/calculator/modifiers/dimension_penalty.jl",
+    "core/calculator/modifiers/cell_relaxation.jl",
+    "core/calculator/modifiers/additive_calc.jl",
+]
+```
+
+## Optimization
+
+Structure optimization algorithms and high-level entry points. Use [`opt_fire`](@ref) for general-purpose geometry optimization or [`opt_tpsd`](@ref) for the TPSD algorithm.
+
+```@autodocs
+Modules = [EDDPotentials]
+Pages = [
     "opt.jl",
     "optimizer/abstract.jl",
     "optimizer/tpsd.jl",
@@ -73,9 +94,9 @@ Pages = [
 ]
 ```
 
-## Miscellaneous tools
+## Relaxation
 
-Support utilities and tools.
+High-level relaxation interface wrapping optimizers with cell handling, convergence checking, and trajectory recording.
 
 ### Lennard-Jones baseline helper
 
@@ -116,17 +137,24 @@ calc = EDDPotentials.lj_baseline_calc(cell; sigma, epsilon, rcut=4.0)
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "tools.jl",
-    "records.jl",
-    "plotting/recipes.jl",
-    "eddpf90.jl",
-    "lazy_res.jl",
+    "functional/relax.jl",
 ]
 ```
 
-## Automated potentials building
+## Hyperdimensional Relaxation
 
-Function for providing automatic iterative potential building via random structure structure searching.
+Functions for structure relaxation in extended (hyperdimensional) configuration spaces, used for enhanced exploration in structure prediction.
+
+```@autodocs
+Modules = [EDDPotentials]
+Pages = [
+    "hyper.jl",
+]
+```
+
+## Automated Potential Building
+
+Functions for the iterative active-learning workflow: [`Builder`](@ref) configuration, [`link!`](@ref) for automated cycles, [`run_rss`](@ref) for structure search. See [Iterative Training](concepts/iterative_training.md) for details.
 
 ```@autodocs
 Modules = [EDDPotentials]
@@ -139,10 +167,17 @@ Pages = [
 ]
 ```
 
-## Non-negative least square routines
+## Miscellaneous Tools
 
-Internal routines in the [NNLS.jl](https://github.com/rdeits/NNLS.jl) package embedded in the package.
+Support utilities including serialization, plotting recipes, and file I/O helpers.
 
 ```@autodocs
-Modules = [EDDPotentials.EDDPotentialsCore.NNLS]
+Modules = [EDDPotentials]
+Pages = [
+    "tools.jl",
+    "records.jl",
+    "plotting/recipes.jl",
+    "eddpf90.jl",
+    "lazy_res.jl",
+]
 ```

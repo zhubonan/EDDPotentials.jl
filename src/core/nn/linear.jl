@@ -4,6 +4,12 @@ Simply linear implementation, e.g. without NN
 =#
 
 
+"""
+    LinearInterface(param::AbstractMatrix)
+
+Simple linear model interface: `output = param * input`. No hidden layers or
+nonlinearities. Useful as a baseline or for debugging the feature pipeline.
+"""
 mutable struct LinearInterface{T} <: AbstractNNInterface
     param::Matrix{T}
     inp::Any

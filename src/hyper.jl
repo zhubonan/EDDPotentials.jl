@@ -1,5 +1,9 @@
 """
-Return a calculation with additional dimensions
+    hyper_get_calc(cell, bu::Builder) -> VariableCellCalc
+
+Construct a calculator with extra-dimensional degrees of freedom for
+hyperdimensional relaxation. Wraps an [`NNCalc`](@ref) with a [`DimPenalty`](@ref)
+inside a [`MultiCalc`](@ref), then wraps in a [`VariableCellCalc`](@ref).
 """
 function hyper_get_calc(cell, bu::Builder)
    calc = NNCalc(
@@ -32,7 +36,22 @@ function _get_penalty_schedule()
 end
     
 """
-Generate and relax the structure with additional dimensions
+    hyper_gen_relax(bu; ndim=3, outfile=nothing, label=nothing,
+                    schedule_every=50, target_iterations=500,
+                    relax_kwargs=Dict{Symbol, Any}())
+
+Generate a random structure, add extra dimensions, and relax using a scheduled
+penalty that gradually forces the extra coordinates back to zero. Returns
+`(results, dnorm)` where `results` is the relaxation result and `dnorm` is the
+final norm of the extra-dimensional coordinates.
+
+# Keyword Arguments
+- `ndim::Int`: Number of extra dimensions (default 3)
+- `outfile`: If set, write the relaxed 3D structure as a `.res` file
+- `label`: Label for the output `.res` file (required if `outfile` is set)
+- `schedule_every::Int`: Iterations between penalty schedule updates
+- `target_iterations::Int`: Maximum relaxation iterations
+- `relax_kwargs`: Additional keyword arguments passed to [`RelaxOption`](@ref)
 """
 function hyper_gen_relax(bu; ndim=3, outfile=nothing, label=nothing, 
                     schedule_every=50, target_iterations=500, 
