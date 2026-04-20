@@ -81,7 +81,7 @@ include("optimizer/utils.jl")
 include("optimizer/tpsd.jl")
 include("optimizer/fire.jl")
 include("opt.jl")
-
+include("md.jl")
 include("records.jl")
 include("quickbuild.jl")
 include("link/link.jl")
@@ -148,6 +148,11 @@ export Builder,
     walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss
 export rmse_per_atom, mae_per_atom, max_ae_per_atom
 export nfeatures
+# MD exports
+export MDRunner, MDState, VelocityVerlet, Langevin, BerendsenNVT
+export run!, step!, kinetic_energy, temperature, maxwell_boltzmann_velocities
+export total_energy, instantaneous_pressure, save_trajectory, save_frame
+export time_fs, time_ps
 export TrainingResults
 export PhaseDiagram, read_shelx_record, ShelxRecord, ComputedRecord
 export synthetic_force_data
