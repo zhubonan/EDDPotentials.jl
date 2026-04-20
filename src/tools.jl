@@ -94,6 +94,175 @@ function lj_like_calc(cell::Cell; α=1.0, a=6, rc=3.0)
     NNCalc(cell, cf, model)
 end
 
+_lj_inv_r_cutoff(r, rcut) = r <= rcut ? inv(r) : zero(r)
+_lj_g_inv_r_cutoff(r, rcut) = r <= rcut ? -inv(r * r) : zero(r)
+_lj_const_cutoff(r, rcut) = r <= rcut ? one(r) : zero(r)
+_lj_g_const_cutoff(r, rcut) = zero(r)
+_lj_linear_cutoff(r, rcut) = r <= rcut ? r : zero(r)
+_lj_g_linear_cutoff(r, rcut) = r <= rcut ? one(r) : zero(r)
+
+function _lj_normalize_elements(elements)
+    sort(unique(map(Symbol, collect(elements))))
+end
+
+function _lj_pair_parameter(value::Number, ::Symbol, ::Symbol, ::AbstractString)
+    value
+end
+
+function _lj_pair_parameter(values::AbstractDict, si::Symbol, sj::Symbol, name::AbstractString)
+    if haskey(values, (si, sj)) && haskey(values, (sj, si))
+        values[(si, sj)] == values[(sj, si)] || throw(
+            ArgumentError(
+                "Conflicting LJ parameter `$name` for pair ($(si), $(sj)) and its reverse.",
+            ),
+        )
+    end
+    if haskey(values, (si, sj))
+        return values[(si, sj)]
+    elseif haskey(values, (sj, si))
+        return values[(sj, si)]
+    end
+    throw(ArgumentError("Missing LJ parameter `$name` for pair ($(si), $(sj))."))
+end
+
+function _lj_pair_parameter(value, ::Symbol, ::Symbol, name::AbstractString)
+    throw(ArgumentError("Unsupported LJ parameter container for `$name`: $(typeof(value))."))
+end
+
+function _lj_pair_energy(r, sigma, epsilon; p_rep=12, p_att=6)
+    4epsilon * ((sigma / r)^p_rep - (sigma / r)^p_att)
+end
+
+function _lj_pair_energy_derivative(r, sigma, epsilon; p_rep=12, p_att=6)
+    rep = -p_rep * sigma^p_rep * r^(-(p_rep + 1))
+    att = p_att * sigma^p_att * r^(-(p_att + 1))
+    4epsilon * (rep + att)
+end
+
+function _lj_pair_linear_weights(sigma, epsilon, rcut; p_rep=12, p_att=6)
+    vcut = _lj_pair_energy(rcut, sigma, epsilon; p_rep, p_att)
+    dvcut = _lj_pair_energy_derivative(rcut, sigma, epsilon; p_rep, p_att)
+    (
+        2epsilon * sigma^p_rep,
+        -2epsilon * sigma^p_att,
+        (-vcut + rcut * dvcut) / 2,
+        -dvcut / 2,
+    )
+end
+
+"""
+    lj_baseline_feature(elements; rcut, p_rep=12, p_att=6)
+
+Construct an exact two-body feature basis for a force-shifted Lennard-Jones model.
+"""
+function lj_baseline_feature(elements; rcut, p_rep::Integer=12, p_att::Integer=6)
+    rcut > 0 || throw(ArgumentError("`rcut` must be positive."))
+    p_rep > 0 || throw(ArgumentError("`p_rep` must be positive."))
+    p_att > 0 || throw(ArgumentError("`p_att` must be positive."))
+    elems = _lj_normalize_elements(elements)
+    two_body_features = TwoBodyFeature[]
+
+    for si in elems
+        for sj in elems
+            push!(
+                two_body_features,
+                TwoBodyFeature(
+                    _lj_inv_r_cutoff,
+                    _lj_g_inv_r_cutoff,
+                    (Int(p_rep),),
+                    (si, sj),
+                    rcut,
+                ),
+            )
+            push!(
+                two_body_features,
+                TwoBodyFeature(
+                    _lj_inv_r_cutoff,
+                    _lj_g_inv_r_cutoff,
+                    (Int(p_att),),
+                    (si, sj),
+                    rcut,
+                ),
+            )
+            push!(
+                two_body_features,
+                TwoBodyFeature(
+                    _lj_const_cutoff,
+                    _lj_g_const_cutoff,
+                    (1,),
+                    (si, sj),
+                    rcut,
+                ),
+            )
+            push!(
+                two_body_features,
+                TwoBodyFeature(
+                    _lj_linear_cutoff,
+                    _lj_g_linear_cutoff,
+                    (1,),
+                    (si, sj),
+                    rcut,
+                ),
+            )
+        end
+    end
+
+    CellFeature(elems, Tuple(two_body_features), ())
+end
+
+"""
+    lj_baseline_weights(elements; sigma=1.0, epsilon=1.0, rcut, p_rep=12, p_att=6)
+
+Build the fixed `LinearInterface` weights for an exact force-shifted Lennard-Jones model.
+"""
+function lj_baseline_weights(elements; sigma=1.0, epsilon=1.0, rcut, p_rep::Integer=12, p_att::Integer=6)
+    elems = _lj_normalize_elements(elements)
+    weights = zeros(Float64, length(elems))
+
+    for si in elems
+        for sj in elems
+            sigma_ij = _lj_pair_parameter(sigma, si, sj, "sigma")
+            epsilon_ij = _lj_pair_parameter(epsilon, si, sj, "epsilon")
+            append!(
+                weights,
+                Float64.(
+                    _lj_pair_linear_weights(sigma_ij, epsilon_ij, rcut; p_rep, p_att),
+                ),
+            )
+        end
+    end
+    weights
+end
+
+"""
+    lj_baseline_model(elements; sigma=1.0, epsilon=1.0, rcut, p_rep=12, p_att=6)
+
+Construct a fixed-weight linear model for a force-shifted Lennard-Jones baseline.
+"""
+function lj_baseline_model(elements; kwargs...)
+    LinearInterface(lj_baseline_weights(elements; kwargs...))
+end
+
+"""
+    lj_baseline_calc(cell::Cell; sigma=1.0, epsilon=1.0, rcut, p_rep=12, p_att=6, elemental_energies=Dict())
+
+Construct an `NNCalc` that reproduces a force-shifted Lennard-Jones baseline.
+"""
+function lj_baseline_calc(
+    cell::Cell;
+    sigma=1.0,
+    epsilon=1.0,
+    rcut,
+    p_rep::Integer=12,
+    p_att::Integer=6,
+    elemental_energies=Dict(),
+)
+    elems = _lj_normalize_elements(species(cell))
+    cf = lj_baseline_feature(elems; rcut, p_rep, p_att)
+    model = lj_baseline_model(elems; sigma, epsilon, rcut, p_rep, p_att)
+    NNCalc(cell, cf, model; core=nothing, elemental_energies)
+end
+
 
 ### Finite difference testing
 

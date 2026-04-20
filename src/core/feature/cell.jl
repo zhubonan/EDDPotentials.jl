@@ -213,7 +213,9 @@ end
 Return the total number of features elements in a `CellFeature` object.
 """
 function nfeatures(c::CellFeature)
-    length(c.elements) + sum(nfeatures, c.two_body) + sum(nfeatures, c.three_body)
+    n2 = isempty(c.two_body) ? 0 : sum(nfeatures, c.two_body)
+    n3 = isempty(c.three_body) ? 0 : sum(nfeatures, c.three_body)
+    length(c.elements) + n2 + n3
 end
 
 """
@@ -225,9 +227,9 @@ function nbodyfeatures(c::CellFeature, nbody)
     if nbody == 1
         return length(c.elements)
     elseif nbody == 2
-        return sum(nfeatures, c.two_body)
+        return isempty(c.two_body) ? 0 : sum(nfeatures, c.two_body)
     elseif nbody == 3
-        return sum(nfeatures, c.three_body)
+        return isempty(c.three_body) ? 0 : sum(nfeatures, c.three_body)
     end
     return 0
 end
@@ -284,7 +286,9 @@ end
 Return size of the feature vector for each body-order of a `CellFeature` object.
 """
 function feature_size(cf::CellFeature)
-    (length(cf.elements), sum(nfeatures, cf.two_body), sum(nfeatures, cf.three_body))
+    n2 = isempty(cf.two_body) ? 0 : sum(nfeatures, cf.two_body)
+    n3 = isempty(cf.three_body) ? 0 : sum(nfeatures, cf.three_body)
+    (length(cf.elements), n2, n3)
 end
 
 """
@@ -293,9 +297,9 @@ end
 Get a suggested cut off radius for NN list for a CellFeature.
 """
 function suggest_rcut(cf::CellFeature; shell=1.0)
-    r3 = maximum(x.rcut for x in cf.two_body)
-    r2 = maximum(x.rcut for x in cf.three_body)
-    max(r3, r2) + shell
+    r2 = isempty(cf.two_body) ? 0.0 : maximum(x.rcut for x in cf.two_body)
+    r3 = isempty(cf.three_body) ? 0.0 : maximum(x.rcut for x in cf.three_body)
+    max(r2, r3) + shell
 end
 
 """

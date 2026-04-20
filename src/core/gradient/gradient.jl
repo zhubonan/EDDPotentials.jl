@@ -14,6 +14,7 @@ function similar_zero(x)
 end
 
 function _is_same_pqrcutf(features3)
+    isempty(features3) && return true
     (
         all(bd -> bd.p == features3[1].p, features3) &&
         all(bd -> bd.q == features3[1].q, features3) &&
@@ -139,7 +140,7 @@ function compute_fv_gv_one!(
 
     # Check if all features are the same - so powers does not need to be recalculated for each feature.
     same_3b = _is_same_pqrcutf(features3)
-    lfe3::Int = 1
+    lfe3::Int = isempty(features3) ? 0 : 1
     if !same_3b
         lfe3 = length(features3)
     end
@@ -150,12 +151,13 @@ function compute_fv_gv_one!(
 
     # Caches for three-body computation
     # The goal is to avoid ^ operator as much as possible by caching results
-    npmax3 = maximum(length(x.p) for x in features3)
+    npmax3 = isempty(features3) ? 0 : maximum(length(x.p) for x in features3)
     # All values of q
-    nqmax3 = maximum(length(x.q) for x in features3)
+    nqmax3 = isempty(features3) ? 0 : maximum(length(x.q) for x in features3)
 
     # Maximum cut off 
-    maxrcut = maximum(x -> x.rcut, (features3..., features2...))
+    maxrcut = isempty(features3) ? maximum(x -> x.rcut, features2) :
+              maximum(x -> x.rcut, (features3..., features2...))
 
     # Caches for three body terms
     pij = zeros(npmax3, lfe3)
@@ -190,9 +192,10 @@ function compute_fv_gv_one!(
 
         ineigth_j = findfirst(x -> x == jat, neighbour_indices) + 1
 
-        # Compute pij
         modvij = vij / rij
-        _update_pij!(pij, inv_fij, rij, features3, same_3b)
+        if !isempty(features3)
+            _update_pij!(pij, inv_fij, rij, features3, same_3b)
+        end
 
         # Add hard core repulsion
         if !isnothing(core)
@@ -519,8 +522,10 @@ function get_workspace(
     nn_max = maximum(x -> length(unique(x)), eachcol(nl.orig_indices)) + 1
     # Generate the feature vector
     if fvec === nothing
+        nfe2 = isempty(features2) ? 0 : sum(nfeatures, features2)
+        nfe3 = isempty(features3) ? 0 : sum(nfeatures, features3)
         _fvec = zeros(
-            offset + sum(nfeatures.(features2)) + sum(nfeatures.(features3)),
+            offset + nfe2 + nfe3,
             length(nl.nneigh),
         )
     else

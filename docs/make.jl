@@ -3,7 +3,7 @@ using EDDPotentials
 
 makedocs(
     sitename="EDDPotentials.jl",
-    format=Documenter.HTML(),
+    format=Documenter.HTML(size_threshold=nothing),
     modules=[EDDPotentials],
     pages=[
         "Home" => "index.md",

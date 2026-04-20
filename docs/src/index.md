@@ -49,6 +49,9 @@ EDDP trades ultimate accuracy for speed and simplicity, making it ideal for rank
 - Walk-forward testing for convergence validation
 - Phonon calculations via Phonopy interface
 
+**Analytic baselines**
+- Fixed-weight force-shifted Lennard-Jones helper via `EDDPotentials.lj_baseline_calc`
+
 ## Installation
 
 ```julia
@@ -109,6 +112,24 @@ opt = opt_fire(vc_calc; f_tol=0.01, itermax=500)
 ```
 
 For automated potential building with iterative training, see [AIRSS Workflow](tutorials/airss_workflow.md).
+
+## Analytic Lennard-Jones baseline
+
+For quick debugging, optimizer checks, or pair-potential baselines, you can create a
+force-shifted Lennard-Jones calculator directly in the regular `NNCalc` stack:
+
+```julia
+using EDDPotentials
+using CellBase
+
+cell = Cell(Lattice(12.0, 12.0, 12.0), [:Ar, :Ar], [0.0 1.4; 0.0 0.0; 0.0 0.0])
+calc = EDDPotentials.lj_baseline_calc(cell; sigma=1.0, epsilon=1.0, rcut=3.0)
+
+energy = eddp_energy(calc)
+forces = eddp_forces(calc)
+```
+
+For mixed species, supply per-pair `sigma` and `epsilon` dictionaries.
 
 ## Documentation Structure
 

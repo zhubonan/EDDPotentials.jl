@@ -5,6 +5,9 @@ using EDDPotentials:
     CellFeature,
     VariableCellCalc,
     NNCalc,
+    lj_baseline_calc,
+    lj_baseline_feature,
+    lj_baseline_weights,
     nfeatures,
     get_cell,
     get_positions,
@@ -27,6 +30,7 @@ using EDDPotentials.EDDPotentialsCore:
     ManualFluxBackPropInterface,
     CellEmbedding,
     flux_mlp_model,
+    feature_size,
     FluxInterface,
     EnsembleNNInterface,
     LinearInterface,
@@ -35,6 +39,23 @@ using Test
 using CellBase
 using CellBase: distance_between
 using Flux
+
+function _force_shifted_lj_energy(r, sigma, epsilon, rcut; p_rep=12, p_att=6)
+    if r > rcut
+        return 0.0
+    end
+    v = 4epsilon * ((sigma / r)^p_rep - (sigma / r)^p_att)
+    dv = 4epsilon * (
+        -p_rep * sigma^p_rep * r^(-(p_rep + 1)) +
+        p_att * sigma^p_att * r^(-(p_att + 1))
+    )
+    vcut = 4epsilon * ((sigma / rcut)^p_rep - (sigma / rcut)^p_att)
+    dvcut = 4epsilon * (
+        -p_rep * sigma^p_rep * rcut^(-(p_rep + 1)) +
+        p_att * sigma^p_att * rcut^(-(p_att + 1))
+    )
+    v - vcut - (r - rcut) * dvcut
+end
 
 @testset "Calc" begin
     cell = _h2_cell()
@@ -282,4 +303,91 @@ end
     @test maximum(abs.(eddp_forces(vc.calc))) < 1e-3
     @test maximum(eddp_stress(vc.calc)) > 1e-3
     @test maximum(eddp_stress(vc) .- vc.external_pressure) < 1e-4
+end
+
+@testset "LJ Baseline" begin
+    function _two_atom_cell(species_pair, distance; lattice=12.0)
+        pos = Float64[
+            0.0 distance
+            0.0 0.0
+            0.0 0.0
+        ]
+        Cell(Lattice(lattice, lattice, lattice), species_pair, pos)
+    end
+
+    function _test_baseline_forces_fd(calc, amp=1e-7, atol=1e-5)
+        ftmp = copy(eddp_forces(calc))
+        etmp = eddp_energy(calc)
+        positions(get_cell(calc))[1] += amp
+        tmp = (eddp_energy(calc) - etmp) / amp
+        @test -tmp ≈ ftmp[1] atol = atol
+    end
+
+    function _pair_feature_slice(elements, si, sj)
+        elems = sort(unique(map(Symbol, collect(elements))))
+        ne = length(elems)
+        i = findfirst(==(si), elems)
+        j = findfirst(==(sj), elems)
+        offset = ((i - 1) * ne + (j - 1)) * 4
+        start = ne + 1 + offset
+        start:start + 3
+    end
+
+    @testset "Analytic Energy" begin
+        sigma = 1.1
+        epsilon = 0.7
+        rcut = 3.0
+        r = 1.35
+        cell = _two_atom_cell([:Ar, :Ar], r)
+        calc = lj_baseline_calc(cell; sigma, epsilon, rcut)
+
+        @test eddp_energy(calc) ≈ _force_shifted_lj_energy(r, sigma, epsilon, rcut) atol = 1e-10
+        _test_baseline_forces_fd(calc, 1e-7, 1e-5)
+    end
+
+    @testset "Beyond Cutoff" begin
+        cell = _two_atom_cell([:Ar, :Ar], 4.5)
+        calc = lj_baseline_calc(cell; sigma=1.0, epsilon=1.0, rcut=3.0)
+
+        @test eddp_energy(calc) ≈ 0.0 atol = 1e-12
+        @test maximum(abs.(eddp_forces(calc))) ≈ 0.0 atol = 1e-12
+        @test maximum(abs.(eddp_stress(calc))) ≈ 0.0 atol = 1e-12
+    end
+
+    @testset "Feature Layout And Symmetric Lookup" begin
+        sigma = Dict((:H, :H) => 1.0, (:H, :O) => 1.25, (:O, :O) => 1.4)
+        epsilon = Dict((:H, :H) => 0.4, (:H, :O) => 0.9, (:O, :O) => 1.1)
+        rcut = 4.0
+        cf = lj_baseline_feature([:H, :O]; rcut)
+        weights = lj_baseline_weights([:H, :O]; sigma, epsilon, rcut)
+        ho_slice = _pair_feature_slice(cf.elements, :H, :O)
+        oh_slice = _pair_feature_slice(cf.elements, :O, :H)
+
+        @test feature_size(cf) == (2, 16, 0)
+        @test EDDPotentials.EDDPotentialsCore.nbodyfeatures(cf, 2) == 16
+        @test EDDPotentials.EDDPotentialsCore.nbodyfeatures(cf, 3) == 0
+        @test weights[1:2] == [0.0, 0.0]
+        @test weights[ho_slice] ≈ weights[oh_slice]
+
+        r = 1.8
+        cell = _two_atom_cell([:H, :O], r)
+        calc = lj_baseline_calc(cell; sigma, epsilon, rcut)
+        @test eddp_energy(calc) ≈ _force_shifted_lj_energy(r, sigma[(:H, :O)], epsilon[(:H, :O)], rcut) atol =
+              1e-10
+    end
+
+    @testset "Neighbour List Skin" begin
+        cell = _two_atom_cell([:Ar, :Ar], 1.4)
+        calc = lj_baseline_calc(cell; sigma=1.0, epsilon=1.0, rcut=3.0)
+        p1 = calc.last_nn_build_pos[1]
+        positions(get_cell(calc))[1] += 0.001
+        calculate!(calc; rebuild_nl=false)
+        @test p1 == calc.last_nn_build_pos[1]
+    end
+
+    @testset "Reject Conflicting Reverse Keys" begin
+        sigma = Dict((:H, :O) => 1.25, (:O, :H) => 1.35)
+        epsilon = Dict((:H, :O) => 0.9)
+        @test_throws ArgumentError lj_baseline_weights([:H, :O]; sigma, epsilon, rcut=4.0)
+    end
 end
