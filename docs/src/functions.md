@@ -62,6 +62,17 @@ Pages = [
 ]
 ```
 
+## Molecular Dynamics
+
+Run molecular dynamics simulations with trained potentials. Supports NVE (Velocity Verlet) and NVT (Langevin, Berendsen) ensembles.
+
+```@autodocs
+Modules = [EDDPotentials]
+Pages = [
+    "md.jl",
+]
+```
+
 ## Miscellaneous tools
 
 Support utilities and tools.

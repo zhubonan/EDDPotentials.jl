@@ -36,6 +36,12 @@ include("test_builder.jl")
 include("test_modifiers.jl")
 include("test_metacalculator.jl")
 
+# MD tests
+include("test_md.jl")
+
+# Hot-AIRSS tests
+include("test_hot.jl")
+
 # Native optimizer tests are opt-in while the API stabilizes.
 # Enable with: EDDP_RUN_NATIVE_OPT_TESTS=1
 if get(ENV, "EDDP_RUN_NATIVE_OPT_TESTS", "0") == "1"

@@ -39,6 +39,7 @@ using Test
 using CellBase
 using CellBase: distance_between
 using Flux
+using Unitful: ustrip
 
 function _force_shifted_lj_energy(r, sigma, epsilon, rcut; p_rep=12, p_att=6)
     if r > rcut

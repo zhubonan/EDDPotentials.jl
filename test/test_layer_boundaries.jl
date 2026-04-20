@@ -43,6 +43,8 @@ using Test
         "optimizer/tpsd.jl",
         "optimizer/fire.jl",
         "opt.jl",
+        "md.jl",
+        "hot.jl",
         "records.jl",
         "quickbuild.jl",
         "link/link.jl",
