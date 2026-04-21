@@ -518,7 +518,7 @@ training algorithm (Levenberg-Marquardt by default).
 - `fc_val::FeatureContainer`: Validation dataset for monitoring during training
 
 # Keyword Arguments
-- `train_method="lm"`: Training algorithm ("lm" for Levenberg-Marquardt, "lm_batched" for batched LM, "optim" for Optim.jl)
+- `train_method="lm"`: Training algorithm ("lm" for Levenberg-Marquardt, "lm_batched" for batched LM, "optim" for Optim.jl, "sgd" for SGD/Adam)
 - Additional kwargs are passed to the underlying training function
 
 # Returns
@@ -571,6 +571,10 @@ function train!(
         x_train, y_train = get_fit_data(fc_train)
         x_val, y_val = get_fit_data(fc_val)
         train_lm_batched!(itf, x_train, y_train; x_val, y_val, kwargs...)
+    elseif train_method == "sgd"
+        x_train, y_train = get_fit_data(fc_train)
+        x_val, y_val = get_fit_data(fc_val)
+        train_sgd!(itf, x_train, y_train; x_val, y_val, kwargs...)
     elseif train_method == "optim"
         model = get_flux_model(itf)
         f, g!, pview, callback = EDDPotentials.generate_f_g_optim(model, fc_train, fc_val)
@@ -594,7 +598,7 @@ to the LM solver so that only the batch order is shuffled each epoch (not the
 per-structure indices), enabling sequential reads within each batch.
 
 # Keyword Arguments
-- `train_method`: Only `"lm_batched"` is supported for `FeatureStore`.
+- `train_method`: `"lm_batched"` or `"sgd"` for `FeatureStore`.
 - `batch_size`: Ignored — the store's pre-computed `batch_ranges` are used
   directly.  To change the batch size, regenerate the `FeatureStore` with
   a different `batch_size`.
@@ -610,15 +614,22 @@ function train!(
     train_method="lm_batched",
     kwargs...,
 )
-    train_method == "lm_batched" || error("FeatureStore only supports train_method=\"lm_batched\"")
-    x_train, y_train = get_fit_data(store)
-    x_val, y_val = get_fit_data(fc_val)
-    train_lm_batched!(
-        itf, x_train, y_train;
-        x_val=x_val, y_val=y_val,
-        batch_ranges=store.batch_ranges,
-        kwargs...,
-    )
+    if train_method == "lm_batched"
+        x_train, y_train = get_fit_data(store)
+        x_val, y_val = get_fit_data(fc_val)
+        train_lm_batched!(
+            itf, x_train, y_train;
+            x_val=x_val, y_val=y_val,
+            batch_ranges=store.batch_ranges,
+            kwargs...,
+        )
+    elseif train_method == "sgd"
+        x_train, y_train = get_fit_data(store)
+        x_val, y_val = get_fit_data(fc_val)
+        train_sgd!(itf, x_train, y_train; x_val, y_val, kwargs...)
+    else
+        error("FeatureStore only supports train_method=\"lm_batched\" or \"sgd\"")
+    end
 end
 
 """

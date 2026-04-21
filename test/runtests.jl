@@ -29,6 +29,7 @@ include("test_calc.jl")
 include("test_preprocess.jl")
 include("test_dotcastep.jl")
 include("test_train.jl")
+include("test_sgd_training.jl")
 include("test_builder.jl")
 #include("test_link.jl")
 

@@ -78,6 +78,7 @@ include("lmsolve.jl")
 include("lmsolve_batched.jl")
 include("preprocessing.jl")
 include("eddpf90.jl")
+include("sgd_training.jl")
 include("training.jl")
 
 include("tools.jl")

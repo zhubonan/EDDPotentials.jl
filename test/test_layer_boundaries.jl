@@ -35,6 +35,7 @@ using Test
         "lmsolve_batched.jl",
         "preprocessing.jl",
         "eddpf90.jl",
+        "sgd_training.jl",
         "training.jl",
         "tools.jl",
         "functional/functional.jl",
