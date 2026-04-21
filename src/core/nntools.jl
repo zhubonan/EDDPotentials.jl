@@ -411,31 +411,6 @@ end
 
 
 
-if VERSION >= v"1.7"
-    @doc """
-        default_rng_value()
-    Create an instance of the default RNG depending on Julia's version.
-    - Julia version is < 1.7: `Random.GLOBAL_RNG`
-    - Julia version is >= 1.7: `Random.default_rng()`
-    """
-    default_rng_value() = Random.default_rng()
-else
-    default_rng_value() = Random.GLOBAL_RNG
-end
-
-
-function glorot_uniform_f64(rng::AbstractRNG, dims::Integer...; gain::Real=1)
-    scale = Float64(gain) * sqrt(24.0f0 / sum(Flux.nfan(dims...)))
-    (rand(rng, Float32, dims...) .- 0.5f0) .* scale
-end
-glorot_uniform_f64(dims::Integer...; kw...) =
-    glorot_uniform_f64(default_rng_value(), dims...; kw...)
-glorot_uniform_f64(rng::AbstractRNG=default_rng_value(); init_kwargs...) =
-    (dims...; kwargs...) -> glorot_uniform_f64(rng, dims...; init_kwargs..., kwargs...)
-
-const ginit = glorot_uniform_f64
-
-
 # For reinitialising the weights
 function reinit!(chain::Chain, init=ginit)
     for layer in chain.layers

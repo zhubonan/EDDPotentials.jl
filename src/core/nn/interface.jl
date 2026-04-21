@@ -2,7 +2,43 @@
 Interface for Neutron network implementations
 =#
 using JLD2
+using Random
+using Flux
 using StatsBase: ZScoreTransform, fit, transform!, reconstruct!
+
+if VERSION >= v"1.7"
+    @doc """
+        default_rng_value()
+    Create an instance of the default RNG depending on Julia's version.
+    - Julia version is < 1.7: `Random.GLOBAL_RNG`
+    - Julia version is >= 1.7: `Random.default_rng()`
+    """
+    default_rng_value() = Random.default_rng()
+else
+    default_rng_value() = Random.GLOBAL_RNG
+end
+
+"""
+    glorot_uniform(T::Type{<:AbstractFloat}=Float64; gain=1)
+
+Return a Glorot uniform initializer function that produces arrays of element type `T`.
+The returned function has the signature `dims::Integer... -> AbstractArray{T}`.
+"""
+glorot_uniform(; gain::Real=1) = glorot_uniform(Float64; gain)
+glorot_uniform(T::Type{<:AbstractFloat}; gain::Real=1) =
+    (dims::Integer...) -> _glorot_uniform(T, default_rng_value(), dims; gain)
+glorot_uniform(rng::AbstractRNG; gain::Real=1) = glorot_uniform(Float64, rng; gain)
+glorot_uniform(T::Type{<:AbstractFloat}, rng::AbstractRNG; gain::Real=1) =
+    (dims::Integer...) -> _glorot_uniform(T, rng, dims; gain)
+
+function _glorot_uniform(T::Type{<:AbstractFloat}, rng::AbstractRNG, dims; gain::Real=1)
+    scale = T(gain) * sqrt(T(24) / T(sum(Flux.nfan(dims...))))
+    (rand(rng, T, dims...) .- T(0.5)) .* scale
+end
+
+# Legacy alias — now correctly produces Float64
+const glorot_uniform_f64 = glorot_uniform(Float64)
+const ginit = glorot_uniform_f64
 
 abstract type AbstractNNInterface end
 
@@ -59,9 +95,10 @@ end
 Obtain an baseline MLP model
 """
 function flux_mlp_model(
+    T::Type{<:AbstractFloat},
     cf::AbstractCellFeatureSpec,
     nodes...;
-    init=glorot_uniform_f64,
+    init=glorot_uniform(T),
     σ=tanh_fast,
     embedding=nothing,
     σs=nothing,
@@ -101,6 +138,9 @@ function flux_mlp_model(
     push!(layers, Dense(nodes[i] => 1; init))
     Chain(layers...)
 end
+
+flux_mlp_model(cf::AbstractCellFeatureSpec, nodes...; kwargs...) =
+    flux_mlp_model(Float64, cf, nodes...; kwargs...)
 
 """
 Obtain an transformed the input array

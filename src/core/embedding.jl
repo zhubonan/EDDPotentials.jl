@@ -133,9 +133,10 @@ end
 Flux.@layer CellEmbedding
 Flux.trainable(ce::CellEmbedding) = (two_body=ce.two_body, three_body=ce.three_body)
 
-function CellEmbedding(cf::CellFeature, n::Int, m::Int=n)
-    CellEmbedding(cf, BodyEmbedding(cf.two_body, n), BodyEmbedding(cf.three_body, m), n, m)
-end
+CellEmbedding(T::Type{<:AbstractFloat}, cf::CellFeature, n::Int, m::Int=n) =
+    CellEmbedding(cf, BodyEmbedding(T, cf.two_body, n), BodyEmbedding(T, cf.three_body, m), n, m)
+
+CellEmbedding(cf::CellFeature, n::Int, m::Int=n) = CellEmbedding(Float64, cf, n, m)
 
 length_after(e::CellEmbedding) =
     feature_size(e.cf)[1] + length_after(e.two_body) + length_after(e.three_body)

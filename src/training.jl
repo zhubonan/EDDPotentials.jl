@@ -29,20 +29,20 @@ const FEATURESPEC_NAME = "cf"
 """
 Genreate a `Chain` based on a vector specifying the number of hidden nodes in each layer
 """
-function generate_chain(nfeature, nnodes)
+function generate_chain(nfeature, nnodes; init=EDDPotentialsCore.ginit)
     if length(nnodes) == 0
-        return Chain(Dense(nfeature, 1))
+        return Chain(Dense(nfeature => 1; init))
     end
 
-    models = Any[Dense(nfeature, nnodes[1], tanh; bias=true)]
+    models = Any[Dense(nfeature => nnodes[1], tanh; bias=true, init)]
     # Add more layers
     if length(nnodes) > 1
         for i = 2:length(nnodes)
-            push!(models, Dense(nnodes[i-1], nnodes[i]))
+            push!(models, Dense(nnodes[i-1] => nnodes[i]; init))
         end
     end
     # Output layer
-    push!(models, Dense(nnodes[end], 1))
+    push!(models, Dense(nnodes[end] => 1; init))
     Chain(models...)
 end
 

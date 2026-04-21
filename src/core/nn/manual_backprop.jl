@@ -398,18 +398,23 @@ end
 nparams(itf::ManualFluxBackPropInterface) = nparams(itf.chain)
 
 function ManualFluxBackPropInterface(
+    T::Type{<:AbstractFloat},
     cf::AbstractCellFeatureSpec,
     nodes...;
-    init=glorot_uniform_f64,
+    init=glorot_uniform(T),
     xt=nothing,
     yt=nothing,
     σ=tanh,
     σs=nothing,
     embedding=nothing,
 )
-    chain = flux_mlp_model(cf, nodes...; init, σ, σs, embedding)
+    chain = flux_mlp_model(T, cf, nodes...; init, σ, σs, embedding)
     ManualFluxBackPropInterface(chain; xt, yt)
 end
+
+ManualFluxBackPropInterface(
+    cf::AbstractCellFeatureSpec, nodes...; kwargs...
+) = ManualFluxBackPropInterface(Float64, cf, nodes...; kwargs...)
 
 # JLD2 custom serialization - we do not need to store ChainGradients which are 
 # We cannot use the official custom serialization interface because we do not want 

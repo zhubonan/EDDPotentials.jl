@@ -37,7 +37,7 @@ using Test
     end
 
     @testset "Flux" begin
-        l = FluxInterface(Dense(10 => 1))
+        l = FluxInterface(Dense(10 => 1; init=EDDPotentialsCore.glorot_uniform_f64))
         x = rand(10, 2)
 
         @test size(forward!(l, x)) == (1, 2)
