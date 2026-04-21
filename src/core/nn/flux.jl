@@ -32,7 +32,7 @@ get_flux_model(itf::FluxInterface) = itf.model
 
 FluxInterface(model) = FluxInterface(
     model,
-    Flux.params(model),
+    Flux.trainables(model),
     nothing,
     nothing,
     nothing,
@@ -91,15 +91,10 @@ function gradparam!(gvec, itf::FluxInterface, inp=itf.inp)
     else
         y_bar = itf.yt.scale[1]
     end
-    # Call the pullback to obtain the gradients
-    grad = itf.pullback_p(y_bar)
-    # Assign the gradients to the gradient array
-    i = 1
-    for elem in grad.params
-        g = grad.grads[elem]
-        gvec[i:i+length(g)-1] .= g[:]
-        i += length(g)
-    end
+    # Extract flat gradient from the model gradient structure
+    grad_model = itf.pullback_p[1]
+    grad_flat, _ = Flux.destructure(grad_model)
+    gvec .= y_bar .* grad_flat
     gvec
 end
 
@@ -118,7 +113,7 @@ function backward!(
     kwargs...,
 )
     if (compute_grad_param || itf.training_mode) && (itf.pullback_p === nothing)
-        _, itf.pullback_p = Flux.pullback(() -> sum(itf.model(itf.inp)), itf.params)
+        itf.pullback_p = Flux.gradient(m -> sum(m(itf.inp)), itf.model)
     end
     if computed_grad_inp && (itf.pullback_inp === nothing)
         _, itf.pullback_inp = Flux.pullback(x -> sum(itf.model(x)), itf.inp)

@@ -230,7 +230,7 @@ Return a vector containing all parameters of a model concatenated as a vector
 """
 function paramvector!(vec::AbstractVector, model::Chain)
     i = 1
-    fparam = Flux.params(model)
+    fparam = Flux.trainables(model)
     # Can be optimized here
     for item in fparam
         l = length(item)
@@ -241,13 +241,13 @@ function paramvector!(vec::AbstractVector, model::Chain)
 end
 
 function paramvector(model::Chain)
-    fparam = Flux.params(model)
+    fparam = Flux.trainables(model)
     np = sum(length, fparam)
     out = zeros(eltype(fparam[1]), np)
     paramvector!(out, model)
 end
 
-nparams(model::Chain) = sum(length, Flux.params(model))
+nparams(model::Chain) = sum(length, Flux.trainables(model))
 
 
 """
@@ -256,7 +256,7 @@ nparams(model::Chain) = sum(length, Flux.params(model))
 Update the parameters of a model from a given vector
 """
 function update_param!(model, param)
-    fparams = Flux.params(model)
+    fparams = Flux.trainables(model)
     @assert sum(length, fparams) == length(param)
     i = 1
     for item in fparams

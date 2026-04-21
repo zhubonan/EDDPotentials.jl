@@ -4,7 +4,7 @@ using Test
 using LinearAlgebra
 using Flux: Chain, Dense
 
-include("utils.jl")
+isdefined(Main, :_h2_cell) || include("utils.jl")
 
 @testset "MetaCalculator Basic" begin
     source = _get_calc()

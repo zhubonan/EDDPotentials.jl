@@ -20,8 +20,6 @@ using Test
 
 isdefined(Main, :_h2_cell) || include("utils.jl")
 
-allclose(x, y; kwargs...) = all(isapprox.(x, y; kwargs...))
-
 feature_dtype(cf::CellFeature) = !isempty(cf.two_body) ? eltype(cf.two_body[1].p) :
                                  !isempty(cf.three_body) ? eltype(cf.three_body[1].p) :
                                  Float64

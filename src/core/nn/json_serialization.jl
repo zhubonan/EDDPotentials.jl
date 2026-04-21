@@ -120,6 +120,10 @@ function _typed_vector_from_data(data; default_dtype=Float64)
     if data isa AbstractDict
         T = _dtype_from_name(_require_key(data, "dtype"))
         vals = _require_key(data, "data")
+        # Handle case where empty arrays were serialized as {} (JSON.Object)
+        if vals isa AbstractDict
+            return T[]
+        end
         out = Vector{T}(undef, length(vals))
         out .= T.(vals)
         return out
@@ -134,9 +138,15 @@ function _matrix_from_rows(rows, ::Type{T}=Float64) where {T}
     ncol = nrow == 0 ? 0 : length(rows[1])
     out = Matrix{T}(undef, nrow, ncol)
     for i = 1:nrow
-        length(rows[i]) == ncol ||
-            throw(ArgumentError("Inconsistent row lengths in serialized matrix."))
-        out[i, :] .= T.(rows[i])
+        row = rows[i]
+        # Handle case where empty arrays were serialized as {} (JSON.Object)
+        if row isa AbstractDict
+            out[i, :] .= T[]
+        else
+            length(row) == ncol ||
+                throw(ArgumentError("Inconsistent row lengths in serialized matrix."))
+            out[i, :] .= T.(row)
+        end
     end
     out
 end

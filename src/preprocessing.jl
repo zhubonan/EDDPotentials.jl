@@ -492,7 +492,7 @@ end
 """
 Split a vector by either integer counts or ratio values.
 """
-function _split_vector(c, nsplit::Vararg{<:Real}; shuffle=true, seed=42)
+function _split_vector(c, nsplit::Vararg{Real}; shuffle=true, seed=42)
     counts = Int[]
     total = length(c)
     for n in nsplit

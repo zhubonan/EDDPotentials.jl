@@ -223,7 +223,7 @@ end
 
 @testset "MD with NNCalc" begin
     using Flux
-    include("utils.jl")
+    isdefined(Main, :_h2_cell) || include("utils.jl")
     calc = _get_lco_calc()
 
     @testset "NVE short run" begin

@@ -78,14 +78,13 @@ end
     @test all(chain(inp) .≈ chaing.layers[end].out)
 
     # Check against Flux
-    param = Flux.params(chain)
-    grad = Flux.gradient(() -> sum(chain(inp)), param)
+    grad = Flux.gradient(m -> sum(m(inp)), chain)
 
-    gflux = grad[chain[1].two_body.weight]
+    gflux = grad[1].layers[1].two_body.weight
     gmbp = chaing.layers[1].two_body.gw
     @test all(gmbp .≈ gmbp)
 
-    gflux = grad[chain[1].three_body.weight]
+    gflux = grad[1].layers[1].three_body.weight
     gmbp = chaing.layers[1].three_body.gw
     @test all(gmbp .≈ gmbp)
 
