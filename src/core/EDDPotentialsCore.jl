@@ -68,7 +68,8 @@ export eddp_energy,
     eddp_energy_std_per_atom
 export CellFeature, nfeatures
 export RandomEmbeddedCellFeature
-export TwoBodyFeature, ThreeBodyFeature, permequal, feature_size
+export MultiRandomEmbeddedCellFeature
+export TwoBodyFeature, ThreeBodyFeature, permequal, feature_size, one_body_offset
 export ModelArtifact,
     FeatureArtifact,
     load_model,

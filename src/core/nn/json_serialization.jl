@@ -259,8 +259,22 @@ function _feature_to_data(cf::RandomEmbeddedCellFeature)
     )
 end
 
+function _feature_to_data(cf::MultiRandomEmbeddedCellFeature)
+    Dict(
+        "feature_type" => "multi_random_embedded_cell_feature",
+        "embeddings" => [_feature_to_data(emb) for emb in cf.embeddings],
+    )
+end
+
 function _feature_from_data(data)
     feature_type = _require_key(data, "feature_type")
+
+    if feature_type == "multi_random_embedded_cell_feature"
+        embeddings_data = _require_key(data, "embeddings")
+        embeddings = [_feature_from_data(d) for d in embeddings_data]
+        return MultiRandomEmbeddedCellFeature(embeddings)
+    end
+
     elements = Symbol.(_require_key(data, "elements"))
     two_body = get(data, "two_body", nothing)
     three_body = get(data, "three_body", nothing)

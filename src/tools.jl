@@ -412,7 +412,7 @@ function force_gradient(cf, cell, core_size=0)
     param = rand(1, size(fb.gvec, 2))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
-    n1bd = feature_size(cf)[1]
+    n1bd = one_body_offset(cf)
     _force_update!(fb, gv; offset=n1bd)
     _stress_update!(fb, gv; offset=n1bd)
     forces = copy(fb.tot_forces)
@@ -466,7 +466,7 @@ function stress_gradient(cf, cell, core_size=0, step=1e-6)
     param = rand(1, size(fb.gvec, 2))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
-    n1bd = feature_size(cf)[1]
+    n1bd = one_body_offset(cf)
     _force_update!(fb, gv; offset=n1bd)
     _stress_update!(fb, gv; offset=n1bd)
     stress = copy(fb.tot_stress)

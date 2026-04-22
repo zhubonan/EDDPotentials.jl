@@ -548,6 +548,140 @@ function setup_fj_with_embedding(
 end
 
 """
+    setup_fj_with_embedding(model, structures, cf::MultiRandomEmbeddedCellFeature, y, weights=nothing;
+        nmax=500, recompute_xt=false)
+
+Create closures for full LM training with learnable multi-embedding.
+
+The combined parameter vector is `[nn_params; vec(emb1.embedding); vec(emb2.embedding); ...]`.
+"""
+function setup_fj_with_embedding(
+    model::AbstractNNInterface,
+    structures::AbstractVector{<:Cell},
+    cf::MultiRandomEmbeddedCellFeature,
+    y::AbstractVector,
+    weights=nothing;
+    nmax::Int=500,
+    recompute_xt::Bool=false,
+)
+    n_nn = nparams(model)
+    n_emb_total = sum(length(emb.embedding) for emb in cf.embeddings)
+    n_total = n_nn + n_emb_total
+
+    jtmp_nn = zeros(eltype(paramvector(model)), n_nn)
+    gE_vec = [zeros(eltype(emb.embedding), size(emb.embedding)) for emb in cf.embeddings]
+
+    # Precompute NLs and workspaces for each structure
+    rcut = suggest_rcut(cf; shell=0.0)
+    nls = [NeighbourList(s, rcut, nmax; savevec=true) for s in structures]
+    workspaces = [get_workspace(cf, nl, false) for nl in nls]
+
+    max_nat = maximum(natoms, structures)
+    gv_mat = zeros(eltype(gE_vec[1]), nfeatures(cf), max_nat)
+
+    # Build index ranges for each embedding's parameters
+    emb_ranges = Vector{UnitRange{Int}}(undef, length(cf.embeddings))
+    pos = n_nn + 1
+    for (i, emb) in enumerate(cf.embeddings)
+        n_emb_i = length(emb.embedding)
+        emb_ranges[i] = pos:(pos + n_emb_i - 1)
+        pos += n_emb_i
+    end
+
+    function _update_params(param)
+        nn_params = view(param, 1:n_nn)
+        setparamvector!(model, nn_params)
+        for (i, emb) in enumerate(cf.embeddings)
+            copyto!(emb.embedding, view(param, emb_ranges[i]))
+        end
+    end
+
+    function _recompute_and_forward(i)
+        @timeit to "embed: feature" recompute_features!(workspaces[i].fvec, cf, structures[i], workspaces[i], nls[i])
+        @timeit to "embed: forward" forward!(model, workspaces[i].fvec)
+    end
+
+    function _update_xt()
+        nf = nfeatures(cf)
+        T = eltype(gE_vec[1])
+        mean_vec = zeros(T, nf)
+        std_vec = zeros(T, nf)
+        compute_feature_stats!(mean_vec, std_vec, structures, cf, workspaces, nls)
+        # With simple concatenation layout, one-body features are interleaved
+        # so we normalize all features together
+        model.xt = ZScoreTransform(nf, 2, mean_vec, std_vec)
+    end
+
+    function f!(fvec, param)
+        _update_params(param)
+        if recompute_xt
+            _update_xt()
+        end
+        for i in eachindex(structures)
+            out = _recompute_and_forward(i)
+            if isnothing(weights)
+                fvec[i] = sum(out) - y[i]
+            else
+                fvec[i] = (sum(out) - y[i]) * weights[i]
+            end
+        end
+        fvec
+    end
+
+    function j!(jmat, param)
+        fj!(nothing, jmat, param)[2]
+    end
+
+    function fj!(fvec, jmat, param)
+        _update_params(param)
+        if recompute_xt
+            _update_xt()
+        end
+        for i in eachindex(structures)
+            out = _recompute_and_forward(i)
+            @timeit to "embed: backward" backward!(model)
+
+            if jmat !== nothing
+                # NN parameter gradient
+                @timeit to "embed: gradparam" gradparam!(jtmp_nn, model)
+                if isnothing(weights)
+                    jmat[i, 1:n_nn] .= jtmp_nn
+                else
+                    jmat[i, 1:n_nn] .= jtmp_nn .* weights[i]
+                end
+
+                # Embedding gradient for each embedding
+                nat = natoms(structures[i])
+                gv_view = view(gv_mat, 1:nfeatures(cf), 1:nat)
+                @timeit to "embed: gradinp" gradinp!(gv_view, model)
+                for (k, emb) in enumerate(cf.embeddings)
+                    fill!(gE_vec[k], zero(eltype(gE_vec[k])))
+                end
+                @timeit to "embed: grad_emb" grad_embedding!(gE_vec, cf, structures[i], nls[i], gv_view)
+                for (k, emb) in enumerate(cf.embeddings)
+                    if isnothing(weights)
+                        jmat[i, emb_ranges[k]] .= vec(gE_vec[k])
+                    else
+                        jmat[i, emb_ranges[k]] .= vec(gE_vec[k]) .* weights[i]
+                    end
+                end
+            end
+
+            if fvec !== nothing
+                if isnothing(weights)
+                    fvec[i] = sum(out) - y[i]
+                else
+                    fvec[i] = (sum(out) - y[i]) * weights[i]
+                end
+            end
+        end
+        fvec, jmat
+    end
+
+    return f!, j!, fj!
+end
+
+"""
     setup_fj_batched_with_embedding(model, structures, cf, y, weights=nothing;
         nmax=500, recompute_xt=false)
 
@@ -660,6 +794,158 @@ function setup_fj_batched_with_embedding(
     end
 
     return fj_batch!, f_full!
+end
+
+function setup_fj_batched_with_embedding(
+    model::AbstractNNInterface,
+    structures::AbstractVector{<:Cell},
+    cf::MultiRandomEmbeddedCellFeature,
+    y::AbstractVector,
+    weights=nothing;
+    nmax::Int=500,
+    recompute_xt::Bool=false,
+)
+    n_nn = nparams(model)
+    n_emb = _emb_param_count(cf)
+    n_total = n_nn + n_emb
+
+    jtmp_nn = zeros(eltype(paramvector(model)), n_nn)
+    gE_vec = [zeros(eltype(emb.embedding), size(emb.embedding)) for emb in cf.embeddings]
+
+    # Precompute NLs and workspaces for each structure
+    rcut = suggest_rcut(cf; shell=0.0)
+    nls = [NeighbourList(s, rcut, nmax; savevec=true) for s in structures]
+    workspaces = [get_workspace(cf, nl, false) for nl in nls]
+
+    max_nat = maximum(natoms, structures)
+    gv_mat = zeros(eltype(gE_vec[1]), nfeatures(cf), max_nat)
+
+    # Build index ranges for each embedding's parameters
+    emb_ranges = Vector{UnitRange{Int}}(undef, length(cf.embeddings))
+    pos = n_nn + 1
+    for (i, emb) in enumerate(cf.embeddings)
+        n_emb_i = length(emb.embedding)
+        emb_ranges[i] = pos:(pos + n_emb_i - 1)
+        pos += n_emb_i
+    end
+
+    function _update_params(param)
+        nn_params = view(param, 1:n_nn)
+        setparamvector!(model, nn_params)
+        for (i, emb) in enumerate(cf.embeddings)
+            copyto!(emb.embedding, view(param, emb_ranges[i]))
+        end
+    end
+
+    function _recompute_and_forward(i)
+        @timeit to "embed: feature" recompute_features!(workspaces[i].fvec, cf, structures[i], workspaces[i], nls[i])
+        @timeit to "embed: forward" forward!(model, workspaces[i].fvec)
+    end
+
+    function _update_xt()
+        nf = nfeatures(cf)
+        T = eltype(gE_vec[1])
+        mean_vec = zeros(T, nf)
+        std_vec = zeros(T, nf)
+        compute_feature_stats!(mean_vec, std_vec, structures, cf, workspaces, nls)
+        model.xt = ZScoreTransform(nf, 2, mean_vec, std_vec)
+    end
+
+    function fj_batch!(fvec, jmat, param, batch_indices)
+        _update_params(param)
+        if recompute_xt
+            _update_xt()
+        end
+        need_jacobian = !(jmat === nothing)
+
+        for (local_i, global_i) in enumerate(batch_indices)
+            out = _recompute_and_forward(global_i)
+
+            if need_jacobian
+                @timeit to "embed: backward" backward!(model)
+                @timeit to "embed: gradparam" gradparam!(jtmp_nn, model)
+                if isnothing(weights)
+                    jmat[local_i, 1:n_nn] .= jtmp_nn
+                else
+                    jmat[local_i, 1:n_nn] .= jtmp_nn .* weights[global_i]
+                end
+
+                nat = natoms(structures[global_i])
+                gv_view = view(gv_mat, 1:nfeatures(cf), 1:nat)
+                @timeit to "embed: gradinp" gradinp!(gv_view, model)
+                for (k, emb) in enumerate(cf.embeddings)
+                    fill!(gE_vec[k], zero(eltype(gE_vec[k])))
+                end
+                @timeit to "embed: grad_emb" grad_embedding!(gE_vec, cf, structures[global_i], nls[global_i], gv_view)
+                for (k, emb) in enumerate(cf.embeddings)
+                    if isnothing(weights)
+                        jmat[local_i, emb_ranges[k]] .= vec(gE_vec[k])
+                    else
+                        jmat[local_i, emb_ranges[k]] .= vec(gE_vec[k]) .* weights[global_i]
+                    end
+                end
+            end
+
+            if fvec !== nothing
+                if isnothing(weights)
+                    fvec[local_i] = sum(out) - y[global_i]
+                else
+                    fvec[local_i] = (sum(out) - y[global_i]) * weights[global_i]
+                end
+            end
+        end
+        fvec, jmat
+    end
+
+    function f_full!(fvec, param)
+        _update_params(param)
+        if recompute_xt
+            _update_xt()
+        end
+        for i in eachindex(structures)
+            out = _recompute_and_forward(i)
+            if isnothing(weights)
+                fvec[i] = sum(out) - y[i]
+            else
+                fvec[i] = (sum(out) - y[i]) * weights[i]
+            end
+        end
+        fvec
+    end
+
+    return fj_batch!, f_full!
+end
+
+# --- Embedding parameter helpers (used by training.jl) ---
+
+_emb_param_count(cf::RandomEmbeddedCellFeature) = length(cf.embedding)
+_emb_param_count(cf::MultiRandomEmbeddedCellFeature) = sum(length(emb.embedding) for emb in cf.embeddings)
+
+_emb_param_vec(cf::RandomEmbeddedCellFeature) = vec(cf.embedding)
+_emb_param_vec(cf::MultiRandomEmbeddedCellFeature) = reduce(vcat, vec(emb.embedding) for emb in cf.embeddings)
+
+function _emb_param_set!(cf::RandomEmbeddedCellFeature, params)
+    copyto!(cf.embedding, params)
+end
+function _emb_param_set!(cf::MultiRandomEmbeddedCellFeature, params)
+    pos = firstindex(params)
+    for emb in cf.embeddings
+        n = length(emb.embedding)
+        copyto!(emb.embedding, view(params, pos:pos+n-1))
+        pos += n
+    end
+end
+
+function _emb_normalize!(cf::RandomEmbeddedCellFeature)
+    for i in 1:size(cf.embedding, 1)
+        rownorm = sqrt(sum(abs2, @view cf.embedding[i, :]))
+        rownorm > 0 && (@views cf.embedding[i, :] ./= rownorm)
+    end
+end
+function _emb_normalize!(cf::MultiRandomEmbeddedCellFeature)
+    for emb in cf.embeddings
+        _emb_normalize!(emb)
+    end
 end
 
 

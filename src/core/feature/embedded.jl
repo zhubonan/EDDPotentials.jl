@@ -135,6 +135,14 @@ end
 
 embedding_size(cf::RandomEmbeddedCellFeature) = size(cf.embedding, 2)
 
+"""
+    one_body_offset(cf)
+
+Return the offset for one-body features in the force/stress chain rule.
+For single embedding, one-body features are contiguous at the start.
+"""
+one_body_offset(cf::RandomEmbeddedCellFeature) = embedding_size(cf)
+
 function _species_index_map(elements)
     Dict(s => i for (i, s) in enumerate(elements))
 end
@@ -209,13 +217,15 @@ function compute_embedded_fv_gv_one!(
     nl::NeighbourList;
     offset=workspace.one_body_offset,
     do_grad=workspace.do_grad,
+    zero_workspace::Bool=true,
+    compute_hardcore::Bool=true,
 )
     do_grad && (@assert nl.has_vectors)
 
     (; fvec, gvec, gvec_index, gvec_nn, stotv, hardcore) = workspace
     (; core, fcore, score, ecore) = hardcore
 
-    if do_grad
+    if do_grad && zero_workspace
         gvec[:, :, :, iat] .= 0.0
         stotv[:, :, :, iat] .= 0.0
     end
@@ -264,7 +274,7 @@ function compute_embedded_fv_gv_one!(
             end
         end
 
-        if !isnothing(core)
+        if !isnothing(core) && compute_hardcore
             _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, core)[1]
         end
 
@@ -386,7 +396,7 @@ function get_workspace(
         ndims=length(nl.ea.positions[1]),
         core=core,
         do_grad=do_grad,
-        one_body_offset=feature_size(cf)[1],
+        one_body_offset=one_body_offset(cf),
     )
 end
 
@@ -478,8 +488,10 @@ function grad_embedding_one!(
 
     # --- One-body contribution ---
     # fvec[d, iat] = E[si, d]  =>  ∂fvec[d, iat]/∂E[si, d] = 1
+    # One-body features are at [offset - embedding_size + 1 : offset]
+    ob_start = offset - embedding_size(cf) + 1
     for d in 1:embedding_size(cf)
-        gE[si, d] += gv[d, iat]
+        gE[si, d] += gv[ob_start + d - 1, iat]
     end
 
     # --- Pre-compute three-body caches ---

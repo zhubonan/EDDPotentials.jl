@@ -291,6 +291,8 @@ function feature_size(cf::CellFeature)
     (length(cf.elements), n2, n3)
 end
 
+one_body_offset(cf::CellFeature) = feature_size(cf)[1]
+
 """
     suggest_rcut(cf::CellFeature; shell=1.0)
 

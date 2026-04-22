@@ -188,7 +188,7 @@ function NNCalc(
         ndims=CellBase._n_dimensions(cell),
         core,
         do_grad=true,
-        one_body_offset=feature_size(cf)[1],
+        one_body_offset=one_body_offset(cf),
     ) # Buffer for force calculation 
     NNCalc(
         cell,
@@ -386,7 +386,7 @@ function _calculate!(calc::NNCalc, rebuild=true, compute_forces=true)
         # Calculate the gradient of the feature vectors on the outputs (energies)
         @timeit to "gradinp!" gradinp!(calc.gv, calc.nninterface)
         # Apply chain rule to get the forces
-        n1bd = feature_size(calc.cf)[1]
+        n1bd = one_body_offset(calc.cf)
         # Force is only applicable on n-body features where N>1
         @timeit to "apply_chainrule!" force_via_chainrule!(calc, calc.gv, offset=n1bd)
         # Scale stress by the volume
@@ -412,7 +412,7 @@ function update_feature_vector!(calc::NNCalc; rebuild_nl=true, compute_gradients
 
     # Update the vectors
     one_body_vectors!(calc.v, cell, calc.cf)
-    n1bd, _, _ = feature_size(calc.cf)
+    n1bd = one_body_offset(calc.cf)
     if compute_gradients
         @timeit to "compute_fv_gv!" compute_fv_gv!(calc.workspace, calc.cf, cell; nl, offset=n1bd)
     else

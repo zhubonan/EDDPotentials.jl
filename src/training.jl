@@ -1090,7 +1090,7 @@ parameter vector `[nn_params; vec(cf.embedding)]` is optimized jointly.
 function train_lm_with_embedding!(
     itf::AbstractNNInterface,
     structures::AbstractVector{<:Cell},
-    cf::RandomEmbeddedCellFeature,
+    cf::Union{RandomEmbeddedCellFeature,MultiRandomEmbeddedCellFeature},
     y::AbstractVector;
     p0_nn=paramvector(itf),
     structures_val=structures,
@@ -1108,11 +1108,11 @@ function train_lm_with_embedding!(
 )
     rec = []
     n_nn = length(p0_nn)
-    n_emb = length(cf.embedding)
+    n_emb = EDDPotentialsCore._emb_param_count(cf)
     n_total = n_nn + n_emb
 
     # Combined initial parameter vector
-    p0 = vcat(p0_nn, vec(cf.embedding))
+    p0 = vcat(p0_nn, EDDPotentialsCore._emb_param_vec(cf))
 
     train_natoms = [natoms(s) for s in structures]
     val_natoms = [natoms(s) for s in structures_val]
@@ -1185,16 +1185,13 @@ function train_lm_with_embedding!(
     final_nn = view(final_params, 1:n_nn)
     final_emb = view(final_params, n_nn+1:n_total)
     EDDPotentialsCore.setparamvector!(itf, final_nn)
-    copyto!(cf.embedding, final_emb)
+    EDDPotentialsCore._emb_param_set!(cf, final_emb)
 
     if normalize_embedding
-        for i in 1:size(cf.embedding, 1)
-            rownorm = sqrt(sum(abs2, @view cf.embedding[i, :]))
-            rownorm > 0 && (@views cf.embedding[i, :] ./= rownorm)
-        end
+        EDDPotentialsCore._emb_normalize!(cf)
     end
 
-    opt_res, vcat(paramvector(itf), vec(cf.embedding)), [map(x -> x[1], rec) map(x -> x[2], rec)], (f!, j!, fj!)
+    opt_res, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf)), [map(x -> x[1], rec) map(x -> x[2], rec)], (f!, j!, fj!)
 end
 
 """
@@ -1206,7 +1203,7 @@ Train a model using batched LM with learnable species embedding.
 function train_lm_batched_with_embedding!(
     itf::AbstractNNInterface,
     structures::AbstractVector{<:Cell},
-    cf::RandomEmbeddedCellFeature,
+    cf::Union{RandomEmbeddedCellFeature,MultiRandomEmbeddedCellFeature},
     y::AbstractVector;
     p0_nn=paramvector(itf),
     structures_val=structures,
@@ -1236,10 +1233,10 @@ function train_lm_batched_with_embedding!(
 
     rec = []
     n_nn = length(p0_nn)
-    n_emb = length(cf.embedding)
+    n_emb = EDDPotentialsCore._emb_param_count(cf)
     n_total = n_nn + n_emb
 
-    p0 = vcat(p0_nn, vec(cf.embedding))
+    p0 = vcat(p0_nn, EDDPotentialsCore._emb_param_vec(cf))
 
     train_natoms = [natoms(s) for s in structures]
     val_natoms = [natoms(s) for s in structures_val]
@@ -1281,7 +1278,7 @@ function train_lm_batched_with_embedding!(
         push!(rec, (rmse_train, rmse_val))
         epoch_count += 1
 
-        rmse_val, vcat(paramvector(itf), vec(cf.embedding))
+        rmse_val, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf))
     end
 
     # Set up batched closures
@@ -1314,16 +1311,13 @@ function train_lm_batched_with_embedding!(
     final_nn = view(final_params, 1:n_nn)
     final_emb = view(final_params, n_nn+1:n_total)
     EDDPotentialsCore.setparamvector!(itf, final_nn)
-    copyto!(cf.embedding, final_emb)
+    EDDPotentialsCore._emb_param_set!(cf, final_emb)
 
     if normalize_embedding
-        for i in 1:size(cf.embedding, 1)
-            rownorm = sqrt(sum(abs2, @view cf.embedding[i, :]))
-            rownorm > 0 && (@views cf.embedding[i, :] ./= rownorm)
-        end
+        EDDPotentialsCore._emb_normalize!(cf)
     end
 
-    opt_res, vcat(paramvector(itf), vec(cf.embedding)), [map(x -> x[1], rec) map(x -> x[2], rec)], (fj_batch!, f_full!)
+    opt_res, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf)), [map(x -> x[1], rec) map(x -> x[2], rec)], (fj_batch!, f_full!)
 end
 
 """

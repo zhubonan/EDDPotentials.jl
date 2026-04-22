@@ -3,6 +3,7 @@ using EDDPotentials:
     FeatureContainer,
     FeatureStore,
     RandomEmbeddedCellFeature,
+    MultiRandomEmbeddedCellFeature,
     StructureContainer,
     TrainingResults,
     ginit,
@@ -42,6 +43,7 @@ function _parse_args(args)
         "dataset" => DEFAULT_DATASET,
         "max_structures" => 10000,
         "embedding_size" => 4,
+        "n_multi" => 1,
         "hidden_size" => [10, 10, 10],
         "p2" => [2,4,6,8,10],
         "p3" => [2,4,6,8,10],
@@ -67,6 +69,8 @@ function _parse_args(args)
             config["max_structures"] = parse(Int, value)
         elseif key == "embedding_size"
             config["embedding_size"] = parse(Int, value)
+        elseif key == "n_multi"
+            config["n_multi"] = parse(Int, value)
         elseif key == "hidden_size"
             config["hidden_size"] = parse(Int, value)
         elseif key == "p2"
@@ -118,6 +122,7 @@ function main(args=ARGS)
     println("Loading dataset: $dataset")
     println(
         "Config: max_structures=$(cfg["max_structures"]) embedding_size=$(cfg["embedding_size"]) " *
+        "n_multi=$(cfg["n_multi"]) " *
         "hidden_size=$(cfg["hidden_size"]) p2=$(cfg["p2"]) p3=$(cfg["p3"]) q3=$(cfg["q3"]) " *
         "train_method=$(cfg["train_method"]) batch_size=$(cfg["batch_size"]) val_ratio=$(cfg["val_ratio"]) " *
         "max_iter=$(cfg["max_iter"]) earlystop=$(cfg["earlystop"]) threaded=$(cfg["threaded"]) " *
@@ -145,14 +150,27 @@ function main(args=ARGS)
         symbols = _unique_symbols(sc.structures)
     end
 
-    embedded = RandomEmbeddedCellFeature(
-        symbols;
-        nembed=cfg["embedding_size"],
-        seed=cfg["seed"],
-        p2=cfg["p2"],
-        p3=cfg["p3"],
-        q3=cfg["q3"],
-    )
+    n_multi = cfg["n_multi"]
+    embedded = if n_multi > 1
+        MultiRandomEmbeddedCellFeature(
+            symbols;
+            nembed=cfg["embedding_size"],
+            n_multi=n_multi,
+            seeds=collect(0:n_multi-1) .+ cfg["seed"],
+            p2=cfg["p2"],
+            p3=cfg["p3"],
+            q3=cfg["q3"],
+        )
+    else
+        RandomEmbeddedCellFeature(
+            symbols;
+            nembed=cfg["embedding_size"],
+            seed=cfg["seed"],
+            p2=cfg["p2"],
+            p3=cfg["p3"],
+            q3=cfg["q3"],
+        )
+    end
     println("Embedding feature size: $(nfeatures(embedded))")
 
     if use_store

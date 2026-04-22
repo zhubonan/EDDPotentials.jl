@@ -3,11 +3,12 @@
 # computation, and LM solve.
 #
 # Usage:
-#   julia --project=. foundation_train/profile_learnable_embedded.jl [max_structures=500] [embedding_size=4]
+#   julia --project=. foundation_train/profile_learnable_embedded.jl [max_structures=500] [embedding_size=4] [n_multi=1]
 
 using EDDPotentials
 using EDDPotentials:
     FeatureContainer, StructureContainer, TrainingResults,
+    RandomEmbeddedCellFeature, MultiRandomEmbeddedCellFeature,
     ginit, mae_per_atom, nfeatures, rmse_per_atom,
     train_lm_batched_with_embedding!,
     split, standardize!,
@@ -21,6 +22,7 @@ function _parse_args(args)
     Dict(
         "max_structures" => length(args) >= 1 ? parse(Int, args[1]) : 500,
         "embedding_size" => length(args) >= 2 ? parse(Int, args[2]) : 4,
+        "n_multi" => length(args) >= 3 ? parse(Int, args[3]) : 1,
         "batch_size" => 1024,
         "max_epochs" => 5,
         "hidden_size" => [10, 10, 10],
@@ -38,15 +40,29 @@ function main(args=ARGS)
     println("Loaded $(length(sc)) structures")
     symbols = sort!(collect(Set(reduce(vcat, unique.(species.(sc.structures))))))
 
-    embedded = RandomEmbeddedCellFeature(
-        symbols;
-        nembed=cfg["embedding_size"],
-        seed=42,
-        p2=2:2:10,
-        p3=2:2:10,
-        q3=[3, 5, 7, 9],
-    )
-    println("Features: $(nfeatures(embedded)), Species: $(length(symbols)), Embedding params: $(length(embedded.embedding))")
+    n_multi = cfg["n_multi"]
+    embedded = if n_multi > 1
+        MultiRandomEmbeddedCellFeature(
+            symbols;
+            nembed=cfg["embedding_size"],
+            n_multi=n_multi,
+            seeds=collect(0:n_multi-1) .+ 42,
+            p2=2:2:10,
+            p3=2:2:10,
+            q3=[3, 5, 7, 9],
+        )
+    else
+        RandomEmbeddedCellFeature(
+            symbols;
+            nembed=cfg["embedding_size"],
+            seed=42,
+            p2=2:2:10,
+            p3=2:2:10,
+            q3=[3, 5, 7, 9],
+        )
+    end
+    n_emb_params = sum(length(emb.embedding) for emb in (n_multi > 1 ? embedded.embeddings : [embedded]))
+    println("Features: $(nfeatures(embedded)), Species: $(length(symbols)), n_multi=$(n_multi), Embedding params: $(n_emb_params)")
 
     nval = max(1, Int(floor(length(sc) * 0.1)))
     sc_train, sc_val = split(sc, length(sc)-nval, nval; shuffle=true, seed=42)
@@ -65,7 +81,7 @@ function main(args=ARGS)
         init=ginit, σ=tanh,
         xt=fc_train.xt, yt=fc_train.yt,
     )
-    println("NN params: $(nparams(model)), Total: $(nparams(model) + length(embedded.embedding))")
+    println("NN params: $(nparams(model)), Total: $(nparams(model) + n_emb_params)")
 
     # Enable profiling and train
     enable_eddp_timer!()
