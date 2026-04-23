@@ -77,7 +77,7 @@ function _parse_args(args)
         "p3" => [2, 4, 6, 7, 8, 10],
         "q3" => [2, 4, 6, 7, 8, 10],
         # Optimizer
-        "optimizer" => "adam",
+        "optimizer" => :adam,
         "lr" => 1e-3,
         "momentum" => 0.9,
         "weight_decay" => 0.0,
