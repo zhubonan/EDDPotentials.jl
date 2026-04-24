@@ -13,7 +13,7 @@ using EDDPotentials.EDDPotentialsCore:
     load_model_artifact,
     save_as_jld2,
     save_feature_json,
-    save_model_json
+    save_model_artifact
 using Flux: Chain, Dense, tanh
 using StatsBase: fit, ZScoreTransform
 using Test
@@ -41,7 +41,7 @@ function assert_model_roundtrip(path, model, feature_spec, cell; elemental_energ
     calc_before = NNCalc(deepcopy(cell), feature_spec, model; elemental_energies, core=nothing)
     energy_before = eddp_energy(calc_before)
 
-    save_model_json(path, model; feature_spec, elemental_energies, metadata)
+    save_model_artifact(path, model; feature_spec, elemental_energies, metadata)
     artifact = load_model_artifact(path)
 
     @test feature_equivalent(artifact.feature_spec, feature_spec)
@@ -286,7 +286,7 @@ end
         model = LinearInterface([0.1, 0.2])
         mktempdir() do dir
             path = joinpath(dir, "invalid.json")
-            save_model_json(path, model; feature_spec=cf)
+            save_model_artifact(path, model; feature_spec=cf)
             payload = JSON.parse(read(path, String))
             payload["model"] = Dict(
                 "interface_type" => "manual_flux_backprop",

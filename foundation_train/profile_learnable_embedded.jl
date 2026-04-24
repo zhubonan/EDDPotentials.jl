@@ -9,7 +9,7 @@ using EDDPotentials
 using EDDPotentials:
     FeatureContainer, StructureContainer, TrainingResults,
     RandomEmbeddedCellFeature, MultiRandomEmbeddedCellFeature,
-    ginit, mae_per_atom, nfeatures, rmse_per_atom,
+    ginit, get_elemental_energy, mae_per_atom, nfeatures, rmse_per_atom,
     train_lm_batched_with_embedding!,
     split, standardize!,
     enable_eddp_timer!, reset_eddp_timer!
@@ -17,6 +17,16 @@ using EDDPotentials.EDDPotentialsCore: nparams, ManualFluxBackPropInterface
 using EDDPotentials: to  # TimerOutput
 using CellBase: species
 using Printf: @printf
+using JSON
+
+const DEFAULT_E0S = joinpath(@__DIR__, "e0s.json")
+
+function load_e0s(path::AbstractString=DEFAULT_E0S)
+    (path == "" || lowercase(path) == "none") && return Dict{Symbol,Float64}()
+    isfile(path) || error("Elemental energies file not found: `$path`")
+    data = JSON.parsefile(path)
+    Dict{Symbol,Float64}(Symbol(k) => Float64(v) for (k, v) in data)
+end
 
 function _parse_args(args)
     Dict(
@@ -67,13 +77,25 @@ function main(args=ARGS)
     nval = max(1, Int(floor(length(sc) * 0.1)))
     sc_train, sc_val = split(sc, length(sc)-nval, nval; shuffle=true, seed=42)
 
-    fc_train = FeatureContainer(sc_train, embedded; show_progress=false)
+    e0s = load_e0s()
+
+    fc_train = FeatureContainer(sc_train, embedded; show_progress=false, elemental_energies=e0s)
     standardize!(fc_train)
 
     train_structures = sc_train.structures
-    train_y = sc_train.H
+    train_y = copy(sc_train.H)
     val_structures = sc_val.structures
-    val_y = sc_val.H
+    val_y = copy(sc_val.H)
+
+    # Subtract elemental reference energies
+    if !isempty(e0s)
+        for i in eachindex(train_structures)
+            train_y[i] -= get_elemental_energy(train_structures[i], e0s)
+        end
+        for i in eachindex(val_structures)
+            val_y[i] -= get_elemental_energy(val_structures[i], e0s)
+        end
+    end
 
     nh = cfg["hidden_size"]
     model = ManualFluxBackPropInterface(

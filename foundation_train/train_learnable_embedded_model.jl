@@ -6,6 +6,7 @@ using EDDPotentials:
     StructureContainer,
     TrainingResults,
     ginit,
+    get_elemental_energy,
     mae_per_atom,
     nfeatures,
     rmse_per_atom,
@@ -15,11 +16,27 @@ using EDDPotentials:
     standardize!
 using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface, nparams
 using CellBase: species
+using JSON
 
 const DEFAULT_DATASET = joinpath(
     @__DIR__,
     "mp_finetuning-MACE_matpes_ft_run-42_combined.xyz",
 )
+const DEFAULT_E0S = joinpath(@__DIR__, "e0s.json")
+
+"""
+    load_e0s([path]) -> Dict{Symbol,Float64}
+
+Load elemental reference energies from a JSON file.
+Each key is an element symbol, each value is the reference energy in eV.
+Returns an empty Dict if `path` is `""` or `"none"`.
+"""
+function load_e0s(path::AbstractString=DEFAULT_E0S)
+    (path == "" || lowercase(path) == "none") && return Dict{Symbol,Float64}()
+    isfile(path) || error("Elemental energies file not found: `$path`")
+    data = JSON.parsefile(path)
+    Dict{Symbol,Float64}(Symbol(k) => Float64(v) for (k, v) in data)
+end
 
 function _parse_bool(value::AbstractString)
     lowercase(value) in ("1", "true", "yes", "y", "on")
@@ -56,6 +73,9 @@ function _parse_args(args)
         "threshold" => 10.0,
         "normalize_embedding" => false,
         "recompute_xt" => false,
+        "e0s" => DEFAULT_E0S,
+        "checkpoint_every" => 0,
+        "checkpoint_prefix" => "",
     )
 
     for arg in args
@@ -97,6 +117,12 @@ function _parse_args(args)
             config["normalize_embedding"] = _parse_bool(value)
         elseif key == "recompute_xt"
             config["recompute_xt"] = _parse_bool(value)
+        elseif key in ("e0s", "elemental_energies", "e0")
+            config["e0s"] = value
+        elseif key == "checkpoint_every"
+            config["checkpoint_every"] = parse(Int, value)
+        elseif key == "checkpoint_prefix"
+            config["checkpoint_prefix"] = value
         else
             error("Unknown argument `$key`.")
         end
@@ -169,15 +195,30 @@ function main(args=ARGS)
 
     sc_train, sc_val = split(sc, ntrain, nval; shuffle=true, seed=cfg["seed"])
 
+    e0s = load_e0s(cfg["e0s"])
+    if !isempty(e0s)
+        println("Elemental reference energies: $(length(e0s)) elements loaded from $(cfg["e0s"])")
+    end
+
     # Build FeatureContainer from train split to get xt/yt statistics
-    fc_train = FeatureContainer(sc_train, embedded; show_progress=true)
+    fc_train = FeatureContainer(sc_train, embedded; show_progress=true, elemental_energies=e0s)
     standardize!(fc_train)
 
     # Extract raw structures and energies for the learnable embedding path
     train_structures = sc_train.structures
-    train_y = sc_train.H
+    train_y = copy(sc_train.H)
     val_structures = sc_val.structures
-    val_y = sc_val.H
+    val_y = copy(sc_val.H)
+
+    # Subtract elemental reference energies
+    if !isempty(e0s)
+        for i in eachindex(train_structures)
+            train_y[i] -= get_elemental_energy(train_structures[i], e0s)
+        end
+        for i in eachindex(val_structures)
+            val_y[i] -= get_elemental_energy(val_structures[i], e0s)
+        end
+    end
 
     nh = cfg["hidden_size"]
     model = ManualFluxBackPropInterface(
@@ -205,6 +246,9 @@ function main(args=ARGS)
             earlystop=cfg["earlystop"],
             normalize_embedding=normalize_emb,
             recompute_xt=recompute_xt,
+            checkpoint_every=cfg["checkpoint_every"],
+            checkpoint_prefix=cfg["checkpoint_prefix"],
+            elemental_energies=e0s,
         )
     else
         train_lm_with_embedding!(
@@ -216,12 +260,15 @@ function main(args=ARGS)
             earlystop=cfg["earlystop"],
             normalize_embedding=normalize_emb,
             recompute_xt=recompute_xt,
+            checkpoint_every=cfg["checkpoint_every"],
+            checkpoint_prefix=cfg["checkpoint_prefix"],
+            elemental_energies=e0s,
         )
     end
 
     # Evaluate — recompute features with final (trained) embedding
-    fc_val_final = FeatureContainer(sc_val, embedded; show_progress=false)
-    fc_train_final = FeatureContainer(sc_train, embedded; show_progress=false)
+    fc_val_final = FeatureContainer(sc_val, embedded; show_progress=false, elemental_energies=e0s)
+    fc_train_final = FeatureContainer(sc_train, embedded; show_progress=false, elemental_energies=e0s)
 
     train_results = TrainingResults(model, fc_train_final)
     val_results = TrainingResults(model, fc_val_final)

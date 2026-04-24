@@ -73,9 +73,8 @@ export TwoBodyFeature, ThreeBodyFeature, permequal, feature_size, one_body_offse
 export ModelArtifact,
     FeatureArtifact,
     load_model,
-    load_model_json,
     load_model_artifact,
-    save_model_json,
+    save_model_artifact,
     load_feature_json,
     load_feature_artifact,
     save_feature_json

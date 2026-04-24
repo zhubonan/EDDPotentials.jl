@@ -388,7 +388,7 @@ function levenberg_marquardt_batched(
                 best_x .= xtmp
             end
             push!(val_rmse, rmse_val)
-            @info "Epoch $epoch complete" val_rmse=rmse_val lambda iterCt
+            @debug "Epoch $epoch complete" val_rmse=rmse_val lambda iterCt
         end
 
         if earlystop > 0 && !isempty(val_rmse)

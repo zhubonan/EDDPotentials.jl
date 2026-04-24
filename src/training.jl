@@ -18,8 +18,9 @@ import Base
 import CellBase
 using Logging
 using NonNegLeastSquares
-using .EDDPotentialsCore: paramvector
+using .EDDPotentialsCore: paramvector, save_model_artifact
 import .EDDPotentialsCore: EnsembleNNInterface
+
 
 const XT_NAME = "xt"
 const YT_NAME = "yt"
@@ -296,6 +297,10 @@ function train_lm!(
     log_file="",
     p=1.25,
     weights=nothing,
+    checkpoint_every::Int=0,
+    checkpoint_prefix::AbstractString="",
+    feature_spec=nothing,
+    elemental_energies::Dict=Dict{Symbol,Float64}(),
     args...,
 )
     rec = []
@@ -332,6 +337,12 @@ function train_lm!(
         flush(stdout)
         push!(rec, (rmse_train, rmse_val))
 
+        # Checkpoint
+        if checkpoint_every > 0 && checkpoint_prefix != "" && feature_spec !== nothing && iter_count % checkpoint_every == 0
+            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, iter_count))
+            save_model_artifact(ckpt_path, itf; feature_spec, elemental_energies, metadata=Dict("epoch" => iter_count))
+        end
+
         iter_count += 1
 
         rmse_val, paramvector(itf)
@@ -341,7 +352,7 @@ function train_lm!(
     f!, j!, fj! = setup_fj(itf, x, y, weights)
     od2 = OnceDifferentiable(f!, j!, fj!, p0, zeros(eltype(x[1]), length(x)), inplace=true)
 
-    callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
+    callback = show_progress || (earlystop > 0) || checkpoint_every > 0 ? progress_tracker : nothing
 
     func = levenberg_marquardt
     if EDDPotentials.USE_CUDA[]
@@ -423,6 +434,10 @@ function train_lm_batched!(
     attempts_per_step::Int=1,
     solver::Symbol=:direct,
     batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing,
+    checkpoint_every::Int=0,
+    checkpoint_prefix::AbstractString="",
+    feature_spec=nothing,
+    elemental_energies::Dict=Dict{Symbol,Float64}(),
     args...,
 )
     # --- Deprecated alias ---
@@ -467,6 +482,12 @@ function train_lm_batched!(
         flush(stdout)
         push!(rec, (rmse_train, rmse_val))
 
+        # Checkpoint
+        if checkpoint_every > 0 && checkpoint_prefix != "" && feature_spec !== nothing && epoch_count % checkpoint_every == 0
+            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, epoch_count))
+            save_model_artifact(ckpt_path, itf; feature_spec, elemental_energies, metadata=Dict("epoch" => epoch_count))
+        end
+
         epoch_count += 1
 
         rmse_val, paramvector(itf)
@@ -479,7 +500,7 @@ function train_lm_batched!(
         fj_batch!, f_full! = setup_fj_batched(itf, x, y, weights)
     end
 
-    callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
+    callback = show_progress || (earlystop > 0) || checkpoint_every > 0 ? progress_tracker : nothing
 
     opt_res = @timeit to "batched lm solve" levenberg_marquardt_batched(
         fj_batch!,
@@ -562,19 +583,27 @@ function train!(
     train_method="lm",
     kwargs...,
 )
+    # Inject feature_spec and elemental_energies from the FeatureContainer if not provided
+    kw = NamedTuple(kwargs)
+    if !haskey(kw, :feature_spec)
+        kw = merge(kw, (feature_spec=fc_train.feature,))
+    end
+    if !haskey(kw, :elemental_energies)
+        kw = merge(kw, (elemental_energies=fc_train.elemental_energies,))
+    end
 
     if train_method == "lm"
         x_train, y_train = get_fit_data(fc_train)
         x_val, y_val = get_fit_data(fc_val)
-        train_lm!(itf, x_train, y_train; x_val, y_val, kwargs...)
+        train_lm!(itf, x_train, y_train; x_val, y_val, kw...)
     elseif train_method == "lm_batched"
         x_train, y_train = get_fit_data(fc_train)
         x_val, y_val = get_fit_data(fc_val)
-        train_lm_batched!(itf, x_train, y_train; x_val, y_val, kwargs...)
+        train_lm_batched!(itf, x_train, y_train; x_val, y_val, kw...)
     elseif train_method == "sgd"
         x_train, y_train = get_fit_data(fc_train)
         x_val, y_val = get_fit_data(fc_val)
-        train_sgd!(itf, x_train, y_train; x_val, y_val, kwargs...)
+        train_sgd!(itf, x_train, y_train; x_val, y_val, kw...)
     elseif train_method == "optim"
         model = get_flux_model(itf)
         f, g!, pview, callback = EDDPotentials.generate_f_g_optim(model, fc_train, fc_val)
@@ -614,6 +643,15 @@ function train!(
     train_method="lm_batched",
     kwargs...,
 )
+    # Inject feature_spec and elemental_energies from the FeatureStore if not provided
+    kw = NamedTuple(kwargs)
+    if !haskey(kw, :feature_spec)
+        kw = merge(kw, (feature_spec=store.feature,))
+    end
+    if !haskey(kw, :elemental_energies)
+        kw = merge(kw, (elemental_energies=store.elemental_energies,))
+    end
+
     if train_method == "lm_batched"
         x_train, y_train = get_fit_data(store)
         x_val, y_val = get_fit_data(fc_val)
@@ -621,12 +659,12 @@ function train!(
             itf, x_train, y_train;
             x_val=x_val, y_val=y_val,
             batch_ranges=store.batch_ranges,
-            kwargs...,
+            kw...,
         )
     elseif train_method == "sgd"
         x_train, y_train = get_fit_data(store)
         x_val, y_val = get_fit_data(fc_val)
-        train_sgd!(itf, x_train, y_train; x_val, y_val, kwargs...)
+        train_sgd!(itf, x_train, y_train; x_val, y_val, kw...)
     else
         error("FeatureStore only supports train_method=\"lm_batched\" or \"sgd\"")
     end
@@ -1104,6 +1142,9 @@ function train_lm_with_embedding!(
     log_file="",
     p=1.25,
     weights=nothing,
+    checkpoint_every::Int=0,
+    checkpoint_prefix::AbstractString="",
+    elemental_energies::Dict=Dict{Symbol,Float64}(),
     args...,
 )
     rec = []
@@ -1152,6 +1193,13 @@ function train_lm_with_embedding!(
 
         flush(stdout)
         push!(rec, (rmse_train, rmse_val))
+
+        # Checkpoint
+        if checkpoint_every > 0 && checkpoint_prefix != "" && iter_count % checkpoint_every == 0
+            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, iter_count))
+            save_model_artifact(ckpt_path, itf; feature_spec=cf, elemental_energies, metadata=Dict("epoch" => iter_count))
+        end
+
         iter_count += 1
 
         rmse_val, paramvector(itf)
@@ -1165,7 +1213,7 @@ function train_lm_with_embedding!(
     # For validation RMSE, use the training closures (they share model + cf state)
     od2 = OnceDifferentiable(f!, j!, fj!, p0, zeros(eltype(p0), length(y)), inplace=true)
 
-    callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
+    callback = show_progress || (earlystop > 0) || checkpoint_every > 0 ? progress_tracker : nothing
 
     opt_res = @timeit EDDPotentialsCore.to "lm solve with embedding" levenberg_marquardt(
         od2,
@@ -1223,6 +1271,9 @@ function train_lm_batched_with_embedding!(
     damping_mode::Symbol=:fletcher,
     attempts_per_step::Int=1,
     solver::Symbol=:direct,
+    checkpoint_every::Int=0,
+    checkpoint_prefix::AbstractString="",
+    elemental_energies::Dict=Dict{Symbol,Float64}(),
     args...,
 )
     if maxIter !== nothing
@@ -1276,6 +1327,13 @@ function train_lm_batched_with_embedding!(
 
         flush(stdout)
         push!(rec, (rmse_train, rmse_val))
+
+        # Checkpoint
+        if checkpoint_every > 0 && checkpoint_prefix != "" && epoch_count % checkpoint_every == 0
+            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, epoch_count))
+            save_model_artifact(ckpt_path, itf; feature_spec=cf, elemental_energies, metadata=Dict("epoch" => epoch_count))
+        end
+
         epoch_count += 1
 
         rmse_val, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf))
@@ -1286,7 +1344,7 @@ function train_lm_batched_with_embedding!(
         itf, structures, cf, y, weights; recompute_xt
     )
 
-    callback = show_progress || (earlystop > 0) ? progress_tracker : nothing
+    callback = show_progress || (earlystop > 0) || checkpoint_every > 0 ? progress_tracker : nothing
 
     opt_res = @timeit EDDPotentialsCore.to "batched lm solve with embedding" levenberg_marquardt_batched(
         fj_batch!,

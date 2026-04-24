@@ -10,7 +10,7 @@ This follows the same pattern as `generate_f_g_optim` in training.jl.
 using Printf
 using Random
 using Flux
-using Zygote
+using Zygote: withgradient
 using .EDDPotentialsCore:
     AbstractNNInterface,
     get_flux_model,
@@ -20,7 +20,15 @@ using .EDDPotentialsCore:
     nparams,
     forward!
 using .EDDPotentialsCore: to
+using .EDDPotentialsCore: save_model_artifact
 using TimerOutputs
+
+"""Create parent directories for `path` if they don't exist."""
+function _ensure_dir(path::AbstractString)
+    dir = dirname(path)
+    !isempty(dir) && !isdir(dir) && mkpath(dir)
+    path
+end
 
 # ---------- Optimizer state types ----------
 
@@ -228,6 +236,10 @@ function train_sgd!(
     eps::Real=1e-8,
     weight_decay::Real=0.0,
     grad_clip::Real=1.0,
+    checkpoint_every::Int=0,
+    checkpoint_prefix::AbstractString="",
+    feature_spec=nothing,
+    elemental_energies::Dict=Dict{Symbol,Float64}(),
     kwargs...,
 )
 
@@ -369,6 +381,12 @@ function train_sgd!(
         flush(stdout)
 
         push!(rec, (rmse_train, rmse_val))
+
+        # Checkpoint
+        if checkpoint_every > 0 && checkpoint_prefix != "" && feature_spec !== nothing && epoch % checkpoint_every == 0
+            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, epoch))
+            save_model_artifact(ckpt_path, itf; feature_spec, elemental_energies, metadata=Dict("epoch" => epoch))
+        end
 
         # Track best
         if rmse_val < min_val_rmse

@@ -7,7 +7,7 @@ using .EDDPotentialsCore:
     LinearInterface,
     ManualFluxBackPropInterface,
     load_model,
-    save_model_json
+    save_model_artifact
 
 const TRAINING_DIR = "training"
 
@@ -236,7 +236,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
         clear_transient_gradients!(model)
         model_name =
             tra.prefix * "gen-$(bu.state.iteration)-model-" * string(uuid4())[1:8] * ".json"
-        save_model_json(
+        save_model_artifact(
             joinpath(training_dir, model_name),
             model;
             feature_spec=bu.cf,
@@ -303,7 +303,7 @@ function create_ensemble(
         create_ensemble(models, total; alg, error_threshold=tra.ensemble_error_threshold)
     if save_ensemble_model
         savepath = joinpath(bu.state.workdir, ensemble_name(bu))
-        save_model_json(
+        save_model_artifact(
             savepath,
             ensemble;
             feature_spec=bu.cf,

@@ -191,7 +191,7 @@ using CellBase: positions, species
     end
 
     @testset "JSON serialization round-trip" begin
-        using EDDPotentials.EDDPotentialsCore: save_model_json, load_model_artifact
+        using EDDPotentials.EDDPotentialsCore: save_model_artifact, load_model_artifact
 
         mcf = MultiRandomEmbeddedCellFeature(
             [:H, :O]; nembed=2, n_multi=2, seeds=[5, 6], p2=[2], p3=[2], q3=[2],
@@ -200,7 +200,7 @@ using CellBase: positions, species
 
         mktempdir() do dir
             path = joinpath(dir, "model.json")
-            save_model_json(path, model; feature_spec=mcf)
+            save_model_artifact(path, model; feature_spec=mcf)
             artifact = load_model_artifact(path)
             @test artifact.feature_spec == mcf
             @test isfinite(sum(forward!(artifact.model, rand(nfeatures(mcf), 3))))

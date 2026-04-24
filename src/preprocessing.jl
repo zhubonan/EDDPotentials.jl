@@ -672,7 +672,7 @@ function FeatureContainer(
     feature::AbstractCellFeatureSpec;
     nmax=500,
     show_progress=true,
-    elemental_energies=Dict{Symbol,Any}(),
+    elemental_energies=Dict{Symbol,Float64}(),
     kwargs...,
 )
 
@@ -1424,6 +1424,7 @@ function save_feature_store_streaming(
     nmax::Int=500,
     skin::Float64=1.0,
     show_progress::Bool=true,
+    elemental_energies=Dict{Symbol,Float64}(),
 )
     filepath, _ = _parse_path_slice(path)
 
@@ -1503,6 +1504,9 @@ function save_feature_store_streaming(
                 fvec = feature_vector(feature, cell; nmax, skin)
                 nat = size(fvec, 2)
                 H_i = _structure_enthalpy(cell)
+                if length(elemental_energies) > 0
+                    H_i -= get_elemental_energy(cell, elemental_energies)
+                end
 
                 is_val = frame_id in val_set
 
@@ -1577,7 +1581,7 @@ function save_feature_store_streaming(
         f["feature"] = feature
         f["xt"] = xt
         f["yt"] = yt
-        f["elemental_energies"] = Dict{Symbol,Float64}()
+        f["elemental_energies"] = Dict{Symbol,Float64}(elemental_energies)
     end
 
     println("Wrote $n_train_actual training structures in $n_batches batches to $output_path")
@@ -1591,7 +1595,7 @@ function save_feature_store_streaming(
         val_metadata,
         nothing,    # xt — set below
         nothing,    # yt — set below
-        Dict{Symbol,Float64}(),
+        Dict{Symbol,Float64}(elemental_energies),
     )
     # Apply the same transforms from training stats
     standardize!(fc_val;

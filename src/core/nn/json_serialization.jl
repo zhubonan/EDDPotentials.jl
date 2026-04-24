@@ -543,7 +543,7 @@ function _model_from_data(data)
     ModelArtifact(model, feature_spec, elemental_energies, metadata)
 end
 
-function save_model_json(
+function save_model_artifact(
     path::AbstractString,
     model::AbstractNNInterface;
     feature_spec=nothing,
@@ -570,10 +570,6 @@ function save_model_json(
         JSON.print(io, data, 4)
     end
     path
-end
-
-function load_model_json(path::AbstractString)
-    load_model_artifact(path).model
 end
 
 function load_model(path::AbstractString)

@@ -27,6 +27,7 @@ using EDDPotentials:
     StructureContainer,
     TrainingResults,
     ginit,
+    get_elemental_energy,
     mae_per_atom,
     nfeatures,
     rmse_per_atom,
@@ -39,11 +40,27 @@ using EDDPotentials:
 using EDDPotentials: _prescan_extxyz
 using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface, nparams
 using CellBase: species
+using JSON
 
 const DEFAULT_DATASET = joinpath(
     @__DIR__,
-    "mp_finetuning-MACE_matpes_ft_run-42_combined.xyz",
+    "matpes-r2scan-replay-data.extxyz"
 )
+const DEFAULT_E0S = joinpath(@__DIR__, "e0s.json")
+
+"""
+    load_e0s([path]) -> Dict{Symbol,Float64}
+
+Load elemental reference energies from a JSON file.
+Each key is an element symbol, each value is the reference energy in eV.
+Returns an empty Dict if `path` is `""` or `"none"`.
+"""
+function load_e0s(path::AbstractString=DEFAULT_E0S)
+    (path == "" || lowercase(path) == "none") && return Dict{Symbol,Float64}()
+    isfile(path) || error("Elemental energies file not found: `$path`")
+    data = JSON.parsefile(path)
+    Dict{Symbol,Float64}(Symbol(k) => Float64(v) for (k, v) in data)
+end
 
 function _parse_bool(value::AbstractString)
     lowercase(value) in ("1", "true", "yes", "y", "on")
@@ -69,13 +86,14 @@ function _parse_args(args)
         "threshold" => 10.0,
         "seed" => 42,
         "feature_store" => "",
+        "e0s" => DEFAULT_E0S,
         # Features
         "embedding_size" => 4,
         "n_multi" => 1,
-        "hidden_size" => [128, 10, 10],
-        "p2" => [2, 4, 5, 6, 8, 10],
-        "p3" => [2, 4, 6, 7, 8, 10],
-        "q3" => [2, 4, 6, 7, 8, 10],
+        "hidden_size" => [128, 30, 30],
+        "p2" => [2, 4, 6, 8, 10],
+        "p3" => [2, 4, 6, 8, 10],
+        "q3" => [3, 5, 7, 9],
         # Optimizer
         "optimizer" => :adam,
         "lr" => 1e-3,
@@ -85,7 +103,7 @@ function _parse_args(args)
         "beta1" => 0.9,
         "beta2" => 0.999,
         # Schedule
-        "lr_schedule" => "constant",   # constant, step, cosine
+        "lr_schedule" => "cosine",   # constant, step, cosine
         "lr_min" => 1e-5,              # for cosine
         "lr_step_size" => 100,         # for step
         "lr_step_factor" => 0.5,       # for step
@@ -94,6 +112,8 @@ function _parse_args(args)
         "max_epochs" => 300,
         "earlystop" => 50,
         "show_progress" => true,
+        "checkpoint_every" => 0,
+        "checkpoint_prefix" => "",
     )
 
     for arg in args
@@ -123,6 +143,8 @@ function _parse_args(args)
             config["seed"] = parse(Int, value)
         elseif key in ("feature_store", "store", "save_features")
             config["feature_store"] = value
+        elseif key in ("e0s", "elemental_energies", "e0")
+            config["e0s"] = value
         elseif key == "optimizer"
             config["optimizer"] = Symbol(value)
         elseif key == "lr"
@@ -153,6 +175,10 @@ function _parse_args(args)
             config["earlystop"] = parse(Int, value)
         elseif key == "show_progress"
             config["show_progress"] = _parse_bool(value)
+        elseif key == "checkpoint_every"
+            config["checkpoint_every"] = parse(Int, value)
+        elseif key == "checkpoint_prefix"
+            config["checkpoint_prefix"] = value
         else
             error("Unknown argument `$key`.")
         end
@@ -243,6 +269,11 @@ function main(args=ARGS)
     end
     println("Embedding feature size: $(nfeatures(embedded))")
 
+    e0s = load_e0s(cfg["e0s"])
+    if !isempty(e0s)
+        println("Elemental reference energies: $(length(e0s)) elements loaded from $(cfg["e0s"])")
+    end
+
     if use_store
         println("Streaming features to FeatureStore: $store_path")
         train_data, fc_val = save_feature_store_streaming(
@@ -253,10 +284,11 @@ function main(args=ARGS)
             threshold=cfg["threshold"],
             max_structures=cfg["max_structures"],
             show_progress=cfg["show_progress"],
+            elemental_energies=e0s,
         )
         xt, yt = train_data.xt, train_data.yt
     else
-        fc = FeatureContainer(sc, embedded; show_progress=true)
+        fc = FeatureContainer(sc, embedded; show_progress=true, elemental_energies=e0s)
         nval = max(1, Int(floor(length(fc) * cfg["val_ratio"])))
         ntrain = length(fc) - nval
         ntrain > 0 || error("Not enough structures after filtering to create a train/val split.")
@@ -303,6 +335,8 @@ function main(args=ARGS)
         max_epochs=cfg["max_epochs"],
         earlystop=cfg["earlystop"],
         show_progress=cfg["show_progress"],
+        checkpoint_every=cfg["checkpoint_every"],
+        checkpoint_prefix=cfg["checkpoint_prefix"],
     )
 
     val_results = TrainingResults(model, fc_val)
