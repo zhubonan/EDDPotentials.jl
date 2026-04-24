@@ -16,6 +16,7 @@ using Flux: Dense, Chain, tanh
 import Flux
 import Base
 import CellBase
+import Zygote
 using Logging
 using NonNegLeastSquares
 using .EDDPotentialsCore: paramvector, save_model_artifact
