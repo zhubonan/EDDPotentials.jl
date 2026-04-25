@@ -10,7 +10,9 @@ using EDDPotentials.EDDPotentialsCore:
     setup_fj_batched,
     setup_fj_batched_threaded,
     paramvector,
-    ThreadBufferPool
+    ThreadBufferPool,
+    compute_objectives_threaded,
+    rmse_per_atom_threaded
 
 using Test
 using Flux
@@ -107,7 +109,7 @@ using StatsBase
                 EDDPotentials.EDDPotentialsCore.setparamvector!(model_thr, p0)
 
                 fj_batch_seq!, f_full_seq! = setup_fj_batched(model_seq, data, y)
-                fj_batch_thr!, f_full_thr! = setup_fj_batched_threaded(model_thr, data, y; ngps=2)
+                fj_batch_thr!, f_full_thr!, _ = setup_fj_batched_threaded(model_thr, data, y; ngps=2)
 
                 # Test a subset batch
                 batch_idx = collect(1:10)
@@ -162,7 +164,7 @@ using StatsBase
         EDDPotentials.EDDPotentialsCore.setparamvector!(model_thr, p0)
 
         fj_seq!, _ = setup_fj_batched(model_seq, data, y, weights)
-        fj_thr!, _ = setup_fj_batched_threaded(model_thr, data, y, weights; ngps=2)
+        fj_thr!, _, _ = setup_fj_batched_threaded(model_thr, data, y, weights; ngps=2)
 
         batch_idx = collect(1:10)
         B = length(batch_idx)
@@ -265,7 +267,7 @@ using StatsBase
         model = ManualFluxBackPropInterface(
             Chain(Dense(rand(1, nf), rand(1))),
         )
-        fj_thr!, _ = setup_fj_batched_threaded(model, data, y; ngps=1)
+        fj_thr!, _, _ = setup_fj_batched_threaded(model, data, y; ngps=1)
 
         p0 = paramvector(model)
         batch_idx = collect(1:length(data))
@@ -295,7 +297,7 @@ using StatsBase
         model = ManualFluxBackPropInterface(
             Chain(Dense(rand(1, nf), rand(1))),
         )
-        fj_thr!, _ = setup_fj_batched_threaded(model, data, y)
+        fj_thr!, _, _ = setup_fj_batched_threaded(model, data, y)
 
         p0 = paramvector(model)
         fvec = zeros(3)
@@ -304,5 +306,121 @@ using StatsBase
         fj_thr!(fvec, jmat, p0, collect(1:3))
         @test any(fvec .!= 0.0)
         @test any(jmat .!= 0.0)
+    end
+
+    @testset "compute_objectives_threaded matches sequential" begin
+        for with_transforms in (false, true)
+            desc = with_transforms ? "with xt/yt" : "no transforms"
+            @testset "$desc" begin
+                nf = 100
+                data, y = _make_data(; nf)
+
+                xt_val = nothing
+                yt_val = nothing
+                if with_transforms
+                    yt_val = StatsBase.fit(
+                        StatsBase.ZScoreTransform,
+                        reshape(y, 1, length(y)), dims=2,
+                    )
+                    xt_len = 10
+                    xt_val = ZScoreTransform(xt_len, 2, randn(xt_len), rand(xt_len) .+ 0.5)
+                end
+
+                model = ManualFluxBackPropInterface(
+                    Chain(Dense(rand(1, nf), rand(1))),
+                    xt=xt_val,
+                    yt=yt_val,
+                )
+
+                # Sequential
+                f_seq = zeros(length(data))
+                compute_objectives(f_seq, model, data, y)
+
+                # Threaded via pool
+                pool = ThreadBufferPool(model, 4)
+                f_thr = zeros(length(data))
+                compute_objectives_threaded(f_thr, pool, data, y)
+
+                @test maximum(abs.(f_seq .- f_thr)) < 1e-10
+            end
+        end
+    end
+
+    @testset "compute_objectives_threaded with weights" begin
+        nf = 100
+        data, y = _make_data(; nf)
+        weights = rand(length(data)) .+ 0.5
+
+        model = ManualFluxBackPropInterface(
+            Chain(Dense(rand(1, nf), rand(1))),
+        )
+
+        f_seq = zeros(length(data))
+        compute_objectives(f_seq, model, data, y, weights)
+
+        pool = ThreadBufferPool(model, 4)
+        f_thr = zeros(length(data))
+        compute_objectives_threaded(f_thr, pool, data, y, weights)
+
+        @test maximum(abs.(f_seq .- f_thr)) < 1e-10
+    end
+
+    @testset "rmse_per_atom_threaded matches sequential" begin
+        for with_transforms in (false, true)
+            desc = with_transforms ? "with xt/yt" : "no transforms"
+            @testset "$desc" begin
+                nf = 100
+                data, y = _make_data(; nf)
+                natoms = [size(v, 2) for v in data]
+
+                xt_val = nothing
+                yt_val = nothing
+                if with_transforms
+                    yt_val = StatsBase.fit(
+                        StatsBase.ZScoreTransform,
+                        reshape(y, 1, length(y)), dims=2,
+                    )
+                    xt_len = 10
+                    xt_val = ZScoreTransform(xt_len, 2, randn(xt_len), rand(xt_len) .+ 0.5)
+                end
+
+                model = ManualFluxBackPropInterface(
+                    Chain(Dense(rand(1, nf), rand(1))),
+                    xt=xt_val,
+                    yt=yt_val,
+                )
+
+                # Sequential
+                rmse_seq = EDDPotentials.rmse_per_atom(model, data, y, natoms)
+
+                # Threaded
+                pool = ThreadBufferPool(model, 4)
+                rmse_thr = rmse_per_atom_threaded(pool, data, y, natoms)
+
+                @test abs(rmse_seq - rmse_thr) < 1e-10
+            end
+        end
+    end
+
+    @testset "f_full! threaded closure with pool" begin
+        nf = 100
+        data, y = _make_data(; nf)
+
+        model = ManualFluxBackPropInterface(
+            Chain(Dense(rand(1, nf), rand(1))),
+        )
+        p0 = paramvector(model)
+
+        _, f_full_thr!, pool = setup_fj_batched_threaded(model, data, y; ngps=2)
+
+        # f_full! should now use threaded compute_objectives internally
+        f_thr = zeros(length(data))
+        f_full_thr!(f_thr, p0)
+
+        # Compare with sequential compute_objectives
+        f_seq = zeros(length(data))
+        compute_objectives(f_seq, model, data, y)
+
+        @test maximum(abs.(f_seq .- f_thr)) < 1e-10
     end
 end

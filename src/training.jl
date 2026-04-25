@@ -19,7 +19,7 @@ import CellBase
 import Zygote
 using Logging
 using NonNegLeastSquares
-using .EDDPotentialsCore: paramvector, save_model_artifact
+using .EDDPotentialsCore: paramvector, save_model_artifact, ThreadBufferPool, rmse_per_atom_threaded
 import .EDDPotentialsCore: EnsembleNNInterface
 
 
@@ -457,13 +457,22 @@ function train_lm_batched!(
     time_start = time()
     last_time = time()
     epoch_count = 1
+    val_pool = nothing
     function progress_tracker()
-        rmse_train = rmse_per_atom(itf, x, y, train_natoms)
+        if val_pool !== nothing
+            rmse_train = rmse_per_atom_threaded(val_pool, x, y, train_natoms)
+        else
+            rmse_train = rmse_per_atom(itf, x, y, train_natoms)
+        end
 
         if x_val === x
             rmse_val = rmse_train
         else
-            rmse_val = rmse_per_atom(itf, x_val, y_val, val_natoms)
+            if val_pool !== nothing
+                rmse_val = rmse_per_atom_threaded(val_pool, x_val, y_val, val_natoms)
+            else
+                rmse_val = rmse_per_atom(itf, x_val, y_val, val_natoms)
+            end
         end
         if show_progress || (log_file != "")
             tnow = time()
@@ -496,7 +505,7 @@ function train_lm_batched!(
 
     # Set up batched closures
     if threaded
-        fj_batch!, f_full! = setup_fj_batched_threaded(itf, x, y, weights)
+        fj_batch!, f_full!, val_pool = setup_fj_batched_threaded(itf, x, y, weights)
     else
         fj_batch!, f_full! = setup_fj_batched(itf, x, y, weights)
     end

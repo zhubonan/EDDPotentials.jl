@@ -18,9 +18,12 @@ using .EDDPotentialsCore:
     paramvector,
     setparamvector!,
     nparams,
-    forward!
+    forward!,
+    ThreadBufferPool,
+    rmse_per_atom_threaded
 using .EDDPotentialsCore: to
 using .EDDPotentialsCore: save_model_artifact
+using Base.Threads: nthreads
 using TimerOutputs
 
 """Create parent directories for `path` if they don't exist."""
@@ -295,6 +298,10 @@ function train_sgd!(
     last_time = time()
     rng = MersenneTwister(shuffle_seed)
 
+    # Pre-allocate thread pool for validation RMSE (forward-only, no gradients).
+    # pool.chain references itf.chain, so setparamvector!(itf, flat) keeps it in sync.
+    val_pool = ThreadBufferPool(itf, nthreads() * 10 + 1)
+
     # --- Epoch loop ---
     for epoch in 1:max_epochs
         # Update learning rate
@@ -355,11 +362,11 @@ function train_sgd!(
             # Sync interface parameters for RMSE evaluation
             setparamvector!(itf, flat)
 
-            rmse_train = _rmse_per_atom_raw(model, x_t, y, train_natoms, itf)
+            rmse_train = rmse_per_atom_threaded(val_pool, x, y, train_natoms)
             if x_val === x
                 rmse_val = rmse_train
             else
-                rmse_val = _rmse_per_atom_raw(model, x_val_t, y_val, val_natoms, itf)
+                rmse_val = rmse_per_atom_threaded(val_pool, x_val, y_val, val_natoms)
             end
         end
 

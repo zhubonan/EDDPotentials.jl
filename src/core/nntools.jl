@@ -169,8 +169,9 @@ struct ThreadBufferPool
     yt_scale::Float64
     yt::Any  # ZScoreTransform or nothing — used for reconstruct! on output
     xt::Any  # ZScoreTransform or nothing — used for transform! on input
+    ngps::Int  # granularity for _chunk_ranges — controls chunk count
 
-    function ThreadBufferPool(model::AbstractNNInterface, nslots::Int)
+    function ThreadBufferPool(model::AbstractNNInterface, nslots::Int; ngps::Int=10)
         chain = get_flux_model(model)
         T = eltype(paramvector(model))
         np = nparams(model)
@@ -179,7 +180,7 @@ struct ThreadBufferPool
         yt = model isa ManualFluxBackPropInterface ? model.yt : nothing
         yt_scale = !isnothing(yt) ? yt.scale[1] : one(T)
         xt = model isa ManualFluxBackPropInterface ? model.xt : nothing
-        new(chain, gchains, jtmps, yt_scale, yt, xt)
+        new(chain, gchains, jtmps, yt_scale, yt, xt, ngps)
     end
 end
 
@@ -334,11 +335,11 @@ function setup_fj_batched_threaded(
 
     function f_full!(fvec, param)
         setparamvector!(model, param)
-        compute_objectives(fvec, model, data, y, weights)
+        compute_objectives_threaded(fvec, pool, data, y, weights)
         fvec
     end
 
-    return fj_batch!, f_full!
+    return fj_batch!, f_full!, pool
 end
 
 
@@ -349,6 +350,35 @@ function compute_objectives(f, itf, data, y, weights=nothing)
             f[i] = (sum(out) - y[i])
         else
             f[i] = (sum(out) - y[i]) * weights[i]
+        end
+    end
+    f
+end
+
+function compute_objectives_threaded(f, pool::ThreadBufferPool, data, y, weights=nothing)
+    nt = nthreads()
+    if nt > 1 && length(data) > nt * 5
+        chunks = _chunk_ranges(length(data); ngps=pool.ngps)
+        Threads.@threads for ci in eachindex(chunks)
+            for i in chunks[ci]
+                gchain = _get_pool_gchain!(pool, ci, size(data[i], 2))
+                out = _threaded_forward(gchain, pool, data[i])
+                if isnothing(weights)
+                    f[i] = sum(out) - y[i]
+                else
+                    f[i] = (sum(out) - y[i]) * weights[i]
+                end
+            end
+        end
+    else
+        for (i, inp) in enumerate(data)
+            gchain = _get_pool_gchain!(pool, 1, size(inp, 2))
+            out = _threaded_forward(gchain, pool, inp)
+            if isnothing(weights)
+                f[i] = sum(out) - y[i]
+            else
+                f[i] = (sum(out) - y[i]) * weights[i]
+            end
         end
     end
     f
@@ -382,6 +412,38 @@ function compute_objectives_diff(
         end
     end
     jmat
+end
+
+"""
+Threaded forward-only prediction of energies for RMSE computation.
+Returns predictions vector (energies in physical space, i.e. with yt inverse applied).
+"""
+function _predict_energy_threaded(pool::ThreadBufferPool, data)
+    n = length(data)
+    preds = Vector{Float64}(undef, n)
+    nt = nthreads()
+    if nt > 1 && n > nt * 5
+        chunks = _chunk_ranges(n; ngps=pool.ngps)
+        Threads.@threads for ci in eachindex(chunks)
+            for i in chunks[ci]
+                gchain = _get_pool_gchain!(pool, ci, size(data[i], 2))
+                out = _threaded_forward(gchain, pool, data[i])
+                preds[i] = sum(out)
+            end
+        end
+    else
+        for (i, inp) in enumerate(data)
+            gchain = _get_pool_gchain!(pool, 1, size(inp, 2))
+            out = _threaded_forward(gchain, pool, inp)
+            preds[i] = sum(out)
+        end
+    end
+    preds
+end
+
+function rmse_per_atom_threaded(pool::ThreadBufferPool, data, y, nat)
+    preds = _predict_energy_threaded(pool, data)
+    return sqrt(mean(((preds .- y) ./ nat) .^ 2))
 end
 
 """
