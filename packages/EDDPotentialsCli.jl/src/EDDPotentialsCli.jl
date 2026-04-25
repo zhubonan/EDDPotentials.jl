@@ -28,7 +28,7 @@ This will significantly accelerate the feature generation process at the starts 
 - `--iter`: Iteration number, default is to determine automatically by inspecting the working directory.
 
 """
-@cast function link(fname::AbstractString="link.toml"; iter::Int=-1)
+Comonicon.@cast function link(fname::AbstractString="link.toml"; iter::Int=-1)
     builder = Builder(fname)
     if iter >= 0
         builder.state.iteration = iter
@@ -51,7 +51,7 @@ of the trained model (`ensemble-gen<id>.jld2`) in the working directory.
 
 - `fname`: Configuration file name (default: `link.toml`).
 """
-@cast function run_rss(fname::AbstractString="link.toml";)
+Comonicon.@cast function run_rss(fname::AbstractString="link.toml";)
     builder = Builder(fname)
     run_rss_eddp(builder)
 end
@@ -67,7 +67,7 @@ This tool can be used to convert a YAML format configuration file to TOML format
 The former format is now deprecated.
 
 """
-@cast function yaml2toml(fname::AbstractString="link.yaml")
+Comonicon.@cast function yaml2toml(fname::AbstractString="link.yaml")
     dictin = YAML.load_file(fname)
     open(splitext(fname)[1] * ".toml", "w") do f
         TOML.print(f, dictin)
@@ -89,7 +89,7 @@ using an existing project.
 - `--all-items, -a`: Populate all fields.
 
 """
-@cast function genconfig(seedfile, elements...; all_items::Bool=false)
+Comonicon.@cast function genconfig(seedfile, elements...; all_items::Bool=false)
     builder_opts = _get_builder_opt_template(seedfile, elements...)
     to_toml(stdout, builder_opts, include_defaults=all_items)
 end
@@ -125,6 +125,6 @@ end
 """
 Command line interface for EDDPotentials.jl
 """
-@main
+Comonicon.@main
 
 end # EDDPotentialsCli.jl
