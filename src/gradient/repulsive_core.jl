@@ -22,41 +22,85 @@ end
 struct CoreRepulsion{F,G}
     f::F
     g::G
+    "Global fallback cutoff"
     rcut::Float64
     a::Float64
+    "Per-element core radii. Empty dict means use rcut for all pairs."
+    radii::Dict{Symbol,Float64}
 end
 
 """
     CoreRepulsion(rcut)
 
-Construct a core repulsion with a specific cut off radius.
+Construct a core repulsion with a single cut off radius applied to all element pairs.
 """
 function CoreRepulsion(rcut=2.0)
-    CoreRepulsion(core_repulsion, gcore_repulsion, Float64(rcut), 1.0)
+    CoreRepulsion(core_repulsion, gcore_repulsion, Float64(rcut), 1.0, Dict{Symbol,Float64}())
 end
 
+"""
+    CoreRepulsion(radii::Dict{Symbol,Float64})
+
+Construct a core repulsion with per-element radii. The pair cutoff for atoms of
+species `si` and `sj` is computed as `radii[si] + radii[sj]` (sum combining rule).
+"""
+function CoreRepulsion(radii::Dict{Symbol,Float64})
+    max_pair = isempty(radii) ? 2.0 : 2 * maximum(values(radii))
+    CoreRepulsion(core_repulsion, gcore_repulsion, max_pair, 1.0, radii)
+end
 
 """
-Compute and update the hard core repulsion
+    CoreRepulsion(radii::Dict{String,Float64})
+
+Convenience constructor accepting String keys (e.g. from TOML config).
 """
-function _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, core)
+CoreRepulsion(radii::Dict{String,Float64}) = CoreRepulsion(Dict(Symbol(k) => v for (k, v) in radii))
+
+"""
+    _make_core_repulsion(core_size)
+
+Convert a core_size value (Float64 or Dict{String,Float64}) to a CoreRepulsion object.
+"""
+_make_core_repulsion(core_size::Float64) = CoreRepulsion(core_size)
+_make_core_repulsion(core_size::Dict{String,Float64}) = CoreRepulsion(core_size)
+
+"""
+    _pair_rcut(core, si, sj)
+
+Compute the pair-specific cutoff for species `si` and `sj`.
+Uses sum combining rule: `radii[si] + radii[sj]`.
+Falls back to global `rcut` when per-element radii are not defined.
+"""
+function _pair_rcut(core::CoreRepulsion, si::Symbol, sj::Symbol)
+    if isempty(core.radii)
+        return core.rcut
+    end
+    return get(core.radii, si, 0.0) + get(core.radii, sj, 0.0)
+end
+
+"""
+Compute and update the hard core repulsion with species-aware radii.
+"""
+function _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, core, si::Symbol, sj::Symbol)
+    pair_rcut = _pair_rcut(core, si, sj)
+    pair_rcut == 0.0 && return nothing
 
     # forces
     # Note that we add the negative size here since F=-dE/dx
-    gcore = -core.g(rij, core.rcut) * core.a
+    gcore = -core.g(rij, pair_rcut) * core.a
     if iat != jat
         for elm in axes(modvij, 1)
             # Newton's second law - only need to update this atom
-            # as we also go through the same ij pair with ji 
+            # as we also go through the same ij pair with ji
             fcore[elm, iat] -= 2 * gcore * modvij[elm]
             #fcore[elm, jat] +=  gcore * modvij[elm]
         end
     end
     for elm1 in axes(score, 1)
         for elm2 in axes(score, 2)
-            #@inbounds 
+            #@inbounds
             score[elm1, elm2, iat] += vij[elm1] * modvij[elm2] * gcore
         end
     end
-    ecore[iat] += core.f(rij, core.rcut) * core.a
+    ecore[iat] += core.f(rij, pair_rcut) * core.a
 end

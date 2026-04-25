@@ -1188,13 +1188,14 @@ function _make_string_keys(dict::Dict)
     )
 end
 
-_make_string_keys(x) = x
+_core_rmin(x::Float64) = x
+_core_rmin(x::Dict) = minimum(values(x))
 
 
 function write_model_structures(bu::Builder; iteration=bu.state.iteration)
     target_dir = joinpath(bu.state.workdir, "gen$iteration")
     ensure_dir(target_dir)
-    rmin = bu.state.core_size
+    rmin = _core_rmin(bu.state.core_size)
     rmax = suggest_rcut(bu.cf)
     seedstem = split(stem(bu.state.seedfile), "-")[1]
     for order in [2, 3, 4]

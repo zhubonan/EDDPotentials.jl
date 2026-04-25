@@ -94,7 +94,7 @@ function model_structures(sym; order=2, rmin=1.0, rmax=6.0, npts=30, rcut=6.0)
 end
 
 """
-    model_energies(cell, model, cf; order=2, rmin=0.5, rmax=6.0, npts=30, core=CoreRepulsion(1.0))
+    model_energies(cell, model, cf; order=2, rmin=0.5, rmax=6.0, npts=30, core=CoreRepulsion(0.5))
 
 Generate model structures and compute their energies.
 """
@@ -106,7 +106,7 @@ function model_energies(
     rmin=0.5,
     rmax=6.0,
     npts=30,
-    core=CoreRepulsion(1.0),
+    core=CoreRepulsion(0.5),
 )
     xs = collect(LinRange(rmin, rmax, npts))
     combs, structures = model_structures(

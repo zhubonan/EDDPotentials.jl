@@ -15,13 +15,13 @@ function build_and_relax(
     cf;
     timeout=10,
     nmax=1000,
-    core_size=1.0,
+    core_size=0.5,
     init_structure_transform=nothing,
     relax_option=RelaxOption(),
     elemental_energies=Dict{Symbol,Any}(),
 )
     cell = build_one(seedfile; timeout, init_structure_transform)
-    calc = EDDPotentials.NNCalc(cell, cf, ensemble; nmax, core=CoreRepulsion(core_size), elemental_energies)
+    calc = EDDPotentials.NNCalc(cell, cf, ensemble; nmax, core=_make_core_repulsion(core_size), elemental_energies)
     re = Relax(calc, relax_option)
     relax!(re)
 end

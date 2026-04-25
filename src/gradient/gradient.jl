@@ -169,7 +169,7 @@ function compute_fv_gv_one!(
 
         # Add hard core repulsion
         if !isnothing(core)
-            _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, core)[1]
+            _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, core, sym[iat], sym[jat])
         end
 
         # Update two body features and forces
