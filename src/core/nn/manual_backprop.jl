@@ -15,11 +15,10 @@ import JLD2
 """
     leaky_tanh(x)
 
-Activation function: `tanh(x) + 1e-6 * x`.
-Gradient: `1 - tanh(x)^2 + 1e-6`.
+Activation function: `tanh_fast(x) + 1e-6 * x`.
 The linear skip connection prevents gradient saturation for large inputs.
 """
-leaky_tanh(x) = tanh(x) + 1e-6 * x
+leaky_tanh(x) = tanh_fast(x) + 1e-6 * x
 
 
 """
