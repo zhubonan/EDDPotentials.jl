@@ -42,11 +42,13 @@ using LinearAlgebra: norm
     @test isa(fc[[labels[1], labels[2]]], EDDPotentials.FeatureContainer)
     @test isa(collect(fc)[1], Tuple)
 
-    # Test standardisation — transforms are fitted but fvecs are NOT mutated
+    # Test standardisation — transforms are fitted in-place, fvecs are NOT mutated
     fc1, fc2 = split(fc[1:10], 5, 3; shuffle=false, standardize=false)
-    fc11, fc12 = EDDPotentials.standardize(fc1, fc2)
-    # fvecs should be unchanged (deep copies, not transformed)
-    @test fc11.fvecs[1] ≈ fc1.fvecs[1]
+    fc11, fc12 = EDDPotentials.standardize!(fc1, fc2)
+    # standardize! returns the same containers (mutated in-place)
+    @test fc11 === fc1
+    @test fc12 === fc2
+    # fvecs should be unchanged (only transforms are stored, not applied to data)
     @test !isnothing(fc11.xt)
     @test !isnothing(fc11.yt)
     # Bug fix: verify second container uses the same transform from the first
@@ -57,15 +59,10 @@ using LinearAlgebra: norm
     fc3 = fc1 + fc2
     @test length(fc3) == length(fc1) + length(fc2)
 
-    # In-place standardize! also does not mutate fvecs
-    EDDPotentials.standardize!(fc1, fc2)
+    # Original fc was not standardized
     @test fc.xt === nothing
     @test fc.yt === nothing
-    @test !isnothing(fc1.xt)
-    @test !isnothing(fc2.xt)
-    @test fc1.xt === fc2.xt
-    @test fc1.yt === fc2.yt
-    # fvecs remain untransformed
+    # fvecs remain untransformed (standardize! only stores transforms, does not touch data)
     @test fc1.fvecs[1] ≈ fc.fvecs[1]
 
 end

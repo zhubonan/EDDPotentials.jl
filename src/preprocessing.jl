@@ -868,13 +868,15 @@ function Base.split(
         # Split the set by the labels
         out_labels = _split_vector(unique_labels, nsplit...; shuffle, seed)
         # Construct the containers
+        is_fc = isa(c, FeatureContainer)
         out = map(out_labels) do selected
             c[findall(x -> x in selected, valid_labels)]
         end
     else
+        is_fc = isa(c, FeatureContainer)
         out = _split_vector(c, nsplit...; shuffle, seed)
     end
-    isa(c, FeatureContainer) && standardize && standardize!(out...)
+    is_fc && standardize && standardize!(out...)
     out
 end
 
@@ -920,9 +922,10 @@ end
 
 
 """
-    standardize!(fc_train, fcs...) 
+    standardize!(fc_train, fcs...)
 
-Standardise multiple feature containers. Only the first argument is used for fitting.
+Standardise multiple feature containers in-place. Only the first argument is used for fitting.
+Returns a tuple of the same containers with transforms fitted.
 """
 function standardize!(fc_train, fc1, fcs...; kwargs...)
     standardize!(fc_train)
@@ -930,23 +933,7 @@ function standardize!(fc_train, fc1, fcs...; kwargs...)
     for fc in fcs
         standardize!(fc; xt=fc_train.xt, yt=fc_train.yt, kwargs...)
     end
-
-end
-
-"""
-    standardize(fc_train, fcs...)
-
-Standardise multiple feature containers. Only the first argument is used for fitting.
-Returns deep copies with transforms fitted.
-"""
-function standardize(fc_train, fcs...)
-    _fc_train = deepcopy(fc_train)
-    _fcs = deepcopy.(fcs)
-    standardize!(_fc_train)
-    for fc in _fcs
-        standardize!(fc; xt=_fc_train.xt, yt=_fc_train.yt)
-    end
-    (_fc_train, _fcs...)
+    (fc_train, fc1, fcs...)
 end
 
 
