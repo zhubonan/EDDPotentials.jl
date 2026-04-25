@@ -177,7 +177,7 @@ function NNCalc(
     mode="one-pass",
     nmax=500,
     savevec=true,
-    core=CoreRepulsion(1.0),
+    core=CoreRepulsion(0.5),
     elemental_energies=Dict{Symbol, T}(),
 ) where {T}
     nl = NeighbourList(cell, rcut, nmax; savevec)

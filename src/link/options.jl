@@ -78,7 +78,7 @@ to perform various actions during the construction of the potentials.
     rss_nprocs::Int = 2
     rss_external::Bool = true
     rss_num_threads::Int = 1
-    core_size::Float64 = 1.0
+    core_size::Union{Float64,Dict{String,Float64}} = 0.5
     ensemble_std_min::Float64 = 0.0
     ensemble_std_max::Float64 = -1.0
     run_walk_forward::Bool = true

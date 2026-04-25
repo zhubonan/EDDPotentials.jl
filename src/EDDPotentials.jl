@@ -61,6 +61,8 @@ import .EDDPotentialsCore:
     save_model_artifact,
     nparams,
     one_body_offset,
+    _make_core_repulsion,
+    _pair_rcut,
     suggest_rcut,
     setup_fj,
     setup_fj_batched,
