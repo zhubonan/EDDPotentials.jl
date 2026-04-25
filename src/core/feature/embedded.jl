@@ -1,4 +1,5 @@
 import Random
+import LinearAlgebra
 
 struct RandomEmbeddedCellFeature{T,V,W,P2,P3,X} <: AbstractCellFeatureSpec
     elements::Vector{Symbol}
@@ -56,13 +57,51 @@ function _embedded_prototypes(
     elements, proto2, proto3, kwargs
 end
 
-function _random_embedding_matrix(T, nelem::Int, nembed::Int; seed::Integer=0)
+function _random_embedding_matrix(T, nelem::Int, nembed::Int; seed::Integer=0, optimize::Bool=true)
     rng = Random.MersenneTwister(seed)
-    weight = randn(rng, T, nelem, nembed)
-    for i = 1:nelem
-        rownorm = sqrt(sum(abs2, @view weight[i, :]))
-        rownorm > 0 || continue
-        @views weight[i, :] ./= rownorm
+
+    if !optimize
+        # Fast path — random Gaussian with row scaling, no separation optimization
+        weight = randn(rng, T, nelem, nembed)
+        for i in 1:nelem
+            scale = T(0.5) + rand(rng, T)
+            @views weight[i, :] .*= scale / sqrt(sum(abs2, weight[i, :]))
+        end
+        return weight
+    end
+
+    if nelem <= nembed
+        # Orthogonal vectors via QR decomposition for maximum separation
+        raw = randn(rng, T, nembed, nembed)
+        Q = Matrix{T}(LinearAlgebra.qr(raw).Q)
+        weight = Q[1:nelem, :]
+    else
+        # More elements than dimensions — repulsion on the unit sphere
+        weight = randn(rng, T, nelem, nembed)
+        for i in 1:nelem
+            nrm = sqrt(sum(abs2, @view weight[i, :]))
+            nrm > 0 && (@views weight[i, :] ./= nrm)
+        end
+        step = T(0.1)
+        for _ in 1:50
+            for i in 1:nelem
+                force = zeros(T, nembed)
+                for j in 1:nelem
+                    i == j && continue
+                    cos_ij = sum(@views weight[i, :] .* weight[j, :])
+                    @views force .+= cos_ij .* weight[j, :]
+                end
+                @views weight[i, :] .-= step .* force
+                nrm = sqrt(sum(abs2, @view weight[i, :]))
+                nrm > 1e-10 && (@views weight[i, :] ./= nrm)
+            end
+        end
+    end
+
+    # Scale each row to a random length in [0.5, 1.5)
+    for i in 1:nelem
+        scale = T(0.5) + rand(rng, T)
+        @views weight[i, :] .*= scale
     end
     weight
 end
@@ -102,10 +141,11 @@ function RandomEmbeddedCellFeature(
     nembed::Int=4,
     seed::Integer=0,
     T::DataType=Float64,
+    optimize_embedding::Bool=true,
     kwargs...,
 )
     proto_elements, proto2, proto3, proto_kwargs = _embedded_prototypes(elements; kwargs...)
-    embedding = _random_embedding_matrix(T, length(proto_elements), nembed; seed)
+    embedding = _random_embedding_matrix(T, length(proto_elements), nembed; seed, optimize=optimize_embedding)
     stored_kwargs = merge(proto_kwargs, (; nembed, seed, T))
     RandomEmbeddedCellFeature(
         proto_elements,

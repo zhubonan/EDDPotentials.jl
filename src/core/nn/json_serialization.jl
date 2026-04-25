@@ -335,6 +335,7 @@ function _feature_from_data(data)
             f3,
             g3,
             geometry_sequence=false,
+            optimize_embedding=false,
         )
         cf.embedding .= feature_dtype.(_typed_matrix_from_data(_require_key(data, "embedding")))
         return cf
