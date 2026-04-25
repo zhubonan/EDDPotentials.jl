@@ -174,6 +174,9 @@ export synthetic_force_data
 
 const USE_CUDA = Ref{Bool}(false)
 
+# Stub overridden by EDDPotentialsGPU extension
+function train_sgd_gpu! end
+
 function __init__()
     reset_eddp_timer!()
 end

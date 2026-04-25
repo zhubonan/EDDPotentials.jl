@@ -362,4 +362,258 @@ function set_cuda_device!()
 end
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# GPU-accelerated SGD/Adam training
+# ═══════════════════════════════════════════════════════════════════════════
+
+using Random
+using Flux
+using Printf
+using Base.Threads: nthreads
+
+import EDDPotentials:
+    _batch_loss_and_grad!,
+    _make_batches,
+    _transform_targets,
+    _ensure_dir,
+    SGDState,
+    AdamState,
+    sgd_update!,
+    adam_update!,
+    constant_lr
+
+import EDDPotentials:
+    to,
+    save_model_artifact
+
+import .EDDPotentials.EDDPotentialsCore:
+    AbstractNNInterface,
+    get_flux_model,
+    transformed_inp,
+    paramvector,
+    setparamvector!,
+    nparams,
+    ThreadBufferPool,
+    rmse_per_atom_threaded
+
+using Zygote: withgradient
+
+"""
+    train_sgd_gpu!(itf, x, y; kwargs...)
+
+GPU-accelerated SGD/Adam training. Mirrors `train_sgd!` but runs the
+forward+backward pass on GPU with Float32 precision. Validation stays on CPU.
+
+Data flow:
+1. Build Float32 model via `Flux.f32`
+2. Pre-transform features on CPU (Z-score), transfer to GPU once
+3. Each mini-batch: concatenate atoms → one forward pass → scatter-matrix sum → loss
+4. Gradient copied back to CPU for optimizer update
+5. Per-epoch: sync params to Float64 interface, validate on CPU
+"""
+function EDDPotentials.train_sgd_gpu!(
+    itf::AbstractNNInterface,
+    x,
+    y;
+    x_val=x,
+    y_val=y,
+    optimizer::Symbol=:adam,
+    lr::Real=1e-3,
+    lr_schedule=nothing,
+    momentum::Real=0.9,
+    batch_size::Int=32,
+    max_epochs::Int=300,
+    earlystop::Int=50,
+    keep_best::Bool=true,
+    show_progress::Bool=false,
+    log_file::AbstractString="",
+    shuffle_seed::Int=42,
+    pow::Int=2,
+    weights=nothing,
+    beta::Tuple{Real,Real}=(0.9, 0.999),
+    eps::Real=1e-8,
+    weight_decay::Real=0.0,
+    grad_clip::Real=1.0,
+    checkpoint_every::Int=0,
+    checkpoint_prefix::AbstractString="",
+    feature_spec=nothing,
+    elemental_energies::Dict=Dict{Symbol,Float64}(),
+    kwargs...,
+)
+
+    set_cuda_device!()
+
+    # --- Setup ---
+    # Build Float32 copy of the model
+    model_f32 = Flux.f32(get_flux_model(itf))
+    flat_cpu, rebuild = Flux.destructure(model_f32)
+    nparam = length(flat_cpu)
+
+    # Pre-transform inputs on CPU (StatsBase.transform! is CPU-only), then transfer to GPU
+    x_t = [transformed_inp(itf, xi) for xi in x]
+    x_t_gpu = [CuArray{Float32}(xt) for xt in x_t]
+
+    if x_val !== x
+        x_val_t = [transformed_inp(itf, xi) for xi in x_val]
+        x_val_t_gpu = [CuArray{Float32}(xt) for xt in x_val_t]
+    else
+        x_val_t_gpu = x_t_gpu
+    end
+
+    # Atom counts for per-atom RMSE and scatter matrix
+    train_natoms = [size(v, 2) for v in x]
+    val_natoms = [size(v, 2) for v in x_val]
+
+    # Transform targets to match model output space
+    y_train = _transform_targets(y, train_natoms, itf.yt)
+    y_val_transformed = x_val === x ? y_train : _transform_targets(y_val, val_natoms, itf.yt)
+
+    n_data = length(x)
+
+    # Learning rate schedule
+    actual_schedule = lr_schedule !== nothing ? lr_schedule : constant_lr(lr)
+
+    # Create Float32 optimizer state on CPU
+    if optimizer == :adam
+        opt_state = AdamState{Float32}(nparam; lr=Float32(lr), beta=Float32.(beta), eps=Float32(eps))
+    elseif optimizer == :sgd
+        opt_state = SGDState{Float32}(nparam; lr=Float32(lr), momentum=Float32(0.0))
+    elseif optimizer == :sgd_momentum
+        opt_state = SGDState{Float32}(nparam; lr=Float32(lr), momentum=Float32(momentum))
+    else
+        error("Unknown optimizer: $optimizer. Supported: :adam, :sgd, :sgd_momentum")
+    end
+
+    # Gradient accumulation buffer (CPU Float32 — filled from GPU each batch)
+    grad_buf = zeros(Float32, nparam)
+
+    # Tracking state
+    rec = []
+    best_flat = copy(flat_cpu)
+    min_val_rmse = floatmax(Float64)
+    min_epoch = 0
+
+    time_start = time()
+    last_time = time()
+    rng = MersenneTwister(shuffle_seed)
+
+    # Thread pool for CPU validation RMSE
+    val_pool = ThreadBufferPool(itf, nthreads() * 10 + 1)
+
+    # Helper: sync CPU Float32 params → Float64 interface for validation
+    function _sync_params!(flat_cpu)
+        setparamvector!(itf, Float64.(flat_cpu))
+    end
+
+    # --- Epoch loop ---
+    for epoch in 1:max_epochs
+        # Update learning rate
+        current_lr = Float32(actual_schedule(epoch))
+        opt_state.lr = current_lr
+
+        # Shuffle data
+        perm = randperm(rng, n_data)
+        batches = _make_batches(n_data, batch_size, perm)
+
+        # Mini-batch updates
+        for batch_indices in batches
+            # Transfer params to GPU for gradient computation
+            flat_gpu = CuArray{Float32}(flat_cpu)
+
+            @timeit to "sgd: grad" begin
+                loss_val = _batch_loss_and_grad!(
+                    grad_buf, flat_gpu, rebuild, x_t_gpu, y_train, batch_indices, train_natoms, weights, pow
+                )
+            end
+
+            # L2 regularization (weight decay)
+            if weight_decay > 0.0f0
+                @. grad_buf += Float32(weight_decay) * flat_cpu
+            end
+
+            # Gradient clipping by global L2 norm
+            if grad_clip > 0.0f0
+                gnorm = sqrt(sum(abs2, grad_buf))
+                if gnorm > Float32(grad_clip)
+                    grad_buf .*= Float32(grad_clip) / gnorm
+                end
+            end
+
+            # Skip update if gradient is not finite
+            if !all(isfinite, grad_buf)
+                @warn "Non-finite gradient at epoch $epoch, skipping update"
+                continue
+            end
+
+            # Apply optimizer update on CPU (flat_cpu and grad_buf are both CPU vectors)
+            @timeit to "sgd: update" if optimizer == :adam
+                adam_update!(opt_state, flat_cpu, grad_buf)
+            else
+                sgd_update!(opt_state, flat_cpu, grad_buf)
+            end
+        end
+
+        # --- Epoch callback: evaluate RMSE, log, early stopping ---
+        @timeit to "sgd: eval" begin
+            _sync_params!(flat_cpu)
+
+            rmse_train = rmse_per_atom_threaded(val_pool, x, y, train_natoms)
+            if x_val === x
+                rmse_val = rmse_train
+            else
+                rmse_val = rmse_per_atom_threaded(val_pool, x_val, y_val, val_natoms)
+            end
+        end
+
+        tnow = time()
+        elapsed = tnow - time_start
+        loop_time = tnow - last_time
+        last_time = tnow
+
+        logline = @sprintf(
+            "Epoch: %d %3.3f %3.3f RMSE Train %10.5f eV | Val %10.5f eV (%s, bs=%d, lr=%.2e)\n",
+            epoch, loop_time, elapsed, rmse_train, rmse_val, optimizer, batch_size, Float64(current_lr)
+        )
+        show_progress && print(logline)
+        if log_file != ""
+            open(log_file, "a") do file
+                write(file, logline)
+            end
+        end
+        flush(stdout)
+
+        push!(rec, (rmse_train, rmse_val))
+
+        # Checkpoint
+        if checkpoint_every > 0 && checkpoint_prefix != "" && feature_spec !== nothing && epoch % checkpoint_every == 0
+            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, epoch))
+            save_model_artifact(ckpt_path, itf; feature_spec, elemental_energies, metadata=Dict("epoch" => epoch))
+        end
+
+        # Track best
+        if rmse_val < min_val_rmse
+            min_val_rmse = rmse_val
+            min_epoch = epoch
+            best_flat = copy(flat_cpu)
+        end
+
+        # Early stopping
+        if earlystop > 0 && (epoch - min_epoch) >= earlystop
+            if show_progress
+                @info "Early stopping at epoch $epoch (no improvement for $earlystop epochs)"
+            end
+            break
+        end
+    end
+
+    # Restore best parameters
+    if keep_best
+        flat_cpu .= best_flat
+        _sync_params!(flat_cpu)
+    end
+
+    return (nothing, paramvector(itf), [map(x -> x[1], rec) map(x -> x[2], rec)], nothing)
+end
+
+
 end # module

@@ -35,28 +35,36 @@ end
 
 # ---------- Optimizer state types ----------
 
-mutable struct SGDState
-    velocity::Vector{Float64}
-    lr::Float64
-    momentum::Float64
+mutable struct SGDState{T<:AbstractFloat}
+    velocity::Vector{T}
+    lr::T
+    momentum::T
 end
 
-mutable struct AdamState
-    m::Vector{Float64}   # first moment
-    v::Vector{Float64}   # second moment
+mutable struct AdamState{T<:AbstractFloat}
+    m::Vector{T}   # first moment
+    v::Vector{T}   # second moment
     t::Int               # timestep
-    lr::Float64
-    beta1::Float64
-    beta2::Float64
-    eps::Float64
+    lr::T
+    beta1::T
+    beta2::T
+    eps::T
 end
 
 function SGDState(n::Int; lr=1e-2, momentum=0.9)
-    SGDState(zeros(n), lr, momentum)
+    SGDState(zeros(n), Float64(lr), Float64(momentum))
+end
+
+function SGDState{T}(n::Int; lr=1e-2, momentum=0.9) where {T<:AbstractFloat}
+    SGDState{T}(zeros(T, n), T(lr), T(momentum))
 end
 
 function AdamState(n::Int; lr=1e-3, beta=(0.9, 0.999), eps=1e-8)
-    AdamState(zeros(n), zeros(n), 0, lr, beta[1], beta[2], eps)
+    AdamState(zeros(n), zeros(n), 0, Float64(lr), Float64(beta[1]), Float64(beta[2]), Float64(eps))
+end
+
+function AdamState{T}(n::Int; lr=1e-3, beta=(0.9, 0.999), eps=1e-8) where {T<:AbstractFloat}
+    AdamState{T}(zeros(T, n), zeros(T, n), 0, T(lr), T(beta[1]), T(beta[2]), T(eps))
 end
 
 # ---------- Update rules ----------
@@ -126,32 +134,90 @@ function _transform_targets(y, natoms_vec, yt)
 end
 
 """
-    _batch_loss_and_grad!(grad_out, flat, rebuild, x_t, y, indices, weights, pow)
+    _scatter_matrix(batch_indices, natoms_vec, ref)
 
-Compute the average loss and accumulated gradient over `indices` (a mini-batch).
-`x_t` are pre-transformed feature matrices, `y` are target total energies
-(in the same space as the model output).
+Build a scatter matrix `S` of shape `(length(batch_indices), total_atoms)` where
+`S[k, j] = 1` if atom `j` belongs to structure `batch_indices[k]`. The matrix is
+allocated on the same device as `ref` (CPU or GPU).
 """
-function _batch_loss_and_grad!(grad_out, flat, rebuild, x_t, y, indices, weights, pow)
-    fill!(grad_out, 0.0)
-    total_loss = 0.0
+function _scatter_matrix(batch_indices, natoms_vec, ref)
+    n_batch = length(batch_indices)
+    total_atoms = sum(natoms_vec[i] for i in batch_indices)
+    S = similar(ref, n_batch, total_atoms)
+    fill!(S, zero(eltype(ref)))
+    offset = 1
+    for (k, i) in enumerate(batch_indices)
+        nat = natoms_vec[i]
+        S[k, offset:offset+nat-1] .= one(eltype(ref))
+        offset += nat
+    end
+    S
+end
 
-    for i in indices
-        res = Zygote.withgradient(flat) do p
-            m = rebuild(p)
-            E_pred = sum(m(x_t[i]))
-            residual = E_pred - y[i]
-            if weights !== nothing
-                residual *= weights[i]
-            end
-            abs(residual)^pow
+"""
+    _hcat_batch(x_t, batch_indices)
+
+Concatenate feature matrices for structures in `batch_indices` into a single
+`(nfeatures, total_atoms)` matrix. Allocated on the same device as the input arrays.
+"""
+function _hcat_batch(x_t, batch_indices)
+    total_atoms = sum(size(x_t[i], 2) for i in batch_indices)
+    nfeat = size(first(x_t), 1)
+    X = similar(first(x_t), nfeat, total_atoms)
+    fill!(X, 0)
+    offset = 1
+    for i in batch_indices
+        nat = size(x_t[i], 2)
+        X[:, offset:offset+nat-1] = x_t[i]
+        offset += nat
+    end
+    X
+end
+
+"""
+    _batch_loss_and_grad!(grad_out, flat, rebuild, x_t, y, batch_indices, natoms_vec, weights, pow)
+
+Compute the average loss and gradient over `batch_indices` (a mini-batch).
+All atoms in the batch are concatenated into a single matrix for one forward pass.
+Per-structure energies are computed via a scatter matrix: `E_pred = S * vec(Y)`.
+Works with any `AbstractArray` type (CPU or GPU).
+"""
+function _batch_loss_and_grad!(grad_out, flat, rebuild, x_t, y, batch_indices, natoms_vec, weights, pow)
+    T = eltype(flat)
+    fill!(grad_out, zero(T))
+
+    # Concatenate all atoms in the batch
+    X_batch = _hcat_batch(x_t, batch_indices)
+
+    # Scatter matrix for per-structure energy summation (same device as flat)
+    S = _scatter_matrix(batch_indices, natoms_vec, flat)
+
+    # Per-structure targets on the same device as flat
+    y_batch = similar(flat, length(batch_indices))
+    for (k, i) in enumerate(batch_indices)
+        y_batch[k] = y[i]
+    end
+    w_batch = if weights !== nothing
+        wb = similar(flat, length(batch_indices))
+        for (k, i) in enumerate(batch_indices)
+            wb[k] = weights[i]
         end
-        grad_out .+= res.grad[1]
-        total_loss += res.val
+        wb
+    else
+        nothing
     end
 
-    grad_out ./= length(indices)
-    return total_loss / length(indices)
+    res = Zygote.withgradient(flat) do p
+        m = rebuild(p)
+        Y = m(X_batch)                    # (1, total_atoms) — per-atom energies
+        E_pred = S * vec(Y)               # (n_batch,) — per-structure energies via matmul
+        residuals = E_pred .- y_batch
+        r = w_batch !== nothing ? residuals .* w_batch : residuals
+        mean(abs.(r) .^ pow)
+    end
+
+    grad_out .= res.grad[1]
+    return Float64(res.val)
 end
 
 """
@@ -246,6 +312,16 @@ function train_sgd!(
     kwargs...,
 )
 
+    # --- GPU dispatch ---
+    if EDDPotentials.USE_CUDA[]
+        return EDDPotentials.train_sgd_gpu!(itf, x, y;
+            x_val, y_val, optimizer, lr, lr_schedule, momentum,
+            batch_size, max_epochs, earlystop, keep_best, show_progress,
+            log_file, shuffle_seed, pow, weights, beta, eps,
+            weight_decay, grad_clip, checkpoint_every, checkpoint_prefix,
+            feature_spec, elemental_energies, kwargs...)
+    end
+
     # --- Setup ---
     model = get_flux_model(itf)
     flat, rebuild = Flux.destructure(model)
@@ -320,7 +396,7 @@ function train_sgd!(
         for batch_indices in batches
             @timeit to "sgd: grad" begin
                 loss_val = _batch_loss_and_grad!(
-                    grad_buf, flat, rebuild, x_t, y_train, batch_indices, weights, pow
+                    grad_buf, flat, rebuild, x_t, y_train, batch_indices, train_natoms, weights, pow
                 )
             end
 
