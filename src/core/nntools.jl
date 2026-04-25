@@ -152,11 +152,100 @@ end
 
 
 """
+    ThreadBufferPool
+
+Pre-allocated pool of gradient buffers indexed by **chunk index**, not
+`threadid()`.  This is safe with `:dynamic` scheduling because each iteration
+of `Threads.@threads` processes a unique element of the iteration space.
+
+One `ChainGradients` and one `jtmp` vector are stored per chunk slot.
+The pool lazily creates `ChainGradients` of the right batch size on first use
+per slot.
+"""
+struct ThreadBufferPool
+    chain::Chain
+    gchains::Vector{Vector}
+    jtmps::Vector{Vector}
+    yt_scale::Float64
+    yt::Any  # ZScoreTransform or nothing — used for reconstruct! on output
+    xt::Any  # ZScoreTransform or nothing — used for transform! on input
+
+    function ThreadBufferPool(model::AbstractNNInterface, nslots::Int)
+        chain = get_flux_model(model)
+        T = eltype(paramvector(model))
+        np = nparams(model)
+        gchains = [Vector{ChainGradients}() for _ in 1:nslots]
+        jtmps = [zeros(T, np) for _ in 1:nslots]
+        yt = model isa ManualFluxBackPropInterface ? model.yt : nothing
+        yt_scale = !isnothing(yt) ? yt.scale[1] : one(T)
+        xt = model isa ManualFluxBackPropInterface ? model.xt : nothing
+        new(chain, gchains, jtmps, yt_scale, yt, xt)
+    end
+end
+
+function _get_pool_gchain!(pool::ThreadBufferPool, ci::Int, bsize::Int)
+    bufs = pool.gchains[ci]
+    idx = findfirst(x -> x.n == bsize, bufs)
+    if isnothing(idx)
+        cg = ChainGradients(pool.chain, bsize)
+        push!(bufs, cg)
+        idx = length(bufs)
+    end
+    bufs[idx]
+end
+
+"""
+Apply input transform (xt) if present, then forward + backward + gradparam.
+Uses pre-allocated ChainGradients from the pool.  Returns the output (with yt
+inverse transform applied if present).
+"""
+function _threaded_forward_grad!(jtmp_, gchain, pool::ThreadBufferPool, inp)
+    if !isnothing(pool.xt)
+        # Apply ZScore transform to the last xt.len rows
+        # forward! will copy our transformed input into gchain.layers[1].x internally
+        transformed = copy(inp)
+        transform!(pool.xt, @view(transformed[end-pool.xt.len+1:end, :]))
+        out = forward!(gchain, pool.chain, transformed)
+    else
+        out = forward!(gchain, pool.chain, inp)
+    end
+    # Apply yt inverse transform to put output in physical units
+    if !isnothing(pool.yt)
+        reconstruct!(pool.yt, out)
+    end
+    backward!(gchain, pool.chain)
+    gradparam!(jtmp_, gchain)
+    if pool.yt_scale != 1
+        jtmp_ .*= pool.yt_scale
+    end
+    out
+end
+
+"""
+Apply input transform (xt) if present, then forward only.
+Returns the output (with yt inverse transform applied if present).
+"""
+function _threaded_forward(gchain, pool::ThreadBufferPool, inp)
+    out = if !isnothing(pool.xt)
+        transformed = copy(inp)
+        transform!(pool.xt, @view(transformed[end-pool.xt.len+1:end, :]))
+        forward!(gchain, pool.chain, transformed)
+    else
+        forward!(gchain, pool.chain, inp)
+    end
+    if !isnothing(pool.yt)
+        reconstruct!(pool.yt, out)
+    end
+    out
+end
+
+"""
     setup_fj_batched_threaded(model, data, y, weights=nothing; ngps=10)
 
-Threaded variant of `setup_fj_batched`.  Each thread gets a `deepcopy` of the
-model and a local gradient buffer, following the same pattern as
-`_compute_objectives_diff_threaded`.
+Threaded variant of `setup_fj_batched`.  Uses a `ThreadBufferPool` with
+pre-allocated per-chunk gradient buffers instead of `deepcopy` on every call.
+Safe with `:dynamic` scheduling — buffers are indexed by chunk index, not
+`threadid()`.
 
 Threads write to disjoint rows of `jmat` and `fvec`, so no synchronisation
 is needed.  Falls back to the sequential path when `nthreads() == 1` or the
@@ -169,7 +258,9 @@ function setup_fj_batched_threaded(
     weights=nothing;
     ngps=10,
 )
-    jtmp = similar(paramvector(model))
+    jtmp = similar(paramvector(model))  # used by sequential fallback only
+    nslots = nthreads() * ngps + 1
+    pool = ThreadBufferPool(model, nslots)
 
     function fj_batch!(fvec, jmat, param, batch_indices)
         setparamvector!(model, param)
@@ -177,32 +268,38 @@ function setup_fj_batched_threaded(
         nt = nthreads()
 
         if nt > 1 && length(batch_indices) > nt * 5
-            # Threaded path: chunk the batch indices across threads
+            # Threaded path: chunk the batch indices across tasks
             batch_vec = collect(batch_indices)
             chunks = _chunk_ranges(length(batch_vec); ngps)
-            Threads.@threads for chunk in chunks
-                itf_ = deepcopy(model)
-                jtmp_ = copy(jtmp)
-                for (local_i, gi) in enumerate(chunk)
+            Threads.@threads for ci in eachindex(chunks)
+                jtmp_ = pool.jtmps[ci]
+                for (local_i, gi) in enumerate(chunks[ci])
                     global_i = batch_vec[gi]
                     inp = data[global_i]
-                    out = forward!(itf_, inp)
+                    gchain = _get_pool_gchain!(pool, ci, size(inp, 2))
 
                     if need_jacobian
-                        backward!(itf_)
-                        gradparam!(jtmp_, itf_)
+                        out = _threaded_forward_grad!(jtmp_, gchain, pool, inp)
                         if isnothing(weights)
                             jmat[gi, :] .= jtmp_
                         else
                             jmat[gi, :] .= jtmp_ .* weights[global_i]
                         end
-                    end
-
-                    if !(fvec === nothing)
-                        if isnothing(weights)
-                            fvec[gi] = sum(out) - y[global_i]
-                        else
-                            fvec[gi] = (sum(out) - y[global_i]) * weights[global_i]
+                        if !(fvec === nothing)
+                            if isnothing(weights)
+                                fvec[gi] = sum(out) - y[global_i]
+                            else
+                                fvec[gi] = (sum(out) - y[global_i]) * weights[global_i]
+                            end
+                        end
+                    else
+                        out = _threaded_forward(gchain, pool, inp)
+                        if !(fvec === nothing)
+                            if isnothing(weights)
+                                fvec[gi] = sum(out) - y[global_i]
+                            else
+                                fvec[gi] = (sum(out) - y[global_i]) * weights[global_i]
+                            end
                         end
                     end
                 end
@@ -325,17 +422,19 @@ function _compute_objectives_diff_threaded(
     weights=nothing;
     jtmp=jmat[1, :],
     ngps=10,
+    pool::Union{Nothing,ThreadBufferPool}=nothing,
 )
+    if pool === nothing
+        nslots = nthreads() * ngps + 1
+        pool = ThreadBufferPool(itf, nslots)
+    end
     chunks = _chunk_ranges(length(data); ngps)
-    Threads.@threads for idx in chunks
-        # Thread local copy
-        itf_ = deepcopy(itf)
-        jtmp_ = copy(jtmp)
-        for i in idx
+    Threads.@threads for ci in eachindex(chunks)
+        jtmp_ = pool.jtmps[ci]
+        for i in chunks[ci]
             inp = data[i]
-            out = forward!(itf_, inp)
-            backward!(itf_)
-            gradparam!(jtmp_, itf_)
+            gchain = _get_pool_gchain!(pool, ci, size(inp, 2))
+            out = _threaded_forward_grad!(jtmp_, gchain, pool, inp)
             if isnothing(weights)
                 jmat[i, :] .= jtmp_
             else

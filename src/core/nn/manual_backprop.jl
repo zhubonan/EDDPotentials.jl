@@ -367,6 +367,14 @@ function gradparam!(gvec::AbstractVector, itf::ManualFluxBackPropInterface)
     grad
 end
 
+# Thread-safe variants: operate on ChainGradients directly without mutating the interface.
+# These are used by the ThreadBufferPool in nntools.jl to avoid deepcopies.
+
+function gradparam!(gvec::AbstractVector, gchain::ChainGradients)
+    collect_gradients!(gvec, gchain)
+    gvec
+end
+
 """
 Return the gradient of the input matrix ``X`` against the sum of the output ``sum(G(X))``.
 """
