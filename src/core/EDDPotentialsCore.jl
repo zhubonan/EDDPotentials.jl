@@ -79,7 +79,7 @@ export ModelArtifact,
     load_feature_artifact,
     save_feature_json
 export NNCalc, VariableCellCalc, MultiCalc, DimPenalty
-export CoreRepulsion
+export CoreRepulsion, leaky_tanh
 export calculate!
 
 # Meta calculator/modifier API used in workflows

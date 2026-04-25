@@ -12,7 +12,8 @@ using ProgressMeter: Progress
 using Parameters
 using Printf
 using StatsBase
-using Flux: Dense, Chain, tanh
+using Flux: Dense, Chain
+using .EDDPotentialsCore: leaky_tanh
 import Flux
 import Base
 import CellBase
@@ -36,7 +37,7 @@ function generate_chain(nfeature, nnodes; init=EDDPotentialsCore.ginit)
         return Chain(Dense(nfeature => 1; init))
     end
 
-    models = Any[Dense(nfeature => nnodes[1], tanh; bias=true, init)]
+    models = Any[Dense(nfeature => nnodes[1], leaky_tanh; bias=true, init)]
     # Add more layers
     if length(nnodes) > 1
         for i = 2:length(nnodes)

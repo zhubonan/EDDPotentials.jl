@@ -99,7 +99,7 @@ function flux_mlp_model(
     cf::AbstractCellFeatureSpec,
     nodes...;
     init=glorot_uniform(T),
-    σ=tanh_fast,
+    σ=leaky_tanh,
     embedding=nothing,
     σs=nothing,
 )

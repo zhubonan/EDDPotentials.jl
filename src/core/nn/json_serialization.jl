@@ -55,6 +55,7 @@ end
 _activation_name(::typeof(identity)) = "identity"
 _activation_name(::typeof(tanh)) = "tanh"
 _activation_name(::typeof(tanh_fast)) = "tanh_fast"
+_activation_name(::typeof(leaky_tanh)) = "leaky_tanh"
 _activation_name(σ) =
     throw(ArgumentError("Unsupported activation for JSON serialization: $(repr(σ))."))
 
@@ -65,6 +66,8 @@ function _activation_from_name(name::AbstractString)
         return tanh
     elseif name == "tanh_fast"
         return tanh_fast
+    elseif name == "leaky_tanh"
+        return leaky_tanh
     end
     throw(ArgumentError("Unsupported activation name `$name` in JSON artifact."))
 end

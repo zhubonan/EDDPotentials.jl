@@ -12,6 +12,15 @@ using Flux
 import Zygote
 import JLD2
 
+"""
+    leaky_tanh(x)
+
+Activation function: `tanh(x) + 1e-6 * x`.
+Gradient: `1 - tanh(x)^2 + 1e-6`.
+The linear skip connection prevents gradient saturation for large inputs.
+"""
+leaky_tanh(x) = tanh(x) + 1e-6 * x
+
 
 """
 Buffer for storing gradients of a dense network
@@ -128,6 +137,10 @@ function ChainGradients(chain::Chain, n::Int)
                 gσ = (x, y) -> one(x)
             elseif (layer.σ == tanh_fast) || (layer.σ == tanh)
                 gσ = (x, y) -> 1 - y^2
+            elseif layer.σ === leaky_tanh
+                # y = tanh(x) + α*x, so tanh(x) = y - α*x
+                # d(leaky_tanh)/dx = 1 - tanh(x)^2 + α = 1 - (y - α*x)^2 + α
+                gσ = (x, y) -> 1 - (y - 1e-6 * x)^2 + 1e-6
             else
                 gσ = (x, y) -> layer.σ'(x)
             end
@@ -412,7 +425,7 @@ function ManualFluxBackPropInterface(
     init=glorot_uniform(T),
     xt=nothing,
     yt=nothing,
-    σ=tanh,
+    σ=leaky_tanh,
     σs=nothing,
     embedding=nothing,
 )
