@@ -680,9 +680,11 @@ function compute_feature_stats!(
     if n_atoms_total > 1
         std_vec .= sqrt.(std_vec ./ (n_atoms_total - 1))
     end
-    # Avoid division by zero
+    # Reset near-zero std to 1 to avoid division by near-zero
     for j in eachindex(std_vec)
-        std_vec[j] = max(std_vec[j], 1e-8)
+        if std_vec[j] < 1e-6
+            std_vec[j] = 1.0
+        end
     end
     return mean_vec, std_vec
 end

@@ -638,9 +638,7 @@ function setup_fj_with_embedding(
         mean_vec = zeros(eltype(cf.embedding), nf)
         std_vec = zeros(eltype(cf.embedding), nf)
         compute_feature_stats!(mean_vec, std_vec, structures, cf, workspaces, nls)
-        # Apply only to the non-one-body features (offset by nembed)
-        n1 = embedding_size(cf)
-        model.xt = ZScoreTransform(nf - n1, 2, mean_vec[n1+1:end], std_vec[n1+1:end])
+        model.xt = ZScoreTransform(nf, 2, mean_vec, std_vec)
     end
 
     function f!(fvec, param)
@@ -768,8 +766,6 @@ function setup_fj_with_embedding(
         mean_vec = zeros(T, nf)
         std_vec = zeros(T, nf)
         compute_feature_stats!(mean_vec, std_vec, structures, cf, workspaces, nls)
-        # With simple concatenation layout, one-body features are interleaved
-        # so we normalize all features together
         model.xt = ZScoreTransform(nf, 2, mean_vec, std_vec)
     end
 
@@ -892,8 +888,7 @@ function setup_fj_batched_with_embedding(
         mean_vec = zeros(eltype(cf.embedding), nf)
         std_vec = zeros(eltype(cf.embedding), nf)
         compute_feature_stats!(mean_vec, std_vec, structures, cf, workspaces, nls)
-        n1 = embedding_size(cf)
-        model.xt = ZScoreTransform(nf - n1, 2, mean_vec[n1+1:end], std_vec[n1+1:end])
+        model.xt = ZScoreTransform(nf, 2, mean_vec, std_vec)
     end
 
     function fj_batch!(fvec, jmat, param, batch_indices)

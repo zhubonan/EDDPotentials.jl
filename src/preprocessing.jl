@@ -900,8 +900,13 @@ function standardize!(fc::FeatureContainer; xt=nothing, yt=nothing)
     if xt === nothing
         if isnothing(fc.xt)
             total_x_train = reduce(hcat, fc.fvecs)
-            n1 = feature_size(fc.feature)[1]
-            xt = fit(StatsBase.ZScoreTransform, @view(total_x_train[n1+1:end, :]), dims=2)
+            xt = fit(StatsBase.ZScoreTransform, total_x_train, dims=2)
+            # Reset near-zero std to 1 to avoid division by near-zero
+            for i in eachindex(xt.scale)
+                if abs(xt.scale[i]) < 1e-6
+                    xt.scale[i] = 1.0
+                end
+            end
             fc.xt = xt
         end
     else
@@ -1437,10 +1442,8 @@ function save_feature_store_streaming(
 
     # ---- Phase 3: Single streaming pass ----
     fsizes = feature_size(feature)
-    n1 = fsizes[1]               # one-body features (not standardized)
-    n_std = sum(fsizes) - n1     # features to standardize
     n_feat = sum(fsizes)
-    stats_x = OnlineStats(n_std)
+    stats_x = OnlineStats(n_feat)
     stats_y = OnlineStats(1)
 
     # These will be updated inside the jldopen closure and read after
@@ -1498,9 +1501,9 @@ function save_feature_store_streaming(
                 is_val = frame_id in val_set
 
                 if !is_val
-                    # Update Welford stats (skip one-body features)
+                    # Update Welford stats (all features; 1-body overridden to no-op later)
                     for j in 1:nat
-                        _welford_update!(stats_x, @view fvec[n1+1:end, j])
+                        _welford_update!(stats_x, @view fvec[:, j])
                     end
                     _welford_update!(stats_y, [H_i / nat])
 
@@ -1551,7 +1554,15 @@ function save_feature_store_streaming(
             UnitRange{Int}[]
         end
 
-        xt = ZScoreTransform(n_std, 2, _mean(stats_x), _std(stats_x))
+        xt_mean = _mean(stats_x)
+        xt_scale = _std(stats_x)
+        # Reset near-zero std to 1 to avoid division by near-zero
+        for i in eachindex(xt_scale)
+            if abs(xt_scale[i]) < 1e-6
+                xt_scale[i] = 1.0
+            end
+        end
+        xt = ZScoreTransform(n_feat, 2, xt_mean, xt_scale)
         yt_mean = _mean(stats_y)
         yt_scale = _std(stats_y)
         yt = ZScoreTransform(1, 2, yt_mean, yt_scale)
@@ -1586,7 +1597,7 @@ function save_feature_store_streaming(
     )
     # Apply the same transforms from training stats
     standardize!(fc_val;
-        xt=ZScoreTransform(n_std, 2, _mean(stats_x), _std(stats_x)),
+        xt=xt,
         yt=ZScoreTransform(1, 2, yt_mean, yt_scale),
     )
 
