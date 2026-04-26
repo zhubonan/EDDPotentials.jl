@@ -51,8 +51,12 @@ to perform various actions during the construction of the potentials.
 - `builder_file_path`: Path to this builder file. This field will re automatically filled.
 - `relax`: Options for performing relaxations of the generated structures.
 - `elemental_energies`: The energies of elements species. It is **very important** to specify them for multi-composition searches.
-  The reference energies may be obtained via *atom-in-a-large-cell* calculations or total energies of the pseudo atom calculation.
-  The latter is printed in the `.castep` file for the on-the-fly generated potentials of CASTEP.
+   The reference energies may be obtained via *atom-in-a-large-cell* calculations or total energies of the pseudo atom calculation.
+   The latter is printed in the `.castep` file for the on-the-fly generated potentials of CASTEP.
+- `hyper_ndim`: Number of extra dimensions for hyperdimensional relaxation (default 3).
+- `hyper_alpha_start`: Starting penalty coefficient for extra dimensions (default 1e-4).
+- `hyper_schedule_every`: Iterations between penalty schedule updates (default 50).
+- `hyper_target_iterations`: Maximum iterations for hyperdimensional relaxation (default 500).
 """
 @option mutable struct BuilderState <: EDDPotentialsOption
     seedfile::Union{String,Vector{String}}
@@ -86,6 +90,10 @@ to perform various actions during the construction of the potentials.
     builder_file_path::String = ""
     relax::RelaxOption = RelaxOption()
     elemental_energies = Dict{String,Any}()
+    hyper_ndim::Int = 3
+    hyper_alpha_start::Float64 = 1e-4
+    hyper_schedule_every::Int = 50
+    hyper_target_iterations::Int = 500
 end
 
 abstract type AbstractTrainer end

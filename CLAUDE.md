@@ -18,6 +18,32 @@ julia --project=test/ -e 'include("test/test_calc.jl")'
 # Run native optimizer tests (opt-in)
 EDDP_RUN_NATIVE_OPT_TESTS=1 julia --project=test/ test/runtests.jl
 
+# Run all tests that are relevant to code changes (recommended after any change)
+julia --project=test/ -e '
+  using Test
+  test_files = [  # ordered as in runtests.jl
+    "test_layer_boundaries.jl", "test_source_topology.jl",
+    "test_core_module_namespace.jl", "test_records.jl",
+    "test_cellfeature.jl", "test_random_embedded_feature.jl",
+    "test_multi_embedding.jl", "test_embedding.jl",
+    "test_gradients.jl", "test_backprop.jl", "test_nninterface.jl",
+    "test_json_serialization.jl", "test_calc.jl",
+    "test_preprocess.jl", "test_dotcastep.jl", "test_train.jl",
+    "test_evaluation.jl", "test_threading.jl",
+    "test_sgd_training.jl", "test_builder.jl",
+    "test_modifiers.jl", "test_metacalculator.jl",
+    "test_md.jl", "test_hot.jl",
+  ]
+  for f in test_files; include(f); end
+'
+
+# Run native optimizers individually
+EDDP_RUN_NATIVE_OPT_TESTS=1 julia --project=test/ -e 'include("test/test_native_optimizers.jl")'
+
+# Ensure any code change passes at minimum:
+#   test_calc.jl, test_modifiers.jl, test_metacalculator.jl, test_builder.jl
+# plus any test file directly related to the modified source.
+
 # Instantiate dependencies
 julia --project=. -e "using Pkg; Pkg.instantiate()"
 julia --project=test/ -e "using Pkg; Pkg.instantiate()"
@@ -42,7 +68,7 @@ The source tree has an internal core/functional split. The public API is availab
 - Feature generation (`core/feature/`) — two-body and three-body atomic environment descriptors
 - Gradient computation (`core/gradient/`) — chain rule for forces/stress from feature gradients
 - NN interface (`core/nn/`) — abstract `AbstractNNInterface` with Linear, Flux, Ensemble, and ManualFluxBackProp implementations
-- Calculator kernel (`core/calculator.jl`) — `NNCalc`, `VariableCellCalc`, `MultiCalc`, `DimPenalty`
+- Calculator kernel (`core/calculator.jl`) — `NNCalc`, `VariableCellCalc`
 - Calculator modifiers (`core/calculator/modifiers/`) — pipeline-based modifiers for MetaCalculator
 - MetaCalculator (`core/calculator/metacalculator.jl`) — modifier pipeline architecture
 
@@ -51,7 +77,7 @@ The source tree has an internal core/functional split. The public API is availab
 - `preprocessing.jl` — data loading and preprocessing
 - `functional/` — structure generation (buildcell), relaxation (`Relax`/`RelaxOption`), random structure search (RSS)
 - `link/` — automated active-learning workflow (`Builder`, `link!`, `step!`, `run_rss`)
-- `hyper.jl` — hyperdimensional relaxation with scheduled penalty
+- `hyper.jl` — hyperdimensional relaxation with scheduled penalty via `MetaCalculator` + `ExtraDimensionPenaltyModifier`
 - `optimizer/` — native Julia optimizers (`NativeTPSD`, `NativeFIRE`) with `AbstractOptimizer` interface
 - `opt.jl` — high-level entry points `opt_tpsd()` and `opt_fire()`
 - `md.jl` — molecular dynamics simulation (NVE Velocity Verlet, NVT Langevin/Berendsen) with `MDRunner`, `MDState`
@@ -71,8 +97,37 @@ Key calculator types:
 - **`NNCalc`** — primary calculator binding Cell + CellFeature + NNInterface with neighbor list caching
 - **`VariableCellCalc`** — wraps any calculator, adds lattice DOFs via deformation gradient (Tadmor et al. 1999)
 - **`MetaCalculator`** — source calculator + ordered modifier pipeline with pre/post-calculate hooks
-- **`MultiCalc`** — sums energy/forces/stress across multiple calculators
-- **`DimPenalty`** — harmonic penalty on extra dimensions (for hyperdimensional search)
+
+### Hyperspace Relaxation
+
+Hyperdimensional relaxation uses `MetaCalculator` with `ExtraDimensionPenaltyModifier`:
+
+```julia
+# Build the hyperspace calculator
+source = NNCalc(hcell, cf, ensemble)
+penalty = ExtraDimensionPenaltyModifier(1e-4; start_dim=4)
+metacalc = MetaCalculator(source, [penalty])
+
+# Relax with scheduled penalty
+results, dnorm = scheduled_penalty_relax!(metacalc;
+    schedule_every=50,
+    max_iterations=500,
+    alpha_start=1e-4,
+    relax_fn=opt_tpsd,
+)
+```
+
+For variable-cell hyperspace relaxation, add a `CellRelaxationModifier`:
+
+```julia
+modifiers = [ExtraDimensionPenaltyModifier(1e-4), CellRelaxationModifier(hcell)]
+metacalc = MetaCalculator(source, modifiers)
+```
+
+The `hyper_gen_relax(bu; ...)` function provides a high-level entry point using
+a `Builder` configuration. Hyperspace parameters can be configured in `link.toml`
+under `[state]`: `hyper_ndim`, `hyper_alpha_start`, `hyper_schedule_every`,
+`hyper_target_iterations`.
 
 ### Feature System
 
@@ -108,11 +163,13 @@ Submodules: `options.jl` (config types), `workflow.jl` (Builder/link!), `trainer
 ### Modifier Pipeline
 
 Modifiers extend calculator behavior through `pre_calculate!` / `post_calculate!` hooks:
-- **`ExtraDimensionPenaltyModifier`** — penalize extra-dimensional coordinates
+- **`ExtraDimensionPenaltyModifier`** — penalize extra-dimensional coordinates (used by hyperspace relaxation)
 - **`CellRelaxationModifier`** — variable-cell optimization within MetaCalculator
 - **`AdditiveCalculatorModifier`** — combine additional calculator contributions
 
 Access modifiers via `get_modifier(calc, Type)`, `get_parameter`/`set_parameter!`.
+
+See the [Hyperdimensional Relaxation](docs/src/howto/hyperdimensional_relaxation.md) guide for end-to-end examples.
 
 ## Key Dependencies
 

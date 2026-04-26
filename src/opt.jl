@@ -6,13 +6,10 @@ using LinearAlgebra
 include("tpsd.jl")
 
 """
-    opt_tpsd(vc::AbstractCalc; kwargs...) -> Bool
+    opt_tpsd(vc::AbstractCalc; kwargs...) -> NativeTPSD
 
-Optimize a structure using the native TPSD optimizer and return whether the
-optimization converged.
-
-This function preserves the legacy `Bool` return while delegating execution to
- the native optimizer framework.
+Optimize a structure using the native TPSD optimizer and return the optimizer
+state. Check convergence with `converged(opt, vc)`.
 """
 function opt_tpsd(
     vc::AbstractCalc;
@@ -23,6 +20,7 @@ function opt_tpsd(
     trace=0,
     α_tol=1e-10,
     callback=nothing,
+    keep_trajectory=false,
     trajectory=nothing,
 )
     # Match legacy behavior: stress is ignored for fixed-cell optimizations.
@@ -38,7 +36,7 @@ function opt_tpsd(
         itermax,
         α_tol,
         log_level,
-        keep_trajectory=false,
+        keep_trajectory=keep_trajectory,
     )
 
     wrapped_callback = isnothing(callback) && isnothing(trajectory) ? nothing : () -> begin
@@ -47,7 +45,7 @@ function opt_tpsd(
     end
 
     optimize!(opt, vc; callback=wrapped_callback)
-    converged(opt, vc)
+    opt
 end
 
 """

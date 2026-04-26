@@ -11,7 +11,7 @@ A [Julia](https://julialang.org/) package for [Ephemeral Data Derived Potentials
 
 **Step-by-step tutorial:** [AIRSS Workflow](tutorials/airss_workflow.md)
 
-**Common tasks:** [Customize Features](howto/customize_features.md) | [Structure Prediction](howto/structure_prediction.md) | [Phonon Calculations](howto/run_phonon_calculations.md)
+**Common tasks:** [Customize Features](howto/customize_features.md) | [Structure Prediction](howto/structure_prediction.md) | [Phonon Calculations](howto/run_phonon_calculations.md) | [Hyperdimensional Relaxation](howto/hyperdimensional_relaxation.md)
 
 ## What is EDDP?
 
@@ -144,6 +144,7 @@ This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
 - [Enable GPU Acceleration](howto/enable_gpu_acceleration.md): Training speedup
 - [Batched LM Training](howto/batched_lm_training.md): Stochastic LM for large datasets
 - [SGD/Adam Training](howto/sgd_training.md): Mini-batch SGD and Adam optimizers
+- [Hyperdimensional Relaxation](howto/hyperdimensional_relaxation.md): Extra-dimensional structure optimization
 
 **Concepts** - Understanding-oriented explanations
 - [What is EDDP?](concepts/what_is_eddp.md): Design philosophy and use cases

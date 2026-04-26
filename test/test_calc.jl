@@ -287,10 +287,10 @@ end
     cell = _h2_cell()
     calc = lj_like_calc(cell; rc=6.0)
     traj = []
-    @test opt_tpsd(calc, trajectory=traj)
+    @test converged(opt_tpsd(calc, trajectory=traj), calc)
     @test length(traj) > 1
     @test maximum(norm.(eachcol(eddp_forces(calc)))) < 1e-4
-    @test opt_tpsd(VariableCellCalc(calc))
+    @test converged(opt_tpsd(VariableCellCalc(calc)), VariableCellCalc(calc))
     @test maximum(eddp_stress(calc)) < 1e-4
 
 

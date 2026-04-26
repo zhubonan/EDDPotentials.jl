@@ -93,9 +93,9 @@ include("training.jl")
 include("evaluation.jl")
 
 include("tools.jl")
+include("optimizer/abstract.jl")
 include("functional/functional.jl")
 
-include("optimizer/abstract.jl")
 include("optimizer/utils.jl")
 include("optimizer/tpsd.jl")
 include("optimizer/fire.jl")

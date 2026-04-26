@@ -53,8 +53,8 @@ end
         # Apply modifier
         energy, forces, stress = post_calculate!(mod, cell, energy0, forces0, stress0)
 
-        # Check energy penalty: E' = E + alpha * sum(x_4^2) / 2
-        expected_penalty = 0.1 * (0.1^2 + 0.2^2) / 2
+        # Check energy penalty: E' = E + alpha * sum(x_4^2)
+        expected_penalty = 0.1 * (0.1^2 + 0.2^2)
         @test energy ≈ energy0 + expected_penalty
 
         # Check forces: F'_4 = F_4 - 2*alpha*x_4

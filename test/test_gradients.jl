@@ -79,7 +79,7 @@ using Flux
         @test _pair_rcut(core_multi, :Mg, :Mg) == 1.0
         @test _pair_rcut(core_multi, :Mg, :O) == 1.2
         @test _pair_rcut(core_multi, :O, :O) == 1.4
-        @test _pair_rcut(core_multi, :X, :Mg) == 0.5  # unknown element -> 0.0
+        @test _pair_rcut(core_multi, :X, :Mg) == 0.75  # unknown element -> 0.25
 
         # Test constructor with String keys
         core_str = CoreRepulsion(Dict("Mg" => 0.5, "O" => 0.7))

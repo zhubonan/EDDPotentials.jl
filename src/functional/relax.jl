@@ -149,6 +149,14 @@ function relax!(re::Relax)
             _calc = calc
             # Apply the specified external pressure
             _calc.external_pressure .= smat
+        elseif is_variable_cell(calc)
+            # MetaCalculator with CellRelaxationModifier — already handles
+            # variable-cell positions; apply external pressure via modifier.
+            mod = get_cell_relaxation_modifier(calc)
+            if !isnothing(mod)
+                mod.external_pressure .= smat
+            end
+            _calc = calc
         else
             # Construct a VariableCellCalc type
             _calc = VariableCellCalc(calc; external_pressure=smat)
@@ -267,7 +275,6 @@ function (re::Relax)(;kwargs...)
     relax!(re)
 end
 
-
 """
     relax!(calc::AbstractCalc)
 
@@ -284,28 +291,3 @@ function relax!(calc::AbstractCalc; multi=true, relax_cell=true, method="tpsd", 
     end
 end
 
-"""
-Relax with scheduled extra dimension penalty.
-"""
-function scheduled_penalty_relax!(
-    re::Relax,
-    penalty::DimPenalty;
-    schedule_every=10,
-    max_iterations=500,
-    schedule_function= x -> x * 10,
-    alpha_start=1e-4
-)
-    calc = re.calc
-    cell = get_cell(calc)
-    results = []
-    extra_d = []
-    penalty.alpha = alpha_start
-    for i in 1:div(max_iterations, schedule_every)
-        re = Relax(calc, RelaxOption())
-        push!(extra_d, 
-            maximum(norm.(eachcol(positions(cell)[4:end, :]))))
-        push!(results, re(iterations=schedule_every))
-        penalty.alpha = schedule_function(penalty.alpha)
-    end
-    (relax_results=results, extra_dim_norms=extra_d)
-end

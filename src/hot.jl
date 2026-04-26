@@ -137,7 +137,7 @@ function _run_relax!(relax_calc::AbstractCalc, opts::HotAIRSSOption)
     cb = () -> (iter_count[] += 1)
 
     if opts.relax_method == "tpsd"
-        conv = opt_tpsd(
+        opt = opt_tpsd(
             relax_calc;
             f_tol=opts.relax_f_tol,
             s_tol=opts.relax_s_tol,
@@ -146,6 +146,7 @@ function _run_relax!(relax_calc::AbstractCalc, opts::HotAIRSSOption)
             trace=opts.verbose ? 1 : 0,
             callback=cb,
         )
+        conv = converged(opt, relax_calc)
     elseif opts.relax_method == "fire"
         fire_opt = opt_fire(
             relax_calc;

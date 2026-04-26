@@ -9,7 +9,7 @@ where extra dimensions are used temporarily.
 
 # Mathematical Form
 ```math
-E' = E + α ∑_{i>3} ∑_atoms x_i^2 / 2
+E' = E + α ∑_{i>3} ∑_atoms x_i^2
 F'_i = F_i - 2α x_i  for i > start_dim
 F'_i = F_i          for i ≤ start_dim
 ```
@@ -79,7 +79,7 @@ function post_calculate!(
                 penalty_energy += pos[d, atom]^2
             end
         end
-        penalty_energy *= mod.alpha / 2
+        penalty_energy *= mod.alpha
     end
 
     # Modify forces for extra dimensions
