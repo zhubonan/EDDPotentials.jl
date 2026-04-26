@@ -13,7 +13,9 @@ using EDDPotentials:
     nfeatures,
     predict_energy,
     reinit,
-    ginit
+    ginit,
+    _scatter_matrix,
+    _hcat_batch
 using EDDPotentials.EDDPotentialsCore:
     ManualFluxBackPropInterface,
     FluxInterface,
@@ -25,6 +27,97 @@ using Flux
 using StatsBase
 
 @testset "SGD Training" begin
+
+    @testset "_scatter_matrix" begin
+        # Basic: 3 structures with 2, 3, 1 atoms
+        natoms_vec = [2, 3, 1]
+        ref = zeros(Float64, 5)  # any array for device/type reference
+        S = _scatter_matrix([1, 3], natoms_vec, ref)
+        @test size(S) == (2, 3)  # 2 structures, 2+1=3 total atoms
+        # Structure 1 gets atoms 1-2, structure 3 gets atom 3
+        @test S[1, 1] == 1.0
+        @test S[1, 2] == 1.0
+        @test S[1, 3] == 0.0
+        @test S[2, 1] == 0.0
+        @test S[2, 2] == 0.0
+        @test S[2, 3] == 1.0
+
+        # All structures selected
+        S2 = _scatter_matrix([1, 2, 3], natoms_vec, ref)
+        @test size(S2) == (3, 6)
+        @test sum(S2) == 6  # one 1 per atom
+        # Each row sums to its structure's atom count
+        @test sum(S2[1, :]) == 2
+        @test sum(S2[2, :]) == 3
+        @test sum(S2[3, :]) == 1
+
+        # Single structure
+        S3 = _scatter_matrix([2], natoms_vec, ref)
+        @test size(S3) == (1, 3)
+        @test all(S3[1, :] .== 1.0)
+
+        # Verify energy summation: per-atom energies → per-structure totals
+        natoms_vec2 = [4, 2, 3]
+        Y = collect(1.0:9.0)  # 9 atoms total
+        S4 = _scatter_matrix([1, 2, 3], natoms_vec2, ref)
+        E_pred = S4 * Y
+        @test E_pred[1] ≈ sum(Y[1:4])
+        @test E_pred[2] ≈ sum(Y[5:6])
+        @test E_pred[3] ≈ sum(Y[7:9])
+    end
+
+    @testset "_hcat_batch" begin
+        # Concatenate 3 matrices with different numbers of columns (atoms)
+        x1 = [1.0 2.0; 3.0 4.0]       # 2 features, 2 atoms
+        x2 = [5.0 6.0 7.0; 8.0 9.0 10.0]  # 2 features, 3 atoms
+        x3 = [11.0; 12.0]              # 2 features, 1 atom
+        x_t = [x1, x2, x3]
+
+        X = _hcat_batch(x_t, [1, 3])
+        @test size(X) == (2, 3)  # 2 features, 2+1=3 atoms
+        @test X[:, 1:2] == x1
+        @test X[:, 3] == x3
+
+        # All structures
+        X2 = _hcat_batch(x_t, [1, 2, 3])
+        @test size(X2) == (2, 6)  # 2 features, 2+3+1=6 atoms
+        @test X2[:, 1:2] == x1
+        @test X2[:, 3:5] == x2
+        @test X2[:, 6] == x3
+
+        # Single structure
+        X3 = _hcat_batch(x_t, [2])
+        @test X3 == x2
+
+        # Empty-ish: single atom
+        X4 = _hcat_batch(x_t, [3])
+        @test size(X4) == (2, 1)
+        @test X4[:, 1] == x3[:, 1]
+    end
+
+    @testset "_scatter_matrix and _hcat_batch together" begin
+        # End-to-end: scatter matrix applied to concatenated batch gives correct per-structure sums
+        nf = 5
+        natoms_vec = [3, 2, 4]
+        x_t = [rand(nf, n) for n in natoms_vec]
+        ref = zeros(nf)
+
+        batch_indices = [1, 3]
+        X = _hcat_batch(x_t, batch_indices)
+        S = _scatter_matrix(batch_indices, natoms_vec, ref)
+
+        # Simulate per-atom energy predictions: one energy per atom
+        Y_atom = rand(sum(natoms_vec[i] for i in batch_indices))
+        E_via_scatter = S * Y_atom
+
+        # Manually compute expected per-structure energies
+        offset = 0
+        for (k, i) in enumerate(batch_indices)
+            nat = natoms_vec[i]
+            @test E_via_scatter[k] ≈ sum(Y_atom[offset+1:offset+nat])
+            offset += nat
+        end
+    end
 
     @testset "Learning rate schedules" begin
         # Constant
