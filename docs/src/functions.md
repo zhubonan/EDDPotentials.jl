@@ -45,13 +45,14 @@ Pages = [
 
 ## Calculators
 
-Calculator types for energy, force, and stress evaluation. [`NNCalc`](@ref) is the primary calculator; [`VariableCellCalc`](@ref) adds lattice degrees of freedom for cell optimization.
+Calculator types for energy, force, and stress evaluation. [`NNCalc`](@ref) is the primary calculator; [`VariableCellCalc`](@ref) adds lattice degrees of freedom for cell optimization; [`EDDPCalculator`](@ref) bundles a trained model for model-level inference.
 
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
     "core/calculator.jl",
     "core/calculator/metacalculator.jl",
+    "core/calculator/eddpcalculator.jl",
 ]
 ```
 

@@ -1,11 +1,11 @@
 # Getting Started
 
-This guide walks through training your first EDDP potential and using it for structure optimization. No prior ML potential experience is required.
+This guide walks through training your first EDDP potential and using it for predictions and structure optimization. No prior ML potential experience is required.
 
 ## Prerequisites
 
 - Julia 1.9 or later
-- A dataset of DFT-calculated structures with energies (`.res`, `.xyz`, or `.cif` format)
+- A dataset of DFT-calculated structures with energies (`.res`, `.xyz`, or `.extxyz` format)
 
 ## Installation
 
@@ -14,165 +14,241 @@ using Pkg
 Pkg.add("EDDPotentials")
 ```
 
-Optional dependencies for this guide:
+## Recommended: Single-Call Training with `train_model`
 
-```julia
-Pkg.add(["ExtXYZ", "Flux"])
-```
+The `train_model` function handles the entire training pipeline — structure loading, feature computation, data splitting, standardisation, model creation, and training — in a single call.
 
-## Step 1: Load Your Training Data
+### Step 1: Train a Model
 
-EDDPotentials works with crystal structures from DFT calculations. Load them into a `StructureContainer`:
-
-```julia
-using EDDPotentials, ExtXYZ
-
-# Load structures from an extxyz file
-structures = ExtXYZ.load("my_structures.xyz")
-
-# Or from CASTEP .res files
-# using CellBase: read_res
-# structures = read_res("path/to/structures/*.res")
-
-# Wrap in a StructureContainer for feature computation
-sc = StructureContainer(structures)
-println("Loaded $(length(sc)) structures")
-```
-
-The structures must have total energies stored (in eV). ExtXYZ files store energies in the `energy` key.
-
-## Step 2: Define Features
-
-Features describe the local atomic environment around each atom. Use `CellFeature` with default settings to start:
+The simplest way — species and feature defaults are auto-inferred from your data:
 
 ```julia
 using EDDPotentials
 
-# Single-element system (e.g., carbon)
-cf = CellFeature([:C])
-
-# Multi-element system (e.g., carbon and nitrogen)
-# cf = CellFeature([:C, :N])
-
-println("Total features: ", nfeatures(cf))
+# Auto-inferred species + default feature parameters
+tm = train_model("my_structures/*.res";
+    nnodes=[20, 20],
+    max_epochs=300,
+    earlystop=30)
 ```
 
-The defaults work well for most systems. See [Understanding Features](concepts/features.md) for tuning guidance.
-
-## Step 3: Compute Feature Vectors
-
-Convert structures into numerical feature vectors that the neural network can use:
+Or with explicit feature control:
 
 ```julia
-fc = FeatureContainer(cf, sc)
-
-# Split into training and validation sets (80/20 default)
-fc_train, fc_val = train_val_split(fc)
-
-println("Training: $(length(fc_train)) structures")
-println("Validation: $(length(fc_val)) structures")
+# Explicit feature specification for finer control
+tm = train_model("my_structures/*.res",
+    CellFeature([:C]; p2=2:12, rcut2=5.0);
+    nnodes=[20, 20],
+    max_epochs=300,
+    earlystop=30)
 ```
 
-## Step 4: Train a Model
-
-Train a shallow neural network using the Levenberg-Marquardt algorithm:
+Or auto-inferred species with custom feature parameters:
 
 ```julia
-using Flux: Chain, Dense
-import EDDPotentials: FluxInterface, train!
-
-n = nfeatures(cf)
-
-# Define a network: input -> 20 neurons (tanh) -> 1 output
-chain = Chain(Dense(n, 20, tanh_fast), Dense(20, 1))
-model = FluxInterface(chain)
-
-# Train on the training set, validate on the validation set
-train!(model, fc_train, fc_val; maxIter=300, earlystop=30)
+tm = train_model("my_structures/*.res";
+    p2=2:12, p3=2:4, q3=2:4, rcut2=5.0, rcut3=4.0,
+    nnodes=[20, 20],
+    max_epochs=300,
+    earlystop=30)
 ```
 
-Training output shows the RMSE (root mean square error) per atom decreasing over iterations. Typical converged values are 1-10 meV/atom for well-behaved systems.
+By default (`verbose=true`), `train_model` prints a training configuration summary
+and the final RMSE/MAE statistics. Set `verbose=false` to suppress.
 
-## Step 5: Build an Ensemble
+This returns a `TrainedModel` containing the model, feature specification, and training results.
 
-An ensemble of independently trained models provides more robust predictions and uncertainty estimates:
+**Key parameters:**
+- `CellFeature([:C])`: (optional) defines the atomic environment descriptors. If omitted, species are auto-detected from the data and defaults are used. Feature parameters (`p2`, `p3`, `q3`, `rcut2`, `rcut3`) can be passed directly as keyword arguments.
+- `nnodes=[10, 10]`: hidden layer sizes. Use `[10]` for simpler models or `[30, 30, 30]` for more capacity.
+- `max_epochs`: maximum training epochs (batched LM mode, default).
+- `earlystop`: stop if validation error hasn't improved for this many epochs.
+- `val_ratio=0.1`: fraction of data held out for validation (10% default).
+- `train_method="lm_batched"`: training algorithm. Use `"lm"` for small datasets (<2,000 structures), `"lm_batched"` (default) for larger ones.
+- `verbose=true`: print configuration summary and training results.
+
+### Step 2: Inspect Results
 
 ```julia
-import EDDPotentials: create_ensemble, get_fit_data
+# Pretty-print training and validation statistics
+show(stdout, MIME("text/plain"), tm)
+```
 
-# Train multiple models with different random initializations
-models = []
-for i in 1:10
-    chain = Chain(Dense(n, 20, tanh_fast), Dense(20, 1))
-    model = FluxInterface(chain)
-    train!(model, fc_train, fc_val; maxIter=300, show_progress=false, earlystop=30)
-    push!(models, model)
+Output shows per-atom RMSE, MAE, maximum error, and Spearman scores for both training and validation sets.
+
+### Step 3: Save the Model
+
+```julia
+save_model_artifact("my_model.json", tm)
+```
+
+Saves a self-contained JSON file with model weights, feature specification, and elemental energy offsets. This can be loaded later for predictions without re-training.
+
+### Step 4: Predict Energy and Forces
+
+```julia
+# One-shot prediction on a new structure
+cell = ...  # a CellBase Cell object
+result = predict(tm, cell)
+
+println("Energy: ", result.energy, " eV")
+println("Forces: ", size(result.forces))
+println("Stress: ", result.stress)
+```
+
+The `predict` function returns a NamedTuple with `:energy`, `:forces` (3×N matrix), and `:stress` (3×3 matrix). Use `predict(tm, cell; forces=false, stress=false)` to compute only energy.
+
+### Step 5: Geometry Optimization
+
+```julia
+# Create a calculator from the trained model
+calc = EDDPCalculator(tm)
+set_cell!(calc, cell)
+
+# Relax the structure
+result = relax!(calc; method="fire", f_tol=0.01, itermax=500)
+
+if result.converged
+    println("Relaxed energy: ", eddp_energy(calc), " eV")
 end
+```
 
-# Combine into a weighted ensemble using non-negative least squares
+Or load a saved model and use it directly:
+
+```julia
+calc = load_calculator("my_model.json")
+result = predict(calc, cell)
+```
+
+### Step 6: Evaluate on a Test Set
+
+```julia
+# Create a FeatureContainer for a test dataset
+sc_test = StructureContainer(["test_data/*.res"])
+fc_test = FeatureContainer(sc_test, tm.feature_spec)
+
+# Standardize with training transforms
+standardize!(fc_test; xt=tm.train_results.fc.xt, yt=tm.train_results.fc.yt)
+
+# Create results for evaluation
+using EDDPotentials: TrainingResults
+test_results = TrainingResults(tm.model, fc_test)
+println("Test RMSE: ", rmse_per_atom(test_results), " eV/atom")
+```
+
+---
+
+## Advanced: Step-by-Step Training
+
+For users who need fine-grained control over each stage of the training pipeline, the individual components are still available. This is useful when you need custom data filtering, non-standard model architectures, or ensemble training.
+
+### Step A1: Load Training Data
+
+```julia
+using EDDPotentials
+
+# From .res files with glob pattern
+sc = StructureContainer(["my_structures/*.res"])
+
+# From structures in memory
+# sc = StructureContainer(structures, energies, labels)
+```
+
+The `StructureContainer` supports `.res`, `.xyz`, and `.extxyz` files. Files with per-atom enthalpy above `threshold` (default 10 eV/atom) are automatically filtered out.
+
+### Step A2: Define and Compute Features
+
+```julia
+# Define feature specification
+cf = CellFeature([:C]; p2=2:12, p3=2:4, q3=2:4, rcut2=5.0, rcut3=4.0)
+
+# Compute feature vectors (threaded)
+fc = FeatureContainer(sc, cf; show_progress=true)
+
+println("Features per atom: ", nfeatures(cf))
+```
+
+### Step A3: Split and Standardize
+
+```julia
+# Split into training/validation (absolute counts or ratios)
+fc_train, fc_val = split(fc, 0.8, 0.2; standardize=true)
+# or: fc_train, fc_val = train_val_split(fc, ratio_val=0.2)
+
+# Get raw feature matrices for manual use
 x_train, y_train = get_fit_data(fc_train)
-ensemble = create_ensemble(models, x_train, y_train)
-
-# Save the ensemble
-using JLD2
-jldopen("my_ensemble.jld2", "w") do f
-    save_as_jld2(f, ensemble)
-    f["cf"] = cf
-end
 ```
 
-## Step 6: Use the Potential
-
-Create a calculator and use it for energy/force evaluation and structure optimization:
+### Step A4: Build and Train a Model
 
 ```julia
-import EDDPotentials: opt_fire
+using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
+using Flux: Chain, Dense
 
-# Pick a structure from your dataset
-structure = first(structures)
+# Build a neural network architecture
+n = nfeatures(cf)
+chain = Chain(
+    Dense(ginit(n, 20), leaky_tanh),
+    Dense(ginit(20, 1))
+)
+itf = ManualFluxBackPropInterface(chain, xt=fc_train.xt, yt=fc_train.yt)
 
-# Create calculator
-calc = NNCalc(structure, cf, ensemble)
-
-# Evaluate energy and forces
-energy = eddp_energy(calc)
-forces = eddp_forces(calc)
-stress = eddp_stress(calc)
-
-println("Energy: $(energy) eV")
-println("Energy/atom: $(energy / length(structure)) eV")
-
-# Geometry optimization with variable cell
-vc_calc = VariableCellCalc(calc)
-opt = opt_fire(vc_calc; f_tol=0.01, itermax=500)
-
-if converged(opt, vc_calc)
-    println("Optimization converged!")
-    println("Relaxed energy: $(eddp_energy(vc_calc)) eV")
-end
+# Train
+train!(itf, fc_train, fc_val; train_method="lm_batched", max_epochs=300, earlystop=30)
 ```
 
-## Step 7: Evaluate Quality
-
-Check your potential's accuracy on the validation set:
+The `ManualFluxBackPropInterface` also has a convenience constructor:
 
 ```julia
-import EDDPotentials: TrainingResults, rmse_per_atom, mae_per_atom
-
-results = TrainingResults(ensemble, fc_val)
-println("Validation RMSE: $(rmse_per_atom(results)) eV/atom")
-println("Validation MAE:  $(mae_per_atom(results)) eV/atom")
+itf = ManualFluxBackPropInterface(cf, 20; xt=fc_train.xt, yt=fc_train.yt)
 ```
 
-If the RMSE is too high, try:
-- More training iterations (`maxIter=1000`)
-- A wider hidden layer (`Dense(n, 40, tanh_fast)`)
-- More training data
-- Adjusting feature cutoffs (see [Understanding Features](concepts/features.md))
+### Step A5: Build an Ensemble
+
+```julia
+using EDDPotentials: create_ensemble, reinit
+
+models = []
+for _ in 1:10
+    m = reinit(itf)  # fresh random weights, same architecture
+    train!(m, fc_train, fc_val; train_method="lm_batched", max_epochs=100, show_progress=false)
+    push!(models, m)
+end
+
+ensemble = create_ensemble(models, fc_train)
+```
+
+### Step A6: Use the Ensemble
+
+```julia
+using EDDPotentials: EDDPCalculator, predict
+
+calc = EDDPCalculator(cf, ensemble, Dict{Symbol,Float64}())
+result = predict(calc, cell)
+```
+
+### Step A7: Geometry Optimization
+
+```julia
+set_cell!(calc, cell)
+
+# FIRE optimizer
+relax!(calc; method="fire", f_tol=0.01, itermax=500)
+
+# Or TPSD optimizer for volume-critical problems
+relax!(calc; method="tpsd", f_tol=1e-4, itermax=1000)
+
+# Or variable-cell (lattice + positions)
+set_cell!(calc, cell)
+relax!(calc; relax_cell=true, method="fire", itermax=500)
+```
+
+---
 
 ## What's Next?
 
 - **Automated potential building**: [AIRSS Workflow](tutorials/airss_workflow.md) for iterative training with DFT integration
 - **Feature customization**: [Understanding Features](concepts/features.md) for tuning features to your system
-- **Large-scale structure search**: [Crystal Structure Prediction](howto/structure_prediction.md)
+- **Large-scale training**: [Batched LM Training](howto/batched_lm_training.md) for datasets with thousands of structures
+- **Structure prediction**: [Crystal Structure Prediction](howto/structure_prediction.md)
 - **GPU acceleration**: [Enable GPU Acceleration](howto/enable_gpu_acceleration.md) for faster training

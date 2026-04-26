@@ -20,7 +20,8 @@ import CellBase
 import Zygote
 using Logging
 using NonNegLeastSquares
-using .EDDPotentialsCore: paramvector, save_model_artifact, ThreadBufferPool, rmse_per_atom_threaded
+using .EDDPotentialsCore: paramvector, save_model_artifact, ThreadBufferPool, rmse_per_atom_threaded,
+    nfeatures, EDDPCalculator, predict, nparams
 import .EDDPotentialsCore: EnsembleNNInterface
 
 
@@ -1103,6 +1104,365 @@ function loss_stacked(model, datasets; pow=2)
         pred = sum(model(x), dims=2)[:]
         abs.(pred .- y) .^ pow |> sum
     end
+end
+
+# =====================================================================
+# TrainedModel — high-level training result container
+# =====================================================================
+
+"""
+    TrainedModel{M,F}
+
+Result of [`train_model`](@ref). Bundles a trained model, feature
+specification, elemental energy offsets, and evaluation results.
+
+Can be:
+- Saved with `save_model_artifact(path, tm)`
+- Converted to a calculator with `EDDPCalculator(tm; kwargs...)`
+- Used for one-shot prediction with `predict(tm, cell; kwargs...)`
+"""
+struct TrainedModel{M,F}
+    model::M
+    feature_spec::F
+    elemental_energies::Dict{Symbol,Float64}
+    train_results::TrainingResults
+    val_results::Union{TrainingResults,Nothing}
+end
+
+function Base.show(io::IO, ::MIME"text/plain", tm::TrainedModel)
+    println(io, "TrainedModel")
+    println(io, "  Architecture: ", typeof(tm.model).name.name)
+    println(io, "  Feature spec: ", typeof(tm.feature_spec).name.name)
+    if !isempty(tm.elemental_energies)
+        print(io, "  Elemental energies: ")
+        for (k, v) in sort(collect(tm.elemental_energies), by=first)
+            print(io, "$k=", round(v; digits=4), " ")
+        end
+        println(io)
+    end
+    println(io, "--- Training ---")
+    show(io, MIME("text/plain"), tm.train_results)
+    if tm.val_results !== nothing
+        println(io, "\n--- Validation ---")
+        show(io, MIME("text/plain"), tm.val_results)
+    end
+end
+
+function EDDPCalculator(tm::TrainedModel; kwargs...)
+    EDDPCalculator(tm.feature_spec, tm.model, tm.elemental_energies; kwargs...)
+end
+
+function save_model_artifact(path::AbstractString, tm::TrainedModel; metadata=nothing)
+    save_model_artifact(
+        path, tm.model;
+        feature_spec=tm.feature_spec,
+        elemental_energies=tm.elemental_energies,
+        metadata,
+    )
+end
+
+"""
+    predict(tm::TrainedModel, cell::Cell; ...) -> NamedTuple{(:energy, :forces, :stress),...}
+
+One-shot energy, forces, and stress prediction. Internally constructs a
+temporary calculator from the trained model and feature spec.
+"""
+function predict(
+    tm::TrainedModel,
+    cell::Cell;
+    forces::Bool=true,
+    stress::Bool=true,
+    shell_size::Float64=2.0,
+    nmax::Int=500,
+)
+    calc = EDDPCalculator(tm; shell_size, nmax)
+    predict(calc, cell; forces, stress)
+end
+
+# =====================================================================
+# train_model — single-call training
+# =====================================================================
+
+function _print_train_config(fc, ntrain, nval, nnodes, ninp, nparam, train_method, kwargs)
+    cf = fc.feature
+    printstyled("Training Configuration\n"; bold=true)
+    println("─"^50)
+    println("  Structures : $(length(fc)) total  →  $ntrain train / $nval val")
+    println("  Species    : $(join(string.(cf.elements), ", "))")
+    if cf isa CellFeature
+        if !isempty(cf.two_body)
+            tbf = cf.two_body[1]
+            println("  2-body     : p=$(tbf.p)  rcut=$(tbf.rcut)")
+        end
+        if !isempty(cf.three_body)
+            tbf3 = cf.three_body[1]
+            println("  3-body     : p=$(tbf3.p)  q=$(tbf3.q)  rcut=$(tbf3.rcut)")
+        end
+    end
+    println("  Features   : $(ninp) per atom  ($(typeof(cf).name.name))")
+    println("  Network    : $(nnodes) hidden  →  $nparam parameters")
+    bs = get(kwargs, :batch_size, nothing)
+    if bs !== nothing
+        println("  Method     : $train_method  batch_size=$bs")
+    else
+        println("  Method     : $train_method")
+    end
+    maxe = get(kwargs, :max_epochs, get(kwargs, :maxIter, nothing))
+    if maxe !== nothing
+        println("  Max epochs : $maxe")
+    end
+    estop = get(kwargs, :earlystop, nothing)
+    if estop !== nothing && estop > 0
+        println("  Early stop : $estop")
+    end
+    println("─"^50)
+end
+
+function _print_train_results(train_results, val_results)
+    println()
+    printstyled("Training Results\n"; bold=true)
+    println("─"^50)
+    @printf("  Train RMSE/atom : %.5f eV\n", rmse_per_atom(train_results))
+    @printf("  Train MAE/atom  : %.5f eV\n", mae_per_atom(train_results))
+    if val_results !== nothing
+        @printf("  Val   RMSE/atom : %.5f eV\n", rmse_per_atom(val_results))
+        @printf("  Val   MAE/atom  : %.5f eV\n", mae_per_atom(val_results))
+    end
+    println("─"^50)
+end
+
+function _train_model_core(
+    fc::FeatureContainer;
+    val_ratio::Float64,
+    nnodes::Vector{Int},
+    train_method::String,
+    verbose::Bool,
+    show_progress::Bool,
+    kwargs...,
+)
+    val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
+
+    ntrain = Int(floor(length(fc) * (1 - val_ratio)))
+    nval = length(fc) - ntrain
+    if nval == 0 && val_ratio > 0
+        @warn "Validation set empty for val_ratio=$val_ratio with $(length(fc)) structures"
+    end
+
+    fc_train, fc_val = split(fc, ntrain, nval; standardize=true)
+
+    ninp = nfeatures(fc.feature)
+    chain = generate_chain(ninp, nnodes)
+    itf = ManualFluxBackPropInterface(chain, xt=fc_train.xt, yt=fc_train.yt)
+
+    if verbose
+        _print_train_config(fc, ntrain, nval, nnodes, ninp, nparams(itf), train_method, kwargs)
+    end
+
+    train!(itf, fc_train, fc_val; train_method, show_progress, kwargs...)
+
+    train_results = TrainingResults(itf, fc_train)
+    val_results = nval > 0 ? TrainingResults(itf, fc_val) : nothing
+
+    if verbose
+        _print_train_results(train_results, val_results)
+    end
+
+    TrainedModel(
+        itf,
+        fc.feature,
+        fc.elemental_energies,
+        train_results,
+        val_results,
+    )
+end
+
+function _unique_symbols(structures)
+    symbols = Set{Symbol}()
+    for s in structures
+        union!(symbols, Set(CellBase.species(s)))
+    end
+    sort!(collect(symbols))
+end
+
+function _infer_feature_spec(sc, feature_kwargs)
+    symbols = _unique_symbols(sc.structures)
+    CellFeature(symbols; feature_kwargs...)
+end
+
+"""
+    train_model(data; [feature_spec,] val_ratio=0.1, ...) -> TrainedModel
+
+Train an EDDP model from data in a single call. Handles structure loading,
+feature computation, data splitting, standardisation, model construction,
+and training.
+
+# Arguments
+
+- `data`: file paths (glob patterns), a `StructureContainer`, or a
+  pre-computed `FeatureContainer`.
+- `feature_spec::AbstractCellFeatureSpec`: the atomic environment
+  descriptor specification. **Optional** — if omitted, species are
+  inferred from the loaded structures and default feature parameters
+  are used. Feature parameters (`p2`, `p3`, `q3`, `rcut2`, `rcut3`)
+  can be passed directly as keyword arguments.
+
+# Keyword arguments
+
+- `val_ratio=0.1`: fraction of data reserved for validation (must be > 0).
+- `nnodes=[10, 10]`: hidden layer sizes passed to [`generate_chain`](@ref).
+- `train_method="lm_batched"`: training algorithm (`"lm"`, `"lm_batched"`,
+  `"sgd"`, or `"optim"`).
+- `verbose=true`: print training configuration and results.
+- `elemental_energies`: per-element reference energy offsets.
+- `threshold=10.0`: per-atom energy ceiling for filtering (path-based).
+- `pressure_gpa=0.0`: external pressure for enthalpy conversion (path-based).
+- `show_progress=true`: show feature-computation progress bar.
+- `nmax=500`: maximum neighbour list entries.
+- `p2=2:8`, `p3=2:8`, `q3=2:8`: feature exponents (for auto-inferred feature spec).
+- `rcut2=4.0`, `rcut3=4.0`: feature cutoff radii (for auto-inferred feature spec).
+- All other kwargs are forwarded to [`train!`](@ref).
+
+# Example
+```julia
+# With explicit feature spec
+tm = train_model("data/*.res",
+    CellFeature([:Al, :N, :Sc]; p2=2:12, p3=2:4, q3=2:4);
+    nnodes=[20, 20], max_epochs=500)
+
+# Auto-inferred species, custom feature parameters
+tm = train_model("data/*.res";
+    p2=2:12, p3=2:4, q3=2:4, rcut2=5.0, rcut3=4.0,
+    nnodes=[20, 20], max_epochs=500)
+
+save_model_artifact("model.json", tm)
+calc = EDDPCalculator(tm)
+result = predict(tm, my_cell)
+```
+"""
+function train_model(
+    data::Union{AbstractString,Vector{<:AbstractString}},
+    feature_spec::AbstractCellFeatureSpec;
+    val_ratio::Float64=0.1,
+    nnodes::Vector{Int}=[10, 10],
+    train_method::String="lm_batched",
+    elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
+    threshold::Float64=10.0,
+    pressure_gpa::Float64=0.0,
+    show_progress::Bool=true,
+    nmax::Int=500,
+    verbose::Bool=true,
+    kwargs...,
+)
+    val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
+    paths = data isa Vector ? data : [data]
+    sc = StructureContainer(paths; threshold, pressure_gpa)
+    verbose && println("Loaded $(length(sc)) structures after filtering.")
+    return _train_model_dispatch(
+        sc, feature_spec;
+        val_ratio, nnodes, train_method, elemental_energies,
+        show_progress, nmax, verbose, kwargs...,
+    )
+end
+
+function train_model(
+    data::Union{AbstractString,Vector{<:AbstractString}};
+    val_ratio::Float64=0.1,
+    nnodes::Vector{Int}=[10, 10],
+    train_method::String="lm_batched",
+    elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
+    threshold::Float64=10.0,
+    pressure_gpa::Float64=0.0,
+    show_progress::Bool=true,
+    nmax::Int=500,
+    verbose::Bool=true,
+    p2=2:8,
+    p3=2:8,
+    q3=2:8,
+    rcut2=4.0,
+    rcut3=4.0,
+    kwargs...,
+)
+    val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
+    paths = data isa Vector ? data : [data]
+    sc = StructureContainer(paths; threshold, pressure_gpa)
+    verbose && println("Loaded $(length(sc)) structures after filtering.")
+    feature_spec = _infer_feature_spec(sc, (; p2, p3, q3, rcut2, rcut3))
+    return _train_model_dispatch(
+        sc, feature_spec;
+        val_ratio, nnodes, train_method, elemental_energies,
+        show_progress, nmax, verbose, kwargs...,
+    )
+end
+
+function _train_model_dispatch(
+    sc::StructureContainer,
+    feature_spec::AbstractCellFeatureSpec;
+    val_ratio,
+    nnodes,
+    train_method,
+    elemental_energies,
+    show_progress,
+    nmax,
+    verbose,
+    kwargs...,
+)
+    fc = FeatureContainer(sc, feature_spec; elemental_energies, show_progress, nmax)
+    return _train_model_core(fc; val_ratio, nnodes, train_method, verbose, show_progress, kwargs...)
+end
+
+function train_model(
+    sc::StructureContainer,
+    feature_spec::AbstractCellFeatureSpec;
+    val_ratio::Float64=0.1,
+    nnodes::Vector{Int}=[10, 10],
+    train_method::String="lm_batched",
+    elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
+    show_progress::Bool=true,
+    nmax::Int=500,
+    verbose::Bool=true,
+    kwargs...,
+)
+    return _train_model_dispatch(
+        sc, feature_spec;
+        val_ratio, nnodes, train_method, elemental_energies,
+        show_progress, nmax, verbose, kwargs...,
+    )
+end
+
+function train_model(
+    sc::StructureContainer;
+    val_ratio::Float64=0.1,
+    nnodes::Vector{Int}=[10, 10],
+    train_method::String="lm_batched",
+    elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
+    show_progress::Bool=true,
+    nmax::Int=500,
+    verbose::Bool=true,
+    p2=2:8,
+    p3=2:8,
+    q3=2:8,
+    rcut2=4.0,
+    rcut3=4.0,
+    kwargs...,
+)
+    feature_spec = _infer_feature_spec(sc, (; p2, p3, q3, rcut2, rcut3))
+    return _train_model_dispatch(
+        sc, feature_spec;
+        val_ratio, nnodes, train_method, elemental_energies,
+        show_progress, nmax, verbose, kwargs...,
+    )
+end
+
+function train_model(
+    fc::FeatureContainer;
+    val_ratio::Float64=0.1,
+    nnodes::Vector{Int}=[10, 10],
+    train_method::String="lm_batched",
+    verbose::Bool=true,
+    show_progress::Bool=true,
+    kwargs...,
+)
+    return _train_model_core(fc; val_ratio, nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
 #=
