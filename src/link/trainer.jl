@@ -73,21 +73,30 @@ end
 """
     write_dataset(builder)
 
-Write the dataset to the disk. These are large JLD2 archive containing the data for training, validation, and testing
-"""
-function write_dataset(bu::Builder, fc=load_features(bu); name=dataset_name(bu))
-    # Save the dataset 
-    training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
+Write the dataset to the disk. These are large JLD2 archive containing the data for training, validation, and testing.
 
+Uses memory-efficient split-then-featurize pipeline by default.
+Pass a pre-built FeatureContainer as the second argument to use the legacy path.
+"""
+function write_dataset(bu::Builder; name=dataset_name(bu))
+    ensure_dir(splitdir(name)[1])
+    train, val, test = split_then_featurize(bu, bu.trainer.train_split...)
+    _save_split_dataset(name, train, val, test)
+end
+
+function write_dataset(bu::Builder, fc::FeatureContainer; name=dataset_name(bu))
     ensure_dir(splitdir(name)[1])
     train, val, test = split(fc, bu.trainer.train_split...)
+    _save_split_dataset(name, train, val, test)
+end
+
+function _save_split_dataset(name, train, val, test)
     jldopen(name, "w") do file
         file["format_version"] = "2"
         file["train"] = train
         file["validate"] = val
         file["test"] = test
     end
-    # Write the labels
     labels = Dict{String,Vector{String}}()
     labels["train"] = train.labels
     labels["validate"] = val.labels
