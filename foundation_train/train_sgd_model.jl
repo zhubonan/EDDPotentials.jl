@@ -32,6 +32,7 @@ using EDDPotentials:
     nfeatures,
     rmse_per_atom,
     save_feature_store_streaming,
+    split_and_featurize,
     train!,
     train_sgd!,
     constant_lr,
@@ -288,17 +289,19 @@ function main(args=ARGS)
         )
         xt, yt = train_data.xt, train_data.yt
     else
-        fc = FeatureContainer(sc, embedded; show_progress=true, elemental_energies=e0s)
-        nval = max(1, Int(floor(length(fc) * cfg["val_ratio"])))
-        ntrain = length(fc) - nval
+        # In-memory path: split structures first, then featurize each split
+        nval = max(1, Int(floor(length(sc) * cfg["val_ratio"])))
+        ntrain = length(sc) - nval
         ntrain > 0 || error("Not enough structures after filtering to create a train/val split.")
-        fc_train, fc_val = split(
-            fc,
+        fc_train, fc_val = split_and_featurize(
+            sc,
+            embedded,
             ntrain,
             nval;
             shuffle=true,
             seed=cfg["seed"],
-            standardize=true,
+            show_progress=true,
+            elemental_energies=e0s,
         )
         train_data = fc_train
         xt, yt = fc_train.xt, fc_train.yt

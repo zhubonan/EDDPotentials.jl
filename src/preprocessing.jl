@@ -880,6 +880,56 @@ function Base.split(
     out
 end
 
+"""
+    split_and_featurize(sc::StructureContainer, feature, nsplit...;
+        shuffle=true, seed=42, respect_shakes=false, standardize=true,
+        elemental_energies=Dict{Symbol,Float64}(), nmax=500, show_progress=true, kwargs...)
+
+Memory-efficient split-then-featurize pipeline. Splits the StructureContainer first,
+then generates features for each split independently, avoiding the peak memory of
+holding all features plus split copies simultaneously.
+
+Returns a tuple of FeatureContainers, already standardized if `standardize=true`.
+
+# Examples
+```julia
+sc = StructureContainer("structures/*.res")
+cf = CellFeature([:C])
+train, val, test = split_and_featurize(sc, cf, 0.8, 0.1, 0.1)
+```
+"""
+function split_and_featurize(
+    sc::StructureContainer,
+    feature::AbstractCellFeatureSpec,
+    nsplit::Vararg;
+    shuffle=true,
+    seed=42,
+    respect_shakes=false,
+    standardize=true,
+    elemental_energies=Dict{Symbol,Float64}(),
+    nmax=500,
+    show_progress=true,
+    kwargs...,
+)
+    split_scs =
+        Base.split(sc, nsplit...; shuffle, seed, respect_shakes, standardize=false)
+
+    fcs = map(split_scs) do split_sc
+        FeatureContainer(
+            split_sc,
+            feature;
+            nmax,
+            show_progress,
+            elemental_energies,
+            kwargs...,
+        )
+    end
+
+    standardize && standardize!(fcs...)
+
+    return Tuple(fcs)
+end
+
 enthalpy_per_atom(sc::StructureContainer) = sc.H ./ natoms.(sc.structures)
 enthalpy_per_atom(fc::FeatureContainer) = fc.H ./ natoms(fc)
 

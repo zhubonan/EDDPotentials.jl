@@ -165,9 +165,11 @@ export StructureContainer,
     load_feature_json,
     load_feature_artifact,
     save_feature_json
+export split_and_featurize
 export BuilderState, TrainingOption, link!
 export Builder,
-    walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss
+    walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss,
+    split_then_featurize
 export rmse_per_atom, mae_per_atom, max_ae_per_atom
 export nfeatures
 # MD exports

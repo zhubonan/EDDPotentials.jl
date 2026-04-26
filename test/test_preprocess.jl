@@ -67,6 +67,59 @@ using LinearAlgebra: norm
 
 end
 
+@testset "split_and_featurize" begin
+    fpath = joinpath(datadir, "training/*.res")
+    fpath = relpath(fpath, pwd())
+    sc = EDDPotentials.StructureContainer([fpath])
+    cf = CellFeature([:B]; p2=[2, 4], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
+
+    # Old path: featurize all then split
+    fc_old = FeatureContainer(sc, cf; show_progress=false)
+    train_old, val_old, test_old =
+        split(fc_old, 0.6, 0.2, 0.2; seed=42, standardize=true)
+
+    # New path: split first then featurize
+    train_new, val_new, test_new = EDDPotentials.split_and_featurize(
+        sc,
+        cf,
+        0.6,
+        0.2,
+        0.2;
+        seed=42,
+        show_progress=false,
+    )
+
+    # Same split counts
+    @test length(train_new) == length(train_old)
+    @test length(val_new) == length(val_old)
+    @test length(test_new) == length(test_old)
+
+    # Feature vectors should be identical (same seed, same structures)
+    for i in 1:length(train_new)
+        @test train_new.fvecs[i] ≈ train_old.fvecs[i]
+    end
+
+    # Standardization transforms from train should match
+    @test train_new.xt.mean ≈ train_old.xt.mean
+    @test train_new.xt.scale ≈ train_old.xt.scale
+    # val/test share the train transform
+    @test val_new.xt === train_new.xt
+    @test test_new.xt === train_new.xt
+
+    # Without standardization
+    fcs = EDDPotentials.split_and_featurize(
+        sc,
+        cf,
+        5,
+        3;
+        seed=99,
+        standardize=false,
+        show_progress=false,
+    )
+    @test length(fcs) == 2
+    @test fcs[1].xt === nothing
+end
+
 @testset "Synthetic force data" begin
     cell = _h2o_cell()
     forces = Float64[

@@ -125,6 +125,25 @@ Load features from an iteration range or collection.
 load_features(bu::Builder, iteration; kwargs...) =
     load_features(bu, iteration...; kwargs...)
 
+"""
+    split_then_featurize(bu::Builder, nsplit...; kwargs...) -> Tuple{FeatureContainer, ...}
+
+Memory-efficient pipeline: load structures, split, then generate features for each split
+independently. Peak memory is the size of the largest split's features, not the full dataset.
+"""
+function split_then_featurize(bu::Builder, nsplit::Vararg; kwargs...)
+    sc = load_structures(bu)
+    elemental_energies = make_symbol_keys(bu.state.elemental_energies)
+    EDDPotentials.split_and_featurize(
+        sc,
+        bu.cf,
+        nsplit...;
+        elemental_energies,
+        nmax=bu.trainer.nmax,
+        kwargs...,
+    )
+end
+
 
 """
     num_atoms(fc::FeatureContainer)
