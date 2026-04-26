@@ -110,7 +110,7 @@ function GradientWorkspace(
         zeros(T, stress_ndims, stress_ndims, nf, _nat), # stotv
         zeros(T, ndims, _nat),  # forces
         zeros(T, stress_ndims, stress_ndims, _nat), # stress (per atom)
-        zeros(T, nat), # Per atom energy from features
+        zeros(T, _nat), # Per atom energy from features
         zeros(T, ndims, _nat),  # total forces
         zeros(T, stress_ndims, stress_ndims), # total stress (global)
         zeros(T, _nat), # total energies per atom
@@ -126,19 +126,20 @@ end
 Reset all the arrays in the workspace to zero.
 """
 function reset!(fb::GradientWorkspace)
-    reset!(fb.hardcore)
     fb.fvec[fb.one_body_offset+1:end, :] .= 0.0
-    #fill!(fb.gvec, 0.)  # Reset on-demand inside compute_fv_gv_one!
-    fill!(fb.gvec_index, 0)
-    fill!(fb.gvec_nn, 0)
-    #fill!(fb.stotv, 0.)  # Reset on-demand inside compute_fv_gv_one!
-    fill!(fb.forces, 0.0)
-    fill!(fb.stress, 0.0)
-    fill!(fb.energies, 0.0)
-    fill!(fb.tot_forces, 0.0)
-    fill!(fb.tot_stress, 0.0)
-    fill!(fb.tot_energies, 0.0)
-    reset!(fb.hardcore)
+    if fb.do_grad
+        reset!(fb.hardcore)
+        #fill!(fb.gvec, 0.)  # Reset on-demand inside compute_fv_gv_one!
+        fill!(fb.gvec_index, 0)
+        fill!(fb.gvec_nn, 0)
+        #fill!(fb.stotv, 0.)  # Reset on-demand inside compute_fv_gv_one!
+        fill!(fb.forces, 0.0)
+        fill!(fb.stress, 0.0)
+        fill!(fb.energies, 0.0)
+        fill!(fb.tot_forces, 0.0)
+        fill!(fb.tot_stress, 0.0)
+        fill!(fb.tot_energies, 0.0)
+    end
     fb
 end
 

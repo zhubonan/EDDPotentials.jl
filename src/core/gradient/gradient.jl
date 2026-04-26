@@ -518,8 +518,6 @@ function get_workspace(
     core=nothing,
     offset=0,
 )
-    # Compute the maximum number of unique neighbours for each atom
-    nn_max = maximum(x -> length(unique(x)), eachcol(nl.orig_indices)) + 1
     # Generate the feature vector
     if fvec === nothing
         nfe2 = isempty(features2) ? 0 : sum(nfeatures, features2)
@@ -532,6 +530,9 @@ function get_workspace(
         _fvec = fvec
     end
     ndims = length(nl.ea.positions[1])
+    # nn_max is only needed to size gradient arrays — skip the expensive
+    # unique-per-column scan when not computing gradients
+    nn_max = do_grad ? maximum(x -> length(unique(x)), eachcol(nl.orig_indices)) + 1 : 1
     GradientWorkspace(_fvec, nn_max; core, do_grad, ndims)
 end
 

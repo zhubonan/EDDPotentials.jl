@@ -153,7 +153,7 @@ function get_workspace(
     if fvec === nothing
         fvec = zeros(sum(feature_size(cf)), length(nl.nneigh))
     end
-    nn_max = maximum(x -> length(unique(x)), eachcol(nl.orig_indices)) + 1
+    nn_max = do_grad ? maximum(x -> length(unique(x)), eachcol(nl.orig_indices)) + 1 : 1
     GradientWorkspace(
         fvec,
         nn_max;
