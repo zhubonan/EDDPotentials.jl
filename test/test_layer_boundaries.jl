@@ -26,6 +26,7 @@ using Test
         "calculator.jl",
         "calculator/modifiers/modifiers.jl",
         "calculator/metacalculator.jl",
+        "calculator/eddpcalculator.jl",
         "pairpot.jl",
     ]
 
@@ -37,6 +38,7 @@ using Test
         "eddpf90.jl",
         "sgd_training.jl",
         "training.jl",
+        "evaluation.jl",
         "tools.jl",
         "functional/functional.jl",
         "optimizer/abstract.jl",

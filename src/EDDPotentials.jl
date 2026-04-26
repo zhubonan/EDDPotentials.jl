@@ -89,6 +89,7 @@ include("preprocessing.jl")
 include("eddpf90.jl")
 include("sgd_training.jl")
 include("training.jl")
+include("evaluation.jl")
 
 include("tools.jl")
 include("functional/functional.jl")
@@ -177,6 +178,10 @@ export time_fs, time_ps
 # Hot-AIRSS exports
 export HotAIRSSOption, hot_airss!, HotAIRSSResult
 export TrainingResults
+export evaluate, EvaluationConfig, AggregatedMetrics
+export EnergyMetrics, ForceMetrics, StressMetrics, LayerSaturationReport
+export detect_saturation, load_evaluation_data, benchmark_prediction
+export compare_energy, compare_forces, compare_stress
 export PhaseDiagram, read_shelx_record, ShelxRecord, ComputedRecord
 export synthetic_force_data
 
