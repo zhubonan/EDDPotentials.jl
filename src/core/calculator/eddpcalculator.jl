@@ -297,3 +297,34 @@ function Base.show(io::IO, ::MIME"text/plain", calc::EDDPCalculator)
         println(io, "  No cell attached — call set_cell!(calc, cell) to bind")
     end
 end
+
+"""
+    predict(calc::EDDPCalculator, cell::Cell; forces=true, stress=true) -> NamedTuple
+
+One-shot energy, forces, and stress prediction for a given `cell`.
+Returns a `NamedTuple` with keys `:energy`, `:forces` (if `forces=true`),
+and `:stress` (if `stress=true`).
+
+More efficient than calling `eddp_energy`, `eddp_forces`, and `eddp_stress`
+separately since the cell is bound only once.
+
+# Example
+```julia
+calc = load_calculator("model.json")
+result = predict(calc, cell)
+result.energy     # total energy
+result.forces     # atomic forces matrix
+result.stress     # stress tensor (3×3)
+```
+"""
+function predict(calc::EDDPCalculator, cell::Cell; forces::Bool=true, stress::Bool=true)
+    set_cell!(calc, cell)
+    result = (energy=eddp_energy(calc._nncalc),)
+    if forces
+        result = merge(result, (forces=eddp_forces(calc._nncalc),))
+    end
+    if stress
+        result = merge(result, (stress=eddp_stress(calc._nncalc),))
+    end
+    result
+end

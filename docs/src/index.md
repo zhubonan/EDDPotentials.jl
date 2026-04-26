@@ -75,41 +75,38 @@ Pkg.add("PlotlyJS")
 ## Typical Workflow
 
 ```julia
-using EDDPotentials, ExtXYZ
-using Flux: Chain, Dense
-import EDDPotentials: FluxInterface, train!, train_val_split, get_fit_data, create_ensemble
+using EDDPotentials
 
-# 1. Load training data (DFT-calculated structures)
-structures = ExtXYZ.load("carbon_data.xyz")
-sc = StructureContainer(structures)
+# 1. Train a model — species auto-detected, defaults for features
+tm = train_model("carbon_data/*.res";
+    nnodes=[20, 20], max_epochs=300, earlystop=30)
 
-# 2. Define features (two-body + three-body)
-cf = CellFeature([:C])
+# Or: train_model("data/*.res", CellFeature([:C]; rcut2=5.0); ...) for explicit control
 
-# 3. Compute feature vectors
-fc = FeatureContainer(cf, sc)
-fc_train, fc_val = train_val_split(fc)
+# 2. Predict energy/forces on a new structure
+result = predict(tm, my_cell)
+result.energy   # total energy (eV)
+result.forces   # atomic forces (matrix)
+result.stress   # stress tensor (3×3)
 
-# 4. Train ensemble of neural networks
-models = []
-for i in 1:10
-    chain = Chain(Dense(nfeatures(cf), 20, tanh), Dense(20, 1))
-    model = FluxInterface(chain)
-    train!(model, fc_train, fc_val; maxIter=300)
-    push!(models, model)
-end
+# 3. Save the model for later use
+save_model_artifact("model.json", tm)
 
-# 5. Create ensemble predictor
-x_train, y_train = get_fit_data(fc_train)
-ensemble = create_ensemble(models, x_train, y_train)
-
-# 6. Use for predictions and structure optimization
-structure = first(structures)
-calc = NNCalc(structure, cf, ensemble)
-vc_calc = VariableCellCalc(calc)
-opt = opt_fire(vc_calc; f_tol=0.01, itermax=500)
-@assert converged(opt, vc_calc)
+# 4. Use for geometry optimization
+calc = EDDPCalculator(tm)
+set_cell!(calc, my_cell)
+relax!(calc; method="fire", f_tol=0.01, itermax=500)
 ```
+
+The `train_model` function is the recommended path for single-potential training.
+It handles structure loading, feature computation, data splitting, standardisation,
+model creation, and training in one call. By default (`verbose=true`) it prints
+a configuration summary and final RMSE/MAE statistics.
+
+For users who need fine-grained control over the training pipeline, the
+step-by-step API (`StructureContainer` → `FeatureContainer` → `split` → `train!`)
+is still fully available. See [Getting Started](getting_started.md) for both
+approaches.
 
 For automated potential building with iterative training, see [AIRSS Workflow](tutorials/airss_workflow.md).
 

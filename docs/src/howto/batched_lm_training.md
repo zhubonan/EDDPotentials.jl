@@ -30,39 +30,26 @@ This is analogous to stochastic gradient descent, but using the LM trust-region 
 
 ## Quick Start
 
-### Julia API
+### Using `train_model` (Recommended)
+
+The simplest way to start batched LM training is through the `train_model` convenience function, which defaults to `"lm_batched"`:
 
 ```julia
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
 
-# Load and prepare data
-sc = StructureContainer(["data/*.res"])
-cf = CellFeature([:C]; p2=2:8, rcut2=5.0)
-fc = FeatureContainer(sc, cf)
-fc_train, fc_val = split(fc, 450, 50)
-
-# Create model
-itf = ManualFluxBackPropInterface(
-    cf, 30, 30;
-    xt=fc_train.xt, yt=fc_train.yt
-)
-
-# Train with batched LM
-x_train, y_train = get_fit_data(fc_train)
-x_val, y_val = get_fit_data(fc_val)
-
-opt_res, params, history, funcs = train_lm_batched!(
-    itf, x_train, y_train;
-    x_val, y_val,
-    batch_size=512,
+tm = train_model("data/*.res",
+    CellFeature([:C]; p2=2:8, rcut2=5.0);
+    nnodes=[30, 30],
+    train_method="lm_batched",
+    batch_size=2048,
     max_epochs=200,
     earlystop=50,
-    show_progress=true,
 )
 ```
 
-### Via `train!` dispatch
+This handles loading, feature computation, splitting, standardization, model creation, and training in one call.
+
+### Using `train!` dispatch
 
 ```julia
 train!(itf, fc_train, fc_val;

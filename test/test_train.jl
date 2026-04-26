@@ -14,10 +14,18 @@ using EDDPotentials:
     reinit,
     train!,
     create_ensemble,
-    predict_energy
+    predict_energy,
+    TrainedModel,
+    train_model,
+    predict,
+    EDDPCalculator,
+    save_model_artifact,
+    load_model_artifact,
+    load_model
 using EDDPotentials.EDDPotentialsCore:
     ManualFluxBackPropInterface,
     LinearInterface,
+    AbstractNNInterface,
     FluxInterface,
     nparams,
     setup_fj,
@@ -249,5 +257,140 @@ using NLSolversBase
         @test length(params) > 0
         # history is only populated when callback is active (earlystop > 0)
         @test size(history, 1) >= 1
+    end
+
+    @testset "train_model" begin
+        path = joinpath(datadir, "training/*.res")
+        path = relpath(path, pwd())
+        cf = CellFeature([:B])
+
+        @testset "from paths" begin
+            tm = train_model(path, cf;
+                val_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
+            @test tm isa TrainedModel
+            @test tm.model isa ManualFluxBackPropInterface
+            @test tm.feature_spec == cf
+            @test tm.val_results !== nothing
+            @test rmse_per_atom(tm.train_results) < 1.0
+        end
+
+        @testset "from StructureContainer" begin
+            sc = StructureContainer([path])
+            tm = train_model(sc, cf; val_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
+            @test tm isa TrainedModel
+            @test tm.val_results !== nothing
+        end
+
+        @testset "from FeatureContainer" begin
+            sc = StructureContainer([path])
+            fc = FeatureContainer(sc, cf)
+            tm = train_model(fc; val_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
+            @test tm isa TrainedModel
+            @test tm.val_results !== nothing
+        end
+
+        @testset "predict on TrainedModel" begin
+            tm = train_model(path, cf; val_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
+            sc = StructureContainer([path])
+            cell = sc.structures[1]
+            result = predict(tm, cell)
+            @test haskey(result, :energy)
+            @test haskey(result, :forces)
+            @test haskey(result, :stress)
+            @test result.energy isa Real
+            result_min = predict(tm, cell; forces=false, stress=false)
+            @test !haskey(result_min, :forces)
+            @test !haskey(result_min, :stress)
+        end
+
+        @testset "predict on EDDPCalculator" begin
+            tm = train_model(path, cf; val_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
+            calc = EDDPCalculator(tm)
+            sc = StructureContainer([path])
+            cell = sc.structures[1]
+            result = predict(calc, cell)
+            @test haskey(result, :energy)
+            @test haskey(result, :forces)
+            @test result.energy isa Real
+        end
+
+        @testset "save/load round-trip" begin
+            tm = train_model(path, cf; val_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
+            mktempdir() do dir
+                p = joinpath(dir, "tm.json")
+                save_model_artifact(p, tm)
+                artifact = load_model_artifact(p)
+                calc = EDDPCalculator(artifact)
+                sc = StructureContainer([path])
+                cell = sc.structures[1]
+                energy_before = predict(tm, cell; forces=false, stress=false).energy
+                energy_after = predict(calc, cell; forces=false, stress=false).energy
+                @test energy_before ≈ energy_after
+            end
+        end
+
+        @testset "val_ratio=0 throws" begin
+            @test_throws ArgumentError train_model(path, cf; val_ratio=0.0)
+        end
+
+        @testset "pressure_gpa passthrough" begin
+            tm = train_model(path, cf; val_ratio=0.2, nnodes=[5], max_epochs=50,
+                             earlystop=5, pressure_gpa=2.0)
+            @test tm isa TrainedModel
+        end
+
+        @testset "show TrainedModel" begin
+            tm = train_model(path, cf; val_ratio=0.2, nnodes=[3], max_epochs=20, earlystop=5)
+            io = IOBuffer()
+            show(io, MIME("text/plain"), tm)
+            s = String(take!(io))
+            @test occursin("TrainedModel", s)
+            @test occursin("RMSE", s)
+            @test occursin("Validation", s)
+        end
+
+        @testset "save_model_artifact from TrainedModel" begin
+            tm = train_model(path, cf; val_ratio=0.2, nnodes=[5], max_epochs=50,
+                             earlystop=5, verbose=false)
+            mktempdir() do dir
+                p = joinpath(dir, "model.json")
+                saved = save_model_artifact(p, tm)
+                @test saved == p
+                @test isfile(p)
+                loaded = load_model(p)
+                @test loaded isa AbstractNNInterface
+            end
+        end
+
+        @testset "auto-infer feature spec from paths" begin
+            tm = train_model(path; val_ratio=0.2, nnodes=[5], max_epochs=20,
+                             earlystop=5, verbose=false)
+            @test tm isa TrainedModel
+            @test :B in tm.feature_spec.elements
+            @test tm.val_results !== nothing
+        end
+
+        @testset "auto-infer feature spec from StructureContainer" begin
+            sc = StructureContainer([path])
+            tm = train_model(sc; val_ratio=0.2, nnodes=[5], max_epochs=20,
+                             earlystop=5, verbose=false)
+            @test tm isa TrainedModel
+            @test :B in tm.feature_spec.elements
+        end
+
+        @testset "auto-infer with custom feature params" begin
+            tm = train_model(path; val_ratio=0.2, nnodes=[5], max_epochs=20,
+                             earlystop=5, p2=2:6, rcut2=5.0, verbose=false)
+            @test tm isa TrainedModel
+            @test tm.feature_spec.elements == [:B]
+            @test !isempty(tm.feature_spec.two_body)
+            @test tm.feature_spec.two_body[1].rcut ≈ 5.0
+        end
+
+        @testset "verbose=false suppresses output" begin
+            tm = train_model(path, cf; val_ratio=0.2, nnodes=[3], max_epochs=10,
+                             earlystop=5, verbose=false)
+            @test tm isa TrainedModel
+        end
     end
 end

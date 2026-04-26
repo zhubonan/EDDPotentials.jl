@@ -80,6 +80,7 @@ import .EDDPotentialsCore:
     EDDPCalculator,
     load_calculator,
     extract_nncalc,
+    predict,
     reinit!
 
 # Functional layer (training/workflow/analysis)
@@ -171,6 +172,7 @@ export Builder,
     walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss,
     split_then_featurize
 export rmse_per_atom, mae_per_atom, max_ae_per_atom
+export TrainedModel, train_model, predict
 export nfeatures
 # MD exports
 export MDRunner, MDState, VelocityVerlet, Langevin, BerendsenNVT

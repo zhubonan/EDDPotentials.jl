@@ -80,7 +80,7 @@ export ModelArtifact,
     load_feature_artifact,
     save_feature_json
 export NNCalc, VariableCellCalc, MultiCalc, DimPenalty
-export EDDPCalculator, load_calculator, extract_nncalc
+export EDDPCalculator, load_calculator, extract_nncalc, predict
 export CoreRepulsion, leaky_tanh
 export calculate!
 
