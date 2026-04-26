@@ -228,6 +228,49 @@ end
 # Per-structure comparison functions
 # ---------------------------------------------------------------------------
 
+# Internal: compute energy+forces+stress in a single calculate! call.
+# Returns (energy, forces_matrix, stress_matrix).
+function _predict_cell!(calc, cell)
+    set_cell!(calc, cell)
+    nnc = extract_nncalc(calc)
+    calculate!(nnc; forces=true, rebuild_nl=true)
+    e = sum(nnc.eng) + get_elemental_energy(nnc.cell, nnc.elemental_energies)
+    f = copy(nnc.forces)
+    s = copy(nnc.stress)
+    (Float64(e), Float64.(f), Float64.(s))
+end
+
+# Internal: compute ForceMetrics from pre-computed prediction and reference.
+function _compute_force_metrics(f_pred, f_ref)
+    ndims, nat = size(f_ref)
+    @assert size(f_pred) == (ndims, nat)
+
+    diff = f_pred .- f_ref
+    component_rmse = sqrt(mean(abs2, diff))
+    component_mae = mean(abs, diff)
+    max_error = maximum(abs, diff)
+
+    f_pred_flat = vec(f_pred)
+    f_ref_flat = vec(f_ref)
+    norm_pred = norm(f_pred_flat)
+    norm_ref = norm(f_ref_flat)
+    cos_sim = if norm_pred > 0 && norm_ref > 0
+        dot(f_pred_flat, f_ref_flat) / (norm_pred * norm_ref)
+    else
+        NaN
+    end
+
+    ForceMetrics(nat, ndims, component_rmse, component_mae, max_error, cos_sim)
+end
+
+# Internal: compute StressMetrics from pre-computed prediction and reference.
+function _compute_stress_metrics(s_pred, s_ref)
+    diff = s_pred .- s_ref
+    component_rmse = sqrt(mean(abs2, diff))
+    pressure_error = abs(eVAngToGPa((tr(s_pred) - tr(s_ref)) / 3))
+    StressMetrics(component_rmse, pressure_error)
+end
+
 """
     compare_energy(calc, cell, config=EvaluationConfig()) -> EnergyMetrics
 
@@ -278,7 +321,7 @@ end
 Compute predicted stress and compare with reference.
 Returns `nothing` if the cell has no reference stress data.
 """
-function compare_stress(calc, cell, config::EvaluationConfig=EvaluationConfig())
+function compare_stress(calc, cell, config=EvaluationConfig=EvaluationConfig())
     s_ref = _extract_reference_stress(cell, config)
     s_ref === nothing && return nothing
     s_pred = Float64.(eddp_stress(calc, cell))
@@ -458,27 +501,43 @@ function evaluate(
 
     for i in eachindex(cells)
         cell = cells[i]
+        need_forces = compute_forces || compute_stress
+
+        # Single calculate! call per cell
+        if need_forces
+            e_pred, f_pred, s_pred = _predict_cell!(calc, cell)
+        else
+            e_pred = Float64(eddp_energy(calc, cell))
+            f_pred = nothing
+            s_pred = nothing
+        end
 
         # Energy (always)
-        e_metrics[i] = compare_energy(calc, cell, config)
+        e_ref = _extract_reference_energy(cell, config)
+        e_metrics[i] = EnergyMetrics(length(cell), e_ref, e_pred)
 
         # Forces
         f_metrics[i] = if compute_forces
-            compare_forces(calc, cell, config)
+            f_ref = _extract_reference_forces(cell, config)
+            f_ref === nothing ? nothing : _compute_force_metrics(f_pred, f_ref)
         else
             nothing
         end
 
         # Stress
         s_metrics[i] = if compute_stress
-            compare_stress(calc, cell, config)
+            s_ref = _extract_reference_stress(cell, config)
+            s_ref === nothing ? nothing : _compute_stress_metrics(s_pred, s_ref)
         else
             nothing
         end
 
-        # Saturation (accumulated)
+        # Saturation (accumulated) — reuse the forward pass from _predict_cell!
         if compute_saturation
-            sat = detect_saturation(calc, cell; threshold=config.saturation_threshold)
+            nnc = extract_nncalc(calc)
+            sat = _detect_saturation_from_interface(
+                nnc.nninterface; threshold=config.saturation_threshold
+            )
             if !isempty(sat)
                 if isempty(sat_fractions_by_layer)
                     for _ in sat
