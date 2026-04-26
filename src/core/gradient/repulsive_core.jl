@@ -43,6 +43,7 @@ end
 
 Construct a core repulsion with per-element radii. The pair cutoff for atoms of
 species `si` and `sj` is computed as `radii[si] + radii[sj]` (sum combining rule).
+Species not present in `radii` default to a radius of 0.25 Å.
 """
 function CoreRepulsion(radii::Dict{Symbol,Float64})
     max_pair = isempty(radii) ? 2.0 : 2 * maximum(values(radii))
@@ -70,12 +71,13 @@ _make_core_repulsion(core_size::Dict{String,Float64}) = CoreRepulsion(core_size)
 Compute the pair-specific cutoff for species `si` and `sj`.
 Uses sum combining rule: `radii[si] + radii[sj]`.
 Falls back to global `rcut` when per-element radii are not defined.
+Species missing from `radii` default to 0.25 Å.
 """
 function _pair_rcut(core::CoreRepulsion, si::Symbol, sj::Symbol)
     if isempty(core.radii)
         return core.rcut
     end
-    return get(core.radii, si, 0.0) + get(core.radii, sj, 0.0)
+    return get(core.radii, si, 0.25) + get(core.radii, sj, 0.25)
 end
 
 """

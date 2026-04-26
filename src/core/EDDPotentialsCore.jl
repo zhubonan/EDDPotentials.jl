@@ -47,6 +47,7 @@ include("nntools.jl")
 include("calculator.jl")
 include("calculator/modifiers/modifiers.jl")
 include("calculator/metacalculator.jl")
+include("calculator/eddpcalculator.jl")
 include("pairpot.jl")
 
 # CellBase re-exports used by downstream workflows and callers
@@ -79,6 +80,7 @@ export ModelArtifact,
     load_feature_artifact,
     save_feature_json
 export NNCalc, VariableCellCalc, MultiCalc, DimPenalty
+export EDDPCalculator, load_calculator, extract_nncalc
 export CoreRepulsion, leaky_tanh
 export calculate!
 

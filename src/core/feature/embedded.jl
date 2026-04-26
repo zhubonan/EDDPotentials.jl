@@ -263,7 +263,7 @@ function compute_embedded_fv_gv_one!(
     do_grad && (@assert nl.has_vectors)
 
     (; fvec, gvec, gvec_index, gvec_nn, stotv, hardcore) = workspace
-    (; core, fcore, score, ecore) = hardcore
+    (; core_repulsion, fcore, score, ecore) = hardcore
 
     if do_grad && zero_workspace
         gvec[:, :, :, iat] .= 0.0
@@ -314,8 +314,8 @@ function compute_embedded_fv_gv_one!(
             end
         end
 
-        if !isnothing(core) && compute_hardcore
-            _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, core)[1]
+        if !isnothing(core_repulsion) && compute_hardcore
+            _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, core_repulsion, sym[iat], sym[jat])
         end
 
         if n2proto > 0

@@ -77,6 +77,9 @@ import .EDDPotentialsCore:
     compute_feature_stats!,
     update_feature_vector!,
     reinit,
+    EDDPCalculator,
+    load_calculator,
+    extract_nncalc,
     reinit!
 
 # Functional layer (training/workflow/analysis)
@@ -126,6 +129,9 @@ export get_cell,
     MultiRandomEmbeddedCellFeature,
     NNCalc,
     VariableCellCalc,
+    EDDPCalculator,
+    load_calculator,
+    extract_nncalc,
     eddp_energy_std,
     eddp_energy_std_per_atom
 # New MetaCalculator and Modifier exports

@@ -10,7 +10,7 @@ struct HardcoreWorkspace{T,N}
     ecore::Array{T,1}
     "Hard core stresses"
     score::Array{T,3}
-    core::N
+    core_repulsion::N
 end
 
 

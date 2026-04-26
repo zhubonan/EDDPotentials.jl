@@ -370,7 +370,7 @@ function _calculate!(calc::NNCalc, rebuild=true, compute_forces=true)
     # Energy evaluation
     calc.eng .= @timeit to "forward!" forward!(calc.nninterface, calc.v)[1, :]
     # Add the core energy if any
-    if calc.workspace.hardcore.core !== nothing
+    if calc.workspace.hardcore.core_repulsion !== nothing
         calc.eng .+= calc.workspace.hardcore.ecore
     end
     calc.param.energy_calculated = true

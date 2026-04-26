@@ -131,7 +131,7 @@ function compute_fv_gv_one!(
     do_grad && (@assert nl.has_vectors)
     # Main quantities
     (; fvec, gvec, gvec_index, gvec_nn, stotv, hardcore) = workspace
-    (; core, fcore, score, ecore) = hardcore
+    (; core_repulsion, fcore, score, ecore) = hardcore
 
     if do_grad
         gvec[:, :, :, iat] .= 0.0
@@ -198,8 +198,8 @@ function compute_fv_gv_one!(
         end
 
         # Add hard core repulsion
-        if !isnothing(core)
-            _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, core, sym[iat], sym[jat])
+        if !isnothing(core_repulsion)
+            _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, core_repulsion, sym[iat], sym[jat])
         end
 
         # Update two body features and forces
@@ -644,7 +644,7 @@ function _force_update!(workspace, gv; offset=workspace.one_body_offset)
         end
     end
     workspace.tot_forces .= workspace.forces
-    if !isnothing(workspace.hardcore.core)
+    if !isnothing(workspace.hardcore.core_repulsion)
         workspace.tot_forces .+= workspace.hardcore.fcore
     end
     _substract_force_drift(workspace.tot_forces)
@@ -667,7 +667,7 @@ function _stress_update!(workspace::GradientWorkspace, gv; offset=workspace.one_
         end
     end
     workspace.tot_stress .= sum(workspace.stress, dims=3)
-    if !isnothing(workspace.hardcore.core)
+    if !isnothing(workspace.hardcore.core_repulsion)
         workspace.tot_stress .+= sum(workspace.hardcore.score, dims=3)
     end
 end
