@@ -61,9 +61,9 @@ if check_airss(; verbose=true)
 
                 # Loading features
                 fc = load_features(builder)
-                @test isa(fc, FeatureContainer)
+                @test isa(fc, FeatureStore)
                 fc = load_features(builder, 0)
-                @test isa(fc, FeatureContainer)
+                @test isa(fc, FeatureStore)
 
                 # Perform rss
                 builder.rss.ensemble_id = 1

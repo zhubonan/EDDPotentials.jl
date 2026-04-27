@@ -1,7 +1,7 @@
 using EDDPotentials
 using EDDPotentials:
     RandomEmbeddedCellFeature,
-    FeatureContainer,
+    FeatureStore,
     StructureContainer,
     VariableCellCalc,
     NNCalc,
@@ -198,15 +198,15 @@ using CellBase: positions, species
         _test_forces_fd(calc2)
     end
 
-    @testset "FeatureContainer and Serialization" begin
+    @testset "FeatureStore and Serialization" begin
         cells = [_h2o_cell(4.0, s) for s in (0.95, 1.0, 1.05, 1.1)]
         energies = [0.1, 0.2, 0.25, 0.35]
         sc = StructureContainer(cells, energies)
         embedded = RandomEmbeddedCellFeature([:H, :O]; nembed=2, seed=9, p2=2:3, p3=2:2, q3=2:2)
 
-        fc = FeatureContainer(sc, embedded; show_progress=false)
-        @test length(fc.fvecs) == length(sc)
-        @test size(fc.fvecs[1], 1) == nfeatures(embedded)
+        fc = FeatureStore(sc, embedded; show_progress=false)
+        @test length(get_data(fc)) == length(sc)
+        @test size(fc[1], 1) == nfeatures(embedded)
 
         fc_train, fc_val = split(fc, 3, 1; standardize=true)
         model = ManualFluxBackPropInterface(
@@ -215,14 +215,14 @@ using CellBase: positions, species
             yt=fc_train.yt,
         )
         train!(model, fc_train, fc_val; maxIter=2, show_progress=false, earlystop=0)
-        @test isfinite(sum(model(fc_train[1][1])))
+        @test isfinite(sum(model(fc_train[1])))
 
         mktempdir() do dir
             path = joinpath(dir, "embedded_fc.jld2")
             EDDPotentials.save_fc(fc, path)
             fc_loaded = EDDPotentials.load_fc(path)
             @test fc_loaded.feature == embedded
-            @test allclose(fc_loaded.fvecs[1], fc.fvecs[1], atol=1e-12)
+            @test allclose(get_data(fc_loaded)[1], fc[1], atol=1e-12)
         end
     end
 

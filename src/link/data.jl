@@ -88,7 +88,7 @@ Load features for specific iterations.
 - `bu`: Builder object
 - `iteration`: One or more iteration numbers
 - `show_progress`: Show progress bar during feature generation
-- `kwargs`: Additional keyword arguments for FeatureContainer
+- `kwargs`: Additional keyword arguments for FeatureStore
 
 # Examples
 ```julia
@@ -100,7 +100,7 @@ fc = load_features(bu)            # Load all iterations up to current
 function load_features(bu::Builder, iteration::Vararg{Int}; show_progress=true, kwargs...)
     sc = load_structures(bu, iteration...;)
     elemental_energies = make_symbol_keys(bu.state.elemental_energies)
-    return EDDPotentials.FeatureContainer(
+    return EDDPotentials.FeatureStore(
         sc,
         bu.cf;
         nmax=bu.trainer.nmax,
@@ -126,7 +126,7 @@ load_features(bu::Builder, iteration; kwargs...) =
     load_features(bu, iteration...; kwargs...)
 
 """
-    split_then_featurize(bu::Builder, nsplit...; kwargs...) -> Tuple{FeatureContainer, ...}
+    split_then_featurize(bu::Builder, nsplit...; kwargs...) -> Tuple{FeatureStore, ...}
 
 Memory-efficient pipeline: load structures, split, then generate features for each split
 independently. Peak memory is the size of the largest split's features, not the full dataset.
@@ -146,11 +146,11 @@ end
 
 
 """
-    num_atoms(fc::FeatureContainer)
+    num_atoms(fs::FeatureStore)
 
-The number of atoms of each structure in the `FeatureContainer`.
+The number of atoms of each structure in the `FeatureStore`.
 """
-num_atoms(fc::FeatureContainer) = size.(fc.fvecs, 2)
+num_atoms(fs::FeatureStore) = fs.sizes
 
 """
     num_atoms(sc::StructureContainer)
@@ -160,10 +160,10 @@ The number of atoms of each structure in the `StructureContainer`.
 num_atoms(sc::StructureContainer) = length(sc.structures)
 
 """
-    eddp_energy_per_atom(fc::FeatureContainer)
+    eddp_energy_per_atom(fs::FeatureStore)
 
-Energy per atom of each structure in the `FeatureContainer`.
+Energy per atom of each structure in the `FeatureStore`.
 """
-function eddp_energy_per_atom(fc::FeatureContainer)
-    fc.H ./ num_atoms(fc)
+function eddp_energy_per_atom(fs::FeatureStore)
+    fs.H ./ num_atoms(fs)
 end

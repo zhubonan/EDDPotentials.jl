@@ -9,7 +9,7 @@ using EDDPotentials:
     levenberg_marquardt_batched,
     StructureContainer,
     CellFeature,
-    FeatureContainer,
+    FeatureStore,
     nfeatures,
     reinit,
     train!,
@@ -112,7 +112,7 @@ using NLSolversBase
         path = relpath(path, pwd())
         sc = StructureContainer([path])
         cf = CellFeature([:B])
-        fc = FeatureContainer(sc, cf)
+        fc = FeatureStore(sc, cf)
 
         # This gives fix examples
         fc_train, fc_val = split(fc, 5, 5; standardize=true)
@@ -131,7 +131,7 @@ using NLSolversBase
         end
 
         emod = create_ensemble(models, fc_train)
-        out = predict_energy(emod, fc_train[1][1])
+        out = predict_energy(emod, fc_train[1])
         @test isa(out, Real)
 
     end
@@ -215,7 +215,7 @@ using NLSolversBase
         path = relpath(path, pwd())
         sc = StructureContainer([path])
         cf = CellFeature([:B])
-        fc = FeatureContainer(sc, cf)
+        fc = FeatureStore(sc, cf)
         fc_train, fc_val = split(fc, 5, 5; standardize=true)
 
         model = ManualFluxBackPropInterface(
@@ -262,9 +262,9 @@ using NLSolversBase
             @test tm.test_results isa TrainingResults
         end
 
-        @testset "from FeatureContainer" begin
+        @testset "from FeatureStore" begin
             sc = StructureContainer([path])
-            fc = FeatureContainer(sc, cf)
+            fc = FeatureStore(sc, cf)
             tm = train_model(fc; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
             @test tm isa TrainedModel
             @test tm.val_results isa TrainingResults
@@ -462,9 +462,9 @@ using NLSolversBase
             end
         end
 
-        @testset "pre-split FeatureContainers" begin
+        @testset "pre-split FeatureStores" begin
             sc = StructureContainer([path])
-            fc = FeatureContainer(sc, cf)
+            fc = FeatureStore(sc, cf)
             fc_train, fc_val, fc_test = split(fc, 6, 3, 2; standardize=true)
             tm = train_model(fc_train, fc_val, fc_test;
                 nnodes=[5], max_epochs=30, earlystop=5, verbose=false)

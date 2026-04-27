@@ -2,7 +2,7 @@ using EDDPotentials
 using EDDPotentials:
     RandomEmbeddedCellFeature,
     MultiRandomEmbeddedCellFeature,
-    FeatureContainer,
+    FeatureStore,
     StructureContainer,
     VariableCellCalc,
     NNCalc,
@@ -159,7 +159,7 @@ using CellBase: positions, species
         @test maximum(abs.(diff_strain + virial)) < 1e-4
     end
 
-    @testset "FeatureContainer integration" begin
+    @testset "FeatureStore integration" begin
         cells = [_h2o_cell(4.0, s) for s in (0.95, 1.0, 1.05, 1.1)]
         energies = [0.1, 0.2, 0.25, 0.35]
         sc = StructureContainer(cells, energies)
@@ -167,9 +167,9 @@ using CellBase: positions, species
             [:H, :O]; nembed=2, n_multi=2, seeds=[9, 10], p2=2:3, p3=2:2, q3=2:2,
         )
 
-        fc = FeatureContainer(sc, mcf; show_progress=false)
-        @test length(fc.fvecs) == length(sc)
-        @test size(fc.fvecs[1], 1) == nfeatures(mcf)
+        fc = FeatureStore(sc, mcf; show_progress=false)
+        @test length(fc) == length(sc)
+        @test size(fc[1], 1) == nfeatures(mcf)
 
         fc_train, fc_val = split(fc, 3, 1; standardize=true)
         model = ManualFluxBackPropInterface(
@@ -178,15 +178,14 @@ using CellBase: positions, species
             yt=fc_train.yt,
         )
         train!(model, fc_train, fc_val; maxIter=2, show_progress=false, earlystop=0)
-        @test isfinite(sum(model(fc_train[1][1])))
+        @test isfinite(sum(model(fc_train[1])))
 
-        # Serialization round-trip
         mktempdir() do dir
             path = joinpath(dir, "multi_emb_fc.jld2")
             EDDPotentials.save_fc(fc, path)
             fc_loaded = EDDPotentials.load_fc(path)
             @test fc_loaded.feature == mcf
-            @test allclose(fc_loaded.fvecs[1], fc.fvecs[1], atol=1e-12)
+            @test allclose(fc_loaded[1], fc[1], atol=1e-12)
         end
     end
 

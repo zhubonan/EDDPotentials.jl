@@ -183,11 +183,35 @@ Per-structure energies are computed via a scatter matrix: `E_pred = S * vec(Y)`.
 Works with any `AbstractArray` type (CPU or GPU).
 """
 function _batch_loss_and_grad!(grad_out, flat, rebuild, x_t, y, batch_indices, natoms_vec, weights, pow)
+    _batch_loss_and_grad_impl!(grad_out, flat, rebuild, x_t, y, batch_indices, natoms_vec, weights, pow, nothing)
+end
+
+function _batch_loss_and_grad_store!(grad_out, flat, rebuild, store, y, batch_indices, natoms_vec, weights, pow, itf)
+    _batch_loss_and_grad_impl!(grad_out, flat, rebuild, store, y, batch_indices, natoms_vec, weights, pow, itf)
+end
+
+function _batch_loss_and_grad_impl!(grad_out, flat, rebuild, x_source, y, batch_indices, natoms_vec, weights, pow, itf)
     T = eltype(flat)
     fill!(grad_out, zero(T))
 
-    # Concatenate all atoms in the batch
-    X_batch = _hcat_batch(x_t, batch_indices)
+    # Build the concatenated batch matrix, applying Z-score transform on-the-fly if needed
+    X_batch = if itf !== nothing
+        # Disk-backed store path: transform each matrix as we load it
+        nfeat = size(x_source[batch_indices[1]], 1)
+        total_atoms = sum(natoms_vec[i] for i in batch_indices)
+        X = similar(flat, nfeat, total_atoms)
+        fill!(X, zero(T))
+        offset = 1
+        for i in batch_indices
+            xi = transformed_inp(itf, x_source[i])
+            nat = size(xi, 2)
+            X[:, offset:offset+nat-1] = xi
+            offset += nat
+        end
+        X
+    else
+        _hcat_batch(x_source, batch_indices)
+    end
 
     # Scatter matrix for per-structure energy summation (same device as flat)
     S = _scatter_matrix(batch_indices, natoms_vec, flat)
@@ -327,13 +351,27 @@ function train_sgd!(
     flat, rebuild = Flux.destructure(model)
     nparam = length(flat)
 
-    # Pre-transform inputs (apply Z-score normalization from itf.xt)
-    x_t = [transformed_inp(itf, xi) for xi in x]
-    x_val_t = x_val === x ? x_t : [transformed_inp(itf, xi) for xi in x_val]
-
     # Atom counts for per-atom RMSE
-    train_natoms = [size(v, 2) for v in x]
-    val_natoms = [size(v, 2) for v in x_val]
+    train_natoms = natoms(x)
+    val_natoms = natoms(x_val)
+
+    # Pre-transform inputs (apply Z-score normalization from itf.xt)
+    # For disk-backed FeatureStores, defer transformation to per-batch on-the-fly
+    # to avoid materializing the entire dataset.
+    x_is_disk_store = x isa FeatureStore && x.data === nothing
+    if x_is_disk_store
+        x_t = x   # will be transformed per-batch
+    else
+        x_t = [transformed_inp(itf, xi) for xi in x]
+    end
+    x_val_is_disk_store = x_val isa FeatureStore && x_val.data === nothing
+    if x_val === x
+        x_val_t = x_t
+    elseif x_val_is_disk_store
+        x_val_t = x_val
+    else
+        x_val_t = [transformed_inp(itf, xi) for xi in x_val]
+    end
 
     # Transform targets to match model output space.
     # When yt is set, the model outputs per-atom standardized energies.
@@ -395,9 +433,15 @@ function train_sgd!(
         # Mini-batch updates
         for batch_indices in batches
             @timeit to "sgd: grad" begin
-                loss_val = _batch_loss_and_grad!(
-                    grad_buf, flat, rebuild, x_t, y_train, batch_indices, train_natoms, weights, pow
-                )
+                if x_is_disk_store
+                    loss_val = _batch_loss_and_grad_store!(
+                        grad_buf, flat, rebuild, x_t, y_train, batch_indices, train_natoms, weights, pow, itf
+                    )
+                else
+                    loss_val = _batch_loss_and_grad!(
+                        grad_buf, flat, rebuild, x_t, y_train, batch_indices, train_natoms, weights, pow
+                    )
+                end
             end
 
             # L2 regularization (weight decay)

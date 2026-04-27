@@ -9,7 +9,7 @@ using EDDPotentials:
     train!,
     StructureContainer,
     CellFeature,
-    FeatureContainer,
+    FeatureStore,
     nfeatures,
     predict_energy,
     reinit,
@@ -286,7 +286,7 @@ using StatsBase
         path = relpath(path, pwd())
         sc = StructureContainer([path])
         cf = CellFeature([:B])
-        fc = FeatureContainer(sc, cf)
+        fc = FeatureStore(sc, cf)
         fc_train, fc_val = split(fc, 5, 5; standardize=true)
 
         model = ManualFluxBackPropInterface(

@@ -8,8 +8,8 @@ using LaTeXStrings
 _get_target_and_pred(tr::TrainingResults) =
     tr.H_target ./ natoms(tr), tr.H_pred ./ natoms(tr)
 
-function has_multiple_comp(fc::FeatureContainer)
-    length(unique([m[:formula] for m in fc.metadata])) > 1
+function has_multiple_comp(fs::FeatureStore)
+    length(unique([m[:formula] for m in fs.metadata])) > 1
 end
 
 function has_multiple_comp(sc::StructureContainer)

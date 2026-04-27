@@ -7,30 +7,28 @@ using Printf
 """
 Write the feature vectors
 """
-function write_eddpf90_features(fc::FeatureContainer, outfile)
-    ntot = length(fc)
-    cf = fc.feature
-    # flock's feature format is per-composition case
-    # This maynot be correct here because p, q, rcut is allowed to vary per-composition  case... 
+function write_eddpf90_features(fs::FeatureStore, outfile)
+    ntot = length(fs)
+    cf = fs.feature
     nfeats = zeros(Int, 4)
     nfeats[1] = length(cf.elements)
     nfeats[2] = length(cf.two_body)
     nfeats[3] = length(cf.three_body)
-
 
     fsize_eddp = zeros(Int, 4)
     fsize_eddp[1] = nfeatures(cf.two_body[1])
     fsize_eddp[2] = nfeatures(cf.three_body[1])
     @assert nfeats[1] + nfeats[2] * fsize_eddp[1] + nfeats[3] * fsize_eddp[2] ==
             nfeatures(cf)
-    pw = join(string.(fc.feature.two_body[1].p), " ")
-    rmax = suggest_rcut(fc.feature; shell=1.0)
+    pw = join(string.(fs.feature.two_body[1].p), " ")
+    rmax = suggest_rcut(fs.feature; shell=1.0)
+    data = get_data(fs)
     open(outfile, "w") do io
         for i = 1:ntot
-            feat = fc.fvecs[i]
-            metadata = fc.metadata[i]
-            label = fc.labels[i]
-            H = fc.H[i]
+            feat = data[i]
+            metadata = fs.metadata[i]
+            label = fs.labels[i]
+            H = fs.H[i]
             comps = CellBase.Composition(string(metadata[:formula]))
             comp = join(string.(comps.species), "-")
             write_features(

@@ -34,13 +34,13 @@ using LinearAlgebra: norm
     sc_train, sc_val = EDDPotentials.train_val_split(sc, ratio_val=0.5)
     @test length(sc_train) == 6
     # Default
-    fc = EDDPotentials.FeatureContainer(sc)
+    fc = EDDPotentials.FeatureStore(sc)
     @test length(fc) == 11
     fc_train, fc_val = EDDPotentials.train_val_split(fc, ratio_val=0.5)
     @test length(fc_train) == 6
 
-    @test isa(fc[[labels[1], labels[2]]], EDDPotentials.FeatureContainer)
-    @test isa(collect(fc)[1], Tuple)
+    @test isa(fc[[labels[1], labels[2]]], EDDPotentials.FeatureStore)
+    @test isa(collect(fc)[1], Matrix)
 
     # Test standardisation — transforms are fitted in-place, fvecs are NOT mutated
     fc1, fc2 = split(fc[1:10], 5, 3; shuffle=false, standardize=false)
@@ -63,7 +63,7 @@ using LinearAlgebra: norm
     @test fc.xt === nothing
     @test fc.yt === nothing
     # fvecs remain untransformed (standardize! only stores transforms, does not touch data)
-    @test fc1.fvecs[1] ≈ fc.fvecs[1]
+    @test get_data(fc1)[1] ≈ get_data(fc)[1]
 
 end
 
@@ -74,7 +74,7 @@ end
     cf = CellFeature([:B]; p2=[2, 4], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
 
     # Old path: featurize all then split
-    fc_old = FeatureContainer(sc, cf; show_progress=false)
+    fc_old = FeatureStore(sc, cf; show_progress=false)
     train_old, val_old, test_old =
         split(fc_old, 0.6, 0.2, 0.2; seed=42, standardize=true)
 
@@ -96,7 +96,7 @@ end
 
     # Feature vectors should be identical (same seed, same structures)
     for i in 1:length(train_new)
-        @test train_new.fvecs[i] ≈ train_old.fvecs[i]
+        @test train_new.data[i] ≈ train_old.data[i]
     end
 
     # Standardization transforms from train should match
@@ -192,7 +192,7 @@ end
     @test length(split_b) == 2
 
     cf = CellFeature(unique(species(cell)); p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
-    fc = FeatureContainer(synth, cf; show_progress=false)
+    fc = FeatureStore(synth, cf; show_progress=false)
     @test length(fc) == 2
     @test fc.H ≈ synth.H
 

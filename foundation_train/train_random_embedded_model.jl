@@ -1,6 +1,5 @@
 using EDDPotentials
 using EDDPotentials:
-    FeatureContainer,
     FeatureStore,
     RandomEmbeddedCellFeature,
     MultiRandomEmbeddedCellFeature,
@@ -167,7 +166,7 @@ function main(args=ARGS)
     use_store = !isempty(store_path)
 
     if use_store
-        # --- Streaming path: no full FeatureContainer in memory ---
+        # --- Streaming path: no full FeatureStore in memory ---
         # Get species from lightweight prescan (no Cell construction)
         _, _, symbols = _prescan_extxyz(dataset_path; threshold=cfg["threshold"],
                                         max_structures=cfg["max_structures"])

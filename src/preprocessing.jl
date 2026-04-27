@@ -63,7 +63,7 @@ sc = StructureContainer(structures, energies, labels)
 - Supports glob patterns in file paths (e.g., "*.res")
 
 # See also
-[`FeatureContainer`](@ref), [`CellBase.read_res_many`](@ref)
+[`FeatureStore`](@ref), [`CellBase.read_res_many`](@ref)
 """
 struct StructureContainer{T,N,D}
     paths::Vector{String}
@@ -510,71 +510,59 @@ function _split_vector(c, nsplit::Vararg{Real}; shuffle=true, seed=42)
 end
 
 """
-    FeatureContainer{T,N}
+    FeatureStore
 
-Container for holding computed features and energies ready for neural network training.
+Unified container for feature data supporting both in-memory and disk-backed storage
+with a DataLoader-style interface for batched iteration.
 
-A FeatureContainer stores the feature vectors computed from atomic structures,
-along with target energies and metadata. This is created from a StructureContainer
-and CellFeature specification, and is directly used for training EDDP models.
+A `FeatureStore` holds feature vectors computed from atomic structures along with
+target energies and metadata. It operates in two modes:
 
-# Fields
-- `fvecs::Vector{T}`: Vector of feature matrices (nfeatures × natoms), one per structure
-- `feature::CellFeature`: Feature specification used to generate features
-- `H::Vector{N}`: Target total energies (in eV), one per structure
-- `labels::Vector{String}`: Structure identifiers
-- `metadata::Vector{Dict{Symbol,Any}}`: Per-structure metadata (formula, etc.)
-- `xt::Any`: Feature standardization transformation (ZScoreTransform)
-- `yt::Any`: Energy standardization transformation
-- `elemental_energies::Dict{Symbol,Float64}`: Reference energies per element
+- **In-memory** (`data !== nothing`): All feature matrices are held in a `Vector{Matrix}`.
+  Supports splitting, slicing, concatenation, and full random access.
+- **Disk-backed** (`data === nothing`): Features are stored in a JLD2 file organised in
+  fixed consecutive batches, loaded on demand with per-batch caching. Supports indexed
+  access, iteration, and `each_batch` for I/O-efficient training.
 
-# Constructor
+# Access patterns
+
+| Method | Returns | Use case |
+|--------|---------|----------|
+| `store[i]` | `Matrix{Float64}` | Per-structure feature matrix (LM) |
+| `for mat in store` | yields `Matrix{Float64}` | Iterate all structures |
+| `get_data(store)` | `Vector{Matrix{Float64}}` | Full materialization |
+| `each_batch(store; batch_size)` | iterator of `FeatureBatch` | Batched training (SGD, batched LM) |
+| `get_fit_data(store)` | `(x, H)` | Training dispatch |
+
+# Constructors
+
 ```julia
-FeatureContainer(sc::StructureContainer, feature::CellFeature; kwargs...)
+FeatureStore(sc::StructureContainer, feature::CellFeature; kwargs...)  # in-memory
+FeatureStore(data::Vector{Matrix}, H, labels, metadata, feature)       # from raw data
+load_feature_store(path)                                                # disk-backed
 ```
-
-# Examples
-```julia
-# Basic workflow: structures → features → training
-using EDDPotentials
-
-# Step 1: Load structures
-sc = StructureContainer("carbon_structures/*.res")
-println(length(sc), " structures loaded")
-
-# Step 2: Define features (two-body only for simplicity)
-cf = CellFeature([:C])  # Carbon structures
-
-# Step 3: Compute features
-fc = FeatureContainer(sc, cf)
-println(size(fc.fvecs[1]), " - feature dimensions for first structure")
-
-# Step 4: Split into train/validation
-fc_train, fc_val = split(fc, 450, 50)  # 450 train, 50 validation
-
-# Step 5: Use for training
-itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
-train!(itf, fc_train, fc_val; maxIter=500)
-```
-
-# Notes
-- Feature computation can be slow for large systems; progress is shown by default
-- Features are computed in parallel using threading
-- Features can be standardized using `standardize!` or automatically via `split`
-- Saved to disk using `save_fc(fc, "features.jld2")` and loaded with `load_fc`
 
 # See also
-[`StructureContainer`](@ref), [`CellFeature`](@ref), [`train!`](@ref), [`split`](@ref)
+[`FeatureBatch`](@ref), [`each_batch`](@ref), [`get_data`](@ref),
+[`save_feature_store`](@ref), [`load_feature_store`](@ref)
 """
-mutable struct FeatureContainer{T,N}
-    fvecs::Vector{T}
-    feature::AbstractCellFeatureSpec
-    H::Vector{N}
+mutable struct FeatureStore
+    H::Vector{Float64}
     labels::Vector{String}
     metadata::Vector{Dict{Symbol,Any}}
+    feature::Any
     xt::Any
     yt::Any
     elemental_energies::Dict{Symbol,Float64}
+    sizes::Vector{Int}
+    data::Union{Vector{Matrix{Float64}},Nothing}
+    path::String
+    n_disk_batches::Int
+    disk_batch_size::Int
+    disk_batch_ranges::Vector{UnitRange{Int}}
+    cached_batch_id::Int
+    cached_batch::Vector{Matrix{Float64}}
+    _cache_lock::ReentrantLock
 end
 
 
@@ -592,82 +580,61 @@ function Base.show(io::IO, o::MIME"text/plain", v::StructureContainer)
 end
 
 
-function Base.show(io::IO, o::MIME"text/plain", v::FeatureContainer)
-    ls = length.(v.fvecs)
-    size_max = size(v.fvecs[findfirst(x -> x == maximum(ls), ls)])
-    size_min = size(v.fvecs[findfirst(x -> x == minimum(ls), ls)])
-
-    println(io, "FeatureContainer:")
-    println(io, "  $(length(v)) data points ")
-    println(io, "  Max size size: $(size_max)")
-    println(io, "  Min size size: $(size_min)")
+function Base.show(io::IO, o::MIME"text/plain", v::FeatureStore)
+    mode = v.data !== nothing ? "in-memory" : "disk-backed ($(v.path))"
+    println(io, "FeatureStore ($mode):")
+    println(io, "  $(length(v)) data points")
+    println(io, "  Max atoms: $(maximum(v.sizes)), Min atoms: $(minimum(v.sizes))")
+    if v.data === nothing && v.n_disk_batches > 0
+        println(io, "  $(v.n_disk_batches) disk batches (batch_size=$(v.disk_batch_size))")
+    end
     println(io, "With feature spec:")
     show(io, o, v.feature)
 end
 
-Base.show(io::IO, v::Union{StructureContainer,FeatureContainer}) =
-    Base.show(io, MIME("text/plain"), v)
+Base.show(io::IO, v::FeatureStore) = Base.show(io, MIME("text/plain"), v)
 
-"""
-    save_fc(fc, fname)
-
-Save FeatureContainer into a file.
-"""
 function save_fc(fc, fname)
     jldopen(fname, "w") do fhandle
         fhandle["version"] = "2.0"
-        fhandle["fvecs"] = fc.fvecs
+        fhandle["fvecs"] = get_data(fc)
         fhandle["feature"] = fc.feature
         fhandle["H"] = fc.H
         fhandle["labels"] = fc.labels
         fhandle["metadata"] = fc.metadata
         fhandle["yt"] = fc.yt
-        fhandle["xy"] = fc.xt
+        fhandle["xt"] = fc.xt
         fhandle["elemental_energies"] = fc.elemental_energies
     end
 end
 
-"""
-    load_fc(fname)
-
-Load FeatureContainer from a file.
-"""
 function load_fc(fname)
     jldopen(fname, "r") do fhandle
         fvecs = fhandle["fvecs"]
         feature = fhandle["feature"]
-        H = fhandle["H"]
+        H = Vector{Float64}(fhandle["H"])
         labels = fhandle["labels"]
         metadata = fhandle["metadata"]
-        yt = fhandle["yt"]
-        xt = fhandle["xy"]
+        yt = get(fhandle, "yt", nothing)
+        xt_key = haskey(fhandle, "xt") ? "xt" : "xy"
+        xt = get(fhandle, xt_key, nothing)
         elemental_energies = if "elemental_energies" in keys(fhandle)
             Dict{Symbol,Float64}(fhandle["elemental_energies"])
         else
             Dict{Symbol,Float64}()
         end
-        FeatureContainer(
-            fvecs,
-            feature,
-            H,
-            labels,
-            metadata,
-            xt,
-            yt,
-            elemental_energies,
+        sizes = [size(fv, 2) for fv in fvecs]
+        FeatureStore(
+            H, labels, metadata, feature, xt, yt, elemental_energies, sizes,
+            fvecs, "", 0, 0, UnitRange{Int}[], -1, Matrix{Float64}[], ReentrantLock(),
         )
     end
 end
 
 
-Base.length(v::FeatureContainer) = length(v.fvecs)
+Base.length(v::FeatureStore) = length(v.H)
 
-"""
-    FeatureContainer(sc::StructureContainer, featurespec; nmax=500, kwargs...)
-
-Get a feature container.
-"""
-function FeatureContainer(
+function FeatureStore(
     sc::StructureContainer,
     feature::AbstractCellFeatureSpec;
     nmax=500,
@@ -675,7 +642,6 @@ function FeatureContainer(
     elemental_energies=Dict{Symbol,Float64}(),
     kwargs...,
 )
-
     fvecs = Vector{Matrix{Float64}}(undef, length(sc))
     H = copy(sc.H)
     labels = collect(String, sc.paths)
@@ -698,43 +664,55 @@ function FeatureContainer(
             end
         end
     end
-    # Process reference_energies
     if length(elemental_energies) > 0
         for i = 1:length(sc)
             H[i] -= get_elemental_energy(sc.structures[i], elemental_energies)
         end
     end
-    FeatureContainer(
-        fvecs,
-        feature,
-        H,
-        labels,
-        metadata,
-        nothing,
-        nothing,
-        Dict{Symbol,Float64}(elemental_energies),
+    sizes = [size(fv, 2) for fv in fvecs]
+    FeatureStore(
+        H, labels, metadata, feature, nothing, nothing,
+        Dict{Symbol,Float64}(elemental_energies), sizes,
+        fvecs, "", 0, 0, UnitRange{Int}[], -1, Matrix{Float64}[], ReentrantLock(),
     )
 end
 
-function FeatureContainer(sc::StructureContainer; cf_kwargs=NamedTuple(), kwargs...)
+function FeatureStore(sc::StructureContainer; cf_kwargs=NamedTuple(), kwargs...)
     symbols = reduce(vcat, unique.(species.(sc.structures)))
-    FeatureContainer(
+    FeatureStore(
         sc::StructureContainer,
         CellFeature(unique(symbols); cf_kwargs...);
         kwargs...,
     )
 end
 
-Base.IndexStyle(T::StructureContainer) = IndexLinear()
-Base.IndexStyle(T::FeatureContainer) = IndexLinear()
+function FeatureStore(
+    data::Vector{<:AbstractMatrix{<:AbstractFloat}},
+    H::AbstractVector{<:Real},
+    labels::AbstractVector{<:AbstractString},
+    metadata::AbstractVector{<:AbstractDict},
+    feature;
+    elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
+    xt=nothing,
+    yt=nothing,
+)
+    sizes = [size(d, 2) for d in data]
+    FeatureStore(
+        Vector{Float64}(H), Vector{String}(labels),
+        Vector{Dict{Symbol,Any}}(metadata), feature, xt, yt,
+        elemental_energies, sizes,
+        Vector{Matrix{Float64}}(data),
+        "", 0, 0, UnitRange{Int}[], -1, Matrix{Float64}[], ReentrantLock(),
+    )
+end
 
-Base.iterate(v::Union{FeatureContainer,StructureContainer}, state=1) =
-    state > length(v) ? nothing : (v[state], state + 1)
+Base.IndexStyle(::Type{<:StructureContainer}) = IndexLinear()
+
+Base.iterate(v::StructureContainer, state=1) =
+    state > length(v) ? nothing : (v.structures[state], state + 1)
 Base.eltype(::Type{StructureContainer{T,N,D}}) where {T,N,D} = Cell{T,D}
-Base.eltype(::Type{FeatureContainer{T,N}}) where {T,N} = Tuple{T,N}
 
 Base.getindex(v::StructureContainer, i::Int) = v.structures[i]
-Base.getindex(v::FeatureContainer, i::Int) = (v.fvecs[i], v.H[i])
 
 function Base.getindex(
     v::StructureContainer,
@@ -746,16 +724,42 @@ function Base.getindex(
     StructureContainer(paths, H, structures)
 end
 
-function Base.getindex(v::FeatureContainer, idx::Union{UnitRange,Vector{T}}) where {T<:Int}
-    FeatureContainer(
-        v.fvecs[idx],
-        v.feature,
-        v.H[idx],
-        v.labels[idx],
-        v.metadata[idx],
-        v.xt,
-        v.yt,
-        v.elemental_energies,
+Base.IndexStyle(::Type{FeatureStore}) = IndexLinear()
+
+function Base.iterate(v::FeatureStore, state=1)
+    state > length(v) ? nothing : (v[state], state + 1)
+end
+Base.eltype(::Type{FeatureStore}) = Matrix{Float64}
+Base.broadcastable(fs::FeatureStore) = fs
+
+function Base.getindex(s::FeatureStore, i::Int)
+    if s.data !== nothing
+        return s.data[i]
+    end
+    bid = cld(i, s.disk_batch_size)
+    batch = load_batch(s, bid)
+    local_idx = i - first(s.disk_batch_ranges[bid]) + 1
+    batch[local_idx]
+end
+
+function Base.getindex(s::FeatureStore, idx::Union{UnitRange{Int},Vector{Int}})
+    if s.data !== nothing
+        return _in_memory_slice(s, idx)
+    end
+    error(
+        "Indexing a disk-backed FeatureStore with a range is not supported — " *
+        "it would require materializing data from disk. Use an in-memory store " *
+        "or pre-split your data before saving to disk."
+    )
+end
+
+function _in_memory_slice(s::FeatureStore, idx)
+    data = s.data[idx]
+    sizes = s.sizes[idx]
+    FeatureStore(
+        s.H[idx], s.labels[idx], s.metadata[idx],
+        s.feature, s.xt, s.yt, s.elemental_energies,
+        sizes, data, "", 0, 0, UnitRange{Int}[], -1, Matrix{Float64}[], ReentrantLock(),
     )
 end
 function _select_by_label(all_labels, labels)
@@ -780,21 +784,18 @@ function Base.getindex(v::StructureContainer, idx::Vector{T}) where {T<:Abstract
     v[_select_by_label(labels, idx)]
 end
 
-function Base.getindex(v::FeatureContainer, idx::Vector{T}) where {T<:AbstractString}
+function Base.getindex(v::FeatureStore, idx::Vector{T}) where {T<:AbstractString}
     v[_select_by_label(v.labels, idx)]
 end
 
 
 """
-    train_val_split(v::Union{FeatureContainer,StructureContainer}; ratio_val=0.1, shuffle=true)
+    train_val_split(v::Union{FeatureStore,StructureContainer}; ratio_val=0.1, shuffle=true)
 
 Split a container into training and validation sets.
 
-This is a convenience function for creating a simple train/validation split with a
-specified ratio. For more control over split sizes, use `split` instead.
-
 # Arguments
-- `v::Union{FeatureContainer,StructureContainer}`: Container to split
+- `v::Union{FeatureStore,StructureContainer}`: Container to split
 
 # Keyword Arguments
 - `ratio_val=0.1`: Fraction of data to use for validation (0.0 to 1.0)
@@ -803,23 +804,20 @@ specified ratio. For more control over split sizes, use `split` instead.
 # Returns
 - `Tuple{typeof(v), typeof(v)}`: (training_set, validation_set)
 
-# Examples
-```julia
-# Simple 90/10 train/validation split
-fc_train, fc_val = train_val_split(fc; ratio_val=0.1)
-
-# 80/20 split without shuffling
-sc_train, sc_val = train_val_split(sc; ratio_val=0.2, shuffle=false)
-```
-
 # See also
 [`split`](@ref)
 """
 function train_val_split(
-    v::Union{FeatureContainer,StructureContainer};
+    v::Union{FeatureStore,StructureContainer};
     ratio_val=0.1,
     shuffle=true,
 )
+    if isa(v, FeatureStore) && v.data === nothing
+        error(
+            "Cannot split a disk-backed FeatureStore. Provide pre-split stores " *
+            "or use an in-memory store."
+        )
+    end
     nval = Int(floor(length(v) * ratio_val))
     ntrain = length(v) - nval
     if shuffle
@@ -830,7 +828,7 @@ function train_val_split(
 end
 
 function train_test_split(
-    v::Union{FeatureContainer,StructureContainer};
+    v::Union{FeatureStore,StructureContainer};
     ratio_test=0.1,
     shuffle=true,
 )
@@ -845,15 +843,21 @@ Split the container into multiple parts, each with N number of structures.
 By default, the output container will have their standardization transforms fitted.
 """
 function Base.split(
-    c::Union{StructureContainer,FeatureContainer},
+    c::Union{StructureContainer,FeatureStore},
     nsplit::Vararg;
     shuffle=true,
     standardize=true,
     seed=42,
     respect_shakes=false,
 )
+    if isa(c, FeatureStore) && c.data === nothing
+        error(
+            "Cannot split a disk-backed FeatureStore. Disk-backed stores are " *
+            "intended to be created pre-split (e.g. via `save_feature_store_streaming`). " *
+            "To split, either use an in-memory store or provide separate train/val/test stores."
+        )
+    end
     if respect_shakes
-        # Respect the shakes - ensure that the shake structures are always in one set
         isa(c, StructureContainer) ? (labels = c.paths) : (labels = c.labels)
         valid_labels = []
         for i = 1:length(c)
@@ -865,15 +869,13 @@ function Base.split(
             end
         end
         unique_labels = unique(valid_labels)
-        # Split the set by the labels
         out_labels = _split_vector(unique_labels, nsplit...; shuffle, seed)
-        # Construct the containers
-        is_fc = isa(c, FeatureContainer)
+        is_fc = isa(c, FeatureStore)
         out = map(out_labels) do selected
             c[findall(x -> x in selected, valid_labels)]
         end
     else
-        is_fc = isa(c, FeatureContainer)
+        is_fc = isa(c, FeatureStore)
         out = _split_vector(c, nsplit...; shuffle, seed)
     end
     is_fc && standardize && standardize!(out...)
@@ -889,7 +891,7 @@ Memory-efficient split-then-featurize pipeline. Splits the StructureContainer fi
 then generates features for each split independently, avoiding the peak memory of
 holding all features plus split copies simultaneously.
 
-Returns a tuple of FeatureContainers, already standardized if `standardize=true`.
+Returns a tuple of FeatureStores, already standardized if `standardize=true`.
 
 # Examples
 ```julia
@@ -915,7 +917,7 @@ function split_and_featurize(
         Base.split(sc, nsplit...; shuffle, seed, respect_shakes, standardize=false)
 
     fcs = map(split_scs) do split_sc
-        FeatureContainer(
+        FeatureStore(
             split_sc,
             feature;
             nmax,
@@ -931,47 +933,53 @@ function split_and_featurize(
 end
 
 enthalpy_per_atom(sc::StructureContainer) = sc.H ./ natoms.(sc.structures)
-enthalpy_per_atom(fc::FeatureContainer) = fc.H ./ natoms(fc)
+enthalpy_per_atom(fs::FeatureStore) = fs.H ./ fs.sizes
 
-natoms(fc::FeatureContainer) = size.(fc.fvecs, 2)
-natoms(fc::StructureContainer) = natoms.(fc.structures)
+natoms(fs::FeatureStore) = fs.sizes
+natoms(sc::StructureContainer) = natoms.(sc.structures)
+natoms(x::AbstractVector{<:AbstractMatrix}) = [size(v, 2) for v in x]
 
 
 
 """
-    standardize!(fc::FeatureContainer)
+    standardize!(fs::FeatureStore)
 
-Fit standardization transforms for the `FeatureContainer`. The feature vectors
-are **not** modified — transforms are stored in `fc.xt` and `fc.yt` and applied
+Fit standardization transforms for the `FeatureStore`. The feature vectors
+are **not** modified — transforms are stored in `fs.xt` and `fs.yt` and applied
 on-the-fly by the NN interface during `forward!`.
 """
-function standardize!(fc::FeatureContainer; xt=nothing, yt=nothing)
-
+function standardize!(fs::FeatureStore; xt=nothing, yt=nothing)
     if xt === nothing
-        if isnothing(fc.xt)
-            total_x_train = reduce(hcat, fc.fvecs)
+        if isnothing(fs.xt)
+            if fs.data === nothing
+                error(
+                    "Cannot fit standardization transforms on a disk-backed FeatureStore " *
+                    "without providing `xt` explicitly. Either pass `xt=...` or call " *
+                    "`standardize!` on an in-memory store."
+                )
+            end
+            total_x_train = reduce(hcat, fs.data)
             xt = fit(StatsBase.ZScoreTransform, total_x_train, dims=2)
-            # Reset near-zero std to 1 to avoid division by near-zero
             for i in eachindex(xt.scale)
                 if abs(xt.scale[i]) < 1e-6
                     xt.scale[i] = 1.0
                 end
             end
-            fc.xt = xt
+            fs.xt = xt
         end
     else
-        fc.xt = xt
+        fs.xt = xt
     end
     if yt === nothing
-        if isnothing(fc.yt)
-            y = fc.H
-            yt = fit(ZScoreTransform, reshape(y ./ natoms(fc), 1, length(y)), dims=2)
-            fc.yt = yt
+        if isnothing(fs.yt)
+            y = fs.H
+            yt = fit(ZScoreTransform, reshape(y ./ fs.sizes, 1, length(y)), dims=2)
+            fs.yt = yt
         end
     else
-        fc.yt = yt
+        fs.yt = yt
     end
-    fc
+    fs
 end
 
 
@@ -992,15 +1000,25 @@ function standardize!(fc_train, fc1, fcs...; kwargs...)
 end
 
 
-function get_fit_data(fc::FeatureContainer)
-    fc.fvecs, fc.H
+function get_fit_data(fs::FeatureStore)
+    if fs.data !== nothing
+        return fs.data, fs.H
+    end
+    return fs, fs.H
 end
 
-function transform_y(fc::FeatureContainer; yt=fc.yt)
-    Hps = fc.H ./ natoms(fc)
+function get_data(fs::FeatureStore)
+    if fs.data !== nothing
+        return fs.data
+    end
+    Matrix{Float64}[fs[i] for i in 1:length(fs)]
+end
+
+function transform_y(fs::FeatureStore; yt=fs.yt)
+    Hps = fs.H ./ fs.sizes
     Hps .-= yt.mean[1]
     Hps ./= yt.scale[1]
-    Hps .* natoms(fc)
+    Hps .* fs.sizes
 end
 
 function Base.:+(a::StructureContainer, b::StructureContainer)
@@ -1012,71 +1030,31 @@ function Base.:+(a::StructureContainer, b::StructureContainer)
 end
 
 
-function Base.:+(a::FeatureContainer, b::FeatureContainer)
+function Base.:+(a::FeatureStore, b::FeatureStore)
     @assert a.feature == b.feature
     @assert a.elemental_energies == b.elemental_energies
-    FeatureContainer(
-        vcat(a.fvecs, b.fvecs),
-        a.feature,
-        vcat(a.H, b.H),
-        vcat(a.labels, b.labels),
-        vcat(a.metadata, b.metadata),
-        a.xt,
-        b.yt,
-        a.elemental_energies,
-    )
+    if a.data !== nothing && b.data !== nothing
+        FeatureStore(
+            vcat(a.H, b.H),
+            vcat(a.labels, b.labels),
+            vcat(a.metadata, b.metadata),
+            a.feature,
+            a.xt,
+            a.yt,
+            a.elemental_energies,
+            vcat(a.sizes, b.sizes),
+            vcat(a.data, b.data),
+            "", 0, 0, UnitRange{Int}[], -1, Matrix{Float64}[], ReentrantLock(),
+        )
+    else
+        error("Concatenation of disk-backed FeatureStores is not supported. Use `get_data` to materialize first.")
+    end
 end
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# FeatureStore — out-of-core feature storage with fixed-batch layout
+# FeatureStore — disk-backed constructors and I/O
 # ═══════════════════════════════════════════════════════════════════════════
-
-"""
-    FeatureStore
-
-On-disk feature storage organised in fixed consecutive batches for efficient
-sequential I/O.  Features are loaded on demand and cached per-batch.
-
-Structures within each batch are stored contiguously in a JLD2 file, so that
-reading an entire batch requires only a single seek + sequential read.  This
-is critical for training on datasets that exceed available RAM (<128 GB).
-
-# Fields
-- `path::String` — path to the JLD2 file
-- `n_data::Int` — total number of structures
-- `n_batches::Int` — number of fixed batches
-- `batch_size::Int` — target structures per batch (last batch may be smaller)
-- `batch_ranges::Vector{UnitRange{Int}}` — global structure index range per batch
-- `sizes::Vector{Int}` — number of atoms per structure
-- `H::Vector{Float64}` — target energies (kept in memory)
-- `labels::Vector{String}`
-- `metadata::Vector{Dict{Symbol,Any}}`
-- `feature::AbstractCellFeatureSpec`
-- `xt`, `yt` — standardisation transforms
-- `elemental_energies::Dict{Symbol,Float64}`
-
-# See also
-[`FeatureContainer`](@ref), [`save_feature_store`](@ref), [`load_feature_store`](@ref)
-"""
-mutable struct FeatureStore
-    path::String
-    n_data::Int
-    n_batches::Int
-    batch_size::Int
-    batch_ranges::Vector{UnitRange{Int}}
-    sizes::Vector{Int}
-    H::Vector{Float64}
-    labels::Vector{String}
-    metadata::Vector{Dict{Symbol,Any}}
-    feature::Any
-    xt::Any
-    yt::Any
-    elemental_energies::Dict{Symbol,Float64}
-    # Batch cache (mutable)
-    cached_batch_id::Int
-    cached_batch::Vector{Matrix{Float64}}
-end
 
 function FeatureStore(
     path::AbstractString,
@@ -1094,138 +1072,61 @@ function FeatureStore(
     elemental_energies::Dict{Symbol,Float64},
 )
     FeatureStore(
-        path, n_data, n_batches, batch_size, batch_ranges, sizes,
-        H, labels, metadata, feature, xt, yt, elemental_energies,
-        0, Matrix{Float64}[],  # empty cache
+        H, labels, metadata, feature, xt, yt, elemental_energies, sizes,
+        nothing, path, n_batches, batch_size, batch_ranges,
+        0, Matrix{Float64}[], ReentrantLock(),
     )
 end
 
-Base.length(s::FeatureStore) = s.n_data
-Base.eltype(::Type{FeatureStore}) = Matrix{Float64}
+batch_id_for_index(s::FeatureStore, i::Int) = cld(i, s.disk_batch_size)
 
-natoms(s::FeatureStore) = s.sizes
-
-"""
-    batch_id_for_index(s::FeatureStore, i::Int) -> Int
-
-Return the fixed-batch ID containing global structure index `i`.
-"""
-batch_id_for_index(s::FeatureStore, i::Int) = cld(i, s.batch_size)
-
-"""
-    load_batch(s::FeatureStore, batch_id::Int) -> Vector{Matrix{Float64}}
-
-Load all feature matrices for a fixed batch from disk.  Results are cached
-so that repeated accesses to the same batch do not re-read the file.
-"""
 function load_batch(s::FeatureStore, batch_id::Int)
-    if batch_id == s.cached_batch_id
-        return s.cached_batch
+    lock(s._cache_lock) do
+        if batch_id == s.cached_batch_id
+            return s.cached_batch
+        end
+        batch_data = Vector{Matrix{Float64}}(jldopen(s.path, "r") do f
+            f["batch_$(batch_id)"]
+        end)
+        s.cached_batch_id = batch_id
+        s.cached_batch = batch_data
+        return batch_data
     end
-    batch_data = Vector{Matrix{Float64}}(jldopen(s.path, "r") do f
-        f["batch_$(batch_id)"]
-    end)
-    s.cached_batch_id = batch_id
-    s.cached_batch = batch_data
-    return batch_data
 end
 
-"""
-    load_batch_H(s::FeatureStore, batch_id::Int) -> Vector{Float64}
-
-Return the target energies for structures in a given batch.
-"""
 function load_batch_H(s::FeatureStore, batch_id::Int)
-    rng = s.batch_ranges[batch_id]
+    rng = s.disk_batch_ranges[batch_id]
     s.H[rng]
 end
 
-"""
-    Base.getindex(s::FeatureStore, i::Int) -> Matrix{Float64}
-
-Load the feature matrix for a single structure (uses batch cache).
-"""
-function Base.getindex(s::FeatureStore, i::Int)
-    bid = batch_id_for_index(s, i)
-    batch = load_batch(s, bid)
-    local_idx = i - first(s.batch_ranges[bid]) + 1
-    batch[local_idx]
-end
-
-Base.getindex(s::FeatureStore, idx::UnitRange{Int}) = [s[i] for i in idx]
-Base.getindex(s::FeatureStore, idx::Vector{Int}) = [s[i] for i in idx]
-
-Base.iterate(s::FeatureStore, state=1) =
-    state > length(s) ? nothing : (s[state], state + 1)
-
-function Base.show(io::IO, o::MIME"text/plain", s::FeatureStore)
-    println(io, "FeatureStore:")
-    println(io, "  $(s.n_data) structures in $(s.n_batches) batches (batch_size=$(s.batch_size))")
-    println(io, "  File: $(s.path)")
-    println(io, "  Max atoms: $(maximum(s.sizes)), Min atoms: $(minimum(s.sizes))")
-    println(io, "With feature spec:")
-    show(io, o, s.feature)
-end
-
-Base.show(io::IO, s::FeatureStore) = Base.show(io, MIME("text/plain"), s)
-
-
-"""
-    save_feature_store(fc::FeatureContainer, path; batch_size=2048)
-
-Save a `FeatureContainer` to a JLD2 file organised in fixed consecutive batches.
-
-Each batch is stored as a single JLD2 dataset containing a `Vector{Matrix}`,
-so that reading a batch requires one file seek + sequential read.  This is
-essential for efficient training on datasets larger than available RAM.
-
-# Arguments
-- `fc::FeatureContainer` — feature container to save
-- `path::String` — output file path
-- `batch_size::Int` — number of structures per batch (default 2048)
-
-# See also
-[`load_feature_store`](@ref), [`FeatureStore`](@ref)
-"""
-function save_feature_store(fc::FeatureContainer, path; batch_size=2048)
-    n_data = length(fc)
+function save_feature_store(fs::FeatureStore, path; batch_size=2048)
+    data = get_data(fs)
+    n_data = length(data)
     n_batches = cld(n_data, batch_size)
-    sizes = Int[size(v, 2) for v in fc.fvecs]
+    sizes = Int[size(v, 2) for v in data]
 
     jldopen(path, "w") do f
         f["version"] = "feature_store_v1"
         f["n_data"] = n_data
         f["batch_size"] = batch_size
         f["n_batches"] = n_batches
-        f["H"] = fc.H
-        f["labels"] = fc.labels
-        f["metadata"] = fc.metadata
-        f["feature"] = fc.feature
-        f["xt"] = fc.xt
-        f["yt"] = fc.yt
-        f["elemental_energies"] = fc.elemental_energies
+        f["H"] = fs.H
+        f["labels"] = fs.labels
+        f["metadata"] = fs.metadata
+        f["feature"] = fs.feature
+        f["xt"] = fs.xt
+        f["yt"] = fs.yt
+        f["elemental_energies"] = fs.elemental_energies
         f["sizes"] = sizes
 
         for b in 1:n_batches
             rng = ((b - 1) * batch_size + 1):min(b * batch_size, n_data)
-            f["batch_$(b)"] = fc.fvecs[rng]
+            f["batch_$(b)"] = data[rng]
         end
     end
     path
 end
 
-
-"""
-    load_feature_store(path) -> FeatureStore
-
-Load a `FeatureStore` from a JLD2 file created by `save_feature_store`.
-
-The file is **not** held open — features are loaded on demand via `getindex`
-or `load_batch`, with per-batch caching to avoid redundant disk reads.
-
-# See also
-[`save_feature_store`](@ref), [`FeatureStore`](@ref)
-"""
 function load_feature_store(path)
     jldopen(path, "r") do f
         n_data = f["n_data"]
@@ -1261,33 +1162,119 @@ function load_feature_store(path)
 end
 
 
-"""
-    get_fit_data(s::FeatureStore) -> (FeatureStore, Vector{Float64})
-
-Return `(store, store.H)` so that `FeatureStore` can be used as a drop-in
-replacement for `FeatureContainer` in `train!` and related functions.
-"""
-get_fit_data(s::FeatureStore) = (s, s.H)
-
+# ═══════════════════════════════════════════════════════════════════════════
+# FeatureBatch and each_batch — DataLoader-style batched iteration
+# ═══════════════════════════════════════════════════════════════════════════
 
 """
-    FeatureContainer(s::FeatureStore) -> FeatureContainer
+    FeatureBatch
 
-Materialise a `FeatureStore` into an in-memory `FeatureContainer` by loading
-all batches.  Useful for smaller datasets or when full in-memory access is needed.
+A batch of feature data yielded by `each_batch`. Contains feature matrices,
+target energies, indices, and atom counts for a subset of structures.
 """
-function FeatureContainer(s::FeatureStore)
-    fvecs = Matrix{Float64}[s[i] for i in 1:length(s)]
-    FeatureContainer(
-        fvecs,
-        s.feature,
-        s.H,
-        s.labels,
-        s.metadata,
-        s.xt,
-        s.yt,
-        s.elemental_energies,
+struct FeatureBatch
+    matrices::Vector{Matrix{Float64}}
+    H::Vector{Float64}
+    indices::Vector{Int}
+    natoms::Vector{Int}
+end
+
+function _hcat_matrices(mats::Vector{Matrix{Float64}})
+    total_atoms = sum(size(m, 2) for m in mats)
+    nfeat = size(first(mats), 1)
+    X = similar(first(mats), nfeat, total_atoms)
+    fill!(X, 0)
+    offset = 1
+    for m in mats
+        nat = size(m, 2)
+        X[:, offset:offset+nat-1] = m
+        offset += nat
+    end
+    X
+end
+
+Base.hcat(b::FeatureBatch) = _hcat_matrices(b.matrices)
+
+struct FeatureBatchIterator
+    store::FeatureStore
+    batch_size::Int
+    shuffle::Bool
+    seed::Int
+end
+
+"""
+    each_batch(store::FeatureStore; batch_size=32, shuffle=true, seed=42) -> FeatureBatchIterator
+
+Return an iterator that yields `FeatureBatch` objects for DataLoader-style
+batched iteration over the FeatureStore.
+
+For disk-backed stores, the iterator is I/O-aware: when the requested
+`batch_size` is >= the disk batch size, it iterates disk batches directly
+to minimize random I/O.
+
+# Examples
+```julia
+for batch in each_batch(store; batch_size=64)
+    X = hcat(batch)             # concatenate for SGD-style forward pass
+    # or iterate batch.matrices for LM-style per-structure processing
+end
+```
+"""
+function each_batch(store::FeatureStore; batch_size::Int=32, shuffle::Bool=true, seed::Int=42)
+    FeatureBatchIterator(store, batch_size, shuffle, seed)
+end
+
+function _io_efficient_batches(store::FeatureStore, batch_size::Int, rng)
+    n = length(store)
+    if store.data !== nothing
+        perm = shuffle ? randperm(rng, n) : collect(1:n)
+        batches = Vector{Vector{Int}}()
+        for start in 1:batch_size:n
+            push!(batches, collect(perm[start:min(start + batch_size - 1, n)]))
+        end
+        return batches
+    end
+    if batch_size >= store.disk_batch_size && store.n_disk_batches > 0
+        perm = shuffle ? randperm(rng, store.n_disk_batches) : collect(1:store.n_disk_batches)
+        return [collect(store.disk_batch_ranges[b]) for b in perm]
+    end
+    perm = shuffle ? randperm(rng, n) : collect(1:n)
+    batches = Vector{Vector{Int}}()
+    for start in 1:batch_size:n
+        push!(batches, collect(perm[start:min(start + batch_size - 1, n)]))
+    end
+    return batches
+end
+
+function Base.iterate(iter::FeatureBatchIterator, state=nothing)
+    if state === nothing
+        rng = MersenneTwister(iter.seed)
+        batches = _io_efficient_batches(iter.store, iter.batch_size, rng)
+        state = (batches, 1)
+    end
+    batches, pos = state
+    if pos > length(batches)
+        return nothing
+    end
+    idx = batches[pos]
+    matrices = [iter.store[i] for i in idx]
+    batch = FeatureBatch(matrices, iter.store.H[idx], idx, iter.store.sizes[idx])
+    return (batch, (batches, pos + 1))
+end
+
+Base.length(iter::FeatureBatchIterator) = cld(length(iter.store), iter.batch_size)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Deprecated FeatureContainer alias
+# ═══════════════════════════════════════════════════════════════════════════
+
+function FeatureContainer(args...; kwargs...)
+    Base.depwarn(
+        "FeatureContainer is deprecated, use FeatureStore instead.",
+        :FeatureContainer,
     )
+    FeatureStore(args...; kwargs...)
 end
 
 
@@ -1451,8 +1438,8 @@ statistics.  Only one chunk of structures (~256) and one batch buffer
 - `output_path`: output JLD2 file path
 
 # Returns
-`(store::FeatureStore, fc_val::FeatureContainer)` — the training FeatureStore
-loaded from disk and the validation FeatureContainer (in memory).
+`(store_train::FeatureStore, store_val::FeatureStore)` — the training FeatureStore
+loaded from disk and the validation FeatureStore (in memory).
 """
 function save_feature_store_streaming(
     path::AbstractString,
@@ -1634,25 +1621,21 @@ function save_feature_store_streaming(
 
     println("Wrote $n_train_actual training structures in $n_batches batches to $output_path")
 
-    # ---- Build val FeatureContainer ----
-    fc_val = FeatureContainer(
-        val_fvecs,
-        feature,
-        val_H,
-        val_labels,
-        val_metadata,
-        nothing,    # xt — set below
-        nothing,    # yt — set below
+    val_sizes = [size(fv, 2) for fv in val_fvecs]
+    fs_val = FeatureStore(
+        val_H, val_labels, val_metadata, feature,
+        nothing, nothing,
         Dict{Symbol,Float64}(elemental_energies),
+        val_sizes,
+        val_fvecs, "", 0, 0, UnitRange{Int}[], -1, Matrix{Float64}[], ReentrantLock(),
     )
-    # Apply the same transforms from training stats
-    standardize!(fc_val;
+    standardize!(fs_val;
         xt=xt,
         yt=ZScoreTransform(1, 2, yt_mean, yt_scale),
     )
 
     store = load_feature_store(output_path)
-    println("Val set: $(length(fc_val)) structures.")
+    println("Val set: $(length(fs_val)) structures.")
 
-    return store, fc_val
+    return store, fs_val
 end

@@ -7,7 +7,7 @@
 
 using EDDPotentials
 using EDDPotentials:
-    FeatureContainer, StructureContainer, TrainingResults,
+    FeatureStore, StructureContainer, TrainingResults,
     RandomEmbeddedCellFeature, MultiRandomEmbeddedCellFeature,
     ginit, get_elemental_energy, mae_per_atom, nfeatures, rmse_per_atom,
     train_lm_batched_with_embedding!,
@@ -79,7 +79,7 @@ function main(args=ARGS)
 
     e0s = load_e0s()
 
-    fc_train = FeatureContainer(sc_train, embedded; show_progress=false, elemental_energies=e0s)
+    fc_train = FeatureStore(sc_train, embedded; show_progress=false, elemental_energies=e0s)
     standardize!(fc_train)
 
     train_structures = sc_train.structures

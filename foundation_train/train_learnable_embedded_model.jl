@@ -1,6 +1,6 @@
 using EDDPotentials
 using EDDPotentials:
-    FeatureContainer,
+    FeatureStore,
     RandomEmbeddedCellFeature,
     MultiRandomEmbeddedCellFeature,
     StructureContainer,
@@ -200,8 +200,8 @@ function main(args=ARGS)
         println("Elemental reference energies: $(length(e0s)) elements loaded from $(cfg["e0s"])")
     end
 
-    # Build FeatureContainer from train split to get xt/yt statistics
-    fc_train = FeatureContainer(sc_train, embedded; show_progress=true, elemental_energies=e0s)
+    # Build FeatureStore from train split to get xt/yt statistics
+    fc_train = FeatureStore(sc_train, embedded; show_progress=true, elemental_energies=e0s)
     standardize!(fc_train)
 
     # Extract raw structures and energies for the learnable embedding path
@@ -267,8 +267,8 @@ function main(args=ARGS)
     end
 
     # Evaluate — recompute features with final (trained) embedding
-    fc_val_final = FeatureContainer(sc_val, embedded; show_progress=false, elemental_energies=e0s)
-    fc_train_final = FeatureContainer(sc_train, embedded; show_progress=false, elemental_energies=e0s)
+    fc_val_final = FeatureStore(sc_val, embedded; show_progress=false, elemental_energies=e0s)
+    fc_train_final = FeatureStore(sc_train, embedded; show_progress=false, elemental_energies=e0s)
 
     train_results = TrainingResults(model, fc_train_final)
     val_results = TrainingResults(model, fc_val_final)

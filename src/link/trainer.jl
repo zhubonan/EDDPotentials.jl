@@ -76,7 +76,7 @@ end
 Write the dataset to the disk. These are large JLD2 archive containing the data for training, validation, and testing.
 
 Uses memory-efficient split-then-featurize pipeline by default.
-Pass a pre-built FeatureContainer as the second argument to use the legacy path.
+Pass a pre-built FeatureStore as the second argument to use the legacy path.
 """
 function write_dataset(bu::Builder; name=dataset_name(bu))
     ensure_dir(splitdir(name)[1])
@@ -84,9 +84,9 @@ function write_dataset(bu::Builder; name=dataset_name(bu))
     _save_split_dataset(name, train, val, test)
 end
 
-function write_dataset(bu::Builder, fc::FeatureContainer; name=dataset_name(bu))
+function write_dataset(bu::Builder, fs::FeatureStore; name=dataset_name(bu))
     ensure_dir(splitdir(name)[1])
-    train, val, test = split(fc, bu.trainer.train_split...)
+    train, val, test = split(fs, bu.trainer.train_split...)
     _save_split_dataset(name, train, val, test)
 end
 

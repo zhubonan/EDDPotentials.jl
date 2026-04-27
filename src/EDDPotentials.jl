@@ -152,8 +152,10 @@ export AbstractOptimizer, NativeTPSD, NativeFIRE
 export initialize!, step!, converged, reset!, get_iteration, optimize!
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer,
-    FeatureContainer,
     FeatureStore,
+    FeatureBatch,
+    each_batch,
+    get_data,
     save_feature_store,
     save_feature_store_streaming,
     load_feature_store,

@@ -193,8 +193,8 @@ function create_ensemble(
     EnsembleNNInterface(Tuple(tmp_models[mask]), weights[mask])
 end
 
-EnsembleNNInterface(models, fc::FeatureContainer; kwargs...) =
-    create_ensemble(models, get_fit_data(fc)...; kwargs...)
+EnsembleNNInterface(models, fs::FeatureStore; kwargs...) =
+    create_ensemble(models, get_fit_data(fs)...; kwargs...)
 
 """
     predict_energy(itf::AbstractNNInterface, vec) -> Float64
@@ -455,8 +455,8 @@ function train_lm_batched!(
 
     rec = []
 
-    train_natoms = x isa FeatureStore ? natoms(x) : [size(v, 2) for v in x]
-    val_natoms = x_val isa FeatureStore ? natoms(x_val) : [size(v, 2) for v in x_val]
+    train_natoms = natoms(x)
+    val_natoms = natoms(x_val)
 
     time_start = time()
     last_time = time()
@@ -539,148 +539,64 @@ function train_lm_batched!(
 end
 
 """
-    train!(itf::AbstractNNInterface, fc_train::FeatureContainer, fc_val::FeatureContainer; kwargs...)
+    train!(itf::AbstractNNInterface, train_data::FeatureStore, val_data::FeatureStore; kwargs...)
 
 Train a neural network model using training and validation datasets.
 
-This is the main high-level training function that users should call. It automatically
-extracts features and energies from FeatureContainers and dispatches to the appropriate
-training algorithm (Levenberg-Marquardt by default).
+This is the main high-level training function. It dispatches to the appropriate
+training algorithm based on `train_method`.
 
 # Arguments
 - `itf::AbstractNNInterface`: Neural network interface to train
-- `fc_train::FeatureContainer`: Training dataset with features and energies
-- `fc_val::FeatureContainer`: Validation dataset for monitoring during training
+- `train_data::FeatureStore`: Training dataset
+- `val_data::FeatureStore`: Validation dataset
 
 # Keyword Arguments
-- `train_method="lm"`: Training algorithm ("lm" for Levenberg-Marquardt, "lm_batched" for batched LM, "optim" for Optim.jl, "sgd" for SGD/Adam)
+- `train_method="lm"`: Training algorithm ("lm", "lm_batched", "sgd", "optim")
 - Additional kwargs are passed to the underlying training function
 
-# Returns
-Returns from underlying training method (`train_lm!` or Optim optimization)
-
-# Examples
-```julia
-# Load training and validation data
-using ExtXYZ
-structures_train = read("carbon_train.xyz", ExtXYZ)
-structures_val = read("carbon_val.xyz", ExtXYZ)
-
-# Create FeatureContainers
-cf = CellFeature([:C])  # Define features for carbon
-sc_train = StructureContainer(structures_train)
-sc_val = StructureContainer(structures_val)
-fc_train = FeatureContainer(cf, sc_train)
-fc_val = FeatureContainer(cf, sc_val)
-
-# Create and train model
-itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
-train!(itf, fc_train, fc_val; maxIter=500, show_progress=true)
-
-# Evaluate performance
-train_results = TrainingResults(itf, fc_train)
-println("Train RMSE: ", rmse_per_atom(train_results), " eV/atom")
-```
-
-# Notes
-- The default Levenberg-Marquardt method (`train_method="lm"`) is recommended for EDDP
-- Features and energies are automatically extracted from FeatureContainers
-- All kwargs are passed through to the underlying training function
-
 # See also
-[`train_lm!`](@ref), [`FeatureContainer`](@ref), [`TrainingResults`](@ref), [`create_ensemble`](@ref)
+[`train_lm!`](@ref), [`FeatureStore`](@ref), [`TrainingResults`](@ref), [`create_ensemble`](@ref)
 """
 function train!(
     itf::AbstractNNInterface,
-    fc_train::FeatureContainer,
-    fc_val::FeatureContainer;
+    train_data::FeatureStore,
+    val_data::FeatureStore;
     train_method="lm",
     kwargs...,
 )
-    # Inject feature_spec and elemental_energies from the FeatureContainer if not provided
     kw = NamedTuple(kwargs)
     if !haskey(kw, :feature_spec)
-        kw = merge(kw, (feature_spec=fc_train.feature,))
+        kw = merge(kw, (feature_spec=train_data.feature,))
     end
     if !haskey(kw, :elemental_energies)
-        kw = merge(kw, (elemental_energies=fc_train.elemental_energies,))
+        kw = merge(kw, (elemental_energies=train_data.elemental_energies,))
     end
 
     if train_method == "lm"
-        x_train, y_train = get_fit_data(fc_train)
-        x_val, y_val = get_fit_data(fc_val)
+        x_train, y_train = get_fit_data(train_data)
+        x_val, y_val = get_fit_data(val_data)
         train_lm!(itf, x_train, y_train; x_val, y_val, kw...)
     elseif train_method == "lm_batched"
-        x_train, y_train = get_fit_data(fc_train)
-        x_val, y_val = get_fit_data(fc_val)
-        train_lm_batched!(itf, x_train, y_train; x_val, y_val, kw...)
+        x_train, y_train = get_fit_data(train_data)
+        x_val, y_val = get_fit_data(val_data)
+        batch_ranges_kw = if !haskey(kw, :batch_ranges) && train_data.data === nothing && train_data.n_disk_batches > 0
+            merge(kw, (batch_ranges=train_data.disk_batch_ranges,))
+        else
+            kw
+        end
+        train_lm_batched!(itf, x_train, y_train; x_val, y_val, batch_ranges_kw...)
     elseif train_method == "sgd"
-        x_train, y_train = get_fit_data(fc_train)
-        x_val, y_val = get_fit_data(fc_val)
+        x_train, y_train = get_fit_data(train_data)
+        x_val, y_val = get_fit_data(val_data)
         train_sgd!(itf, x_train, y_train; x_val, y_val, kw...)
     elseif train_method == "optim"
         model = get_flux_model(itf)
-        f, g!, pview, callback = EDDPotentials.generate_f_g_optim(model, fc_train, fc_val)
+        f, g!, pview, callback = EDDPotentials.generate_f_g_optim(model, train_data, val_data)
         od = OnceDifferentiable(f, g!, collect(pview))
         x0 = collect(pview)
         opt_res = Optim.optimize(od, x0; callback=callback, kwargs...)
         opt_res, collect(pview)
-    end
-end
-
-"""
-    train!(itf::AbstractNNInterface, store::FeatureStore, fc_val; kwargs...)
-
-Train a neural network using a `FeatureStore` (disk-backed features) as the
-training data.  Uses the batched LM algorithm with fixed-batch shuffle for
-efficient sequential I/O.
-
-When `store` is a `FeatureStore`, the training data is loaded from disk on
-demand with per-batch caching.  The `batch_ranges` from the store are passed
-to the LM solver so that only the batch order is shuffled each epoch (not the
-per-structure indices), enabling sequential reads within each batch.
-
-# Keyword Arguments
-- `train_method`: `"lm_batched"` or `"sgd"` for `FeatureStore`.
-- `batch_size`: Ignored — the store's pre-computed `batch_ranges` are used
-  directly.  To change the batch size, regenerate the `FeatureStore` with
-  a different `batch_size`.
-- All other kwargs are passed to `train_lm_batched!`.
-
-# See also
-[`FeatureStore`](@ref), [`train_lm_batched!`](@ref), [`train!`](@ref)
-"""
-function train!(
-    itf::AbstractNNInterface,
-    store::FeatureStore,
-    fc_val::FeatureContainer;
-    train_method="lm_batched",
-    kwargs...,
-)
-    # Inject feature_spec and elemental_energies from the FeatureStore if not provided
-    kw = NamedTuple(kwargs)
-    if !haskey(kw, :feature_spec)
-        kw = merge(kw, (feature_spec=store.feature,))
-    end
-    if !haskey(kw, :elemental_energies)
-        kw = merge(kw, (elemental_energies=store.elemental_energies,))
-    end
-
-    if train_method == "lm_batched"
-        x_train, y_train = get_fit_data(store)
-        x_val, y_val = get_fit_data(fc_val)
-        train_lm_batched!(
-            itf, x_train, y_train;
-            x_val=x_val, y_val=y_val,
-            batch_ranges=store.batch_ranges,
-            kw...,
-        )
-    elseif train_method == "sgd"
-        x_train, y_train = get_fit_data(store)
-        x_val, y_val = get_fit_data(fc_val)
-        train_sgd!(itf, x_train, y_train; x_val, y_val, kw...)
-    else
-        error("FeatureStore only supports train_method=\"lm_batched\" or \"sgd\"")
     end
 end
 
@@ -716,9 +632,9 @@ Allow func(itf, fc) signature to be used....
 """
 macro _itf_per_atom_wrap(expr)
     quote
-        function $(esc(expr))(itf::AbstractNNInterface, fc::FeatureContainer)
-            x, y = get_fit_data(fc)
-            nat = size.(x, 2)
+        function $(esc(expr))(itf::AbstractNNInterface, fs::FeatureStore)
+            x, y = get_fit_data(fs)
+            nat = natoms(x)
             $expr(itf, x, y, nat)
         end
     end
@@ -731,12 +647,12 @@ end
 
 
 """
-    create_ensemble(all_models, fc_train::FeatureContainer, args...)      
+    create_ensemble(all_models, fc_train::FeatureStore, args...)      
 
 Create ensemble model from training data.
 """
-function create_ensemble(all_models, fc::FeatureContainer, args...; kwargs...)
-    x, y = get_fit_data(fc)
+function create_ensemble(all_models, fs::FeatureStore, args...; kwargs...)
+    x, y = get_fit_data(fs)
     create_ensemble(all_models, x, y; kwargs...)
 end
 
@@ -787,23 +703,17 @@ function Base.getindex(v::TrainingResults, idx::Union{UnitRange,Vector{T}}) wher
 end
 
 """
-    TrainingResults(model::AbstractNNInterface, fc::FeatureContainer)
+    TrainingResults(model::AbstractNNInterface, fs::FeatureStore)
 
-Create a `TrainingResults` object from a model and a feature container.
+Create a `TrainingResults` object from a model and a feature store.
 """
-function TrainingResults(model::AbstractNNInterface, fc::FeatureContainer)
-    x, H_target = get_fit_data(fc)
+function TrainingResults(model::AbstractNNInterface, fs::FeatureStore)
+    x, H_target = get_fit_data(fs)
     H_pred = predict_energy.(Ref(model), x)
-    TrainingResults(fc, model, H_pred, H_target)
+    TrainingResults(fs, model, H_pred, H_target)
 end
 
-"""
-    TrainingResults(tr::TrainingResults, fc::FeatureContainer)
-
-
-Create a `TrainingResults` object from a `TrainingResults` object and a feature container.
-"""
-TrainingResults(tr::TrainingResults, fc::FeatureContainer) = TrainingResults(tr.model, fc)
+TrainingResults(tr::TrainingResults, fs::FeatureStore) = TrainingResults(tr.model, fs)
 
 """
     absolute_error(tr::TrainingResults)
@@ -948,7 +858,7 @@ function ensemble_std(
             (m, w) in zip(tr.model.models, tr.model.weights) if w > min_weight
         )
     end
-    return fvstd_atomic.(tr.fc.fvecs)
+    return fvstd_atomic.(get_data(tr.fc))
 end
 
 """
@@ -1006,7 +916,7 @@ This is for 'batch' training where all of the data are included.
 """
 function generate_f_g_optim(model, fc_train, fc_val; pow=2, earlystop=30)
 
-    X = fc_train.fvecs
+    X = get_data(fc_train)
     nfeat = size(X[1], 1)
     Y = transform_y(fc_train)
     xsizes = size.(X, 2)
@@ -1060,14 +970,14 @@ function generate_f_g_optim(model, fc_train, fc_val; pow=2, earlystop=30)
     function callback(args...; kwargs...)
         rmse =
             (
-                (mean.(mdl.(fc_train.fvecs)) .* fc_train.yt.scale[1]) .+
+                (mean.(mdl.(get_data(fc_train))) .* fc_train.yt.scale[1]) .+
                 fc_train.yt.mean[1] .- Ha
             ) .^ 2 |>
             mean |>
             sqrt
         rmse_val =
             (
-                (mean.(mdl.(fc_val.fvecs)) .* fc_val.yt.scale[1]) .+ fc_val.yt.mean[1] .-
+                (mean.(mdl.(get_data(fc_val))) .* fc_val.yt.scale[1]) .+ fc_val.yt.mean[1] .-
                 Ha_val
             ) .^ 2 |>
             mean |>
@@ -1276,16 +1186,23 @@ end
 
 function _prepare_presplit(scs, feature_spec;
                            elemental_energies, show_progress, nmax)
-    fcs = [FeatureContainer(sc, feature_spec;
+    fcs = [FeatureStore(sc, feature_spec;
             elemental_energies, show_progress, nmax) for sc in scs]
     standardize!(fcs...)
     Tuple(fcs)
 end
 
-function _prepare_fc_split(fc::FeatureContainer; val_ratio::Float64, test_ratio::Float64, seed::Int)
+function _prepare_fc_split(fs::FeatureStore; val_ratio::Float64, test_ratio::Float64, seed::Int)
+    if fs.data === nothing
+        error(
+            "Cannot split a disk-backed FeatureStore for training. " *
+            "Provide pre-split train/val/test FeatureStores directly to `train_model`, " *
+            "or use an in-memory store."
+        )
+    end
     val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
     test_ratio > 0 || throw(ArgumentError("test_ratio must be > 0"))
-    N = length(fc)
+    N = length(fs)
     nval = Int(floor(N * val_ratio))
     ntest = Int(floor(N * test_ratio))
     nval > 0 || throw(ArgumentError(
@@ -1295,32 +1212,35 @@ function _prepare_fc_split(fc::FeatureContainer; val_ratio::Float64, test_ratio:
     ntrain = N - nval - ntest
     ntrain > 0 || throw(ArgumentError(
         "Not enough structures ($N) for val_ratio=$val_ratio + test_ratio=$test_ratio"))
-    fc_clean = _reset_transforms(fc)
-    split(fc_clean, ntrain, nval, ntest; standardize=true, seed)
+    fs_clean = _reset_transforms(fs)
+    split(fs_clean, ntrain, nval, ntest; standardize=true, seed)
 end
 
-function _reset_transforms(fc::FeatureContainer)
-    FeatureContainer(
-        fc.fvecs,
-        fc.feature,
-        fc.H,
-        fc.labels,
-        fc.metadata,
-        nothing,
-        nothing,
-        fc.elemental_energies,
-    )
+function _reset_transforms(fs::FeatureStore)
+    if fs.data !== nothing
+        FeatureStore(
+            fs.data, fs.H, fs.labels, fs.metadata, fs.feature;
+            elemental_energies=fs.elemental_energies,
+        )
+    else
+        FeatureStore(
+            fs.path, length(fs), fs.n_disk_batches, fs.disk_batch_size,
+            fs.disk_batch_ranges, fs.sizes,
+            fs.H, fs.labels, fs.metadata, fs.feature,
+            nothing, nothing, fs.elemental_energies,
+        )
+    end
 end
 
 # =====================================================================
-# Core method: train_model on 3 pre-split FeatureContainers
+# Core method: train_model on 3 pre-split FeatureStores
 # =====================================================================
 
 """
     train_model(fc_train, fc_val, fc_test; ...) -> TrainedModel
 
 Core training entry point operating on three pre-split, pre-standardized
-`FeatureContainer`s. All other `train_model` overloads delegate here.
+`FeatureStore`s. All other `train_model` overloads delegate here.
 
 Training uses `fc_train` and `fc_val`; `fc_test` is evaluated once after
 training completes. The model, feature spec, elemental energies, and
@@ -1329,9 +1249,9 @@ evaluation results on all three splits are bundled into the returned
 
 # Arguments
 
-- `fc_train::FeatureContainer`: training set
-- `fc_val::FeatureContainer`: validation set (used for early stopping)
-- `fc_test::FeatureContainer`: test set (evaluated once post-training)
+- `fc_train::FeatureStore`: training set
+- `fc_val::FeatureStore`: validation set (used for early stopping)
+- `fc_test::FeatureStore`: test set (evaluated once post-training)
 
 # Keyword arguments
 
@@ -1344,12 +1264,12 @@ evaluation results on all three splits are bundled into the returned
 
 # See also
 
-[`train!`](@ref), [`TrainedModel`](@ref), [`FeatureContainer`](@ref)
+[`train!`](@ref), [`TrainedModel`](@ref), [`FeatureStore`](@ref)
 """
 function train_model(
-    fc_train::FeatureContainer,
-    fc_val::FeatureContainer,
-    fc_test::FeatureContainer;
+    fc_train::FeatureStore,
+    fc_val::FeatureStore,
+    fc_test::FeatureStore;
     nnodes::Vector{Int}=[10, 10],
     train_method::String="lm_batched",
     verbose::Bool=true,
@@ -1409,7 +1329,7 @@ during the training loop.
 # Arguments
 
 - `data`: file paths (glob patterns or `@:N` slice syntax), a
-  `StructureContainer`, or a pre-computed `FeatureContainer`.
+  `StructureContainer`, or a pre-computed `FeatureStore`.
 - `feature_spec::AbstractCellFeatureSpec`: the atomic environment
   descriptor. **Optional** — if omitted, species are inferred from the
   loaded structures and default feature parameters are used.  Feature
@@ -1448,7 +1368,7 @@ train_model(sc_train, sc_val, sc_test; p2=2:12, rcut2=5.0, ...)
 train_model(path_train, path_val, path_test, feature_spec; ...)
 train_model(path_train, path_val, path_test; p2=2:12, ...)
 
-# From pre-split FeatureContainers
+# From pre-split FeatureStores
 train_model(fc_train, fc_val, fc_test; ...)
 ```
 
@@ -1572,9 +1492,9 @@ function train_model(
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
-# FeatureContainer with built-in split
+# FeatureStore with built-in split
 function train_model(
-    fc::FeatureContainer;
+    fs::FeatureStore;
     val_ratio::Float64=0.1,
     test_ratio::Float64=0.1,
     seed::Int=42,
@@ -1584,7 +1504,7 @@ function train_model(
     show_progress::Bool=true,
     kwargs...,
 )
-    fc_train, fc_val, fc_test = _prepare_fc_split(fc; val_ratio, test_ratio, seed)
+    fc_train, fc_val, fc_test = _prepare_fc_split(fs; val_ratio, test_ratio, seed)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
 end

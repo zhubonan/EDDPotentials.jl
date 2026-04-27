@@ -107,7 +107,7 @@ println("Two-body features: ", sum(nfeatures, cf.two_body))
 println("Three-body features: ", sum(nfeatures, cf.three_body))
 
 # Use for feature computation
-fc = FeatureContainer(sc, cf)
+fc = FeatureStore(sc, cf)
 ```
 
 # Notes
@@ -119,7 +119,7 @@ fc = FeatureContainer(sc, cf)
 - CellFeature objects can be combined with `+` operator
 
 # See also
-[`TwoBodyFeature`](@ref), [`ThreeBodyFeature`](@ref), [`FeatureContainer`](@ref), [`genp`](@ref)
+[`TwoBodyFeature`](@ref), [`ThreeBodyFeature`](@ref), [`FeatureStore`](@ref), [`genp`](@ref)
 """
 function CellFeature(
     elements;

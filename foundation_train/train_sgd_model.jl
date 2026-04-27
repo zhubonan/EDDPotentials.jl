@@ -20,7 +20,6 @@ Examples:
 
 using EDDPotentials
 using EDDPotentials:
-    FeatureContainer,
     FeatureStore,
     RandomEmbeddedCellFeature,
     MultiRandomEmbeddedCellFeature,
