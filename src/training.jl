@@ -1167,7 +1167,8 @@ end
 
 function _prepare_split(sc::StructureContainer, feature_spec;
                         val_ratio::Float64, test_ratio::Float64, seed::Int,
-                        elemental_energies, show_progress, nmax)
+                        elemental_energies, show_progress, nmax,
+                        use_force_data=false, nsynthetic=1, max_disp=0.05, force_key=:REF_forces)
     val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
     test_ratio > 0 || throw(ArgumentError("test_ratio must be > 0"))
     N = length(sc)
@@ -1181,11 +1182,36 @@ function _prepare_split(sc::StructureContainer, feature_spec;
     ntrain > 0 || throw(ArgumentError(
         "Not enough structures ($N) for val_ratio=$val_ratio + test_ratio=$test_ratio"))
     split_and_featurize(sc, feature_spec, ntrain, nval, ntest;
-        seed, elemental_energies, show_progress, nmax)
+        seed, elemental_energies, show_progress, nmax,
+        use_force_data, nsynthetic, max_disp, force_key)
 end
 
 function _prepare_presplit(scs, feature_spec;
-                           elemental_energies, show_progress, nmax)
+                           elemental_energies, show_progress, nmax,
+                           use_force_data=false, nsynthetic=1, max_disp=0.05, force_key=:REF_forces, seed=42)
+    if use_force_data
+        old_lengths = length.(scs)
+        scs = [
+            synthetic_force_data(
+                sc;
+                nsynthetic,
+                max_disp,
+                force_key,
+                rng=MersenneTwister(seed),
+                keep_original=true,
+                skip_missing=true,
+            ) for sc in scs
+        ]
+        new_lengths = length.(scs)
+        if all(new_lengths .== old_lengths)
+            throw(ArgumentError(
+                "`use_force_data=true` but none of the structures across all " *
+                "$(sum(old_lengths)) pre-split entries carry a `$(force_key)` array. " *
+                "Ensure the input data includes force arrays (e.g. from DFT-calculated " *
+                "extxyz files with a `REF_forces` column).",
+            ))
+        end
+    end
     fcs = [FeatureStore(sc, feature_spec;
             elemental_energies, show_progress, nmax) for sc in scs]
     standardize!(fcs...)
@@ -1276,6 +1302,14 @@ function train_model(
     show_progress::Bool=true,
     kwargs...,
 )
+    if haskey(Dict(kwargs), :use_force_data) && get(Dict(kwargs), :use_force_data, false) === true
+        throw(ArgumentError(
+            "`use_force_data=true` is not supported for `FeatureStore` input. " *
+            "Synthetic force data must be generated at the `StructureContainer` level, " *
+            "before feature computation. Provide paths or a `StructureContainer` to " *
+            "`train_model` instead.",
+        ))
+    end
     ninp = nfeatures(fc_train.feature)
     chain = generate_chain(ninp, nnodes)
     itf = ManualFluxBackPropInterface(chain, xt=fc_train.xt, yt=fc_train.yt)
@@ -1353,6 +1387,10 @@ during the training loop.
 - `nmax=500`: maximum neighbour list entries.
 - `p2=2:8`, `p3=2:8`, `q3=2:8`: feature exponents (auto-inferred spec only).
 - `rcut2=4.0`, `rcut3=4.0`: feature cutoff radii (auto-inferred spec only).
+- `use_force_data=false`: augment training data with synthetic entries from structures carrying force arrays via Taylor expansion.
+- `nsynthetic=1`: number of synthetic structures per parent with forces.
+- `max_disp=0.05`: maximum per-atom displacement for synthetic structures (Å).
+- `force_key=:REF_forces`: `cell.arrays` key for the force matrix.
 - All other kwargs are forwarded to [`train!`](@ref).
 
 # Pre-split data
@@ -1405,12 +1443,17 @@ function train_model(
     show_progress::Bool=true,
     nmax::Int=500,
     verbose::Bool=true,
+    use_force_data=false,
+    nsynthetic=1,
+    max_disp=0.05,
+    force_key=:REF_forces,
     kwargs...,
 )
     sc = _sc_from_paths(data; threshold, pressure_gpa)
     verbose && println("Loaded $(length(sc)) structures after filtering.")
     fc_train, fc_val, fc_test = _prepare_split(
-        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax)
+        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax,
+        use_force_data, nsynthetic, max_disp, force_key)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1434,13 +1477,18 @@ function train_model(
     q3=2:8,
     rcut2=4.0,
     rcut3=4.0,
+    use_force_data=false,
+    nsynthetic=1,
+    max_disp=0.05,
+    force_key=:REF_forces,
     kwargs...,
 )
     sc = _sc_from_paths(data; threshold, pressure_gpa)
     verbose && println("Loaded $(length(sc)) structures after filtering.")
     feature_spec = _infer_feature_spec(sc, (; p2, p3, q3, rcut2, rcut3))
     fc_train, fc_val, fc_test = _prepare_split(
-        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax)
+        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax,
+        use_force_data, nsynthetic, max_disp, force_key)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1458,10 +1506,15 @@ function train_model(
     show_progress::Bool=true,
     nmax::Int=500,
     verbose::Bool=true,
+    use_force_data=false,
+    nsynthetic=1,
+    max_disp=0.05,
+    force_key=:REF_forces,
     kwargs...,
 )
     fc_train, fc_val, fc_test = _prepare_split(
-        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax)
+        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax,
+        use_force_data, nsynthetic, max_disp, force_key)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1483,11 +1536,16 @@ function train_model(
     q3=2:8,
     rcut2=4.0,
     rcut3=4.0,
+    use_force_data=false,
+    nsynthetic=1,
+    max_disp=0.05,
+    force_key=:REF_forces,
     kwargs...,
 )
     feature_spec = _infer_feature_spec(sc, (; p2, p3, q3, rcut2, rcut3))
     fc_train, fc_val, fc_test = _prepare_split(
-        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax)
+        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax,
+        use_force_data, nsynthetic, max_disp, force_key)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1504,6 +1562,14 @@ function train_model(
     show_progress::Bool=true,
     kwargs...,
 )
+    if haskey(Dict(kwargs), :use_force_data) && get(Dict(kwargs), :use_force_data, false) === true
+        throw(ArgumentError(
+            "`use_force_data=true` is not supported for `FeatureStore` input. " *
+            "Synthetic force data must be generated at the `StructureContainer` level, " *
+            "before feature computation. Provide paths or a `StructureContainer` to " *
+            "`train_model` instead.",
+        ))
+    end
     fc_train, fc_val, fc_test = _prepare_fc_split(fs; val_ratio, test_ratio, seed)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
@@ -1526,10 +1592,16 @@ function train_model(
     show_progress::Bool=true,
     nmax::Int=500,
     verbose::Bool=true,
+    seed::Int=42,
+    use_force_data=false,
+    nsynthetic=1,
+    max_disp=0.05,
+    force_key=:REF_forces,
     kwargs...,
 )
     fcs = _prepare_presplit([sc_train, sc_val, sc_test], feature_spec;
-        elemental_energies, show_progress, nmax)
+        elemental_energies, show_progress, nmax,
+        use_force_data, nsynthetic, max_disp, force_key, seed)
     return train_model(fcs[1], fcs[2], fcs[3];
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1551,11 +1623,17 @@ function train_model(
     q3=2:8,
     rcut2=4.0,
     rcut3=4.0,
+    seed::Int=42,
+    use_force_data=false,
+    nsynthetic=1,
+    max_disp=0.05,
+    force_key=:REF_forces,
     kwargs...,
 )
     feature_spec = _infer_feature_spec(sc_train, (; p2, p3, q3, rcut2, rcut3))
     fcs = _prepare_presplit([sc_train, sc_val, sc_test], feature_spec;
-        elemental_energies, show_progress, nmax)
+        elemental_energies, show_progress, nmax,
+        use_force_data, nsynthetic, max_disp, force_key, seed)
     return train_model(fcs[1], fcs[2], fcs[3];
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1575,6 +1653,11 @@ function train_model(
     show_progress::Bool=true,
     nmax::Int=500,
     verbose::Bool=true,
+    seed::Int=42,
+    use_force_data=false,
+    nsynthetic=1,
+    max_disp=0.05,
+    force_key=:REF_forces,
     kwargs...,
 )
     sc_train = _sc_from_paths(path_train; threshold, pressure_gpa)
@@ -1582,7 +1665,8 @@ function train_model(
     sc_test = _sc_from_paths(path_test; threshold, pressure_gpa)
     verbose && println("Loaded $(length(sc_train)) train / $(length(sc_val)) val / $(length(sc_test)) test structures.")
     fcs = _prepare_presplit([sc_train, sc_val, sc_test], feature_spec;
-        elemental_energies, show_progress, nmax)
+        elemental_energies, show_progress, nmax,
+        use_force_data, nsynthetic, max_disp, force_key, seed)
     return train_model(fcs[1], fcs[2], fcs[3];
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1606,6 +1690,11 @@ function train_model(
     q3=2:8,
     rcut2=4.0,
     rcut3=4.0,
+    seed::Int=42,
+    use_force_data=false,
+    nsynthetic=1,
+    max_disp=0.05,
+    force_key=:REF_forces,
     kwargs...,
 )
     sc_train = _sc_from_paths(path_train; threshold, pressure_gpa)
@@ -1614,7 +1703,8 @@ function train_model(
     verbose && println("Loaded $(length(sc_train)) train / $(length(sc_val)) val / $(length(sc_test)) test structures.")
     feature_spec = _infer_feature_spec(sc_train, (; p2, p3, q3, rcut2, rcut3))
     fcs = _prepare_presplit([sc_train, sc_val, sc_test], feature_spec;
-        elemental_energies, show_progress, nmax)
+        elemental_energies, show_progress, nmax,
+        use_force_data, nsynthetic, max_disp, force_key, seed)
     return train_model(fcs[1], fcs[2], fcs[3];
         nnodes, train_method, verbose, show_progress, kwargs...)
 end

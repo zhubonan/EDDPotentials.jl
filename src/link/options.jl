@@ -94,6 +94,9 @@ to perform various actions during the construction of the potentials.
     hyper_alpha_start::Float64 = 1e-4
     hyper_schedule_every::Int = 50
     hyper_target_iterations::Int = 500
+    use_synthetic_force_data::Bool = false
+    synthetic_force_n::Int = 1
+    synthetic_force_max_disp::Float64 = 0.05
 end
 
 abstract type AbstractTrainer end

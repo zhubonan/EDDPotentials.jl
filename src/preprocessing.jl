@@ -227,10 +227,12 @@ function _normalize_extxyz_cell!(cell, fallback_label)
     if !haskey(metadata, :label)
         metadata[:label] = haskey(metadata, :name) ? string(metadata[:name]) : fallback_label
     end
-    if haskey(cell.arrays, :forces) && !haskey(metadata, :force)
-        metadata[:force] = cell.arrays[:forces]
-    elseif haskey(cell.arrays, :force) && !haskey(metadata, :force)
-        metadata[:force] = cell.arrays[:force]
+    if !haskey(cell.arrays, :REF_forces)
+        if haskey(cell.arrays, :forces)
+            cell.arrays[:REF_forces] = cell.arrays[:forces]
+        elseif haskey(cell.arrays, :force)
+            cell.arrays[:REF_forces] = cell.arrays[:force]
+        end
     end
     metadata[:volume] = get(metadata, :volume, volume(cell))
     cell
@@ -283,6 +285,15 @@ function StructureContainer(
     H = engs
     Ha = H ./ natoms.(structures)
     mask = _select_per_atom_threshold(structures, Ha; select_func, threshold)
+    for s in structures
+        if !haskey(s.arrays, :REF_forces)
+            if haskey(s.arrays, :forces)
+                s.arrays[:REF_forces] = s.arrays[:forces]
+            elseif haskey(s.arrays, :force)
+                s.arrays[:REF_forces] = s.arrays[:force]
+            end
+        end
+    end
     StructureContainer(labels[mask], H[mask], structures[mask])
 end
 
@@ -348,21 +359,23 @@ Taylor expansion.
 # Keyword Arguments
 - `nsynthetic::Int=1`: Number of synthetic structures to generate per parent
 - `max_disp::Real=0.05`: Maximum displacement magnitude per atom in Cartesian coordinates
-- `force_key::Symbol=:force`: Metadata key used to read the parent force matrix
+- `force_key::Symbol=:REF_forces`: `cell.arrays` key used to read the parent force matrix
 - `rng=Random.default_rng()`: Random number generator
 - `label_suffix="-force"`: Suffix appended to the parent label before the shake index
-- `keep_original=false`: Whether to include the original structures in the returned container
+- `keep_original=true`: Whether to include the original structures in the returned container
 - `copy_metadata=true`: Whether to copy parent metadata onto synthetic structures
+- `skip_missing=false`: If true, silently skip structures that lack the force key
 """
 function synthetic_force_data(
     sc::StructureContainer;
     nsynthetic::Int=1,
     max_disp::Real=0.05,
-    force_key::Symbol=:force,
+    force_key::Symbol=:REF_forces,
     rng=Random.default_rng(),
     label_suffix="-force",
-    keep_original=false,
+    keep_original=true,
     copy_metadata=true,
+    skip_missing=false,
 )
     nsynthetic > 0 || throw(ArgumentError("`nsynthetic` must be positive, got $nsynthetic."))
     max_disp >= 0 || throw(ArgumentError("`max_disp` must be non-negative, got $max_disp."))
@@ -382,10 +395,12 @@ function synthetic_force_data(
         parent_label = sc.paths[i]
         parent_energy = sc.H[i]
 
-        haskey(parent.metadata, force_key) ||
-            throw(ArgumentError("Structure `$parent_label` is missing force metadata key `$(force_key)`."))
+        if !haskey(parent.arrays, force_key)
+            skip_missing && continue
+            throw(ArgumentError("Structure `$parent_label` is missing force array key `$(force_key)`."))
+        end
 
-        forces = parent.metadata[force_key]
+        forces = parent.arrays[force_key]
         size(forces) == size(get_positions(parent)) || throw(
             ArgumentError(
                 "Structure `$parent_label` has force array of size $(size(forces)), expected $(size(get_positions(parent))).",
@@ -861,7 +876,7 @@ function Base.split(
         isa(c, StructureContainer) ? (labels = c.paths) : (labels = c.labels)
         valid_labels = []
         for i = 1:length(c)
-            result = match(r"(^.*)-shake.*$", labels[i])
+            result = match(r"^(.+?)(?:-force)?-shake.*$", labels[i])
             if isnothing(result)
                 push!(valid_labels, labels[i])
             else
@@ -885,11 +900,18 @@ end
 """
     split_and_featurize(sc::StructureContainer, feature, nsplit...;
         shuffle=true, seed=42, respect_shakes=false, standardize=true,
-        elemental_energies=Dict{Symbol,Float64}(), nmax=500, show_progress=true, kwargs...)
+        elemental_energies=Dict{Symbol,Float64}(), nmax=500, show_progress=true,
+        use_force_data=false, nsynthetic=1, max_disp=0.05, force_key=:REF_forces,
+        kwargs...)
 
 Memory-efficient split-then-featurize pipeline. Splits the StructureContainer first,
 then generates features for each split independently, avoiding the peak memory of
 holding all features plus split copies simultaneously.
+
+When `use_force_data=true`, synthetic force-augmented entries are generated from
+parent structures that carry force arrays via Taylor expansion before splitting.
+Synthetic entries from the same parent are kept in the same split (`respect_shakes`
+is forced to `true`).
 
 Returns a tuple of FeatureStores, already standardized if `standardize=true`.
 
@@ -911,8 +933,39 @@ function split_and_featurize(
     elemental_energies=Dict{Symbol,Float64}(),
     nmax=500,
     show_progress=true,
+    use_force_data=false,
+    nsynthetic=1,
+    max_disp=0.05,
+    force_key=:REF_forces,
     kwargs...,
 )
+    if use_force_data
+        n_orig = length(sc)
+        sc = synthetic_force_data(
+            sc;
+            nsynthetic,
+            max_disp,
+            force_key,
+            rng=MersenneTwister(seed),
+            keep_original=true,
+            skip_missing=true,
+        )
+        if length(sc) == n_orig
+            throw(ArgumentError(
+                "`use_force_data=true` but none of the $n_orig structures carry a " *
+                "`$(force_key)` array. Ensure the input data includes force arrays " *
+                "(e.g. from DFT-calculated extxyz files with a `REF_forces` column).",
+            ))
+        end
+        respect_shakes = true
+        # When splitting with respect_shakes, the split operates on unique parent
+        # labels, not individual structures. Convert integer counts to ratios
+        # based on the pre-expansion count so the split proportions are preserved.
+        if !isempty(nsplit) && all(x -> x isa Integer, nsplit)
+            nsplit = ntuple(i -> Float64(nsplit[i] / n_orig), length(nsplit))
+        end
+    end
+
     split_scs =
         Base.split(sc, nsplit...; shuffle, seed, respect_shakes, standardize=false)
 

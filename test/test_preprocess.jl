@@ -127,27 +127,31 @@ end
         0.0 -0.3 0.4
         0.0 0.1 0.2
     ]
-    cell.metadata[:force] = forces
+    cell.arrays[:REF_forces] = forces
     cell.metadata[:label] = "force-parent"
 
     sc = StructureContainer([cell], [-12.5], ["force-parent"])
 
+    # keep_original=true is the new default
     synth = synthetic_force_data(sc; nsynthetic=2, max_disp=0.05, rng=MersenneTwister(7))
-    @test length(synth) == 2
-    @test all(occursin.("-force-shake-", synth.paths))
+    @test length(synth) == 3  # 1 original + 2 synthetic
+    @test synth.paths[1] == "force-parent"
+    @test synth.H[1] ≈ -12.5
+    @test all(occursin.("-force-shake-", synth.paths[2:end]))
 
     parent_pos = get_positions(cell)
-    for (idx, newcell) in enumerate(synth.structures)
+    for isynth = 2:3
+        newcell = synth.structures[isynth]
         disp = get_positions(newcell) .- parent_pos
         @test size(disp) == size(forces)
         @test maximum(norm.(eachcol(disp))) <= 0.05 + 1e-12
         @test newcell.metadata[:synthetic] === true
         @test newcell.metadata[:synthetic_parent_label] == "force-parent"
         @test newcell.metadata[:synthetic_parent_energy] ≈ -12.5
-        @test newcell.metadata[:label] == synth.paths[idx]
+        @test newcell.metadata[:label] == synth.paths[isynth]
 
         expected_delta = -sum(forces .* disp)
-        @test synth.H[idx] ≈ -12.5 + expected_delta atol = 1e-12
+        @test synth.H[isynth] ≈ -12.5 + expected_delta atol = 1e-12
         @test newcell.metadata[:synthetic_energy_delta] ≈ expected_delta atol = 1e-12
         @test newcell.metadata[:synthetic_displacement_norm] ≈ norm(disp) atol = 1e-12
         @test newcell.metadata[:synthetic_max_displacement] ≈
@@ -155,23 +159,23 @@ end
     end
 
     # Zero-force atoms are still rattled under the shared-cap sampling rule.
-    first_disp = get_positions(synth.structures[1]) .- parent_pos
+    first_disp = get_positions(synth.structures[2]) .- parent_pos
     @test norm(first_disp[:, 1]) > 0.0
 
-    synth_with_original = synthetic_force_data(
+    # keep_original=false: explicitly request synthetic-only
+    synth_only = synthetic_force_data(
         sc;
         nsynthetic=1,
         max_disp=0.02,
         rng=MersenneTwister(9),
-        keep_original=true,
+        keep_original=false,
     )
-    @test length(synth_with_original) == 2
-    @test synth_with_original.paths[1] == "force-parent"
-    @test synth_with_original.H[1] ≈ -12.5
+    @test length(synth_only) == 1
+    @test all(occursin.("-force-shake-", synth_only.paths))
 
     cell2 = deepcopy(cell)
     set_positions!(cell2, get_positions(cell2) .+ 0.3)
-    cell2.metadata[:force] = forces
+    cell2.arrays[:REF_forces] = forces
     cell2.metadata[:label] = "force-parent-2"
     grouped_sc = StructureContainer([cell, cell2], [-12.5, -12.0], ["force-parent", "force-parent-2"])
     grouped_synth = synthetic_force_data(
@@ -180,6 +184,7 @@ end
         max_disp=0.03,
         rng=MersenneTwister(12),
     )
+    # 2 originals + 2×2 synthetic = 6, each parent group maps to 3 entries per split
     split_a, split_b = split(
         grouped_synth,
         1,
@@ -188,30 +193,36 @@ end
         respect_shakes=true,
         standardize=false,
     )
-    @test length(split_a) == 2
-    @test length(split_b) == 2
+    @test length(split_a) == 3
+    @test length(split_b) == 3
 
     cf = CellFeature(unique(species(cell)); p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
-    fc = FeatureStore(synth, cf; show_progress=false)
-    @test length(fc) == 2
-    @test fc.H ≈ synth.H
+    fc = FeatureStore(synth_only, cf; show_progress=false)
+    @test length(fc) == 1
+    @test fc.H ≈ synth_only.H
 
+    # skip_missing=true: silently skips structures without force arrays
     missing_force_cell = deepcopy(cell)
-    delete!(missing_force_cell.metadata, :force)
+    delete!(missing_force_cell.arrays, :REF_forces)
+    synth_skip = synthetic_force_data(
+        StructureContainer([missing_force_cell], [-12.5], ["missing-force"]);
+        nsynthetic=1, max_disp=0.05, rng=MersenneTwister(1), skip_missing=true,
+    )
+    @test length(synth_skip) == 1  # only original, synthetic skipped
+    @test synth_skip.paths[1] == "missing-force"
+
+    # skip_missing=false: throws on missing force array
     @test_throws ArgumentError synthetic_force_data(
         StructureContainer([missing_force_cell], [-12.5], ["missing-force"]);
-        nsynthetic=1,
-        max_disp=0.05,
-        rng=MersenneTwister(1),
+        nsynthetic=1, max_disp=0.05, rng=MersenneTwister(1), skip_missing=false,
     )
 
+    # Bad force array dimensions should still throw
     bad_cell = deepcopy(cell)
-    bad_cell.metadata[:force] = zeros(2, length(bad_cell))
+    bad_cell.arrays[:REF_forces] = zeros(2, length(bad_cell))
     @test_throws ArgumentError synthetic_force_data(
         StructureContainer([bad_cell], [-12.5], ["bad-force"]);
-        nsynthetic=1,
-        max_disp=0.05,
-        rng=MersenneTwister(1),
+        nsynthetic=1, max_disp=0.05, rng=MersenneTwister(1),
     )
 end
 
@@ -240,8 +251,8 @@ end
         @test sc.H[2] ≈ -1.2
         @test sc.structures[1].metadata[:enthalpy] ≈ -1.5
         @test sc.structures[2].metadata[:enthalpy] ≈ -1.2
-        @test haskey(sc.structures[1].metadata, :force)
-        @test size(sc.structures[1].metadata[:force]) == (3, 2)
+        @test haskey(sc.structures[1].arrays, :REF_forces)
+        @test size(sc.structures[1].arrays[:REF_forces]) == (3, 2)
         @test sc.structures[1].metadata[:volume] ≈ 125.0
     end
 end
@@ -318,4 +329,123 @@ end
         @test length(sc_one) == 1
         @test sc_one.H[1] ≈ -1.1
     end
+end
+
+@testset "Synthetic force data in split_and_featurize pipeline" begin
+    cell1 = _h2o_cell(4.0)
+    cell1.metadata[:label] = "parent-a"
+    cell1.arrays[:REF_forces] = Float64[
+        0.0 0.2 -0.1
+        0.0 -0.3 0.4
+        0.0 0.1 0.2
+    ]
+
+    cell2 = deepcopy(cell1)
+    set_positions!(cell2, get_positions(cell2) .+ 0.3)
+    cell2.metadata[:label] = "parent-b"
+
+    cell3 = deepcopy(cell1)
+    set_positions!(cell3, get_positions(cell3) .- 0.2)
+    cell3.metadata[:label] = "parent-c"
+
+    sc = StructureContainer(
+        [cell1, cell2, cell3],
+        [-12.5, -12.0, -12.3],
+        ["parent-a", "parent-b", "parent-c"],
+    )
+
+    cf = CellFeature(unique(species(cell1)); p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
+
+    # use_force_data=true: 3 parents × (1 original + 1 synthetic) = 6 structures
+    # split by parent-group counts: 2 parents → train, 1 parent → val
+    fc_train, fc_val = split_and_featurize(
+        sc, cf, 2, 1;
+        seed=42,
+        use_force_data=true,
+        nsynthetic=1,
+        max_disp=0.05,
+    )
+    # 2 parent groups in train (4 structures: 2 originals + 2 synthetics)
+    # 1 parent group in val (2 structures: 1 original + 1 synthetic)
+    @test length(fc_train) == 4
+    @test length(fc_val) == 2
+
+    # Verify synthetic entries from same parent stay together
+    n_synthetic_train = count(l -> occursin("-shake-", l), fc_train.labels)
+    n_original_train = count(l -> !occursin("-shake-", l), fc_train.labels)
+    @test n_original_train > 0
+    @test n_synthetic_train == n_original_train
+end
+
+# Verify FeatureContainer is not broken (using synthetic data with old fc path)
+@testset "FeatureContainer from synthetic data" begin
+    cell = _h2o_cell()
+    cell.metadata[:label] = "fc-parent"
+    cell.arrays[:REF_forces] = Float64[
+        0.0 0.2 -0.1
+        0.0 -0.3 0.4
+        0.0 0.1 0.2
+    ]
+    sc = StructureContainer([cell], [-12.5], ["fc-parent"])
+    synth = synthetic_force_data(sc; nsynthetic=2, max_disp=0.05, rng=MersenneTwister(7))
+    cf = CellFeature(unique(species(cell)); p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
+    fs = FeatureStore(synth, cf; show_progress=false)
+    @test length(fs) == 3  # 1 original + 2 synthetic
+    @test fs.H ≈ synth.H
+end
+
+@testset "use_force_data without force arrays throws clear error" begin
+    cell = _h2o_cell(4.0)
+    cell.metadata[:label] = "no-force"
+    sc = StructureContainer([cell], [-12.5], ["no-force"])
+    cf = CellFeature(unique(species(cell)); p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
+
+    @test_throws ArgumentError split_and_featurize(
+        sc, cf, 0.8, 0.1, 0.1;
+        seed=42, use_force_data=true, nsynthetic=1, max_disp=0.05,
+    )
+end
+
+@testset "use_force_data with pre-split StructureContainers" begin
+    cell1 = _h2o_cell(4.0)
+    cell1.metadata[:label] = "presplit-a"
+    cell1.arrays[:REF_forces] = Float64[
+        0.0 0.2 -0.1
+        0.0 -0.3 0.4
+        0.0 0.1 0.2
+    ]
+    cell2 = deepcopy(cell1)
+    set_positions!(cell2, get_positions(cell2) .+ 0.5)
+    cell2.metadata[:label] = "presplit-b"
+
+    sc_train = StructureContainer([cell1], [-12.5], ["presplit-a"])
+    sc_val = StructureContainer([cell2], [-12.0], ["presplit-b"])
+    cf = CellFeature(unique(species(cell1)); p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
+
+    fcs = EDDPotentials._prepare_presplit(
+        [sc_train, sc_val], cf;
+        elemental_energies=Dict{Symbol,Float64}(),
+        show_progress=false, nmax=500,
+        use_force_data=true, nsynthetic=1, max_disp=0.05, seed=42,
+    )
+    @test length(fcs) == 2
+    # Each pre-split container gets expanded: 1 original + 1 synthetic = 2 per split
+    @test length(fcs[1]) == 2
+    @test length(fcs[2]) == 2
+    @test count(l -> occursin("-shake-", l), fcs[1].labels) == 1
+end
+
+@testset "FeatureStore train_model rejects use_force_data" begin
+    cell = _h2o_cell(4.0)
+    cell.metadata[:label] = "fs-guard"
+    sc_train = StructureContainer([cell], [-12.5], ["fs-guard"])
+    cf = CellFeature(unique(species(cell)); p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
+    fs_train = FeatureStore(sc_train, cf; show_progress=false)
+    fs_val = deepcopy(fs_train)
+    fs_test = deepcopy(fs_train)
+
+    @test_throws ArgumentError train_model(
+        fs_train, fs_val, fs_test;
+        nnodes=[3], max_epochs=1, use_force_data=true,
+    )
 end

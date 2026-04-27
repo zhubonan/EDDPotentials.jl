@@ -11,7 +11,7 @@ A [Julia](https://julialang.org/) package for [Ephemeral Data Derived Potentials
 
 **Step-by-step tutorial:** [AIRSS Workflow](tutorials/airss_workflow.md)
 
-**Common tasks:** [Customize Features](howto/customize_features.md) | [Structure Prediction](howto/structure_prediction.md) | [Phonon Calculations](howto/run_phonon_calculations.md) | [Hyperdimensional Relaxation](howto/hyperdimensional_relaxation.md)
+**Common tasks:** [Customize Features](howto/customize_features.md) | [Structure Prediction](howto/structure_prediction.md) | [Train with Force Data](howto/force_training.md) | [Phonon Calculations](howto/run_phonon_calculations.md) | [Hyperdimensional Relaxation](howto/hyperdimensional_relaxation.md)
 
 ## What is EDDP?
 
