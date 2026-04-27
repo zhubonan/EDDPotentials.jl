@@ -1128,7 +1128,8 @@ struct TrainedModel{M,F}
     feature_spec::F
     elemental_energies::Dict{Symbol,Float64}
     train_results::TrainingResults
-    val_results::Union{TrainingResults,Nothing}
+    val_results::TrainingResults
+    test_results::TrainingResults
 end
 
 function Base.show(io::IO, ::MIME"text/plain", tm::TrainedModel)
@@ -1144,10 +1145,10 @@ function Base.show(io::IO, ::MIME"text/plain", tm::TrainedModel)
     end
     println(io, "--- Training ---")
     show(io, MIME("text/plain"), tm.train_results)
-    if tm.val_results !== nothing
-        println(io, "\n--- Validation ---")
-        show(io, MIME("text/plain"), tm.val_results)
-    end
+    println(io, "\n--- Validation ---")
+    show(io, MIME("text/plain"), tm.val_results)
+    println(io, "\n--- Test ---")
+    show(io, MIME("text/plain"), tm.test_results)
 end
 
 function EDDPCalculator(tm::TrainedModel; kwargs...)
@@ -1185,11 +1186,12 @@ end
 # train_model — single-call training
 # =====================================================================
 
-function _print_train_config(fc, ntrain, nval, nnodes, ninp, nparam, train_method, kwargs)
-    cf = fc.feature
+function _print_train_config(fc_train, ntrain, nval, ntest, nnodes, ninp, nparam, train_method, kwargs)
+    cf = fc_train.feature
+    ntotal = ntrain + nval + ntest
     printstyled("Training Configuration\n"; bold=true)
     println("─"^50)
-    println("  Structures : $(length(fc)) total  →  $ntrain train / $nval val")
+    println("  Structures : $ntotal total  →  $ntrain train / $nval val / $ntest test")
     println("  Species    : $(join(string.(cf.elements), ", "))")
     if cf isa CellFeature
         if !isempty(cf.two_body)
@@ -1220,63 +1222,20 @@ function _print_train_config(fc, ntrain, nval, nnodes, ninp, nparam, train_metho
     println("─"^50)
 end
 
-function _print_train_results(train_results, val_results)
+function _print_train_results(train_results, val_results, test_results)
     println()
     printstyled("Training Results\n"; bold=true)
     println("─"^50)
     @printf("  Train RMSE/atom : %.5f eV\n", rmse_per_atom(train_results))
     @printf("  Train MAE/atom  : %.5f eV\n", mae_per_atom(train_results))
-    if val_results !== nothing
-        @printf("  Val   RMSE/atom : %.5f eV\n", rmse_per_atom(val_results))
-        @printf("  Val   MAE/atom  : %.5f eV\n", mae_per_atom(val_results))
-    end
+    @printf("  Val   RMSE/atom : %.5f eV\n", rmse_per_atom(val_results))
+    @printf("  Val   MAE/atom  : %.5f eV\n", mae_per_atom(val_results))
+    @printf("  Test  RMSE/atom : %.5f eV\n", rmse_per_atom(test_results))
+    @printf("  Test  MAE/atom  : %.5f eV\n", mae_per_atom(test_results))
     println("─"^50)
 end
 
-function _train_model_core(
-    fc::FeatureContainer;
-    val_ratio::Float64,
-    nnodes::Vector{Int},
-    train_method::String,
-    verbose::Bool,
-    show_progress::Bool,
-    kwargs...,
-)
-    val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
-
-    ntrain = Int(floor(length(fc) * (1 - val_ratio)))
-    nval = length(fc) - ntrain
-    if nval == 0 && val_ratio > 0
-        @warn "Validation set empty for val_ratio=$val_ratio with $(length(fc)) structures"
-    end
-
-    fc_train, fc_val = split(fc, ntrain, nval; standardize=true)
-
-    ninp = nfeatures(fc.feature)
-    chain = generate_chain(ninp, nnodes)
-    itf = ManualFluxBackPropInterface(chain, xt=fc_train.xt, yt=fc_train.yt)
-
-    if verbose
-        _print_train_config(fc, ntrain, nval, nnodes, ninp, nparams(itf), train_method, kwargs)
-    end
-
-    train!(itf, fc_train, fc_val; train_method, show_progress, kwargs...)
-
-    train_results = TrainingResults(itf, fc_train)
-    val_results = nval > 0 ? TrainingResults(itf, fc_val) : nothing
-
-    if verbose
-        _print_train_results(train_results, val_results)
-    end
-
-    TrainedModel(
-        itf,
-        fc.feature,
-        fc.elemental_energies,
-        train_results,
-        val_results,
-    )
-end
+# --- Internal helpers ---
 
 function _unique_symbols(structures)
     symbols = Set{Symbol}()
@@ -1291,38 +1250,207 @@ function _infer_feature_spec(sc, feature_kwargs)
     CellFeature(symbols; feature_kwargs...)
 end
 
-"""
-    train_model(data; [feature_spec,] val_ratio=0.1, ...) -> TrainedModel
+function _sc_from_paths(data; threshold=10.0, pressure_gpa=0.0)
+    paths = data isa Vector ? data : [data]
+    StructureContainer(paths; threshold, pressure_gpa)
+end
 
-Train an EDDP model from data in a single call. Handles structure loading,
-feature computation, data splitting, standardisation, model construction,
-and training.
+function _prepare_split(sc::StructureContainer, feature_spec;
+                        val_ratio::Float64, test_ratio::Float64, seed::Int,
+                        elemental_energies, show_progress, nmax)
+    val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
+    test_ratio > 0 || throw(ArgumentError("test_ratio must be > 0"))
+    N = length(sc)
+    nval = Int(floor(N * val_ratio))
+    ntest = Int(floor(N * test_ratio))
+    nval > 0 || throw(ArgumentError(
+        "val_ratio=$val_ratio yields 0 validation structures from $N total"))
+    ntest > 0 || throw(ArgumentError(
+        "test_ratio=$test_ratio yields 0 test structures from $N total"))
+    ntrain = N - nval - ntest
+    ntrain > 0 || throw(ArgumentError(
+        "Not enough structures ($N) for val_ratio=$val_ratio + test_ratio=$test_ratio"))
+    split_and_featurize(sc, feature_spec, ntrain, nval, ntest;
+        seed, elemental_energies, show_progress, nmax)
+end
+
+function _prepare_presplit(scs, feature_spec;
+                           elemental_energies, show_progress, nmax)
+    fcs = [FeatureContainer(sc, feature_spec;
+            elemental_energies, show_progress, nmax) for sc in scs]
+    standardize!(fcs...)
+    Tuple(fcs)
+end
+
+function _prepare_fc_split(fc::FeatureContainer; val_ratio::Float64, test_ratio::Float64, seed::Int)
+    val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
+    test_ratio > 0 || throw(ArgumentError("test_ratio must be > 0"))
+    N = length(fc)
+    nval = Int(floor(N * val_ratio))
+    ntest = Int(floor(N * test_ratio))
+    nval > 0 || throw(ArgumentError(
+        "val_ratio=$val_ratio yields 0 validation structures from $N total"))
+    ntest > 0 || throw(ArgumentError(
+        "test_ratio=$test_ratio yields 0 test structures from $N total"))
+    ntrain = N - nval - ntest
+    ntrain > 0 || throw(ArgumentError(
+        "Not enough structures ($N) for val_ratio=$val_ratio + test_ratio=$test_ratio"))
+    fc_clean = _reset_transforms(fc)
+    split(fc_clean, ntrain, nval, ntest; standardize=true, seed)
+end
+
+function _reset_transforms(fc::FeatureContainer)
+    FeatureContainer(
+        fc.fvecs,
+        fc.feature,
+        fc.H,
+        fc.labels,
+        fc.metadata,
+        nothing,
+        nothing,
+        fc.elemental_energies,
+    )
+end
+
+# =====================================================================
+# Core method: train_model on 3 pre-split FeatureContainers
+# =====================================================================
+
+"""
+    train_model(fc_train, fc_val, fc_test; ...) -> TrainedModel
+
+Core training entry point operating on three pre-split, pre-standardized
+`FeatureContainer`s. All other `train_model` overloads delegate here.
+
+Training uses `fc_train` and `fc_val`; `fc_test` is evaluated once after
+training completes. The model, feature spec, elemental energies, and
+evaluation results on all three splits are bundled into the returned
+[`TrainedModel`](@ref).
 
 # Arguments
 
-- `data`: file paths (glob patterns), a `StructureContainer`, or a
-  pre-computed `FeatureContainer`.
-- `feature_spec::AbstractCellFeatureSpec`: the atomic environment
-  descriptor specification. **Optional** — if omitted, species are
-  inferred from the loaded structures and default feature parameters
-  are used. Feature parameters (`p2`, `p3`, `q3`, `rcut2`, `rcut3`)
-  can be passed directly as keyword arguments.
+- `fc_train::FeatureContainer`: training set
+- `fc_val::FeatureContainer`: validation set (used for early stopping)
+- `fc_test::FeatureContainer`: test set (evaluated once post-training)
 
 # Keyword arguments
 
-- `val_ratio=0.1`: fraction of data reserved for validation (must be > 0).
 - `nnodes=[10, 10]`: hidden layer sizes passed to [`generate_chain`](@ref).
 - `train_method="lm_batched"`: training algorithm (`"lm"`, `"lm_batched"`,
   `"sgd"`, or `"optim"`).
 - `verbose=true`: print training configuration and results.
-- `elemental_energies`: per-element reference energy offsets.
+- `show_progress=true`: show progress during feature computation and training.
+- All other kwargs are forwarded to [`train!`](@ref).
+
+# See also
+
+[`train!`](@ref), [`TrainedModel`](@ref), [`FeatureContainer`](@ref)
+"""
+function train_model(
+    fc_train::FeatureContainer,
+    fc_val::FeatureContainer,
+    fc_test::FeatureContainer;
+    nnodes::Vector{Int}=[10, 10],
+    train_method::String="lm_batched",
+    verbose::Bool=true,
+    show_progress::Bool=true,
+    kwargs...,
+)
+    ninp = nfeatures(fc_train.feature)
+    chain = generate_chain(ninp, nnodes)
+    itf = ManualFluxBackPropInterface(chain, xt=fc_train.xt, yt=fc_train.yt)
+
+    ntrain = length(fc_train)
+    nval = length(fc_val)
+    ntest = length(fc_test)
+
+    if verbose
+        _print_train_config(fc_train, ntrain, nval, ntest, nnodes, ninp, nparams(itf), train_method, kwargs)
+    end
+
+    train!(itf, fc_train, fc_val; train_method, show_progress, kwargs...)
+
+    train_results = TrainingResults(itf, fc_train)
+    val_results = TrainingResults(itf, fc_val)
+    test_results = TrainingResults(itf, fc_test)
+
+    if verbose
+        _print_train_results(train_results, val_results, test_results)
+    end
+
+    TrainedModel(
+        itf,
+        fc_train.feature,
+        fc_train.elemental_energies,
+        train_results,
+        val_results,
+        test_results,
+    )
+end
+
+# =====================================================================
+# Single-data wrappers (built-in 3-way split)
+# =====================================================================
+
+"""
+    train_model(data, feature_spec; val_ratio=0.1, test_ratio=0.1, ...) -> TrainedModel
+    train_model(data; val_ratio=0.1, test_ratio=0.1, p2=2:8, ...) -> TrainedModel
+    train_model(sc, feature_spec; ...) -> TrainedModel
+    train_model(sc; p2=2:8, ...) -> TrainedModel
+    train_model(fc; val_ratio=0.1, test_ratio=0.1, ...) -> TrainedModel
+
+Train an EDDP model from data in a single call.  Handles structure loading,
+feature computation, 3-way data splitting (train / val / test), standardisation,
+model construction, and training.
+
+The test set is evaluated once after training completes — it is never used
+during the training loop.
+
+# Arguments
+
+- `data`: file paths (glob patterns or `@:N` slice syntax), a
+  `StructureContainer`, or a pre-computed `FeatureContainer`.
+- `feature_spec::AbstractCellFeatureSpec`: the atomic environment
+  descriptor. **Optional** — if omitted, species are inferred from the
+  loaded structures and default feature parameters are used.  Feature
+  parameters (`p2`, `p3`, `q3`, `rcut2`, `rcut3`) can be passed as
+  keyword arguments instead.
+
+# Keyword arguments
+
+- `val_ratio=0.1`: fraction of data reserved for validation.
+- `test_ratio=0.1`: fraction of data reserved for final testing.
+- `seed=42`: RNG seed for reproducible shuffling of the split.
+- `nnodes=[10, 10]`: hidden layer sizes.
+- `train_method="lm_batched"`: training algorithm (`"lm"`, `"lm_batched"`,
+  `"sgd"`, or `"optim"`).
+- `verbose=true`: print training configuration and results.
+- `elemental_energies`: per-element reference energy offsets (subtracted
+  from target energies during training, added back at inference).
 - `threshold=10.0`: per-atom energy ceiling for filtering (path-based).
 - `pressure_gpa=0.0`: external pressure for enthalpy conversion (path-based).
-- `show_progress=true`: show feature-computation progress bar.
+- `show_progress=true`: show progress bar during feature computation.
 - `nmax=500`: maximum neighbour list entries.
-- `p2=2:8`, `p3=2:8`, `q3=2:8`: feature exponents (for auto-inferred feature spec).
-- `rcut2=4.0`, `rcut3=4.0`: feature cutoff radii (for auto-inferred feature spec).
+- `p2=2:8`, `p3=2:8`, `q3=2:8`: feature exponents (auto-inferred spec only).
+- `rcut2=4.0`, `rcut3=4.0`: feature cutoff radii (auto-inferred spec only).
 - All other kwargs are forwarded to [`train!`](@ref).
+
+# Pre-split data
+
+You can also pass pre-split data directly, bypassing the built-in split:
+
+```julia
+# From pre-split StructureContainers
+train_model(sc_train, sc_val, sc_test, feature_spec; ...)
+train_model(sc_train, sc_val, sc_test; p2=2:12, rcut2=5.0, ...)
+
+# From pre-split file paths
+train_model(path_train, path_val, path_test, feature_spec; ...)
+train_model(path_train, path_val, path_test; p2=2:12, ...)
+
+# From pre-split FeatureContainers
+train_model(fc_train, fc_val, fc_test; ...)
+```
 
 # Example
 ```julia
@@ -1341,10 +1469,14 @@ calc = EDDPCalculator(tm)
 result = predict(tm, my_cell)
 ```
 """
+
+# Path with explicit feature_spec
 function train_model(
     data::Union{AbstractString,Vector{<:AbstractString}},
     feature_spec::AbstractCellFeatureSpec;
     val_ratio::Float64=0.1,
+    test_ratio::Float64=0.1,
+    seed::Int=42,
     nnodes::Vector{Int}=[10, 10],
     train_method::String="lm_batched",
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
@@ -1355,20 +1487,20 @@ function train_model(
     verbose::Bool=true,
     kwargs...,
 )
-    val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
-    paths = data isa Vector ? data : [data]
-    sc = StructureContainer(paths; threshold, pressure_gpa)
+    sc = _sc_from_paths(data; threshold, pressure_gpa)
     verbose && println("Loaded $(length(sc)) structures after filtering.")
-    return _train_model_dispatch(
-        sc, feature_spec;
-        val_ratio, nnodes, train_method, elemental_energies,
-        show_progress, nmax, verbose, kwargs...,
-    )
+    fc_train, fc_val, fc_test = _prepare_split(
+        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax)
+    return train_model(fc_train, fc_val, fc_test;
+        nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
+# Path, auto-infer feature spec
 function train_model(
     data::Union{AbstractString,Vector{<:AbstractString}};
     val_ratio::Float64=0.1,
+    test_ratio::Float64=0.1,
+    seed::Int=42,
     nnodes::Vector{Int}=[10, 10],
     train_method::String="lm_batched",
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
@@ -1384,38 +1516,22 @@ function train_model(
     rcut3=4.0,
     kwargs...,
 )
-    val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
-    paths = data isa Vector ? data : [data]
-    sc = StructureContainer(paths; threshold, pressure_gpa)
+    sc = _sc_from_paths(data; threshold, pressure_gpa)
     verbose && println("Loaded $(length(sc)) structures after filtering.")
     feature_spec = _infer_feature_spec(sc, (; p2, p3, q3, rcut2, rcut3))
-    return _train_model_dispatch(
-        sc, feature_spec;
-        val_ratio, nnodes, train_method, elemental_energies,
-        show_progress, nmax, verbose, kwargs...,
-    )
+    fc_train, fc_val, fc_test = _prepare_split(
+        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax)
+    return train_model(fc_train, fc_val, fc_test;
+        nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
-function _train_model_dispatch(
-    sc::StructureContainer,
-    feature_spec::AbstractCellFeatureSpec;
-    val_ratio,
-    nnodes,
-    train_method,
-    elemental_energies,
-    show_progress,
-    nmax,
-    verbose,
-    kwargs...,
-)
-    fc = FeatureContainer(sc, feature_spec; elemental_energies, show_progress, nmax)
-    return _train_model_core(fc; val_ratio, nnodes, train_method, verbose, show_progress, kwargs...)
-end
-
+# StructureContainer with explicit feature_spec
 function train_model(
     sc::StructureContainer,
     feature_spec::AbstractCellFeatureSpec;
     val_ratio::Float64=0.1,
+    test_ratio::Float64=0.1,
+    seed::Int=42,
     nnodes::Vector{Int}=[10, 10],
     train_method::String="lm_batched",
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
@@ -1424,16 +1540,18 @@ function train_model(
     verbose::Bool=true,
     kwargs...,
 )
-    return _train_model_dispatch(
-        sc, feature_spec;
-        val_ratio, nnodes, train_method, elemental_energies,
-        show_progress, nmax, verbose, kwargs...,
-    )
+    fc_train, fc_val, fc_test = _prepare_split(
+        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax)
+    return train_model(fc_train, fc_val, fc_test;
+        nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
+# StructureContainer, auto-infer feature spec
 function train_model(
     sc::StructureContainer;
     val_ratio::Float64=0.1,
+    test_ratio::Float64=0.1,
+    seed::Int=42,
     nnodes::Vector{Int}=[10, 10],
     train_method::String="lm_batched",
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
@@ -1448,23 +1566,137 @@ function train_model(
     kwargs...,
 )
     feature_spec = _infer_feature_spec(sc, (; p2, p3, q3, rcut2, rcut3))
-    return _train_model_dispatch(
-        sc, feature_spec;
-        val_ratio, nnodes, train_method, elemental_energies,
-        show_progress, nmax, verbose, kwargs...,
-    )
+    fc_train, fc_val, fc_test = _prepare_split(
+        sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax)
+    return train_model(fc_train, fc_val, fc_test;
+        nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
+# FeatureContainer with built-in split
 function train_model(
     fc::FeatureContainer;
     val_ratio::Float64=0.1,
+    test_ratio::Float64=0.1,
+    seed::Int=42,
     nnodes::Vector{Int}=[10, 10],
     train_method::String="lm_batched",
     verbose::Bool=true,
     show_progress::Bool=true,
     kwargs...,
 )
-    return _train_model_core(fc; val_ratio, nnodes, train_method, verbose, show_progress, kwargs...)
+    fc_train, fc_val, fc_test = _prepare_fc_split(fc; val_ratio, test_ratio, seed)
+    return train_model(fc_train, fc_val, fc_test;
+        nnodes, train_method, verbose, show_progress, kwargs...)
+end
+
+# =====================================================================
+# Pre-split wrappers
+# =====================================================================
+
+# --- Pre-split StructureContainers with explicit feature_spec ---
+
+function train_model(
+    sc_train::StructureContainer,
+    sc_val::StructureContainer,
+    sc_test::StructureContainer,
+    feature_spec::AbstractCellFeatureSpec;
+    nnodes::Vector{Int}=[10, 10],
+    train_method::String="lm_batched",
+    elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
+    show_progress::Bool=true,
+    nmax::Int=500,
+    verbose::Bool=true,
+    kwargs...,
+)
+    fcs = _prepare_presplit([sc_train, sc_val, sc_test], feature_spec;
+        elemental_energies, show_progress, nmax)
+    return train_model(fcs[1], fcs[2], fcs[3];
+        nnodes, train_method, verbose, show_progress, kwargs...)
+end
+
+# --- Pre-split StructureContainers, auto-infer feature spec ---
+
+function train_model(
+    sc_train::StructureContainer,
+    sc_val::StructureContainer,
+    sc_test::StructureContainer;
+    nnodes::Vector{Int}=[10, 10],
+    train_method::String="lm_batched",
+    elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
+    show_progress::Bool=true,
+    nmax::Int=500,
+    verbose::Bool=true,
+    p2=2:8,
+    p3=2:8,
+    q3=2:8,
+    rcut2=4.0,
+    rcut3=4.0,
+    kwargs...,
+)
+    feature_spec = _infer_feature_spec(sc_train, (; p2, p3, q3, rcut2, rcut3))
+    fcs = _prepare_presplit([sc_train, sc_val, sc_test], feature_spec;
+        elemental_energies, show_progress, nmax)
+    return train_model(fcs[1], fcs[2], fcs[3];
+        nnodes, train_method, verbose, show_progress, kwargs...)
+end
+
+# --- Pre-split paths with explicit feature_spec ---
+
+function train_model(
+    path_train::Union{AbstractString,Vector{<:AbstractString}},
+    path_val::Union{AbstractString,Vector{<:AbstractString}},
+    path_test::Union{AbstractString,Vector{<:AbstractString}},
+    feature_spec::AbstractCellFeatureSpec;
+    nnodes::Vector{Int}=[10, 10],
+    train_method::String="lm_batched",
+    elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
+    threshold::Float64=10.0,
+    pressure_gpa::Float64=0.0,
+    show_progress::Bool=true,
+    nmax::Int=500,
+    verbose::Bool=true,
+    kwargs...,
+)
+    sc_train = _sc_from_paths(path_train; threshold, pressure_gpa)
+    sc_val = _sc_from_paths(path_val; threshold, pressure_gpa)
+    sc_test = _sc_from_paths(path_test; threshold, pressure_gpa)
+    verbose && println("Loaded $(length(sc_train)) train / $(length(sc_val)) val / $(length(sc_test)) test structures.")
+    fcs = _prepare_presplit([sc_train, sc_val, sc_test], feature_spec;
+        elemental_energies, show_progress, nmax)
+    return train_model(fcs[1], fcs[2], fcs[3];
+        nnodes, train_method, verbose, show_progress, kwargs...)
+end
+
+# --- Pre-split paths, auto-infer feature spec ---
+
+function train_model(
+    path_train::Union{AbstractString,Vector{<:AbstractString}},
+    path_val::Union{AbstractString,Vector{<:AbstractString}},
+    path_test::Union{AbstractString,Vector{<:AbstractString}};
+    nnodes::Vector{Int}=[10, 10],
+    train_method::String="lm_batched",
+    elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
+    threshold::Float64=10.0,
+    pressure_gpa::Float64=0.0,
+    show_progress::Bool=true,
+    nmax::Int=500,
+    verbose::Bool=true,
+    p2=2:8,
+    p3=2:8,
+    q3=2:8,
+    rcut2=4.0,
+    rcut3=4.0,
+    kwargs...,
+)
+    sc_train = _sc_from_paths(path_train; threshold, pressure_gpa)
+    sc_val = _sc_from_paths(path_val; threshold, pressure_gpa)
+    sc_test = _sc_from_paths(path_test; threshold, pressure_gpa)
+    verbose && println("Loaded $(length(sc_train)) train / $(length(sc_val)) val / $(length(sc_test)) test structures.")
+    feature_spec = _infer_feature_spec(sc_train, (; p2, p3, q3, rcut2, rcut3))
+    fcs = _prepare_presplit([sc_train, sc_val, sc_test], feature_spec;
+        elemental_energies, show_progress, nmax)
+    return train_model(fcs[1], fcs[2], fcs[3];
+        nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
 #=
