@@ -17,6 +17,35 @@ import Base.summary
 
 struct LevenbergMarquardt <: Optimizer end
 Base.summary(::LevenbergMarquardt) = "Levenberg-Marquardt"
+
+"""
+    _solve_normal_full!(delta_x, JJ, rhs, solver)
+
+Solve the damped normal equations `JJ * delta_x = rhs` for the full LM solver.
+
+# Solvers
+- `:direct`    — LU decomposition via `\\`
+- `:cholesky`  — Cholesky factorisation (fast, requires positive-definite JJ)
+- `:qr`        — QR decomposition (robust for ill-conditioned systems)
+"""
+function _solve_normal_full!(delta_x, JJ, rhs, solver::Symbol)
+    if solver === :direct
+        delta_x .= JJ \ rhs
+    elseif solver === :cholesky
+        try
+            C = cholesky!(Hermitian(JJ))
+            ldiv!(delta_x, C, rhs)
+        catch
+            delta_x .= JJ \ rhs
+        end
+    elseif solver === :qr
+        F = qr(JJ)
+        ldiv!(delta_x, F, rhs)
+    else
+        throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, or :qr."))
+    end
+    delta_x
+end
 """
     `levenberg_marquardt(f, g, initial_x; <keyword arguments>`
 Returns the argmin over x of `sum(f(x).^2)` using the Levenberg-Marquardt
@@ -70,6 +99,7 @@ function levenberg_marquardt(
     callback=nothing,
     keep_best=true,
     earlystop=0,
+    solver::Symbol=:cholesky,
 ) where {T}
 
     # First evaluation
@@ -209,7 +239,7 @@ function levenberg_marquardt(
         rmul!(n_buffer, -1)   # Fast inplace update, better than n_buffer .*= -1 !!!
 
         # Solve the matrix equation (A*x == B)
-        @timeit to "matinv" v .= JJ \ n_buffer
+        @timeit to "matinv" _solve_normal_full!(v, JJ, n_buffer, solver)
 
 
         # Geodesic acceleration part - can leave out for now

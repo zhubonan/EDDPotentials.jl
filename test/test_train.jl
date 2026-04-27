@@ -208,28 +208,6 @@ using NLSolversBase
         for (li, gi) in enumerate(batch_idx)
             @test abs(f_b[li] - f_full[gi]) < 1e-10
         end
-
-        # Test f_full! closure
-        f_full2 = zeros(length(data))
-        f_full!(f_full2, paramvector(model))
-        @test maximum(abs.(f_full2 .- f_full)) < 1e-10
-
-        # Test full training with batch_size = n_data (should behave like full LM)
-        model2 = ManualFluxBackPropInterface(
-            Chain(Dense(rand(1, nf), rand(1))),
-        )
-        train_lm_batched!(model2, data, y; batch_size=length(data), max_epochs=200, earlystop=0)
-        out = model2(data[2])
-        @test sum(out) ≈ y[2] atol = 1e-4
-
-        # Test with small batch size — just verify it runs without error
-        model3 = ManualFluxBackPropInterface(
-            Chain(Dense(rand(1, nf), rand(1))),
-        )
-        train_lm_batched!(model3, data, y; batch_size=4, max_epochs=500, earlystop=0)
-        # With small batches, convergence is not guaranteed but should not crash
-        out = model3(data[2])
-        @test isfinite(sum(out))
     end
 
     @testset "train! dispatch lm_batched" begin

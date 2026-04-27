@@ -55,6 +55,94 @@ function _apply_damping!(JJ, lambda, DtD, n, mode::Symbol)
 end
 
 """
+    _damping_diagonal(DtD, lambda, damping_mode)
+
+Return the damping diagonal vector `d` for `A = J'WJ + λ·diag(d)`.
+"""
+function _damping_diagonal(DtD, lambda, damping_mode::Symbol)
+    n = length(DtD)
+    if damping_mode === :fletcher
+        return copy(DtD)
+    elseif damping_mode === :standard
+        return ones(eltype(DtD), n)
+    elseif damping_mode === :adaptive
+        return fill(maximum(DtD), n)
+    else
+        throw(ArgumentError("Unknown damping_mode: $damping_mode"))
+    end
+end
+
+"""
+    _cg_solve!(x, J, wv, lambda, DtD, rhs, _tmp, _Av; kwargs...)
+
+Solve `(J'WJ + λ·diag(d))·x = rhs` using preconditioned conjugate gradient.
+
+Uses Jacobi (diagonal) preconditioning.  Operates matrix-free: only `J·v`
+and `J'·y` products are needed, no n×n matrix is formed.
+"""
+function _cg_solve!(x, J, wv, lambda, DtD, rhs, _tmp, _Av;
+                    damping_mode::Symbol=:fletcher, maxiter=500, tol=1e-6)
+    n = length(x)
+    B = size(J, 1)
+    tmp = view(_tmp, 1:B)
+    Av = view(_Av, 1:n)
+
+    damp_diag = _damping_diagonal(DtD, lambda, damping_mode)
+
+    # Jacobi preconditioner: M = diag(A) = diag(J'WJ) + λ·d
+    M = @. DtD + lambda * damp_diag
+
+    # Compute r0 = rhs - A·x0 using Av as scratch space
+    fill!(Av, zero(eltype(Av)))
+    mul!(tmp, J, x)
+    @. tmp = wv * tmp
+    mul!(Av, J', tmp)
+    @. Av += lambda * damp_diag * x
+    @. Av = rhs - Av                  # r0 = rhs - A·x0
+
+    r = Av                           # residual (reuse Av buffer)
+    Av_copy = similar(r)             # buffer for Ap = A·p
+    r_old = similar(r)               # previous residual for β computation
+    z = similar(r)                   # preconditioned residual
+    @. z = r / M
+    p = copy(z)
+    ρ_old = dot(r, z)
+    rnorm0 = sqrt(ρ_old)
+    iszero(rnorm0) && return x
+
+    for k in 1:maxiter
+        # Ap = A·p
+        fill!(Av_copy, zero(eltype(Av_copy)))
+        mul!(tmp, J, p)
+        @. tmp = wv * tmp
+        mul!(Av_copy, J', tmp)
+        @. Av_copy += lambda * damp_diag * p
+
+        α = ρ_old / dot(p, Av_copy)
+        @. x += α * p
+        @. r -= α * Av_copy
+        rnorm = sqrt(dot(r, r))
+        rnorm / rnorm0 < tol && break
+        @. z = r / M
+        ρ = dot(r, z)
+        β = ρ / ρ_old
+        ρ_old = ρ
+        @. p = z + β * p
+    end
+    x
+end
+
+function _should_use_cg(B, n, lambda, DtD, damping_mode)
+    B < 50 && return false
+    n < 200 && return false
+    if damping_mode === :fletcher
+        λ_cg_min = 1e-3 * sum(DtD) / length(DtD)
+        lambda < λ_cg_min && return false
+    end
+    return true
+end
+
+"""
     _solve_normal!(delta_x, JJ, rhs, solver)
 
 Solve the damped normal equations `JJ * delta_x = rhs` using the specified method.
@@ -67,19 +155,20 @@ Solve the damped normal equations `JJ * delta_x = rhs` using the specified metho
 function _solve_normal!(delta_x, JJ, rhs, solver::Symbol)
     if solver === :direct
         delta_x .= JJ \ rhs
-    elseif solver === :cholesky
+    elseif solver === :cholesky || solver === :cg
+        # CG is handled separately in the batch loop; if it falls through
+        # here, use Cholesky (CG bypass or fallback)
         try
             C = cholesky!(Hermitian(JJ))
             ldiv!(delta_x, C, rhs)
         catch
-            # Fall back to direct solve if Cholesky fails (non-PD matrix)
             delta_x .= JJ \ rhs
         end
     elseif solver === :qr
         F = qr(JJ)
         ldiv!(delta_x, F, rhs)
     else
-        throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, or :qr."))
+        throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, :cg, or :qr."))
     end
     delta_x
 end
@@ -170,7 +259,7 @@ function levenberg_marquardt_batched(
     max_epochs > 0 || throw(ArgumentError("max_epochs must be positive, got $max_epochs"))
     attempts_per_step > 0 || throw(ArgumentError("attempts_per_step must be positive, got $attempts_per_step"))
     damping_mode in (:standard, :fletcher, :adaptive) || throw(ArgumentError("Unknown damping_mode: $damping_mode"))
-    solver in (:direct, :cholesky, :qr) || throw(ArgumentError("Unknown solver: $solver"))
+    solver in (:direct, :cholesky, :qr, :cg) || throw(ArgumentError("Unknown solver: $solver"))
 
     # --- Resolve batch ranges ---
     use_fixed_batches = batch_ranges !== nothing
@@ -224,6 +313,10 @@ function levenberg_marquardt_batched(
     n_buffer = Vector{T}(undef, n)
     DtD = zeros(T, n)
     trial_f_b = Vector{T}(undef, _B_max)
+
+    # CG buffers (allocated once, reused)
+    _cg_tmp = Vector{T}(undef, _B_max)
+    _cg_Av = Vector{T}(undef, n)
 
     # Full-dataset residual (for tau initialisation and callback)
     f_full = Vector{T}(undef, _n_data)
@@ -303,25 +396,35 @@ function levenberg_marquardt_batched(
                 end
             end
 
-            # J'WJ via sqrt(W).*J trick — computed once, cached for retries
-            @timeit to "JJ" begin
-                J2v = (B <= _B_max) ? view(J2, 1:B, :) : J2
-                J2v .= sqrt.(wv) .* Jv
-                mul!(JJ_base, transpose(J2v), J2v)
-            end
-
             # Right-hand side: -J' W f (constant across attempts)
             mul!(n_buffer, transpose(Jv), wv .* fv)
             rmul!(n_buffer, -one(T))
 
+            # Determine effective solver for this batch
+            use_cg = solver === :cg && _should_use_cg(B, n, lambda, DtD, damping_mode)
+
+            # J'WJ via sqrt(W).*J trick — computed once, cached for retries
+            if !use_cg
+                @timeit to "JJ" begin
+                    J2v = (B <= _B_max) ? view(J2, 1:B, :) : J2
+                    J2v .= sqrt.(wv) .* Jv
+                    mul!(JJ_base, transpose(J2v), J2v)
+                end
+            end
+
             # ---- Attempt loop ----
             for attempt in 1:attempts_per_step
-                # Restore undamped J'WJ and apply current damping
-                copyto!(JJ, JJ_base)
-                _apply_damping!(JJ, lambda, DtD, n, damping_mode)
-
-                # Solve
-                @timeit to "matinv" _solve_normal!(delta_x, JJ, n_buffer, solver)
+                if use_cg
+                    fill!(delta_x, zero(T))
+                    _cg_solve!(delta_x, Jv, wv, lambda, DtD, n_buffer,
+                               _cg_tmp, _cg_Av; damping_mode, maxiter=min(n, 500))
+                else
+                    # Restore undamped J'WJ and apply current damping
+                    copyto!(JJ, JJ_base)
+                    _apply_damping!(JJ, lambda, DtD, n, damping_mode)
+                    # Solve
+                    @timeit to "matinv" _solve_normal!(delta_x, JJ, n_buffer, solver)
+                end
 
                 # ---- Predicted residual ----
                 Jdelta = Jv * delta_x .+ fv

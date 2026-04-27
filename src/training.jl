@@ -304,6 +304,7 @@ function train_lm!(
     checkpoint_prefix::AbstractString="",
     feature_spec=nothing,
     elemental_energies::Dict=Dict{Symbol,Float64}(),
+    solver::Symbol=:cholesky,
     args...,
 )
     rec = []
@@ -371,6 +372,7 @@ function train_lm!(
         maxIter=maxIter,
         keep_best=keep_best,
         earlystop,
+        solver,
         args...,
     )
     # Update the p0 of the training configuration
@@ -432,7 +434,7 @@ function train_lm_batched!(
     weights=nothing,
     batch_size=512,
     shuffle_seed=42,
-    threaded=false,
+    threaded::Bool=(Threads.nthreads() > 1),
     damping_mode::Symbol=:fletcher,
     attempts_per_step::Int=1,
     solver::Symbol=:direct,
