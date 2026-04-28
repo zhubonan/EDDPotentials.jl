@@ -26,13 +26,6 @@ using .EDDPotentialsCore: save_model_artifact
 using Base.Threads: nthreads
 using TimerOutputs
 
-"""Create parent directories for `path` if they don't exist."""
-function _ensure_dir(path::AbstractString)
-    dir = dirname(path)
-    !isempty(dir) && !isdir(dir) && mkpath(dir)
-    path
-end
-
 # ---------- Optimizer state types ----------
 
 mutable struct SGDState{T<:AbstractFloat}
@@ -403,13 +396,11 @@ function train_sgd!(
     grad_buf = zeros(nparam)
 
     # Tracking state
-    rec = []
+    ctx = TrainingContext(itf, feature_spec, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
     best_flat = copy(flat)
     min_val_rmse = floatmax(Float64)
     min_epoch = 0
 
-    time_start = time()
-    last_time = time()
     rng = MersenneTwister(shuffle_seed)
 
     # Pre-allocate thread pool for validation RMSE (forward-only, no gradients).
@@ -490,30 +481,9 @@ function train_sgd!(
             end
         end
 
-        tnow = time()
-        elapsed = tnow - time_start
-        loop_time = tnow - last_time
-        last_time = tnow
-
-        logline = @sprintf(
-            "Epoch: %d %3.3f %3.3f RMSE Train %10.5f eV | Val %10.5f eV (%s, bs=%d, lr=%.2e)\n",
-            epoch, loop_time, elapsed, rmse_train, rmse_val, optimizer, batch_size, current_lr
-        )
-        show_progress && print(logline)
-        if log_file != ""
-            open(log_file, "a") do file
-                write(file, logline)
-            end
-        end
-        flush(stdout)
-
-        push!(rec, (rmse_train, rmse_val))
-
-        # Checkpoint
-        if checkpoint_every > 0 && checkpoint_prefix != "" && feature_spec !== nothing && epoch % checkpoint_every == 0
-            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, epoch))
-            save_model_artifact(ckpt_path, itf; feature_spec, elemental_energies, metadata=Dict("epoch" => epoch))
-        end
+        ctx.counter = epoch
+        progress_callback!(ctx, rmse_train, rmse_val,
+            @sprintf(" (%s, bs=%d, lr=%.2e)", optimizer, batch_size, current_lr))
 
         # Track best
         if rmse_val < min_val_rmse
@@ -538,7 +508,7 @@ function train_sgd!(
         setparamvector!(itf, flat)
     end
 
-    return (nothing, paramvector(itf), [map(x -> x[1], rec) map(x -> x[2], rec)], nothing)
+    return (nothing, paramvector(itf), [map(x -> x[1], ctx.rec) map(x -> x[2], ctx.rec)], nothing)
 end
 
 """
