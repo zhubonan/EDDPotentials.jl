@@ -296,7 +296,7 @@ using StatsBase
         )
         opt_res, params, history, _ = train!(
             model, fc_train, fc_val;
-            train_method="sgd",
+            train_method=:sgd,
             optimizer=:adam,
             lr=1e-3,
             max_epochs=100,

@@ -298,11 +298,11 @@ The return value has the same shape as `train_lm_batched!` for compatibility.
 - `grad_clip=1.0`: Clip gradient L2 norm to this value (0 = disable clipping)
 ```julia
 # Adam training (default)
-train!(itf, fc_train, fc_val; train_method="sgd", optimizer=:adam, lr=1e-3, max_epochs=500)
+train!(itf, fc_train, fc_val; train_method=:sgd, optimizer=:adam, lr=1e-3, max_epochs=500)
 
 # SGD with momentum and cosine annealing
 schedule = cosine_annealing_lr(1e-2, 1e-4, 300)
-train!(itf, fc_train, fc_val; train_method="sgd", optimizer=:sgd_momentum,
+train!(itf, fc_train, fc_val; train_method=:sgd, optimizer=:sgd_momentum,
        lr=1e-2, lr_schedule=schedule, momentum=0.9)
 ```
 """

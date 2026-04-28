@@ -240,7 +240,8 @@ fitting potential energy surfaces.
 
 # Keyword Arguments
 - `p0=paramvector(itf)`: Initial parameter vector for optimization
-- `maxIter=1000`: Maximum number of iterations
+- `max_epochs=1000`: Maximum number of iterations
+- `maxIter=nothing`: Deprecated, use `max_epochs` instead
 - `show_progress=false`: Print progress to stdout during training
 - `x_val=x`: Validation set feature vectors (defaults to training set)
 - `y_val=y`: Validation set target energies (defaults to training set)
@@ -267,7 +268,7 @@ x_val, y_val = get_fit_data(fc_val)
 opt_res, params, history = train_lm!(
     itf, x_train, y_train;
     x_val=x_val, y_val=y_val,
-    maxIter=500,
+    max_epochs=500,
     show_progress=true,
     earlystop=30
 )
@@ -291,7 +292,8 @@ function train_lm!(
     x,
     y;
     p0=paramvector(itf),
-    maxIter=1000,
+    max_epochs=1000,
+    maxIter::Union{Integer,Nothing}=nothing,
     show_progress=false,
     x_val=x,
     y_val=y,
@@ -307,6 +309,13 @@ function train_lm!(
     solver::Symbol=:cholesky,
     args...,
 )
+    # --- Deprecated alias ---
+    if maxIter !== nothing
+        @warn "maxIter is deprecated, use max_epochs instead" maxIter max_epochs
+        max_epochs = maxIter
+    end
+    args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
+
     rec = []
 
     train_natoms = [size(v, 2) for v in x]
@@ -369,7 +378,7 @@ function train_lm!(
         show_trace=false,
         callback=callback,
         p=p,
-        maxIter=maxIter,
+        maxIter=max_epochs,
         keep_best=keep_best,
         earlystop,
         solver,
@@ -552,7 +561,8 @@ training algorithm based on `train_method`.
 - `val_data::FeatureStore`: Validation dataset
 
 # Keyword Arguments
-- `train_method="lm"`: Training algorithm ("lm", "lm_batched", "sgd", "optim")
+- `train_method=:lm`: Training algorithm (`:lm`, `:lm_batched`, `:sgd`, `:optim`).
+  Note that the higher-level [`train_model`](@ref) defaults to `:lm_batched`.
 - Additional kwargs are passed to the underlying training function
 
 # See also
@@ -562,9 +572,12 @@ function train!(
     itf::AbstractNNInterface,
     train_data::FeatureStore,
     val_data::FeatureStore;
-    train_method="lm",
+    train_method=:lm,
     kwargs...,
 )
+    # Backward compatibility: accept String
+    _method = train_method isa String ? Symbol(train_method) : train_method
+
     kw = NamedTuple(kwargs)
     if !haskey(kw, :feature_spec)
         kw = merge(kw, (feature_spec=train_data.feature,))
@@ -573,24 +586,40 @@ function train!(
         kw = merge(kw, (elemental_energies=train_data.elemental_energies,))
     end
 
-    if train_method == "lm"
+    # Method-specific params are passed in from the core train_model signature.
+    # Strip params irrelevant to each method so they don't leak into the
+    # underlying solver.
+    if _method === :lm
+        kw = Base.structdiff(kw, NamedTuple{(:optimizer, :lr, :lr_schedule, :momentum,
+            :pow, :beta, :eps, :weight_decay, :grad_clip,
+            :batch_size, :shuffle_seed, :threaded, :damping_mode,
+            :attempts_per_step, :batch_ranges)})
+    elseif _method === :lm_batched
+        kw = Base.structdiff(kw, NamedTuple{(:optimizer, :lr, :lr_schedule, :momentum,
+            :pow, :beta, :eps, :weight_decay, :grad_clip)})
+    elseif _method === :sgd
+        kw = Base.structdiff(kw, NamedTuple{(:p, :solver, :threaded, :damping_mode,
+            :attempts_per_step, :batch_ranges)})
+    end
+
+    if _method === :lm
         x_train, y_train = get_fit_data(train_data)
         x_val, y_val = get_fit_data(val_data)
         train_lm!(itf, x_train, y_train; x_val, y_val, kw...)
-    elseif train_method == "lm_batched"
+    elseif _method === :lm_batched
         x_train, y_train = get_fit_data(train_data)
         x_val, y_val = get_fit_data(val_data)
-        batch_ranges_kw = if !haskey(kw, :batch_ranges) && train_data.data === nothing && train_data.n_disk_batches > 0
+        batch_ranges_kw = if get(kw, :batch_ranges, nothing) === nothing && train_data.data === nothing && train_data.n_disk_batches > 0
             merge(kw, (batch_ranges=train_data.disk_batch_ranges,))
         else
             kw
         end
         train_lm_batched!(itf, x_train, y_train; x_val, y_val, batch_ranges_kw...)
-    elseif train_method == "sgd"
+    elseif _method === :sgd
         x_train, y_train = get_fit_data(train_data)
         x_val, y_val = get_fit_data(val_data)
         train_sgd!(itf, x_train, y_train; x_val, y_val, kw...)
-    elseif train_method == "optim"
+    elseif _method === :optim
         model = get_flux_model(itf)
         f, g!, pview, callback = EDDPotentials.generate_f_g_optim(model, train_data, val_data)
         od = OnceDifferentiable(f, g!, collect(pview))
@@ -1279,14 +1308,64 @@ evaluation results on all three splits are bundled into the returned
 - `fc_val::FeatureStore`: validation set (used for early stopping)
 - `fc_test::FeatureStore`: test set (evaluated once post-training)
 
-# Keyword arguments
+# Architecture
 
-- `nnodes=[10, 10]`: hidden layer sizes passed to [`generate_chain`](@ref).
-- `train_method="lm_batched"`: training algorithm (`"lm"`, `"lm_batched"`,
-  `"sgd"`, or `"optim"`).
-- `verbose=true`: print training configuration and results.
-- `show_progress=true`: show progress during feature computation and training.
-- All other kwargs are forwarded to [`train!`](@ref).
+- `nnodes::Vector{Int}=[10, 10]`: hidden layer sizes passed to [`generate_chain`](@ref).
+
+# Training method
+
+- `train_method::Symbol=:lm_batched`: training algorithm. One of:
+  - `:lm` — full Levenberg-Marquardt (all data at once)
+  - `:lm_batched` — batched LM (mini-batch per step, default)
+  - `:sgd` — stochastic gradient descent / Adam
+  - `:optim` — Optim.jl LBFGS (forwarded to `Optim.optimize`)
+
+# Display
+
+- `verbose::Bool=true`: print training configuration and results.
+- `show_progress::Bool=true`: show progress during feature computation and training.
+
+# Training loop (common to all methods)
+
+- `max_epochs::Int=300`: maximum training epochs (or iterations for full LM).
+- `earlystop::Int=50`: stop if validation RMSE has not improved for this many epochs.
+- `keep_best::Bool=true`: restore best parameters (by validation RMSE) at the end.
+- `log_file::AbstractString=""`: path to append epoch-by-epoch progress (empty = no logging).
+- `weights=nothing`: optional per-structure weights in the loss function.
+
+# Levenberg-Marquardt (`:lm` and `:lm_batched`)
+
+- `p::Float64=1.25`: LM damping parameter.
+- `solver::Symbol=:direct`: linear solver for the LM step (`:direct`, `:cholesky`, `:qr`,
+  `:cg`, `:lsmr`).
+
+# LM batched (`:lm_batched` only)
+
+- `batch_size::Int=512`: number of structures per mini-batch.
+- `shuffle_seed::Int=42`: RNG seed for reproducible batch shuffling.
+- `threaded::Bool=(Threads.nthreads() > 1)`: use threaded Jacobian computation.
+- `damping_mode::Symbol=:fletcher`: damping strategy (`:fletcher`, `:classic`).
+- `attempts_per_step::Int=1`: number of LM attempts per batch step.
+- `batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing`: pre-computed batch
+  boundaries (disk-backed FeatureStores set this automatically).
+
+# SGD (`:sgd` only)
+
+- `optimizer::Symbol=:adam`: optimizer (`:adam`, `:sgd`, `:sgd_momentum`).
+- `lr::Float64=1e-3`: initial learning rate.
+- `lr_schedule=nothing`: closure `(epoch) -> lr` for scheduling; defaults to constant.
+- `momentum::Float64=0.9`: momentum coefficient for `:sgd_momentum`.
+- `pow::Int=2`: loss power (2 = MSE, 1 = MAE).
+- `beta::Tuple{Float64,Float64}=(0.9, 0.999)`: Adam β₁, β₂.
+- `eps::Float64=1e-8`: Adam ε.
+- `weight_decay::Float64=0.0`: L2 regularization coefficient.
+- `grad_clip::Float64=1.0`: clip gradient L2 norm to this value (0 = disable).
+
+# Checkpointing
+
+- `checkpoint_every::Int=0`: save a model artifact every N epochs (0 = no checkpointing).
+- `checkpoint_prefix::AbstractString=""`: path prefix for checkpoint files
+  (e.g. `"models/ckpt"` produces `"models/ckpt_0001.json"`).
 
 # See also
 
@@ -1296,10 +1375,43 @@ function train_model(
     fc_train::FeatureStore,
     fc_val::FeatureStore,
     fc_test::FeatureStore;
+    # Architecture
     nnodes::Vector{Int}=[10, 10],
-    train_method::String="lm_batched",
+    # Training method
+    train_method::Symbol=:lm_batched,
+    # Display
     verbose::Bool=true,
     show_progress::Bool=true,
+    # Training loop (common)
+    max_epochs::Int=300,
+    earlystop::Int=50,
+    keep_best::Bool=true,
+    log_file::AbstractString="",
+    weights=nothing,
+    # LM (used by :lm and :lm_batched)
+    p::Float64=1.25,
+    solver::Symbol=:direct,
+    # LM batched
+    batch_size::Int=512,
+    shuffle_seed::Int=42,
+    threaded::Bool=(Threads.nthreads() > 1),
+    damping_mode::Symbol=:fletcher,
+    attempts_per_step::Int=1,
+    batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing,
+    # SGD
+    optimizer::Symbol=:adam,
+    lr::Float64=1e-3,
+    lr_schedule=nothing,
+    momentum::Float64=0.9,
+    pow::Int=2,
+    beta::Tuple{Float64,Float64}=(0.9, 0.999),
+    eps::Float64=1e-8,
+    weight_decay::Float64=0.0,
+    grad_clip::Float64=1.0,
+    # Checkpointing
+    checkpoint_every::Int=0,
+    checkpoint_prefix::AbstractString="",
+    # Optim method catch-all
     kwargs...,
 )
     if haskey(Dict(kwargs), :use_force_data) && get(Dict(kwargs), :use_force_data, false) === true
@@ -1319,10 +1431,16 @@ function train_model(
     ntest = length(fc_test)
 
     if verbose
-        _print_train_config(fc_train, ntrain, nval, ntest, nnodes, ninp, nparams(itf), train_method, kwargs)
+        _print_train_config(fc_train, ntrain, nval, ntest, nnodes, ninp, nparams(itf), train_method,
+            (; batch_size, max_epochs, earlystop))
     end
 
-    train!(itf, fc_train, fc_val; train_method, show_progress, kwargs...)
+    train!(itf, fc_train, fc_val; train_method, show_progress,
+        max_epochs, earlystop, keep_best, log_file, weights,
+        p, solver, batch_size, shuffle_seed, threaded, damping_mode,
+        attempts_per_step, batch_ranges, optimizer, lr, lr_schedule,
+        momentum, pow, beta, eps, weight_decay, grad_clip,
+        checkpoint_every, checkpoint_prefix, kwargs...)
 
     train_results = TrainingResults(itf, fc_train)
     val_results = TrainingResults(itf, fc_val)
@@ -1346,7 +1464,7 @@ end
 # Single-data wrappers (built-in 3-way split)
 # =====================================================================
 
-"""
+const _TRAIN_MODEL_WRAPPER_DOC = raw"""
     train_model(data, feature_spec; val_ratio=0.1, test_ratio=0.1, ...) -> TrainedModel
     train_model(data; val_ratio=0.1, test_ratio=0.1, p2=2:8, ...) -> TrainedModel
     train_model(sc, feature_spec; ...) -> TrainedModel
@@ -1376,8 +1494,8 @@ during the training loop.
 - `test_ratio=0.1`: fraction of data reserved for final testing.
 - `seed=42`: RNG seed for reproducible shuffling of the split.
 - `nnodes=[10, 10]`: hidden layer sizes.
-- `train_method="lm_batched"`: training algorithm (`"lm"`, `"lm_batched"`,
-  `"sgd"`, or `"optim"`).
+- `train_method=:lm_batched`: training algorithm (`:lm`, `:lm_batched`,
+  `:sgd`, or `:optim`).
 - `verbose=true`: print training configuration and results.
 - `elemental_energies`: per-element reference energy offsets (subtracted
   from target energies during training, added back at inference).
@@ -1391,7 +1509,9 @@ during the training loop.
 - `nsynthetic=1`: number of synthetic structures per parent with forces.
 - `max_disp=0.05`: maximum per-atom displacement for synthetic structures (Å).
 - `force_key=:REF_forces`: `cell.arrays` key for the force matrix.
-- All other kwargs are forwarded to [`train!`](@ref).
+- All training keyword arguments (e.g. `max_epochs`, `earlystop`, `batch_size`, `lr`) are forwarded to
+  [`train_model(::FeatureStore, ::FeatureStore, ::FeatureStore)`](@ref).
+  See that method's docstring for the full list and defaults of training-related parameters.
 
 # Pre-split data
 
@@ -1428,7 +1548,7 @@ result = predict(tm, my_cell)
 ```
 """
 
-# Path with explicit feature_spec
+@doc _TRAIN_MODEL_WRAPPER_DOC
 function train_model(
     data::Union{AbstractString,Vector{<:AbstractString}},
     feature_spec::AbstractCellFeatureSpec;
@@ -1436,7 +1556,7 @@ function train_model(
     test_ratio::Float64=0.1,
     seed::Int=42,
     nnodes::Vector{Int}=[10, 10],
-    train_method::String="lm_batched",
+    train_method::Symbol=:lm_batched,
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
     threshold::Float64=10.0,
     pressure_gpa::Float64=0.0,
@@ -1458,14 +1578,14 @@ function train_model(
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
-# Path, auto-infer feature spec
+@doc _TRAIN_MODEL_WRAPPER_DOC
 function train_model(
     data::Union{AbstractString,Vector{<:AbstractString}};
     val_ratio::Float64=0.1,
     test_ratio::Float64=0.1,
     seed::Int=42,
     nnodes::Vector{Int}=[10, 10],
-    train_method::String="lm_batched",
+    train_method::Symbol=:lm_batched,
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
     threshold::Float64=10.0,
     pressure_gpa::Float64=0.0,
@@ -1493,7 +1613,7 @@ function train_model(
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
-# StructureContainer with explicit feature_spec
+@doc _TRAIN_MODEL_WRAPPER_DOC
 function train_model(
     sc::StructureContainer,
     feature_spec::AbstractCellFeatureSpec;
@@ -1501,7 +1621,7 @@ function train_model(
     test_ratio::Float64=0.1,
     seed::Int=42,
     nnodes::Vector{Int}=[10, 10],
-    train_method::String="lm_batched",
+    train_method::Symbol=:lm_batched,
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
     show_progress::Bool=true,
     nmax::Int=500,
@@ -1519,14 +1639,14 @@ function train_model(
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
-# StructureContainer, auto-infer feature spec
+@doc _TRAIN_MODEL_WRAPPER_DOC
 function train_model(
     sc::StructureContainer;
     val_ratio::Float64=0.1,
     test_ratio::Float64=0.1,
     seed::Int=42,
     nnodes::Vector{Int}=[10, 10],
-    train_method::String="lm_batched",
+    train_method::Symbol=:lm_batched,
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
     show_progress::Bool=true,
     nmax::Int=500,
@@ -1550,14 +1670,14 @@ function train_model(
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
-# FeatureStore with built-in split
+@doc _TRAIN_MODEL_WRAPPER_DOC
 function train_model(
     fs::FeatureStore;
     val_ratio::Float64=0.1,
     test_ratio::Float64=0.1,
     seed::Int=42,
     nnodes::Vector{Int}=[10, 10],
-    train_method::String="lm_batched",
+    train_method::Symbol=:lm_batched,
     verbose::Bool=true,
     show_progress::Bool=true,
     kwargs...,
@@ -1579,15 +1699,14 @@ end
 # Pre-split wrappers
 # =====================================================================
 
-# --- Pre-split StructureContainers with explicit feature_spec ---
-
+@doc _TRAIN_MODEL_WRAPPER_DOC
 function train_model(
     sc_train::StructureContainer,
     sc_val::StructureContainer,
     sc_test::StructureContainer,
     feature_spec::AbstractCellFeatureSpec;
     nnodes::Vector{Int}=[10, 10],
-    train_method::String="lm_batched",
+    train_method::Symbol=:lm_batched,
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
     show_progress::Bool=true,
     nmax::Int=500,
@@ -1606,14 +1725,13 @@ function train_model(
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
-# --- Pre-split StructureContainers, auto-infer feature spec ---
-
+@doc _TRAIN_MODEL_WRAPPER_DOC
 function train_model(
     sc_train::StructureContainer,
     sc_val::StructureContainer,
     sc_test::StructureContainer;
     nnodes::Vector{Int}=[10, 10],
-    train_method::String="lm_batched",
+    train_method::Symbol=:lm_batched,
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
     show_progress::Bool=true,
     nmax::Int=500,
@@ -1638,15 +1756,14 @@ function train_model(
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
-# --- Pre-split paths with explicit feature_spec ---
-
+@doc _TRAIN_MODEL_WRAPPER_DOC
 function train_model(
     path_train::Union{AbstractString,Vector{<:AbstractString}},
     path_val::Union{AbstractString,Vector{<:AbstractString}},
     path_test::Union{AbstractString,Vector{<:AbstractString}},
     feature_spec::AbstractCellFeatureSpec;
     nnodes::Vector{Int}=[10, 10],
-    train_method::String="lm_batched",
+    train_method::Symbol=:lm_batched,
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
     threshold::Float64=10.0,
     pressure_gpa::Float64=0.0,
@@ -1671,14 +1788,13 @@ function train_model(
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
 
-# --- Pre-split paths, auto-infer feature spec ---
-
+@doc _TRAIN_MODEL_WRAPPER_DOC
 function train_model(
     path_train::Union{AbstractString,Vector{<:AbstractString}},
     path_val::Union{AbstractString,Vector{<:AbstractString}},
     path_test::Union{AbstractString,Vector{<:AbstractString}};
     nnodes::Vector{Int}=[10, 10],
-    train_method::String="lm_batched",
+    train_method::Symbol=:lm_batched,
     elemental_energies::Dict{Symbol,Float64}=Dict{Symbol,Float64}(),
     threshold::Float64=10.0,
     pressure_gpa::Float64=0.0,

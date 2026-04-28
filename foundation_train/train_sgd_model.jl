@@ -325,7 +325,7 @@ function main(args=ARGS)
         model,
         train_data,
         fc_val;
-        train_method="sgd",
+        train_method=:sgd,
         optimizer=cfg["optimizer"],
         lr=cfg["lr"],
         lr_schedule=schedule,

@@ -227,7 +227,7 @@ using NLSolversBase
         # Use batch_size = n_data to effectively test the dispatch path
         opt_res, params, history, funcs = train!(
             model, fc_train, fc_val;
-            train_method="lm_batched",
+            train_method=:lm_batched,
             batch_size=length(fc_train),
             max_epochs=100,
             earlystop=10,
