@@ -240,43 +240,29 @@ fitting potential energy surfaces.
 
 # Keyword Arguments
 - `p0=paramvector(itf)`: Initial parameter vector for optimization
-- `max_epochs=1000`: Maximum number of iterations
+- `max_epochs=300`: Maximum number of epochs
 - `maxIter=nothing`: Deprecated, use `max_epochs` instead
 - `show_progress=false`: Print progress to stdout during training
 - `x_val=x`: Validation set feature vectors (defaults to training set)
 - `y_val=y`: Validation set target energies (defaults to training set)
-- `earlystop=50`: Stop if validation error doesn't improve for this many iterations
-- `keep_best=true`: Keep parameters with best validation error instead of final iteration
+- `earlystop=50`: Stop if validation error doesn't improve for this many epochs
+- `keep_best=true`: Keep parameters with best validation error instead of final epoch
 - `log_file=""`: Path to file for logging progress (empty string = no logging)
 - `p=1.25`: Levenberg-Marquardt damping parameter
 - `weights=nothing`: Optional weights for each structure in the loss function
+- `batch_size=0`: Mini-batch size (0 = full-batch LM, >0 = batched LM)
+- `shuffle_seed=42`: RNG seed for reproducible batch shuffling (batched mode)
+- `threaded=(Threads.nthreads() > 1)`: Use threaded Jacobian computation (batched mode)
+- `damping_mode=:fletcher`: Damping strategy — `:fletcher` or `:classic` (batched mode)
+- `attempts_per_step=1`: Number of LM attempts per batch step (batched mode)
+- `solver=:direct`: Linear solver — `:direct`, `:cholesky`, `:qr`, `:cg`, `:lsmr`
+- `batch_ranges=nothing`: Pre-computed batch boundaries for disk-backed data (batched mode)
 
 # Returns
 - `opt_res`: Optimization result object
 - `params`: Final parameter vector
-- `history`: Matrix with columns [train_rmse, val_rmse] for each iteration
-- `funcs`: Tuple of (f!, j!, fj!) functions used for optimization
-
-# Examples
-```julia
-# Basic training on carbon structures
-itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
-x_train, y_train = get_fit_data(fc_train)
-x_val, y_val = get_fit_data(fc_val)
-
-# Train with progress display and early stopping
-opt_res, params, history = train_lm!(
-    itf, x_train, y_train;
-    x_val=x_val, y_val=y_val,
-    max_epochs=500,
-    show_progress=true,
-    earlystop=30
-)
-
-# Check final RMSE
-final_train_rmse = history[end, 1]
-final_val_rmse = history[end, 2]
-```
+- `history`: Matrix with columns [train_rmse, val_rmse] for each epoch
+- `funcs`: Tuple of functions used for optimization
 
 # Notes
 - The network parameters in `itf` are updated in-place during training
@@ -302,13 +288,27 @@ function train_lm!(
     log_file="",
     p=1.25,
     weights=nothing,
+    batch_size=0,
+    shuffle_seed=42,
+    threaded::Bool=(Threads.nthreads() > 1),
+    damping_mode::Symbol=:fletcher,
+    attempts_per_step::Int=1,
+    solver::Symbol=:direct,
+    batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing,
     checkpoint_every::Int=0,
     checkpoint_prefix::AbstractString="",
     feature_spec=nothing,
     elemental_energies::Dict=Dict{Symbol,Float64}(),
-    solver::Symbol=:cholesky,
     args...,
 )
+    if batch_size > 0
+        return _train_lm_batched!(itf, x, y;
+            p0, max_epochs, maxIter, show_progress, x_val, y_val, earlystop, keep_best,
+            log_file, p, weights, batch_size, shuffle_seed, threaded, damping_mode,
+            attempts_per_step, solver, batch_ranges, checkpoint_every, checkpoint_prefix,
+            feature_spec, elemental_energies, args...)
+    end
+
     # --- Deprecated alias ---
     if maxIter !== nothing
         @warn "maxIter is deprecated, use max_epochs instead" maxIter max_epochs
@@ -316,48 +316,16 @@ function train_lm!(
     end
     args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
 
-    rec = []
+    ctx = TrainingContext(itf, feature_spec, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
 
-    train_natoms = [size(v, 2) for v in x]
-    val_natoms = [size(v, 2) for v in x_val]
+    train_natoms = natoms(x)
+    val_natoms = natoms(x_val)
 
-    time_start = time()
-    last_time = time()
-    iter_count = 1
     function progress_tracker()
         rmse_train = rmse_per_atom(itf, x, y, train_natoms)
-
-        if x_val === x
-            rmse_val = rmse_train
-        else
-            rmse_val = rmse_per_atom(itf, x_val, y_val, val_natoms)
-        end
-        if show_progress || (log_file != "")
-            tnow = time()
-            elapsed = tnow - time_start
-            loop = tnow - last_time
-            last_time = tnow
-            logline =
-                @sprintf "Iter: %d %3.3f %3.3f RMSE Train %10.5f eV | Val %10.5f eV\n" iter_count loop elapsed rmse_train rmse_val
-            show_progress && print(logline)
-            if log_file != ""
-                open(log_file, "a") do file
-                    write(file, logline)
-                end
-            end
-        end
-
-        flush(stdout)
-        push!(rec, (rmse_train, rmse_val))
-
-        # Checkpoint
-        if checkpoint_every > 0 && checkpoint_prefix != "" && feature_spec !== nothing && iter_count % checkpoint_every == 0
-            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, iter_count))
-            save_model_artifact(ckpt_path, itf; feature_spec, elemental_energies, metadata=Dict("epoch" => iter_count))
-        end
-
-        iter_count += 1
-
+        rmse_val = x_val === x ? rmse_train : rmse_per_atom(itf, x_val, y_val, val_natoms)
+        progress_callback!(ctx, rmse_train, rmse_val)
+        ctx.counter += 1
         rmse_val, paramvector(itf)
     end
 
@@ -385,7 +353,7 @@ function train_lm!(
         args...,
     )
     # Update the p0 of the training configuration
-    opt_res, paramvector(itf), [map(x -> x[1], rec) map(x -> x[2], rec)], (f!, j!, fj!)
+    opt_res, paramvector(itf), [map(x -> x[1], ctx.rec) map(x -> x[2], ctx.rec)], (f!, j!, fj!)
 end
 
 """
@@ -426,7 +394,7 @@ callback evaluates on the full dataset for reliable early stopping.
 # See also
 [`train_lm!`](@ref), [`train!`](@ref)
 """
-function train_lm_batched!(
+function _train_lm_batched!(
     itf::AbstractNNInterface,
     x,
     y;
@@ -462,14 +430,11 @@ function train_lm_batched!(
     # Filter maxIter from args to avoid double deprecation warning downstream
     args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
 
-    rec = []
+    ctx = TrainingContext(itf, feature_spec, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
 
     train_natoms = natoms(x)
     val_natoms = natoms(x_val)
 
-    time_start = time()
-    last_time = time()
-    epoch_count = 1
     val_pool = nothing
     function progress_tracker()
         if val_pool !== nothing
@@ -477,42 +442,15 @@ function train_lm_batched!(
         else
             rmse_train = rmse_per_atom(itf, x, y, train_natoms)
         end
-
         if x_val === x
             rmse_val = rmse_train
+        elseif val_pool !== nothing
+            rmse_val = rmse_per_atom_threaded(val_pool, x_val, y_val, val_natoms)
         else
-            if val_pool !== nothing
-                rmse_val = rmse_per_atom_threaded(val_pool, x_val, y_val, val_natoms)
-            else
-                rmse_val = rmse_per_atom(itf, x_val, y_val, val_natoms)
-            end
+            rmse_val = rmse_per_atom(itf, x_val, y_val, val_natoms)
         end
-        if show_progress || (log_file != "")
-            tnow = time()
-            elapsed = tnow - time_start
-            loop = tnow - last_time
-            last_time = tnow
-            logline =
-                @sprintf "Epoch: %d %3.3f %3.3f RMSE Train %10.5f eV | Val %10.5f eV (batch=%d)\n" epoch_count loop elapsed rmse_train rmse_val batch_size
-            show_progress && print(logline)
-            if log_file != ""
-                open(log_file, "a") do file
-                    write(file, logline)
-                end
-            end
-        end
-
-        flush(stdout)
-        push!(rec, (rmse_train, rmse_val))
-
-        # Checkpoint
-        if checkpoint_every > 0 && checkpoint_prefix != "" && feature_spec !== nothing && epoch_count % checkpoint_every == 0
-            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, epoch_count))
-            save_model_artifact(ckpt_path, itf; feature_spec, elemental_energies, metadata=Dict("epoch" => epoch_count))
-        end
-
-        epoch_count += 1
-
+        progress_callback!(ctx, rmse_train, rmse_val, @sprintf(" (batch=%d)", batch_size))
+        ctx.counter += 1
         rmse_val, paramvector(itf)
     end
 
@@ -544,7 +482,11 @@ function train_lm_batched!(
         args...,
     )
 
-    opt_res, paramvector(itf), [map(x -> x[1], rec) map(x -> x[2], rec)], (fj_batch!, f_full!)
+    opt_res, paramvector(itf), [map(x -> x[1], ctx.rec) map(x -> x[2], ctx.rec)], (fj_batch!, f_full!)
+end
+
+function train_lm_batched!(itf::AbstractNNInterface, x, y; batch_size=512, kwargs...)
+    train_lm!(itf, x, y; batch_size, kwargs...)
 end
 
 """
@@ -586,15 +528,8 @@ function train!(
         kw = merge(kw, (elemental_energies=train_data.elemental_energies,))
     end
 
-    # Method-specific params are passed in from the core train_model signature.
-    # Strip params irrelevant to each method so they don't leak into the
-    # underlying solver.
-    if _method === :lm
-        kw = Base.structdiff(kw, NamedTuple{(:optimizer, :lr, :lr_schedule, :momentum,
-            :pow, :beta, :eps, :weight_decay, :grad_clip,
-            :batch_size, :shuffle_seed, :threaded, :damping_mode,
-            :attempts_per_step, :batch_ranges)})
-    elseif _method === :lm_batched
+    # Strip method-specific kwargs that the underlying solver should not receive.
+    if _method === :lm || _method === :lm_batched
         kw = Base.structdiff(kw, NamedTuple{(:optimizer, :lr, :lr_schedule, :momentum,
             :pow, :beta, :eps, :weight_decay, :grad_clip)})
     elseif _method === :sgd
@@ -602,19 +537,13 @@ function train!(
             :attempts_per_step, :batch_ranges)})
     end
 
-    if _method === :lm
+    if _method === :lm || _method === :lm_batched
         x_train, y_train = get_fit_data(train_data)
         x_val, y_val = get_fit_data(val_data)
-        train_lm!(itf, x_train, y_train; x_val, y_val, kw...)
-    elseif _method === :lm_batched
-        x_train, y_train = get_fit_data(train_data)
-        x_val, y_val = get_fit_data(val_data)
-        batch_ranges_kw = if get(kw, :batch_ranges, nothing) === nothing && train_data.data === nothing && train_data.n_disk_batches > 0
-            merge(kw, (batch_ranges=train_data.disk_batch_ranges,))
-        else
-            kw
+        if _method === :lm_batched && get(kw, :batch_ranges, nothing) === nothing && train_data.data === nothing && train_data.n_disk_batches > 0
+            kw = merge(kw, (batch_ranges=train_data.disk_batch_ranges,))
         end
-        train_lm_batched!(itf, x_train, y_train; x_val, y_val, batch_ranges_kw...)
+        train_lm!(itf, x_train, y_train; x_val, y_val, kw...)
     elseif _method === :sgd
         x_train, y_train = get_fit_data(train_data)
         x_val, y_val = get_fit_data(val_data)
@@ -1878,7 +1807,7 @@ function train_lm_with_embedding!(
     elemental_energies::Dict=Dict{Symbol,Float64}(),
     args...,
 )
-    rec = []
+    ctx = TrainingContext(itf, cf, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
     n_nn = length(p0_nn)
     n_emb = EDDPotentialsCore._emb_param_count(cf)
     n_total = n_nn + n_emb
@@ -1897,10 +1826,6 @@ function train_lm_with_embedding!(
         val_nls, val_wks = train_nls, train_wks
     end
 
-    time_start = time()
-    last_time = time()
-    iter_count = 1
-
     function progress_tracker()
         rmse_train = rmse_per_atom_with_embedding(itf, structures, y, train_natoms, cf, train_nls, train_wks)
         if structures_val === structures
@@ -1908,31 +1833,8 @@ function train_lm_with_embedding!(
         else
             rmse_val = rmse_per_atom_with_embedding(itf, structures_val, y_val, val_natoms, cf, val_nls, val_wks)
         end
-        if show_progress || (log_file != "")
-            tnow = time()
-            elapsed = tnow - time_start
-            loop = tnow - last_time
-            last_time = tnow
-            logline = @sprintf "Iter: %d %3.3f %3.3f RMSE Train %10.5f eV | Val %10.5f eV\n" iter_count loop elapsed rmse_train rmse_val
-            show_progress && print(logline)
-            if log_file != ""
-                open(log_file, "a") do file
-                    write(file, logline)
-                end
-            end
-        end
-
-        flush(stdout)
-        push!(rec, (rmse_train, rmse_val))
-
-        # Checkpoint
-        if checkpoint_every > 0 && checkpoint_prefix != "" && iter_count % checkpoint_every == 0
-            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, iter_count))
-            save_model_artifact(ckpt_path, itf; feature_spec=cf, elemental_energies, metadata=Dict("epoch" => iter_count))
-        end
-
-        iter_count += 1
-
+        progress_callback!(ctx, rmse_train, rmse_val)
+        ctx.counter += 1
         rmse_val, paramvector(itf)
     end
 
@@ -1959,8 +1861,7 @@ function train_lm_with_embedding!(
     )
 
     # Update model and embedding from final parameters
-    final_params = keep_best ? opt_res.minimizer : paramvector(itf)
-    # Also update from the final paramvector
+    final_params = opt_res.minimizer
     final_nn = view(final_params, 1:n_nn)
     final_emb = view(final_params, n_nn+1:n_total)
     EDDPotentialsCore.setparamvector!(itf, final_nn)
@@ -1970,7 +1871,7 @@ function train_lm_with_embedding!(
         EDDPotentialsCore._emb_normalize!(cf)
     end
 
-    opt_res, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf)), [map(x -> x[1], rec) map(x -> x[2], rec)], (f!, j!, fj!)
+    opt_res, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf)), [map(x -> x[1], ctx.rec) map(x -> x[2], ctx.rec)], (f!, j!, fj!)
 end
 
 """
@@ -2013,7 +1914,7 @@ function train_lm_batched_with_embedding!(
     end
     args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
 
-    rec = []
+    ctx = TrainingContext(itf, cf, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
     n_nn = length(p0_nn)
     n_emb = EDDPotentialsCore._emb_param_count(cf)
     n_total = n_nn + n_emb
@@ -2031,10 +1932,6 @@ function train_lm_batched_with_embedding!(
         val_nls, val_wks = train_nls, train_wks
     end
 
-    time_start = time()
-    last_time = time()
-    epoch_count = 1
-
     function progress_tracker()
         rmse_train = rmse_per_atom_with_embedding(itf, structures, y, train_natoms, cf, train_nls, train_wks)
         if structures_val === structures
@@ -2042,31 +1939,8 @@ function train_lm_batched_with_embedding!(
         else
             rmse_val = rmse_per_atom_with_embedding(itf, structures_val, y_val, val_natoms, cf, val_nls, val_wks)
         end
-        if show_progress || (log_file != "")
-            tnow = time()
-            elapsed = tnow - time_start
-            loop = tnow - last_time
-            last_time = tnow
-            logline = @sprintf "Epoch: %d %3.3f %3.3f RMSE Train %10.5f eV | Val %10.5f eV (batch=%d)\n" epoch_count loop elapsed rmse_train rmse_val batch_size
-            show_progress && print(logline)
-            if log_file != ""
-                open(log_file, "a") do file
-                    write(file, logline)
-                end
-            end
-        end
-
-        flush(stdout)
-        push!(rec, (rmse_train, rmse_val))
-
-        # Checkpoint
-        if checkpoint_every > 0 && checkpoint_prefix != "" && epoch_count % checkpoint_every == 0
-            ckpt_path = _ensure_dir(@sprintf("%s_%04d.json", checkpoint_prefix, epoch_count))
-            save_model_artifact(ckpt_path, itf; feature_spec=cf, elemental_energies, metadata=Dict("epoch" => epoch_count))
-        end
-
-        epoch_count += 1
-
+        progress_callback!(ctx, rmse_train, rmse_val, @sprintf(" (batch=%d)", batch_size))
+        ctx.counter += 1
         rmse_val, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf))
     end
 
@@ -2096,7 +1970,7 @@ function train_lm_batched_with_embedding!(
     )
 
     # Update model and embedding from final parameters
-    final_params = keep_best ? opt_res.minimizer : p0
+    final_params = opt_res.minimizer
     final_nn = view(final_params, 1:n_nn)
     final_emb = view(final_params, n_nn+1:n_total)
     EDDPotentialsCore.setparamvector!(itf, final_nn)
@@ -2106,7 +1980,7 @@ function train_lm_batched_with_embedding!(
         EDDPotentialsCore._emb_normalize!(cf)
     end
 
-    opt_res, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf)), [map(x -> x[1], rec) map(x -> x[2], rec)], (fj_batch!, f_full!)
+    opt_res, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf)), [map(x -> x[1], ctx.rec) map(x -> x[2], ctx.rec)], (fj_batch!, f_full!)
 end
 
 """

@@ -87,12 +87,11 @@ import .EDDPotentialsCore:
 include("lmsolve.jl")
 include("lmsolve_batched.jl")
 include("preprocessing.jl")
+include("tools.jl")
 include("eddpf90.jl")
 include("sgd_training.jl")
 include("training.jl")
 include("evaluation.jl")
-
-include("tools.jl")
 include("optimizer/abstract.jl")
 include("functional/functional.jl")
 
