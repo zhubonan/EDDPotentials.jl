@@ -3,7 +3,9 @@ using EDDPotentials:
     RandomEmbeddedCellFeature,
     FeatureStore,
     StructureContainer,
-    VariableCellCalc,
+    MetaCalculator,
+    CellRelaxationModifier,
+    is_variable_cell,
     NNCalc,
     get_cell,
     nfeatures,
@@ -127,13 +129,15 @@ using CellBase: positions, species
         end
 
         function _test_forces_fd_vc(calc; amp=1e-7, atol=1e-5, idx=1)
-            if !isa(calc, VariableCellCalc)
-                calc = VariableCellCalc(calc)
+            if !is_variable_cell(calc)
+                calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
             end
             ftmp = copy(eddp_forces(calc))
             etmp = eddp_enthalpy(calc)
-            positions(get_cell(calc))[idx] += amp
-            @test _need_calc(calc, true)
+            pos = copy(get_positions(calc))
+            pos[idx] += amp
+            set_positions!(calc, pos)
+            @test calc.energy_dirty
             tmp = (eddp_enthalpy(calc) - etmp) / amp
             @test -tmp ≈ ftmp[idx] atol = atol
         end
@@ -177,13 +181,15 @@ using CellBase: positions, species
         end
 
         function _test_forces_fd_vc(calc; amp=1e-7, atol=1e-5, idx=1)
-            if !isa(calc, VariableCellCalc)
-                calc = VariableCellCalc(calc)
+            if !is_variable_cell(calc)
+                calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
             end
             ftmp = copy(eddp_forces(calc))
             etmp = eddp_enthalpy(calc)
-            positions(get_cell(calc))[idx] += amp
-            @test _need_calc(calc, true)
+            pos = copy(get_positions(calc))
+            pos[idx] += amp
+            set_positions!(calc, pos)
+            @test calc.energy_dirty
             tmp = (eddp_enthalpy(calc) - etmp) / amp
             @test -tmp ≈ ftmp[idx] atol = atol
         end

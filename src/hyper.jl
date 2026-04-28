@@ -123,7 +123,7 @@ of the extra-dimensional coordinates before each schedule block.
 """
 function hyper_gen_relax(bu; ndim=3, outfile=nothing, label=nothing,
                     schedule_every=50, target_iterations=500,
-                    alpha_start=1e-4, relax_kwargs=(;))
+                    alpha_start=1e-4, relax_fn=opt_tpsd, relax_kwargs=(;))
 
     structure = build_one(joinpath(bu.state.workdir, bu.rss.seedfile))
     if ndim > 0
@@ -136,6 +136,7 @@ function hyper_gen_relax(bu; ndim=3, outfile=nothing, label=nothing,
                     max_iterations=target_iterations,
                     schedule_function=_get_penalty_schedule(),
                     alpha_start,
+                    relax_fn,
                     relax_kwargs)
     if outfile !== nothing
         structure_3d = remove_dimensions(structure)
@@ -144,4 +145,58 @@ function hyper_gen_relax(bu; ndim=3, outfile=nothing, label=nothing,
         write_res(outfile, vcalc3d; label=label)
     end
     results, dnorm
+end
+
+"""
+    hyper_gen_relax(
+        calc::EDDPCalculator,
+        cell::Cell;
+        ndim=3,
+        alpha_start=1e-4,
+        schedule_every=50,
+        target_iterations=500,
+        external_pressure_GPa=0.0,
+        relax_fn=opt_tpsd,
+        relax_kwargs=(;),
+    )
+
+Create a hyperdimensional calculator from an [`EDDPCalculator`](@ref) and
+run the scheduled-penalty relaxation.
+
+This overload uses [`create_calculator`](@ref) to bind the model to the given
+`cell` with the appropriate modifier pipeline, avoiding the need for a
+[`Builder`](@ref) configuration.
+
+Returns `(results, extra_dim_norms)` as in the Builder overload.
+"""
+function hyper_gen_relax(
+    calc::EDDPCalculator,
+    cell::Cell;
+    ndim=3,
+    alpha_start=1e-4,
+    schedule_every=50,
+    target_iterations=500,
+    external_pressure_GPa=0.0,
+    relax_fn=opt_tpsd,
+    relax_kwargs=(;),
+)
+    hcell = deepcopy(cell)
+    if ndim > 0
+        hcell = add_dimensions(hcell, ndim)
+    end
+
+    P = GPaToeVAng(external_pressure_GPa)
+
+    vcalc = create_calculator(calc, hcell; modifiers=[
+        ExtraDimensionPenaltyModifier(alpha_start; start_dim=4),
+        CellRelaxationModifier(hcell; external_pressure=diagm([P, P, P])),
+    ])
+
+    scheduled_penalty_relax!(vcalc;
+        schedule_every,
+        max_iterations=target_iterations,
+        alpha_start,
+        relax_fn,
+        relax_kwargs,
+    )
 end

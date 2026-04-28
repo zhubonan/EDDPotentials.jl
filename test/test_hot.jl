@@ -94,7 +94,7 @@ end
     @testset "Variable cell wrapping" begin
         calc = _make_lj_calc()
 
-        # With relax_cell=true (default), VariableCellCalc should be used
+        # With relax_cell=true (default), MetaCalculator with CellRelaxationModifier should be used
         result = hot_airss!(calc;
             cycles=1,
             relax_itermax=5,

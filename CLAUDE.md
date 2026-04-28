@@ -68,9 +68,9 @@ The source tree has an internal core/functional split. The public API is availab
 - Feature generation (`core/feature/`) — two-body and three-body atomic environment descriptors
 - Gradient computation (`core/gradient/`) — chain rule for forces/stress from feature gradients
 - NN interface (`core/nn/`) — abstract `AbstractNNInterface` with Linear, Flux, Ensemble, and ManualFluxBackProp implementations
-- Calculator kernel (`core/calculator.jl`) — `NNCalc`, `VariableCellCalc`
+- Calculator kernel (`core/calculator.jl`) — `NNCalc`, deprecated `VariableCellCalc` shim (→ `MetaCalculator` + `CellRelaxationModifier`), `EDDPCalculator` + `create_calculator` factory
 - Calculator modifiers (`core/calculator/modifiers/`) — pipeline-based modifiers for MetaCalculator
-- MetaCalculator (`core/calculator/metacalculator.jl`) — modifier pipeline architecture
+- MetaCalculator (`core/calculator/metacalculator.jl`) — composes source calculator + modifier pipeline; delegates cell ownership to source
 
 **Functional layer** (`src/EDDPotentials.jl`): Includes core, then adds:
 - `training.jl` — model training, ensemble construction via NNLS weighting
@@ -95,8 +95,8 @@ All calculators inherit from `AbstractCalc` and implement:
 
 Key calculator types:
 - **`NNCalc`** — primary calculator binding Cell + CellFeature + NNInterface with neighbor list caching
-- **`VariableCellCalc`** — wraps any calculator, adds lattice DOFs via deformation gradient (Tadmor et al. 1999)
-- **`MetaCalculator`** — source calculator + ordered modifier pipeline with pre/post-calculate hooks
+- **`MetaCalculator`** — source calculator + ordered modifier pipeline with pre/post-calculate hooks; delegates cell ownership to source. Use with `CellRelaxationModifier` for variable-cell optimization (replaces the deprecated `VariableCellCalc`).
+- **`EDDPCalculator`** — model-level calculator (trained model not bound to any cell). Provides `create_calculator(calc, cell; modifiers=[])` factory that returns `NNCalc` (no modifiers) or `MetaCalculator(NNCalc, modifiers)`.
 
 ### Hyperspace Relaxation
 
@@ -124,10 +124,9 @@ modifiers = [ExtraDimensionPenaltyModifier(1e-4), CellRelaxationModifier(hcell)]
 metacalc = MetaCalculator(source, modifiers)
 ```
 
-The `hyper_gen_relax(bu; ...)` function provides a high-level entry point using
-a `Builder` configuration. Hyperspace parameters can be configured in `link.toml`
-under `[state]`: `hyper_ndim`, `hyper_alpha_start`, `hyper_schedule_every`,
-`hyper_target_iterations`.
+The `hyper_gen_relax` function provides high-level entry points for both workflows:
+- `hyper_gen_relax(bu::Builder; ...)` — uses a Builder configuration; hyperspace parameters in `link.toml` under `[state]`: `hyper_ndim`, `hyper_alpha_start`, `hyper_schedule_every`, `hyper_target_iterations`.
+- `hyper_gen_relax(calc::EDDPCalculator, cell::Cell; ...)` — standalone mode with a pre-trained model and a cell, no Builder needed. Uses `create_calculator` internally to assemble the modifier pipeline.
 
 ### Feature System
 

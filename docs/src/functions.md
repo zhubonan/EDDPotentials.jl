@@ -45,7 +45,7 @@ Pages = [
 
 ## Calculators
 
-Calculator types for energy, force, and stress evaluation. [`NNCalc`](@ref) is the primary calculator; [`VariableCellCalc`](@ref) adds lattice degrees of freedom for cell optimization; [`EDDPCalculator`](@ref) bundles a trained model for model-level inference.
+Calculator types for energy, force, and stress evaluation. [`NNCalc`](@ref) is the primary calculator; [`MetaCalculator`](@ref) with [`CellRelaxationModifier`](@ref) adds lattice degrees of freedom for cell optimization (replaces the deprecated `VariableCellCalc`); [`EDDPCalculator`](@ref) bundles a trained model and provides the [`create_calculator`](@ref) factory for assembling calculator pipelines.
 
 ```@autodocs
 Modules = [EDDPotentials]

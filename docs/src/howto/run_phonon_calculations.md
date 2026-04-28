@@ -70,16 +70,16 @@ structure = read_res("my_structure.res")
 calc = NNCalc(structure, builder.cf, load_ensemble(builder))
 
 # Relax with variable cell optimization (important for phonons!)
-vc_calc = VariableCellCalc(calc)
+vc_calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
 converged = opt_tpsd(vc_calc; f_tol=0.01, itermax=200)
 @assert converged
 
 # Extract relaxed structure
-relaxed_structure = vc_calc.cell
+relaxed_structure = get_cell(vc_calc)
 println("Relaxed volume: ", volume(relaxed_structure), " Å³")
 ```
 
-**Important**: Use variable cell relaxation (`VariableCellCalc`) to ensure the lattice parameters are at equilibrium. Fixed-cell relaxation can give incorrect phonon frequencies.
+**Important**: Use variable cell relaxation (`MetaCalculator` with `CellRelaxationModifier`) to ensure the lattice parameters are at equilibrium. Fixed-cell relaxation can give incorrect phonon frequencies.
 
 ## Step 2: Run Finite Displacement
 
@@ -249,7 +249,7 @@ structure = read_res("Si.res")
 
 # 2. Relax structure
 calc = NNCalc(structure, builder.cf, load_ensemble(builder))
-vc_calc = VariableCellCalc(calc)
+vc_calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
 converged = opt_tpsd(vc_calc; f_tol=0.001, itermax=300)
 @assert converged
 

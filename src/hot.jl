@@ -31,7 +31,7 @@ minimum.
 - `relax_s_tol::Float64` — stress convergence tolerance (default 1e-1)
 - `relax_e_tol::Float64` — energy convergence tolerance in eV (default 1e-5)
 - `relax_method::String` — "tpsd" or "fire" (default "tpsd")
-- `relax_cell::Bool` — allow cell relaxation via VariableCellCalc (default true)
+- `relax_cell::Bool` — allow cell relaxation via MetaCalculator + CellRelaxationModifier (default true)
 - `external_pressure::Vector{Float64}` — external pressure (default [0.0]).
   Convention follows `RelaxOption.external_pressure`.
 
@@ -117,18 +117,20 @@ function _make_integrator(opts::HotAIRSSOption)
     end
 end
 
-"""Wrap calc in VariableCellCalc if relax_cell is enabled."""
+"""Wrap calc in MetaCalculator with CellRelaxationModifier if relax_cell is enabled."""
 function _make_relax_calc(calc::AbstractCalc, opts::HotAIRSSOption)
-    if opts.relax_cell && !isa(calc, VariableCellCalc)
+    if opts.relax_cell && !is_variable_cell(calc)
         smat = external_stress_matrix(opts.external_pressure)
-        VariableCellCalc(calc; external_pressure=smat)
+        MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc); external_pressure=smat)])
     else
         calc
     end
 end
 
-"""Extract the raw calculator for MD (unwraps VariableCellCalc if needed)."""
-_raw_calc(calc::VariableCellCalc) = calc.calc
+"""Extract the source calculator for MD (unwraps MetaCalculator if needed)."""
+function _raw_calc(calc::MetaCalculator)
+    calc.source
+end
 _raw_calc(calc::AbstractCalc) = calc
 
 """Run a single relaxation phase. Returns `(converged, iterations_used)`."""
@@ -183,7 +185,7 @@ The energy history records potential energy after each phase:
 
 # Arguments
 - `calc` — calculator (typically `NNCalc`). If `relax_cell=true`, it is wrapped
-  in a `VariableCellCalc` for relaxation phases.
+  in a `MetaCalculator` with `CellRelaxationModifier` for relaxation phases.
 
 # Keyword arguments
 See [`HotAIRSSOption`](@ref) for all options.

@@ -57,9 +57,15 @@ results, dnorm = scheduled_penalty_relax!(calc;
 )
 ```
 
-## Using `hyper_gen_relax` (Builder Workflow)
+## Using `hyper_gen_relax`
 
-For the full automated workflow with a trained ensemble, use `hyper_gen_relax`:
+There are two workflows for calling `hyper_gen_relax`: one using a [`Builder`](@ref)
+configuration (for the automated active-learning pipeline), and one using an
+[`EDDPCalculator`](@ref) directly (for standalone use with pre-trained models).
+
+### Builder Workflow
+
+For the full automated workflow with a trained ensemble:
 
 ```julia
 using EDDPotentials
@@ -80,6 +86,32 @@ results, dnorm = hyper_gen_relax(bu;
 # results contains the optimizer returns per schedule block
 # dnorm tracks the maximum extra-dimension coordinate norm
 ```
+
+### EDDPCalculator Workflow
+
+With a standalone trained model (no Builder needed):
+
+```julia
+using EDDPotentials
+
+# Load a trained model and structure
+calc = load_calculator("model.json")
+cell = read_res("input.res")
+
+# Hyperdimensional relaxation directly from the calculator
+results, dnorm = hyper_gen_relax(calc, cell;
+    ndim=3,
+    alpha_start=1e-4,
+    schedule_every=50,
+    target_iterations=500,
+    external_pressure_GPa=0.0,
+    relax_fn=opt_tpsd,
+)
+```
+
+This overload uses [`create_calculator`](@ref) internally to bind the model
+to the hyperdimensional cell with the appropriate modifier pipeline
+(`ExtraDimensionPenaltyModifier` + `CellRelaxationModifier`).
 
 ## Lennard-Jones Hyperspace Example
 
@@ -154,7 +186,8 @@ println("VC-relaxed cell volume: ", volume(relaxed3))
 println("VC-relaxed energy: ", eddp_energy(metacalc3))
 
 # Compare with standard 3D relaxation
-calc_3d = VariableCellCalc(lj_calc(cell; sigma=1.0, epsilon=1.0, rcut=3.0))
+source_3d = lj_calc(cell; sigma=1.0, epsilon=1.0, rcut=3.0)
+calc_3d = MetaCalculator(source_3d, [CellRelaxationModifier(cell)])
 opt_3d = opt_tpsd(calc_3d; itermax=500)
 println("Standard 3D energy: ", eddp_energy(calc_3d))
 ```

@@ -89,17 +89,11 @@ end
 
 Check if calculator supports variable cell optimization.
 
-Returns `true` if `calc` is a VariableCellCalc or has a CellRelaxationModifier.
+Returns `true` if calc has a CellRelaxationModifier (i.e. is a MetaCalculator
+with that modifier).
 """
 function is_variable_cell(calc::AbstractCalc)
-    # Check for legacy VariableCellCalc
-    if calc isa VariableCellCalc
-        return true
-    end
-
-    # Check for MetaCalculator with CellRelaxationModifier
     !isnothing(get_cell_relaxation_modifier(calc)) && return true
-
     return false
 end
 
@@ -123,16 +117,12 @@ end
 """
     optimizer_effective_stress(calc::AbstractCalc; rebuild_nl=true)
 
-Stress used by optimizer convergence/logging. For plain calculators this is the
-reported stress tensor. Variable-cell calculators use external-pressure-adjusted
-effective stress.
+Stress used by optimizer convergence/logging. For MetaCalculators with
+CellRelaxationModifier, returns the external-pressure-adjusted stress.
+Otherwise returns the reported stress tensor.
 """
 function optimizer_effective_stress(calc::AbstractCalc; rebuild_nl=true)
     eddp_stress(calc; rebuild_nl=rebuild_nl)
-end
-
-function optimizer_effective_stress(calc::VariableCellCalc; rebuild_nl=true)
-    EDDPotentialsCore._get_effective_stress(calc; rebuild_nl=rebuild_nl)
 end
 
 function optimizer_effective_stress(calc::MetaCalculator; rebuild_nl=true)
@@ -149,17 +139,14 @@ Get positions, including augmented lattice DOF if variable cell.
 """
 function get_augmented_positions_internal(calc::AbstractCalc)
     if is_variable_cell(calc)
-        # Try to get augmented positions
-        if calc isa VariableCellCalc
-            return get_positions(calc)[:]
-        elseif hasproperty(calc, :modifiers)
-            # MetaCalculator with CellRelaxationModifier
+        if hasproperty(calc, :modifiers)
             mod = get_cell_relaxation_modifier(calc)
-            !isnothing(mod) && return get_augmented_positions(mod, get_cell(calc))[:]
+            if !isnothing(mod)
+                return get_augmented_positions(mod, get_cell(calc))[:]
+            end
         end
     end
 
-    # Fixed cell: just return atomic positions
     return get_positions(get_cell(calc))[:]
 end
 
@@ -167,24 +154,18 @@ end
     set_augmented_positions_internal!(calc::AbstractCalc, x::AbstractVector)
 
 Set positions, including augmented lattice DOF if variable cell.
+
+Routes through the calculator's own `set_positions!` to ensure dirty flags
+are managed correctly.
 """
 function set_augmented_positions_internal!(calc::AbstractCalc, x::AbstractVector)
     if is_variable_cell(calc)
-        if calc isa VariableCellCalc
-            shape = size(get_positions(calc))
-            set_positions!(calc, reshape(x, shape...))
-        elseif hasproperty(calc, :modifiers)
-            # MetaCalculator with CellRelaxationModifier
-            mod = get_cell_relaxation_modifier(calc)
-            if !isnothing(mod)
-                cell = get_cell(calc)
-                ndim = size(get_positions(cell), 1)
-                set_augmented_positions!(mod, cell, reshape(x, ndim, :))
-                return
-            end
+        if hasproperty(calc, :modifiers)
+            ndim = size(get_positions(get_cell(calc)), 1)
+            set_positions!(calc, reshape(x, ndim, :))
+            return
         end
     else
-        # Fixed cell: set atomic positions directly
         cell = get_cell(calc)
         ndim = size(get_positions(cell), 1)
         set_positions!(cell, reshape(x, ndim, :))

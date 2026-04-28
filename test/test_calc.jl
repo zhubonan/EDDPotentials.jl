@@ -3,7 +3,9 @@ using EDDPotentials
 using Unitful
 using EDDPotentials:
     CellFeature,
-    VariableCellCalc,
+    MetaCalculator,
+    CellRelaxationModifier,
+    is_variable_cell,
     NNCalc,
     lj_baseline_calc,
     lj_baseline_feature,
@@ -66,20 +68,25 @@ end
     function _test_forces_fd(calc, amp=1e-7, atol=1e-5)
         ftmp = copy(eddp_forces(calc))
         etmp = eddp_energy(calc)
-        positions(get_cell(calc))[1] += amp
-        @test _need_calc(calc, true)
+        pos = copy(get_positions(calc))
+        pos[1] += amp
+        set_positions!(calc, pos)
+        # Verify cache was invalidated
+        @test hasproperty(calc, :energy_dirty) ? calc.energy_dirty : _need_calc(calc, true)
         tmp = (eddp_energy(calc) - etmp) / amp
         @test -tmp ≈ ftmp[1] atol = atol
     end
 
     function _test_forces_fd_vc(calc; amp=1e-7, atol=1e-5, idx=1)
-        if !isa(calc, VariableCellCalc)
-            calc = VariableCellCalc(calc)
+        if !is_variable_cell(calc)
+            calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
         end
         ftmp = copy(eddp_forces(calc))
         etmp = eddp_enthalpy(calc)
-        positions(get_cell(calc))[idx] += amp
-        @test _need_calc(calc, true)
+        pos = copy(get_positions(calc))
+        pos[idx] += amp
+        set_positions!(calc, pos)
+        @test calc.energy_dirty
         tmp = (eddp_enthalpy(calc) - etmp) / amp
         @test -tmp ≈ ftmp[idx] atol = atol
     end
@@ -198,8 +205,7 @@ end
     @testset "VCFilter" begin
         nnitf = LinearInterface(rand(nfeatures(cf)))
         calc = NNCalc(cell, cf, nnitf)
-        filter = VariableCellCalc(calc)
-        _test_forces_fd(filter)
+        filter = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
         _test_forces_fd_vc(filter)
         stress = eddp_stress(filter)
         @test size(stress) == (3, 3)
@@ -210,14 +216,14 @@ end
         @test size(pos) == (3, 5)
         pos[1] += 1e-9
         set_positions!(filter, pos)
-        @test _need_calc(filter, false)
+        @test filter.energy_dirty
 
         # External pressure
         filter =
-            VariableCellCalc(calc; external_pressure=diagm([3.0, 3.0, 3.0]))
+            MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc); external_pressure=diagm([3.0, 3.0, 3.0]))])
         _test_forces_fd_vc(filter, idx=1)
         _test_forces_fd_vc(filter, idx=nions(get_cell(calc)) + 3)
-        @test eddp_energy(filter) != eddp_enthalpy(filter)
+        @test eddp_energy(filter.source) != eddp_enthalpy(filter)
         @test eddp_pressure(filter) != 0
         @test eddp_pressure(calc) != 0
     end
@@ -290,7 +296,8 @@ end
     @test converged(opt_tpsd(calc, trajectory=traj), calc)
     @test length(traj) > 1
     @test maximum(norm.(eachcol(eddp_forces(calc)))) < 1e-4
-    @test converged(opt_tpsd(VariableCellCalc(calc)), VariableCellCalc(calc))
+    vc = MetaCalculator(deepcopy(calc), [CellRelaxationModifier(get_cell(calc))])
+    @test converged(opt_tpsd(vc), vc)
     @test maximum(eddp_stress(calc)) < 1e-4
 
 
@@ -298,12 +305,12 @@ end
     calc = lj_like_calc(cell; rc=6.0)
     # With external pressure
     p = 1e-2
-    vc = VariableCellCalc(calc, external_pressure=diagm([p, p, p]))
-    global vc
+    vc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc); external_pressure=diagm([p, p, p]))])
     opt_tpsd(vc;)
-    @test maximum(abs.(eddp_forces(vc.calc))) < 1e-3
-    @test maximum(eddp_stress(vc.calc)) > 1e-3
-    @test maximum(eddp_stress(vc) .- vc.external_pressure) < 1e-4
+    @test maximum(abs.(eddp_forces(vc.source))) < 1e-3
+    @test maximum(eddp_stress(vc.source)) > 1e-3
+    mod = get_modifier(vc, CellRelaxationModifier)
+    @test maximum(eddp_stress(vc) .- mod.external_pressure) < 1e-4
 end
 
 @testset "LJ Baseline" begin

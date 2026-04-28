@@ -1,65 +1,48 @@
 """
-    MetaCalculator{T,D,S<:AbstractCalc}
+    MetaCalculator{T,S<:AbstractCalc}
 
 Calculator with modifier pipeline architecture.
 
-The MetaCalculator has:
-- A single source calculator (typically NNCalc)
-- An ordered list of modifiers that process results
-- Unified caching and dirty-flag system
+The MetaCalculator delegates cell ownership to its source calculator and
+composes an ordered list of modifiers on top.
 
 # Fields
-- `source::S`: The source calculator (e.g., NNCalc)
-- `cell::Cell{T,D}`: The cell (single source of truth)
-- `last_cell::Cell{T,D}`: Last computed cell state for caching
-- `modifiers::Vector{AbstractModifier}`: Pipeline of modifiers (applied in order)
-- `energy::T`: Cached energy result
-- `forces::Matrix{T}`: Cached forces result
-- `stress::Matrix{T}`: Cached stress result
-- `energy_dirty::Bool`: Whether energy needs recomputation
-- `forces_dirty::Bool`: Whether forces need recomputation
+- `source::S`: The source calculator (e.g., NNCalc, EDDPCalculator)
+- `modifiers::Vector`: Pipeline of modifiers (applied in order)
+- `energy::T`: Cached energy result after modifier pipeline
+- `forces::Matrix{T}`: Cached forces result after modifier pipeline
+- `stress::Matrix{T}`: Cached stress result after modifier pipeline
+- `energy_dirty::Bool`: Whether post-modifier energy needs recomputation
+- `forces_dirty::Bool`: Whether post-modifier forces need recomputation
 
 # Example
 ```julia
 source = NNCalc(cell, cf, ensemble)
-modifiers = [
+calc = MetaCalculator(source, [
     ExtraDimensionPenaltyModifier(1e-3),
     CellRelaxationModifier(cell; external_pressure=pressure_mat)
-]
-calc = MetaCalculator(source, modifiers)
-
-# Use like any AbstractCalc
+])
 energy = eddp_energy(calc)
 forces = eddp_forces(calc)
 ```
 """
-mutable struct MetaCalculator{T,D,S<:AbstractCalc} <: AbstractCalc
-    # The source calculator (typically NNCalc)
+mutable struct MetaCalculator{T,S<:AbstractCalc} <: AbstractCalc
     source::S
-
-    # The cell (single source of truth)
-    cell::Cell{T,D}
-
-    # Last computed cell state for caching
-    last_cell::Cell{T,D}
-
-    # Pipeline of modifiers (applied in order)
     modifiers::Vector
-
-    # Cached results
     energy::T
     forces::Matrix{T}
     stress::Matrix{T}
-
-    # Dirty flags
     energy_dirty::Bool
     forces_dirty::Bool
 end
 
 """
-    MetaCalculator(source::AbstractCalc, modifiers::Vector{<:AbstractModifier}=AbstractModifier[])
+    MetaCalculator(source::AbstractCalc, modifiers::Vector = Any[])
 
 Create a MetaCalculator with a source calculator and optional modifiers.
+
+The cell is obtained from `get_cell(source)`. Workspace buffers (forces,
+stress) are sized to match the source cell.
 """
 function MetaCalculator(
     source::AbstractCalc,
@@ -69,10 +52,8 @@ function MetaCalculator(
     T = eltype(cellmat(cell))
     D = CellBase.n_dimensions(cell)
 
-    MetaCalculator(
+    MetaCalculator{T,typeof(source)}(
         source,
-        cell,
-        deepcopy(cell),
         modifiers,
         zero(T),
         zeros(T, D, length(cell)),
@@ -83,66 +64,34 @@ function MetaCalculator(
 end
 
 """
-    is_cell_equal(cell1::Cell, cell2::Cell) -> Bool
-
-Check if two cells are equal (same positions and lattice).
-"""
-function is_cell_equal(cell1::Cell, cell2::Cell)
-    # Check if lattices are equal
-    if get_cellmat(cell1) != get_cellmat(cell2)
-        return false
-    end
-
-    # Check if positions are equal
-    pos1 = get_positions(cell1)
-    pos2 = get_positions(cell2)
-
-    if size(pos1) != size(pos2)
-        return false
-    end
-
-    return pos1 ≈ pos2
-end
-
-"""
     calculate!(calc::MetaCalculator; forces=true, rebuild_nl=true, kwargs...)
 
 Main calculation entry point. Executes the modifier pipeline:
-1. Check cache - return early if clean and cell unchanged
-2. Pre-calculation phase - apply pre_calculate!() for all modifiers
-3. Source calculation - run base calculator
-4. Post-calculation phase - apply post_calculate!() in pipeline order
+1. Check cache — return early if clean
+2. Pre-calculation phase — apply `pre_calculate!` for all modifiers
+3. Source calculation — run base calculator
+4. Post-calculation phase — apply `post_calculate!` in pipeline order
 5. Cache results
+
+Caching relies on the dirty flags set by `set_positions!`/`set_cellmat!`.
+The source calculator's own caching is transparent to MetaCalculator.
 """
 function calculate!(calc::MetaCalculator; forces=true, rebuild_nl=true, kwargs...)
-    # Check if calculation is needed
     if !calc.energy_dirty && !(forces && calc.forces_dirty)
-        if is_cell_equal(calc.cell, calc.last_cell)
-            return calc
-        end
+        return calc
     end
 
-    # Update source calculator's cell reference to match metacalculator's cell
-    # (in case it has been modified externally)
-    if get_cell(calc.source) !== calc.cell
-        # Synchronize cell changes to source
-        set_cellmat!(calc.source, get_cellmat(calc.cell); scale_positions=false)
-        set_positions!(calc.source, get_positions(calc.cell))
-    end
+    src_cell = get_cell(calc.source)
 
-    # Apply pre-calculation modifiers
     for mod in calc.modifiers
-        pre_calculate!(mod, calc.cell)
+        pre_calculate!(mod, src_cell)
     end
 
-    # Some modifiers need force/stress information even for energy-only calls.
     needs_force_for_modifiers = any(requires_forces(mod) for mod in calc.modifiers)
     compute_forces = forces || needs_force_for_modifiers
 
-    # Run source calculator
     calculate!(calc.source; forces=compute_forces, rebuild_nl, kwargs...)
 
-    # Get source results
     energy = eddp_energy(calc.source)
     if compute_forces
         forces_result = eddp_forces(calc.source)
@@ -152,16 +101,14 @@ function calculate!(calc::MetaCalculator; forces=true, rebuild_nl=true, kwargs..
         stress_result = calc.stress
     end
 
-    # Apply post-calculation modifiers in pipeline order
     for mod in calc.modifiers
         if compute_forces || !requires_forces(mod)
             energy, forces_result, stress_result = post_calculate!(
-                mod, calc.cell, energy, forces_result, stress_result
+                mod, src_cell, energy, forces_result, stress_result
             )
         end
     end
 
-    # Cache results
     calc.energy = energy
     if compute_forces
         calc.forces = forces_result
@@ -169,19 +116,18 @@ function calculate!(calc::MetaCalculator; forces=true, rebuild_nl=true, kwargs..
         calc.forces_dirty = false
     end
     calc.energy_dirty = false
-    calc.last_cell = deepcopy(calc.cell)
 
     calc
 end
 
-# Implement AbstractCalc interface
+# AbstractCalc interface — delegate to source
 
 """
     get_cell(calc::MetaCalculator)
 
-Get the cell from the metacalculator.
+Return the cell from the source calculator.
 """
-get_cell(calc::MetaCalculator) = calc.cell
+get_cell(calc::MetaCalculator) = get_cell(calc.source)
 
 """
     eddp_energy(calc::MetaCalculator; kwargs...)
@@ -213,42 +159,55 @@ function eddp_stress(calc::MetaCalculator; make_copy=true, kwargs...)
     make_copy ? copy(calc.stress) : calc.stress
 end
 
+"""
+    eddp_enthalpy(calc::MetaCalculator; kwargs...)
+
+Compute enthalpy through the modifier pipeline. When a `CellRelaxationModifier`
+is present the cached energy already includes the PV term, so this is
+equivalent to `eddp_energy`. Raw internal energy is available via
+`eddp_energy(calc.source)`.
+"""
+function eddp_enthalpy(calc::MetaCalculator; kwargs...)
+    eddp_energy(calc; kwargs...)
+end
+
 # Position accessors with modifier dispatch
 
 """
     get_positions(calc::MetaCalculator)
 
-Get positions, potentially modified by modifiers that change position semantics.
+Get positions, potentially augmented by modifiers that change position semantics.
+Delegates to the first modifier with `modifies_positions == true`, or falls back
+to the source cell's positions.
 """
 function get_positions(calc::MetaCalculator)
-    # Check if any modifier changes position semantics
+    src_cell = get_cell(calc.source)
     for mod in calc.modifiers
         if modifies_positions(mod)
-            # Delegate to the modifier's custom accessor
-            return get_augmented_positions(mod, calc.cell)
+            return get_augmented_positions(mod, src_cell)
         end
     end
-    # Default: return cell positions
-    get_positions(calc.cell)
+    get_positions(src_cell)
 end
 
 """
     set_positions!(calc::MetaCalculator, new)
 
 Set positions, potentially delegating to modifiers that change position semantics.
+Delegates to the first modifier with `modifies_positions == true`, or falls back
+to setting the source cell's positions directly.
 """
 function set_positions!(calc::MetaCalculator, new)
-    # Find modifiers that change position semantics
+    src_cell = get_cell(calc.source)
     for mod in calc.modifiers
         if modifies_positions(mod)
-            set_augmented_positions!(mod, calc.cell, new)
+            set_augmented_positions!(mod, src_cell, new)
             calc.energy_dirty = true
             calc.forces_dirty = true
             return
         end
     end
-    # Default: set cell positions
-    set_positions!(calc.cell, new)
+    set_positions!(src_cell, new)
     calc.energy_dirty = true
     calc.forces_dirty = true
 end
@@ -256,10 +215,10 @@ end
 """
     set_cellmat!(calc::MetaCalculator, cellmat; kwargs...)
 
-Set the cell matrix.
+Set the cell matrix on the source calculator.
 """
 function set_cellmat!(calc::MetaCalculator, cellmat; kwargs...)
-    set_cellmat!(calc.cell, cellmat; kwargs...)
+    set_cellmat!(get_cell(calc.source), cellmat; kwargs...)
     calc.energy_dirty = true
     calc.forces_dirty = true
 end
@@ -302,11 +261,6 @@ end
 
 # Display
 
-"""
-    Base.show(io::IO, calc::MetaCalculator)
-
-Display the MetaCalculator with its source and modifier pipeline.
-"""
 function Base.show(io::IO, calc::MetaCalculator)
     println(io, "MetaCalculator")
     println(io, "  Source: ", typeof(calc.source).name.name)

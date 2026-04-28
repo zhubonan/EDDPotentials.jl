@@ -145,11 +145,7 @@ function relax!(re::Relax)
     # Initial position vector
 
     if relax_cell
-        if isa(calc, VariableCellCalc)
-            _calc = calc
-            # Apply the specified external pressure
-            _calc.external_pressure .= smat
-        elseif is_variable_cell(calc)
+        if is_variable_cell(calc)
             # MetaCalculator with CellRelaxationModifier — already handles
             # variable-cell positions; apply external pressure via modifier.
             mod = get_cell_relaxation_modifier(calc)
@@ -158,8 +154,8 @@ function relax!(re::Relax)
             end
             _calc = calc
         else
-            # Construct a VariableCellCalc type
-            _calc = VariableCellCalc(calc; external_pressure=smat)
+            # Wrap in MetaCalculator with CellRelaxationModifier
+            _calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc); external_pressure=smat)])
         end
     else
         # Do nothing 
@@ -209,7 +205,7 @@ function relax!(re::Relax)
         last_energy = eng
         forces = eddp_forces(_calc)
         fmax = maximum(norm.(eachcol(forces)))
-        stress = eVAngToGPa.(eddp_stress(calc))
+        stress = eVAngToGPa.(optimizer_effective_stress(_calc))
         smax = maximum(abs.(stress))
         elapsed = time() - start_time
 

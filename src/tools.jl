@@ -33,9 +33,9 @@ function update_metadata!(vc::AbstractCalc, label; symprec=1e-2)
 end
 
 """
-    write_res(path, vc::VariableCellCalc;symprec=1e-2, label="EDDPotentials")
+    write_res(path, vc::AbstractCalc;symprec=1e-2, label="EDDPotentials")
 
-Write structure in VariableCellCalc as SHELX file.
+Write structure as SHELX file.
 """
 function write_res(path, vc::AbstractCalc; symprec=1e-2, label="EDDPotentials")
     update_metadata!(vc, label; symprec)
@@ -320,9 +320,7 @@ end
 
 function _fd_energy_vc(calc, p)
     _alter_pos_vc(calc, p) do _
-        calc.calc.param.energy_calculated = false
-        eng = eddp_energy(calc)
-        eng
+        eddp_energy(calc)
     end
 end
 
@@ -543,8 +541,7 @@ function test_finite_difference(calc::NNCalc)
     stress_ok || @warn "finite difference gradient of the total stress is not correct"
 
     # Test wrapper
-    # NOTE Somehow this is needed here - possible BUG?
-    vc = VariableCellCalc(calc)
+    vc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
     epos = get_positions(vc)
     eforce = copy(eddp_forces(vc))
 

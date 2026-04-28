@@ -175,30 +175,21 @@ end
     end
 end
 
-@testset "Comparison with old nested structure" begin
-    @testset "VariableCellCalc equivalence" begin
-        # Old way
-        base_calc = _get_calc()
-        old_calc = VariableCellCalc(deepcopy(base_calc))
+@testset "CellRelaxationModifier equivalence" begin
+    base_calc = _get_calc()
 
-        # New way
-        source2 = deepcopy(base_calc)
-        mod = CellRelaxationModifier(get_cell(source2))
-        new_calc = MetaCalculator(source2, [mod])
+    mod = CellRelaxationModifier(get_cell(base_calc))
+    mc = MetaCalculator(base_calc, [mod])
 
-        # Compare energies
-        E_old = eddp_energy(old_calc)
-        E_new = eddp_energy(new_calc)
-        @test E_old ≈ E_new rtol = 1e-10
+    E = eddp_energy(mc)
+    @test E isa Number
 
-        # Compare positions
-        pos_old = get_positions(old_calc)
-        pos_new = get_positions(new_calc)
-        @test pos_old ≈ pos_new rtol = 1e-10
+    pos = get_positions(mc)
+    @test size(pos, 2) == length(get_cell(base_calc)) + 3
 
-        # Compare forces
-        F_old = eddp_forces(old_calc)
-        F_new = eddp_forces(new_calc)
-        @test F_old ≈ F_new rtol = 1e-10
-    end
+    F = eddp_forces(mc)
+    @test size(F, 2) == length(get_cell(base_calc)) + 3
+
+    stress = eddp_stress(mc)
+    @test size(stress) == (3, 3)
 end

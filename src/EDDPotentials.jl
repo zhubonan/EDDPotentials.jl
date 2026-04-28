@@ -130,10 +130,11 @@ export get_cell,
     RandomEmbeddedCellFeature,
     MultiRandomEmbeddedCellFeature,
     NNCalc,
-    VariableCellCalc,
+    VariableCellCalc,  # deprecated — returns MetaCalculator
     EDDPCalculator,
     load_calculator,
     extract_nncalc,
+    create_calculator,
     eddp_energy_std,
     eddp_energy_std_per_atom
 # New MetaCalculator and Modifier exports

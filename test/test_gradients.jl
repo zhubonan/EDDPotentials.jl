@@ -5,7 +5,8 @@ using EDDPotentials:
     get_positions,
     eddp_forces,
     eddp_stress,
-    VariableCellCalc,
+    MetaCalculator,
+    CellRelaxationModifier,
     eddp_energy,
     get_cell,
     _fd_energy,
@@ -140,8 +141,7 @@ end
     @test allclose(grad, -vec(stress), atol=1e-3)
 
     # Test wrapper
-    # NOTE Somehow this is needed here - possible BUG?
-    vc = VariableCellCalc(calc)
+    vc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
     epos = get_positions(vc)
     eforce = copy(eddp_forces(vc))
 

@@ -328,3 +328,44 @@ function predict(calc::EDDPCalculator, cell::Cell; forces::Bool=true, stress::Bo
     end
     result
 end
+
+# ---------------------------------------------------------------------------
+# Calculator factory — bridge to MetaCalculator
+# ---------------------------------------------------------------------------
+
+"""
+    create_calculator(calc::EDDPCalculator, cell::Cell; modifiers=[]) -> AbstractCalc
+
+Construct a calculator bound to `cell`. Returns a plain [`NNCalc`](@ref) when
+no modifiers are given, or a [`MetaCalculator`](@ref) with the modifier pipeline
+when modifiers are present.
+
+# Examples
+
+```julia
+calc = load_calculator("model.json")
+
+# Simple fixed-cell relaxation
+nnc = create_calculator(calc, cell)
+opt_tpsd(nnc)
+
+# Variable-cell relaxation
+vc = create_calculator(calc, cell; modifiers=[
+    CellRelaxationModifier(cell)
+])
+opt_tpsd(vc)
+
+# Hyperdimensional relaxation
+hcell = add_dimensions(cell, 3)
+hc = create_calculator(calc, hcell; modifiers=[
+    ExtraDimensionPenaltyModifier(1e-4),
+    CellRelaxationModifier(hcell)
+])
+scheduled_penalty_relax!(hc)
+```
+"""
+function create_calculator(calc::EDDPCalculator, cell::Cell; modifiers=[])
+    nnc = _new_nncalc(calc, cell)
+    isempty(modifiers) && return nnc
+    MetaCalculator(nnc, modifiers)
+end

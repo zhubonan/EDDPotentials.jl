@@ -22,7 +22,7 @@ Abstract supertype for all EDDP calculators. Concrete subtypes must implement:
 - `eddp_forces(calc)` — atomic forces matrix
 - `eddp_stress(calc)` — 3×3 stress tensor
 
-See [`NNCalc`](@ref), [`VariableCellCalc`](@ref), [`MetaCalculator`](@ref).
+See [`NNCalc`](@ref), [`MetaCalculator`](@ref).
 """
 abstract type AbstractCalc end
 const AC = AbstractCalc
@@ -225,11 +225,15 @@ get_elemental_energy(cell::Cell, ref_energies::Dict) =
 """
     eddp_enthalpy(calc::AbstractCalc) -> Number
 
-Return the enthalpy `H = E + PV`. For `VariableCellCalc` this includes the
-external pressure contribution. For other calculators, returns the energy.
+Return the enthalpy `H = E + PV`. For calculators with a `CellRelaxationModifier`
+this includes the external pressure contribution. For plain calculators, returns the energy.
 """
 function eddp_enthalpy(calc::NNCalc; forces=false, rebuild_nl=true)
     eddp_energy(calc; forces, rebuild_nl)
+end
+
+function eddp_enthalpy(calc::AbstractCalc; kwargs...)
+    eddp_energy(calc; kwargs...)
 end
 
 """
@@ -440,140 +444,21 @@ function force_via_chainrule!(calc, gv; offset=calc.workspace.one_body_offset)
     calc
 end
 
-### Filter for allowing variable cell optimisation
-
+# Variable-cell optimization via CellRelaxationModifier (MetaCalculator pipeline).
+# The legacy VariableCellCalc wrapper has been superseded by MetaCalculator.
 
 """
+    VariableCellCalc(calc::AbstractCalc; external_pressure=zeros(3,3)) -> MetaCalculator
 
-Filter for including lattice vectors in the optimisation
-
-
-Reference: 
- E. B. Tadmor, G. S. Smith, N. Bernstein, and E. Kaxiras,
-            Phys. Rev. B 59, 235 (1999)
-
-Base on ase.constraints.UnitCellFilter
+Deprecated. Use `MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc)); external_pressure])` instead.
 """
-struct VariableCellCalc{T,C} <: AbstractCalc
-    calc::C
-    orig_lattice::Lattice{T}
-    lattice_factor::T
-    external_pressure::Matrix{T}
-end
-
-
-_need_calc(calc::VariableCellCalc, forces) = _need_calc(calc.calc, forces)
-get_cell(c::VariableCellCalc) = get_cell(c.calc)
-eddp_energy(c::VariableCellCalc; rebuild_nl=true, kwargs...) =
-    eddp_energy(c.calc; rebuild_nl, kwargs...)
-
-eddp_energy_std(vc::VariableCellCalc) = eddp_energy_std(vc.calc)
-
 function VariableCellCalc(calc::AbstractCalc; external_pressure=zeros(3, 3))
-    # Reconstruct if a VariableCellCalc is passed
-    if isa(calc, VariableCellCalc) 
-        calc = calc.calc
-    end
-    latt = copy(cellmat(get_cell(calc)))
-    lattice_factor = convert(eltype(latt), nions(get_cell(calc)))
-    VariableCellCalc(calc, Lattice(latt), lattice_factor, external_pressure)
-end
-
-raw"""
-Obtain the deformation gradient matrix such that 
-
-$$F C = C'$$
-"""
-function deformgradient(vc::VariableCellCalc)
-    copy(transpose(transpose(cellmat(vc.orig_lattice)) \ transpose(cellmat(get_cell(vc)))))
-end
-
-"""
-    get_positions(cf::VariableCellCalc)
-
-Composed positions vectors including cell defromations
-"""
-function CellBase.get_positions(vc::VariableCellCalc)
-    cell = get_cell(vc)
-    dgrad = deformgradient(vc)
-    apos = copy(positions(cell))
-    apos[1:3, :] .= dgrad \ apos[1:3, :]
-    lpos = vc.lattice_factor .* dgrad'
-    # Pad the "fake" positions if needed (for high dimensional cell)
-    npad = size(apos, 1) - size(lpos, 1)
-    if npad > 0
-        lpos = vcat(lpos, repeat([zero(eltype(lpos))], npad, 3))
-    end
-    hcat(apos, lpos)
-end
-
-
-"""
-    _eddp_forces_and_stress(cf::VariableCellCalc;rebuild_nl)
-
-Construct force and stress for the filter object
-"""
-function _eddp_forces_and_stress(vc::VariableCellCalc; rebuild_nl, kwargs...)
-    # Do not forward passthrough kwargs (e.g. `make_copy`) to `calculate!`.
-    calculate!(vc.calc; forces=true, rebuild_nl)
-    dgrad = deformgradient(vc)
-    vol = volume(get_cell(vc))
-    # Compute the stress
-    stress = eddp_stress(vc.calc) .- vc.external_pressure
-    virial = (dgrad \ (vol .* stress))
-
-    # Deformed forces
-    atomic_forces = copy(eddp_forces(vc.calc))
-    atomic_forces[1:3, :] .= dgrad * atomic_forces[1:3, :]
-    # Pad zeros
-    virial_forces = repeat([zero(eltype(atomic_forces))], size(atomic_forces, 1), 3)
-    virial_forces[1:3, :] = virial ./ vc.lattice_factor
-
-    out_forces = hcat(atomic_forces, virial_forces)
-    out_stress = -virial / vol
-    out_forces, out_stress
-end
-
-"""
-Forces including the stress contributions that is consistent with the augmented positions
-"""
-eddp_forces(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
-    _eddp_forces_and_stress(vc; rebuild_nl, kwargs...)[1]
-_get_effective_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
-    _eddp_forces_and_stress(vc; rebuild_nl, kwargs...)[2]
-
-"""
-    eddp_stress(vc::VariableCellCalc;kwargs...)
-Return the internal stress tensor reported by the wrapped calculator.
-
-Use `_get_effective_stress(vc)` when external-pressure-adjusted stress is needed
-for optimization internals.
-"""
-eddp_stress(vc::VariableCellCalc; rebuild_nl=true, kwargs...) =
-    eddp_stress(vc.calc; rebuild_nl, kwargs...)
-
-function eddp_enthalpy(vc::VariableCellCalc; kwargs...)
-    stress = vc.external_pressure
-    # H = E + PV
-    eddp_energy(vc; kwargs...) +
-    volume(get_cell(vc)) * (stress[1, 1] + stress[2, 2] + stress[3, 3]) / 3
-end
-
-
-"""
-Update the positions passing through the filter
-"""
-function set_positions!(vc::VariableCellCalc, new)
-    cell = get_cell(vc)
-    nat = nions(cell)
-    pos = new[:, 1:nat]
-    new_dgrad = transpose(new[:, nat+1:end]) ./ vc.lattice_factor
-    # Set the cell according to the deformation
-    set_cellmat!(cell, new_dgrad[:, 1:3] * cellmat(vc.orig_lattice); scale_positions=false)
-    # Scale the positions for the first three dimensions
-    pos_new = copy(pos)
-    pos_new[1:3, :] .= new_dgrad[:, 1:3] * pos_new[1:3, :]
-    set_positions!(cell, pos_new)
+    Base.depwarn(
+        "VariableCellCalc is deprecated. Use `MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc)); external_pressure])` instead.",
+        :VariableCellCalc,
+    )
+    cell = get_cell(calc)
+    MetaCalculator(calc, [CellRelaxationModifier(cell; external_pressure)])
 end
 
 """
@@ -593,9 +478,9 @@ function check_global_minsep(nl::NeighbourList, minsep)
 end
 
 """
-    eddp_pressure(calc::VariableCellCalc)
+    eddp_pressure(calc::AbstractCalc)
 
-Return the total pressure with the external pressure subtracted.
+Return the total pressure obtained from the trace of the stress tensor.
 """
 function eddp_pressure(calc::AbstractCalc)
     stress = eddp_stress(calc)
@@ -607,7 +492,7 @@ end
 for func in [:eddp_energy, :eddp_forces, :eddp_pressure, :eddp_energy_std, :eddp_enthalpy]
     @eval begin
         function $func(cell::Cell, cf::CellFeature, itf::AbstractNNInterface; kwargs...)
-            $func(VariableCellCalc(NNCalc(cell, cf, itf)); kwargs...)
+            $func(NNCalc(cell, cf, itf); kwargs...)
         end
         @doc """
             $($func)(cell::Cell, cf::CellFeature, itf::AbstractNNInterface;kwargs...)

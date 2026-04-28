@@ -279,41 +279,33 @@ const lj_like_calc = EDDPotentials.lj_like_calc
         end
     end
 
-    @testset "Variable Cell (if supported)" begin
-        # Test that optimizers work with VariableCellCalc
-        # This requires having VariableCellCalc available
-        if isdefined(EDDPotentials, :VariableCellCalc)
-            @testset "TPSD with VariableCellCalc" begin
-                cell = _h2_cell(10.0, 1.0)
-                base_calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
-                vc_calc = VariableCellCalc(base_calc)
+    @testset "Variable Cell" begin
+        @testset "TPSD with MetaCalculator + CellRelaxationModifier" begin
+            cell = _h2_cell(10.0, 1.0)
+            base_calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            vc_calc = MetaCalculator(base_calc, [CellRelaxationModifier(get_cell(base_calc))])
 
-                opt = NativeTPSD(f_tol=1e-3, s_tol=1e-2, itermax=500, log_level=:minimal)
+            opt = NativeTPSD(f_tol=1e-3, s_tol=1e-2, itermax=500, log_level=:minimal)
 
-                # Run a few steps (full convergence may be slow)
-                for i in 1:20
-                    step!(opt, vc_calc)
-                end
-
-                # Should make progress
-                @test opt.iteration == 20
+            for i in 1:20
+                step!(opt, vc_calc)
             end
 
-            @testset "FIRE with VariableCellCalc" begin
-                cell = _h2_cell(10.0, 1.0)
-                base_calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
-                vc_calc = VariableCellCalc(base_calc)
+            @test opt.iteration == 20
+        end
 
-                opt = NativeFIRE(f_tol=1e-3, s_tol=1e-2, maxstep=0.5, itermax=500, log_level=:minimal)
+        @testset "FIRE with MetaCalculator + CellRelaxationModifier" begin
+            cell = _h2_cell(10.0, 1.0)
+            base_calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            vc_calc = MetaCalculator(base_calc, [CellRelaxationModifier(get_cell(base_calc))])
 
-                # Run a few steps
-                for i in 1:20
-                    step!(opt, vc_calc)
-                end
+            opt = NativeFIRE(f_tol=1e-3, s_tol=1e-2, maxstep=0.5, itermax=500, log_level=:minimal)
 
-                # Should make progress
-                @test opt.iteration == 20
+            for i in 1:20
+                step!(opt, vc_calc)
             end
+
+            @test opt.iteration == 20
         end
     end
 end

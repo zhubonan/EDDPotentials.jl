@@ -3,7 +3,7 @@ module EDDPotentialsCli
 using Comonicon
 using EDDPotentials: link!, Builder, BuilderOption, to_toml, from_dict
 using EDDPotentials: run_rss as run_rss_eddp
-using EDDPotentials: load_model_artifact, NNCalc, VariableCellCalc
+using EDDPotentials: load_model_artifact, NNCalc, MetaCalculator, CellRelaxationModifier
 using EDDPotentials: Relax, RelaxOption, multirelax!
 using EDDPotentials: update_metadata!, eddp_energy, eddp_forces, eddp_stress
 using EDDPotentials: eddp_pressure_gpa, eddp_enthalpy
@@ -175,7 +175,7 @@ function _relax_single(
 
     if relax_cell
         smat = external_stress_matrix([pressure])
-        calc = VariableCellCalc(calc; external_pressure=smat)
+        calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc); external_pressure=smat)])
     end
 
     options = RelaxOption(;
