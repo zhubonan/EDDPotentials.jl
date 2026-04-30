@@ -17,32 +17,6 @@ using JSON
 
 
 """
-Abstract base type for external DFT calculators.
-
-External calculators must implement:
-- A method to check if they're available on the system
-- A method to run calculations on a directory of structures
-"""
-abstract type AbstractExternalCalculator end
-
-"""
-    is_ready(calc::AbstractExternalCalculator)
-
-Check if the external calculator is available and ready to use on the current system.
-Returns `true` if the calculator can be used, `false` otherwise.
-"""
-function is_ready(calc::AbstractExternalCalculator) end
-
-"""
-    run_calculations!(calc::AbstractExternalCalculator, indir, outdir)
-
-Run calculations on all structures in `indir` and write results to `outdir`.
-Returns `true` on success, `false` on failure.
-"""
-function run_calculations!(calc::AbstractExternalCalculator, indir, outdir) end
-
-
-"""
     _disp_get_completed_jobs(project_name)
 
 Get the number of completed jobs and total jobs for a DISP project.

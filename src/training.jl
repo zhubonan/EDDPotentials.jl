@@ -157,7 +157,7 @@ to minimize prediction error on the provided data.
 models = []
 for i in 1:10
     itf = FluxInterface(Chain(Dense(10, 20, tanh), Dense(20, 1)))
-    train!(itf, fc_train, fc_val; maxIter=300)
+    train!(itf, fc_train, fc_val; max_epochs=300)
     push!(models, itf)
 end
 
@@ -241,7 +241,6 @@ fitting potential energy surfaces.
 # Keyword Arguments
 - `p0=paramvector(itf)`: Initial parameter vector for optimization
 - `max_epochs=300`: Maximum number of epochs
-- `maxIter=nothing`: Deprecated, use `max_epochs` instead
 - `show_progress=false`: Print progress to stdout during training
 - `x_val=x`: Validation set feature vectors (defaults to training set)
 - `y_val=y`: Validation set target energies (defaults to training set)
@@ -279,7 +278,6 @@ function train_lm!(
     y;
     p0=paramvector(itf),
     max_epochs=1000,
-    maxIter::Union{Integer,Nothing}=nothing,
     show_progress=false,
     x_val=x,
     y_val=y,
@@ -303,16 +301,10 @@ function train_lm!(
 )
     if batch_size > 0
         return _train_lm_batched!(itf, x, y;
-            p0, max_epochs, maxIter, show_progress, x_val, y_val, earlystop, keep_best,
+            p0, max_epochs, show_progress, x_val, y_val, earlystop, keep_best,
             log_file, p, weights, batch_size, shuffle_seed, threaded, damping_mode,
             attempts_per_step, solver, batch_ranges, checkpoint_every, checkpoint_prefix,
             feature_spec, elemental_energies, args...)
-    end
-
-    # --- Deprecated alias ---
-    if maxIter !== nothing
-        @warn "maxIter is deprecated, use max_epochs instead" maxIter max_epochs
-        max_epochs = maxIter
     end
     args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
 
@@ -400,7 +392,6 @@ function _train_lm_batched!(
     y;
     p0=paramvector(itf),
     max_epochs=300,
-    maxIter::Union{Integer,Nothing}=nothing,
     show_progress=false,
     x_val=x,
     y_val=y,
@@ -422,12 +413,7 @@ function _train_lm_batched!(
     elemental_energies::Dict=Dict{Symbol,Float64}(),
     args...,
 )
-    # --- Deprecated alias ---
-    if maxIter !== nothing
-        @warn "maxIter is deprecated, use max_epochs instead" maxIter max_epochs
-        max_epochs = maxIter
-    end
-    # Filter maxIter from args to avoid double deprecation warning downstream
+    # Filter maxIter from args for backward compat
     args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
 
     ctx = TrainingContext(itf, feature_spec, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
@@ -850,21 +836,6 @@ function spearman(tr::TrainingResults)
     return mean(values(spearman_each_comp(tr)))
 end
 
-raw"""
-Compute the loss as absolute difference in total energy
-
-```math
-L = \sum_i |y_i - y_i^p|^l
-```
-"""
-function loss_all(model, fvecs, H; pow=2)
-    if pow == 2
-        (sum.(model.(fvecs)) .- H) .^ pow |> sum
-    else
-        abs.(sum.(model.(fvecs)) .- H) .^ pow |> sum
-    end
-end
-
 """
     generate_f_g_optim(model, fc_train, fc_val; pow=2, earlystop=30)
 
@@ -1079,7 +1050,7 @@ function _print_train_config(fc_train, ntrain, nval, ntest, nnodes, ninp, nparam
     else
         println("  Method     : $train_method")
     end
-    maxe = get(kwargs, :max_epochs, get(kwargs, :maxIter, nothing))
+    maxe = get(kwargs, :max_epochs, nothing)
     if maxe !== nothing
         println("  Max epochs : $maxe")
     end
@@ -1795,7 +1766,8 @@ function train_lm_with_embedding!(
     y_val=y,
     normalize_embedding::Bool=false,
     recompute_xt::Bool=false,
-    maxIter=1000,
+    max_epochs=1000,
+    maxIter=nothing,
     show_progress=false,
     earlystop=50,
     keep_best=true,
@@ -1807,6 +1779,9 @@ function train_lm_with_embedding!(
     elemental_energies::Dict=Dict{Symbol,Float64}(),
     args...,
 )
+    if maxIter !== nothing
+        max_epochs = maxIter
+    end
     ctx = TrainingContext(itf, cf, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
     n_nn = length(p0_nn)
     n_emb = EDDPotentialsCore._emb_param_count(cf)
@@ -1854,7 +1829,7 @@ function train_lm_with_embedding!(
         show_trace=false,
         callback=callback,
         p=p,
-        maxIter=maxIter,
+        maxIter=max_epochs,
         keep_best=keep_best,
         earlystop,
         args...,
@@ -1891,7 +1866,6 @@ function train_lm_batched_with_embedding!(
     normalize_embedding::Bool=false,
     recompute_xt::Bool=false,
     max_epochs=300,
-    maxIter::Union{Integer,Nothing}=nothing,
     show_progress=false,
     earlystop=50,
     keep_best=true,
@@ -1908,10 +1882,7 @@ function train_lm_batched_with_embedding!(
     elemental_energies::Dict=Dict{Symbol,Float64}(),
     args...,
 )
-    if maxIter !== nothing
-        @warn "maxIter is deprecated, use max_epochs instead" maxIter max_epochs
-        max_epochs = maxIter
-    end
+    # Filter maxIter from args for backward compat
     args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
 
     ctx = TrainingContext(itf, cf, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)

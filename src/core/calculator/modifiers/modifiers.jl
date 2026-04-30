@@ -7,6 +7,7 @@ include("abstract.jl")
 
 # Include specific modifiers
 include("dimension_penalty.jl")
+include("volume_constraint.jl")
 include("cell_relaxation.jl")
 include("additive_calc.jl")
 
@@ -15,6 +16,7 @@ export AbstractModifier
 
 # Export modifier types
 export ExtraDimensionPenaltyModifier
+export VolumeConstraintModifier
 export CellRelaxationModifier
 export AdditiveCalculatorModifier
 

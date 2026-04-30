@@ -19,18 +19,81 @@ function build_and_relax(
     init_structure_transform=nothing,
     relax_option=RelaxOption(),
     elemental_energies=Dict{Symbol,Any}(),
+    relax_mode="standard",
+    hyper_kwargs=NamedTuple(),
+    hot_kwargs=NamedTuple(),
 )
     cell = build_one(seedfile; timeout, init_structure_transform)
-    calc = NNCalc(
-        cell,
-        cf,
-        ensemble;
-        nmax,
-        core=_make_core_repulsion(core_size),
-        elemental_energies,
-    )
-    re = Relax(calc, relax_option)
-    relax!(re)
+
+    if relax_mode == "hyperspace"
+        ndim = get(hyper_kwargs, :ndim, 3)
+        alpha_start = get(hyper_kwargs, :alpha_start, Float64(1e-4))
+        schedule_every = get(hyper_kwargs, :schedule_every, 25)
+        target_iterations = get(hyper_kwargs, :target_iterations, 200)
+        trace = get(hyper_kwargs, :trace, false)
+        pressure_gpa = get(hyper_kwargs, :pressure_gpa, Float64(0.0))
+
+        cell = CellBase.add_dimensions(cell, ndim)
+        source = NNCalc(cell, cf, ensemble; nmax,
+            core=_make_core_repulsion(core_size), elemental_energies)
+        penalty = ExtraDimensionPenaltyModifier(alpha_start; start_dim=4)
+        p_clamped = GPaToeVAng(max(pressure_gpa, 0.1))
+        P_ext = [p_clamped 0 0; 0 p_clamped 0; 0 0 p_clamped]
+        cell_relax = CellRelaxationModifier(cell; external_pressure=P_ext)
+
+        # Two-phase hyperspace: Phase 1 pins cell to prevent 3D collapse
+        # while atoms settle. Phase 2 enables cell relaxation.
+        metacalc_pos = MetaCalculator(source, [penalty])
+        set_modifier_parameter!(metacalc_pos, ExtraDimensionPenaltyModifier, :alpha, 0.5)
+        scheduled_penalty_relax!(metacalc_pos;
+            schedule_every, max_iterations=div(target_iterations, 2),
+            alpha_start=0.5, n_hold=typemax(Int), relax_fn=opt_fire, trace)
+
+        metacalc_full = MetaCalculator(source, [penalty, cell_relax])
+        scheduled_penalty_relax!(metacalc_full;
+            schedule_every, max_iterations=target_iterations - div(target_iterations, 2),
+            alpha_start=alpha_start, relax_fn=opt_fire, trace)
+
+        cell = remove_dimensions(get_cell(metacalc_full))
+        positions(cell) = positions(cell)[1:3, :]
+        try
+            re3d_opt = deepcopy(relax_option)
+            re3d_opt.relax_cell = false
+            calc3d = NNCalc(cell, cf, ensemble; nmax,
+                core=_make_core_repulsion(core_size), elemental_energies)
+            re3d = Relax(calc3d, re3d_opt)
+            return relax!(re3d)
+        catch
+            # Hyperspace produced degenerate 3D cell — fall through to standard
+        end
+        # Fallback: standard relaxation from scratch
+        calc = NNCalc(cell, cf, ensemble; nmax,
+            core=_make_core_repulsion(core_size), elemental_energies)
+        re = Relax(calc, relax_option)
+        return relax!(re)
+
+    elseif relax_mode == "hot"
+        calc = NNCalc(cell, cf, ensemble; nmax,
+            core=_make_core_repulsion(core_size), elemental_energies)
+        re = Relax(calc, relax_option)
+        result = relax!(re)
+        cycles = get(hot_kwargs, :n_rounds, 10)
+        md_temp = get(hot_kwargs, :md_temperature, Float64(300.0))
+        md_steps = get(hot_kwargs, :md_steps, 1000)
+        md_dt = get(hot_kwargs, :md_timestep, Float64(0.5))
+        relax_cell = get(hot_kwargs, :relax_cell, true)
+        hot_opts = HotAIRSSOption(
+            cycles, 200, 1e-2, 1e-1, 1e-5, "tpsd", relax_cell, [0.0],
+            md_steps, md_temp, md_dt, "langevin", 0.01, 50.0, nothing, false)
+        hot_airss!(re.calc, hot_opts)
+        return result
+
+    else  # standard
+        calc = NNCalc(cell, cf, ensemble; nmax,
+            core=_make_core_repulsion(core_size), elemental_energies)
+        re = Relax(calc, relax_option)
+        return relax!(re)
+    end
 end
 
 
@@ -64,6 +127,9 @@ function _run_rss(
     relax_option=RelaxOption(),
     core_size=0.5,
     elemental_energies=Dict{Symbol,Any}(),
+    relax_mode="standard",
+    hyper_kwargs=NamedTuple(),
+    hot_kwargs=NamedTuple(),
 )
     _relax_option = deepcopy(relax_option)
     i = 1
@@ -104,6 +170,9 @@ function _run_rss(
             relax_option,
             core_size,
             elemental_energies,
+            relax_mode,
+            hyper_kwargs,
+            hot_kwargs,
         )
 
         calc = res.relax.calc
@@ -172,6 +241,9 @@ function build_and_relax_one(
     relax_option=RelaxOption(),
     core_size=0.5,
     elemental_energies=Dict{Symbol,Any}(),
+    relax_mode="standard",
+    hyper_kwargs=NamedTuple(),
+    hot_kwargs=NamedTuple(),
 )
     nerr = 1
     local res
@@ -185,6 +257,9 @@ function build_and_relax_one(
                 relax_option,
                 core_size,
                 elemental_energies,
+                relax_mode,
+                hyper_kwargs,
+                hot_kwargs,
             )
         catch err
             isa(err, InterruptException) && throw(err)

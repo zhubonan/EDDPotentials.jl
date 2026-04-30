@@ -80,15 +80,16 @@ export ModelArtifact,
     load_feature_artifact,
     save_feature_json
 export NNCalc
-export VariableCellCalc  # deprecated constructor returning MetaCalculator
 export EDDPCalculator, load_calculator, extract_nncalc, predict, create_calculator
 export CoreRepulsion, leaky_tanh
 export calculate!
+export clear_transient_gradients!, reinit, reinit!
 
 # Meta calculator/modifier API used in workflows
 export MetaCalculator,
     AbstractModifier,
     ExtraDimensionPenaltyModifier,
+    VolumeConstraintModifier,
     CellRelaxationModifier,
     AdditiveCalculatorModifier,
     get_modifier,

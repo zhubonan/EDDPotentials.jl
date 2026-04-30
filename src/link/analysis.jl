@@ -60,41 +60,6 @@ end
 @doc "Run walk-forward validation across builder iterations." walk_forward_tests
 
 
-"""
-    summarise(builder::Builder)
-
-Summarise the status of the project, including structure counts for each iteration.
-"""
-function summarise(builder::Builder)
-    opts = builder.state
-    subpath(x) = joinpath(opts.workdir, x)
-    println("Working directory: $(opts.workdir)")
-    println("Seed file: $(opts.seedfile)")
-
-    function print_res_count(path)
-        nfiles = length(glob_allow_abs(joinpath(path, "*.res")))
-        println("  $(path): $(nfiles) structures")
-        nfiles
-    end
-
-    total_dft = 0
-    for i = 0:opts.max_iterations
-        println("iteration $i")
-
-        path = subpath("gen$i")
-        print_res_count(path)
-
-        path = subpath("gen$(i)-dft")
-        total_dft += print_res_count(path)
-    end
-    println("Total training structures: $(total_dft)")
-end
-
-
-# Map for trainer names
-TRAINER_NAME = Dict(TrainingOption => "locallm")
-
-
 # Generate convenience methods for EDDP calculations using Builder
 for func in [:eddp_energy, :eddp_forces, :eddp_pressure, :eddp_energy_std, :eddp_enthalpy]
     @eval begin

@@ -82,13 +82,14 @@ import .EDDPotentialsCore:
     extract_nncalc,
     predict,
     reinit!
+    clear_transient_gradients!
 
 # Functional layer (training/workflow/analysis)
 include("lmsolve.jl")
 include("lmsolve_batched.jl")
 include("preprocessing.jl")
 include("tools.jl")
-include("eddpf90.jl")
+# include("eddpf90.jl")  -- removed (Fortran interface, unused in production)
 include("sgd_training.jl")
 include("training.jl")
 include("evaluation.jl")
@@ -102,7 +103,6 @@ include("opt.jl")
 include("md.jl")
 include("hot.jl")
 include("records.jl")
-include("quickbuild.jl")
 include("link/link.jl")
 include("hyper.jl")
 
@@ -129,7 +129,6 @@ export get_cell,
     RandomEmbeddedCellFeature,
     MultiRandomEmbeddedCellFeature,
     NNCalc,
-    VariableCellCalc,  # deprecated — returns MetaCalculator
     EDDPCalculator,
     load_calculator,
     extract_nncalc,
@@ -140,6 +139,7 @@ export get_cell,
 export MetaCalculator,
     AbstractModifier,
     ExtraDimensionPenaltyModifier,
+    VolumeConstraintModifier,
     CellRelaxationModifier,
     AdditiveCalculatorModifier,
     get_modifier,
@@ -183,6 +183,8 @@ export total_energy, instantaneous_pressure, save_trajectory, save_frame
 export time_fs, time_ps
 # Hot-AIRSS exports
 export HotAIRSSOption, hot_airss!, HotAIRSSResult
+# Hyperspace relaxation exports
+export hyper_get_calc, scheduled_penalty_relax!, hyper_gen_relax
 export TrainingResults
 export evaluate, EvaluationConfig, AggregatedMetrics
 export EnergyMetrics, ForceMetrics, StressMetrics, LayerSaturationReport

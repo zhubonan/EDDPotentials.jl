@@ -220,13 +220,13 @@ using CellBase: positions, species
             xt=fc_train.xt,
             yt=fc_train.yt,
         )
-        train!(model, fc_train, fc_val; maxIter=2, show_progress=false, earlystop=0)
+        train!(model, fc_train, fc_val; max_epochs=2, show_progress=false, earlystop=0)
         @test isfinite(sum(model(fc_train[1])))
 
         mktempdir() do dir
             path = joinpath(dir, "embedded_fc.jld2")
-            EDDPotentials.save_fc(fc, path)
-            fc_loaded = EDDPotentials.load_fc(path)
+            EDDPotentials.save_feature_store(fc, path)
+            fc_loaded = EDDPotentials.load_feature_store(path)
             @test fc_loaded.feature == embedded
             @test allclose(get_data(fc_loaded)[1], fc[1], atol=1e-12)
         end

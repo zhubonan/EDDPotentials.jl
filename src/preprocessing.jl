@@ -609,43 +609,6 @@ end
 
 Base.show(io::IO, v::FeatureStore) = Base.show(io, MIME("text/plain"), v)
 
-function save_fc(fc, fname)
-    jldopen(fname, "w") do fhandle
-        fhandle["version"] = "2.0"
-        fhandle["fvecs"] = get_data(fc)
-        fhandle["feature"] = fc.feature
-        fhandle["H"] = fc.H
-        fhandle["labels"] = fc.labels
-        fhandle["metadata"] = fc.metadata
-        fhandle["yt"] = fc.yt
-        fhandle["xt"] = fc.xt
-        fhandle["elemental_energies"] = fc.elemental_energies
-    end
-end
-
-function load_fc(fname)
-    jldopen(fname, "r") do fhandle
-        fvecs = fhandle["fvecs"]
-        feature = fhandle["feature"]
-        H = Vector{Float64}(fhandle["H"])
-        labels = fhandle["labels"]
-        metadata = fhandle["metadata"]
-        yt = get(fhandle, "yt", nothing)
-        xt_key = haskey(fhandle, "xt") ? "xt" : "xy"
-        xt = get(fhandle, xt_key, nothing)
-        elemental_energies = if "elemental_energies" in keys(fhandle)
-            Dict{Symbol,Float64}(fhandle["elemental_energies"])
-        else
-            Dict{Symbol,Float64}()
-        end
-        sizes = [size(fv, 2) for fv in fvecs]
-        FeatureStore(
-            H, labels, metadata, feature, xt, yt, elemental_energies, sizes,
-            fvecs, "", 0, 0, UnitRange{Int}[], -1, Matrix{Float64}[], ReentrantLock(),
-        )
-    end
-end
-
 
 Base.length(v::FeatureStore) = length(v.H)
 
@@ -840,15 +803,6 @@ function train_val_split(
         return v[perm[1:ntrain]], v[perm[ntrain+1:end]]
     end
     return v[1:ntrain], v[ntrain+1:end]
-end
-
-function train_test_split(
-    v::Union{FeatureStore,StructureContainer};
-    ratio_test=0.1,
-    shuffle=true,
-)
-    Base.depwarn("`train_test_split` is deprecated, use `train_val_split` instead.", :train_test_split)
-    train_val_split(v; ratio_val=ratio_test, shuffle)
 end
 
 """
@@ -1316,19 +1270,6 @@ function Base.iterate(iter::FeatureBatchIterator, state=nothing)
 end
 
 Base.length(iter::FeatureBatchIterator) = cld(length(iter.store), iter.batch_size)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Deprecated FeatureContainer alias
-# ═══════════════════════════════════════════════════════════════════════════
-
-function FeatureContainer(args...; kwargs...)
-    Base.depwarn(
-        "FeatureContainer is deprecated, use FeatureStore instead.",
-        :FeatureContainer,
-    )
-    FeatureStore(args...; kwargs...)
-end
 
 
 # ========== Streaming FeatureStore (out-of-core) ==========

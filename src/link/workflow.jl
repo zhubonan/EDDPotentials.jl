@@ -496,6 +496,8 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
                 "$(state.rss_pressure_gpa)",
                 "--outdir",
                 "$(outdir)",
+                "--relax-mode",
+                "$(state.relax_mode)",
             ]),
             state.rss_num_threads,
         ) for num in nstructs
@@ -545,13 +547,20 @@ end
 Run RSS generation internally within the current process.
 """
 function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
-    @info "Generating $(nstruct) training structures for iteration $iter."
+    @info "Generating $(nstruct) training structures for iteration $iter ($(bu.state.relax_mode) mode)."
     ensemble = load_ensemble(bu, iter - 1)
     state = bu.state
     outdir = joinpath(state.workdir, "gen$(iter)")
     ensure_dir(outdir)
 
-    (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max) = state
+    (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max, relax_mode) = state
+    hyper_kwargs = (; ndim=state.hyper_ndim, alpha_start=state.hyper_alpha_start,
+        schedule_every=state.hyper_schedule_every, target_iterations=state.hyper_target_iterations,
+        pressure_gpa=state.rss_pressure_gpa, trace=true)
+    hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
+        md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
+        relax_cell=state.hot_relax_cell)
+
     _run_rss(
         joinpath.(Ref(state.workdir), seedfile),
         ensemble,
@@ -570,6 +579,9 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
         seedfile_weights,
         relax_option=bu.state.relax,
         elemental_energies=make_symbol_keys(state.elemental_energies),
+        relax_mode,
+        hyper_kwargs,
+        hot_kwargs,
     )
 end
 
@@ -592,6 +604,14 @@ function run_rss(builder::Builder)
 
     ensure_dir(searchdir)
     (; seedfile, seedfile_weights) = rs
+    state = builder.state
+    hyper_kwargs = (; ndim=state.hyper_ndim, alpha_start=state.hyper_alpha_start,
+        schedule_every=state.hyper_schedule_every, target_iterations=state.hyper_target_iterations,
+        pressure_gpa=rs.pressure_gpa, trace=state.rss_nprocs > 0)
+    hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
+        md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
+        relax_cell=state.hot_relax_cell)
+
     _run_rss(
         joinpath.(Ref(builder.state.workdir), seedfile),
         ensemble,
@@ -607,7 +627,10 @@ function run_rss(builder::Builder)
         pressure_gpa=rs.pressure_gpa,
         seedfile_weights,
         relax_option=rs.relax,
-        elemental_energies=make_symbol_keys(builder.state.elemental_energies),
+        elemental_energies=make_symbol_keys(state.elemental_energies),
+        relax_mode=state.relax_mode,
+        hyper_kwargs,
+        hot_kwargs,
     )
 end
 
@@ -655,6 +678,9 @@ function _run_rss_link()
         help = "Pressure under which the structure will be relaxed (GPa)."
         "--pressure-range"
         help = "Range of the pressure"
+        "--relax-mode"
+        help = "Relaxation mode: standard, hyperspace, or hot"
+        default = "standard"
     end
 
     args = parse_args(s)
@@ -676,22 +702,34 @@ function _run_rss_link()
         pressure_gpa_range = nothing
     end
 
-    (; seedfile, seedfile_weights) = bu.state
+    relax_mode = args["relax-mode"]
+    state = bu.state
+    hyper_kwargs = (; ndim=state.hyper_ndim, alpha_start=state.hyper_alpha_start,
+        schedule_every=state.hyper_schedule_every, target_iterations=state.hyper_target_iterations,
+        pressure_gpa=pressure_gpa, trace=true)
+    hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
+        md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
+        relax_cell=state.hot_relax_cell)
+
+    (; seedfile, seedfile_weights) = state
     _run_rss(
-        joinpath.(bu.state.workdir, seedfile),
+        joinpath.(state.workdir, seedfile),
         ensemble,
         bu.cf;
-        core_size=bu.state.core_size,
-        ensemble_std_max=bu.state.ensemble_std_max,
-        ensemble_std_min=bu.state.ensemble_std_min,
+        core_size=state.core_size,
+        ensemble_std_max=state.ensemble_std_max,
+        ensemble_std_min=state.ensemble_std_min,
         max=args["num"],
         outdir=args["outdir"],
         pressure_gpa,
         pressure_gpa_range,
         seedfile_weights,
-        niggli_reduce_output=bu.state.rss_niggli_reduce,
-        relax_option=bu.state.relax,
-        elemental_energies=make_symbol_keys(bu.state.elemental_energies),
+        niggli_reduce_output=state.rss_niggli_reduce,
+        relax_option=state.relax,
+        elemental_energies=make_symbol_keys(state.elemental_energies),
+        relax_mode,
+        hyper_kwargs,
+        hot_kwargs,
     )
 end
 

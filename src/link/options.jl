@@ -92,8 +92,20 @@ to perform various actions during the construction of the potentials.
     elemental_energies = Dict{String,Any}()
     hyper_ndim::Int = 3
     hyper_alpha_start::Float64 = 1e-4
-    hyper_schedule_every::Int = 50
-    hyper_target_iterations::Int = 500
+    hyper_schedule_every::Int = 25
+    hyper_target_iterations::Int = 200
+    "Relaxation mode: `standard` (3D), `hyperspace`, or `hot`"
+    relax_mode::String = "standard"
+    "Number of MD+relax rounds for hot-AIRSS mode"
+    hot_n_rounds::Int = 10
+    "MD temperature (K) for hot-AIRSS mode"
+    hot_md_temperature::Float64 = 300.0
+    "Number of MD steps per round for hot-AIRSS mode"
+    hot_md_steps::Int = 1000
+    "MD timestep (fs) for hot-AIRSS mode"
+    hot_md_timestep::Float64 = 0.5
+    "Allow cell relaxation during hot-AIRSS"
+    hot_relax_cell::Bool = true
     use_synthetic_force_data::Bool = false
     synthetic_force_n::Int = 1
     synthetic_force_max_disp::Float64 = 0.05
@@ -163,6 +175,18 @@ abstract type AbstractTrainer end
     ensemble_error_threshold::Float64 = 0.5
     "Batch size for batched LM training. 0 means use full (non-batched) LM."
     batch_size::Int = 0
+    "Training method: `lm` (full-batch LM), `lm_batched` (batched LM), `sgd` (SGD/Adam)"
+    train_method::String = "lm"
+    "SGD optimizer: `adam`, `sgd`, or `sgd_momentum`"
+    optimizer::String = "adam"
+    "Learning rate for SGD training"
+    lr::Float64 = 1e-3
+    "Momentum for SGD training"
+    momentum::Float64 = 0.9
+    "L2 weight decay regularization"
+    weight_decay::Float64 = 0.0
+    "Gradient clipping threshold (0.0 = no clipping)"
+    grad_clip::Float64 = 1.0
 end
 
 

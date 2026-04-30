@@ -61,16 +61,6 @@ function model_structures(
     cells
 end
 
-"""Center the cell"""
-function centre!(cell)
-    mat = cellmat(cell)
-    lcom = sum(mat, dims=2) ./ 2
-    pcom = sum(positions(cell), dims=2) ./ length(cell)
-    d = lcom .- pcom
-    positions(cell) .+= d
-    cell
-end
-
 """
     model_structures(sym;order=2, rmin=0.5, rmax=6.0, npts=30, rcut=6.0)
 
@@ -91,32 +81,4 @@ function model_structures(sym; order=2, rmin=1.0, rmax=6.0, npts=30, rcut=6.0)
     xs = collect(LinRange(rmin, rmax, npts))
     combs = collect(with_replacement_combinations(sym, order))
     combs, [model_structures(xs, comb..., rcut) for comb in combs]
-end
-
-"""
-    model_energies(cell, model, cf; order=2, rmin=0.5, rmax=6.0, npts=30, core=CoreRepulsion(0.5))
-
-Generate model structures and compute their energies.
-"""
-function model_energies(
-    cell,
-    model,
-    cf;
-    order=2,
-    rmin=0.5,
-    rmax=6.0,
-    npts=30,
-    core=CoreRepulsion(0.5),
-)
-    xs = collect(LinRange(rmin, rmax, npts))
-    combs, structures = model_structures(
-        unique(species(cell)),
-        order=order,
-        rmin=rmin,
-        rmax=rmax,
-        npts=npts,
-        rcut=suggest_rcut(cf),
-    )
-    energies = [eddp_energy(NNCalc(x, cf, model; core)) / length(x) for x in structures]
-    combs, xs, energies
 end

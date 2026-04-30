@@ -377,8 +377,8 @@ end
     @test n_synthetic_train == n_original_train
 end
 
-# Verify FeatureContainer is not broken (using synthetic data with old fc path)
-@testset "FeatureContainer from synthetic data" begin
+# Verify FeatureStore is not broken (using synthetic data with old fc path)
+@testset "FeatureStore from synthetic data" begin
     cell = _h2o_cell()
     cell.metadata[:label] = "fc-parent"
     cell.arrays[:REF_forces] = Float64[

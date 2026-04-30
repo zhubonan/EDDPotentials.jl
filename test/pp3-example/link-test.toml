@@ -6,6 +6,19 @@ per_generation = 10
 n_initial = 50
 max_iterations = 2
 rss_external = false
+# Relaxation mode: "standard" (default), "hyperspace", or "hot"
+relax_mode = "standard"
+# Hyperspace relaxation options
+hyper_ndim = 3
+hyper_alpha_start = 1e-4
+hyper_schedule_every = 25
+hyper_target_iterations = 200
+# Hot-AIRSS options
+hot_n_rounds = 10
+hot_md_temperature = 300.0
+hot_md_steps = 1000
+hot_md_timestep = 0.5
+hot_relax_cell = true
 
     [state.relax]
     force_threshold = 1e-3
@@ -35,3 +48,12 @@ n_nodes = [2]
 external = false
 show_progress = false
 boltzmann_kt = 5
+# Training method: "lm" (default), "lm_batched", or "sgd"
+train_method = "lm"
+# SGD options (used when train_method = "sgd")
+optimizer = "adam"
+lr = 0.001
+momentum = 0.9
+weight_decay = 0.0
+grad_clip = 1.0
+batch_size = 0

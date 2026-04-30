@@ -444,23 +444,6 @@ function force_via_chainrule!(calc, gv; offset=calc.workspace.one_body_offset)
     calc
 end
 
-# Variable-cell optimization via CellRelaxationModifier (MetaCalculator pipeline).
-# The legacy VariableCellCalc wrapper has been superseded by MetaCalculator.
-
-"""
-    VariableCellCalc(calc::AbstractCalc; external_pressure=zeros(3,3)) -> MetaCalculator
-
-Deprecated. Use `MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc)); external_pressure])` instead.
-"""
-function VariableCellCalc(calc::AbstractCalc; external_pressure=zeros(3, 3))
-    Base.depwarn(
-        "VariableCellCalc is deprecated. Use `MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc)); external_pressure])` instead.",
-        :VariableCellCalc,
-    )
-    cell = get_cell(calc)
-    MetaCalculator(calc, [CellRelaxationModifier(cell; external_pressure)])
-end
-
 """
      check_global_minsep(nl::NeighbourList, threshold)
 

@@ -203,7 +203,7 @@ each batch, which is critical when features are stored on disk.
   index ranges.  When provided, shuffles batch order instead of per-structure
   indices, enabling sequential I/O for disk-backed features.  Overrides `n_data`.
 - `max_epochs`:      Maximum number of training epochs (default 300). Each epoch processes
-  all batches once.  Deprecated alias `maxIter` counts epoch-equivalents for backward compat.
+  all batches once.
 - `p`:               Power for iterative weight update (default 2.0).
 - `update_weights`:  Whether to update weights (default `true`).
 - `x_tol`:           Step-size convergence tolerance (default `1e-8`).
@@ -228,7 +228,6 @@ function levenberg_marquardt_batched(
     batch_size::Int=512,
     batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing,
     max_epochs::Integer=300,
-    maxIter::Union{Integer,Nothing}=nothing,
     p=2.0,
     update_weights=true,
     x_tol::Real=1e-8,
@@ -248,12 +247,6 @@ function levenberg_marquardt_batched(
     earlystop=0,
     shuffle_seed::Int=42,
 ) where {T}
-
-    # --- Deprecated alias ---
-    if maxIter !== nothing
-        @warn "maxIter is deprecated, use max_epochs instead" maxIter max_epochs
-        max_epochs = maxIter
-    end
 
     # --- Validate parameters ---
     max_epochs > 0 || throw(ArgumentError("max_epochs must be positive, got $max_epochs"))

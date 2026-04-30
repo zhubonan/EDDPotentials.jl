@@ -23,8 +23,9 @@ function hyper_get_calc(cell, bu::Builder; alpha=1e-3)
 end
 
 function bP(press_gpa)
-    P = GPaToeVAng(press_gpa)
-    diagm([P, P, P])
+    # Clamp to minimum 0.1 GPa to prevent cell blow-up during hyperspace
+    p = GPaToeVAng(max(press_gpa, 0.1))
+    [p 0 0; 0 p 0; 0 0 p]
 end
 
 """
@@ -51,15 +52,23 @@ end
         calc::MetaCalculator;
         schedule_every=10,
         max_iterations=500,
-        schedule_function = _get_penalty_schedule(),
-        alpha_start = 1e-4,
-        relax_fn = opt_tpsd,
-        relax_kwargs = (;),
+        alpha_start=1e-4,
+        relax_fn=opt_tpsd,
+        relax_kwargs=(;),
+        trace=false,
+        n_hold=0,
+        multiplier=1.0,
+        cap_factor=10.0,
     )
 
 Relax a structure with a scheduled extra-dimension penalty. Every
-`schedule_every` iterations the penalty coefficient is updated by
-calling `schedule_function(alpha)`, which should return the new value.
+`schedule_every` iterations the penalty coefficient α is updated:
+
+- First `n_hold` rounds: α stays at `alpha_start`
+- Subsequent rounds: α = min(n * multiplier, α * cap_factor)
+
+With `n_hold=0`, the ramp starts immediately: α grows from 1e-4 through
+~0.01 to ~1.0 over ~4 rounds, forcing extra dimensions to zero.
 
 The penalty is accessed and mutated through `get_modifier_parameter` /
 `set_modifier_parameter!` on the `ExtraDimensionPenaltyModifier`
@@ -73,26 +82,101 @@ function scheduled_penalty_relax!(
     calc::MetaCalculator;
     schedule_every=10,
     max_iterations=500,
-    schedule_function=_get_penalty_schedule(),
     alpha_start=1e-4,
     relax_fn=opt_tpsd,
     relax_kwargs=(;),
+    trace=false,
+    n_hold=0,
+    multiplier=0.5,
+    cap_factor=20.0,
+    max_vol_change=3.0,
 )
     cell = get_cell(calc)
+    nrounds = div(max_iterations, schedule_every)
+
+    # Build penalty schedule from kwargs (n_hold, multiplier, cap_factor)
+    sf = _get_penalty_schedule(; n_hold, multiplier, cap_factor)
 
     set_modifier_parameter!(calc, ExtraDimensionPenaltyModifier, :alpha, alpha_start)
 
     results = []
     extra_d = []
+    converged = false
+    extra_norm_prev = Inf
+    vol_init = CellBase.volume(cell)
 
-    for _ in 1:div(max_iterations, schedule_every)
-        push!(extra_d,
-            maximum(norm.(eachcol(positions(cell)[4:end, :]))))
-        res = relax_fn(calc; itermax=schedule_every, relax_kwargs...)
-        push!(results, res)
+    for i in 1:nrounds
+        # Save state before this round (to restore if it goes wrong)
+        pos_before = copy(positions(cell))
+        cmat_before = copy(cellmat(cell))
+
+        extra_norm = maximum(norm.(eachcol(positions(cell)[4:end, :])))
         alpha = get_modifier_parameter(calc, ExtraDimensionPenaltyModifier, :alpha)
-        set_modifier_parameter!(calc, ExtraDimensionPenaltyModifier, :alpha,
-            schedule_function(alpha))
+        if trace
+            E = eddp_energy(calc)
+            vol = CellBase.volume(cell)
+            pos = positions(cell)
+            nat = size(pos, 2)
+            D = size(pos, 1)
+            d3d = Float64[]
+            for a=1:nat, b=a+1:nat
+                push!(d3d, norm(pos[1:3, a] .- pos[1:3, b]))
+            end
+            min3d = isempty(d3d) ? 0.0 : minimum(d3d)
+            max3d = isempty(d3d) ? 0.0 : maximum(d3d)
+            d_all = Float64[]
+            for a=1:nat, b=a+1:nat
+                push!(d_all, norm(pos[:, a] .- pos[:, b]))
+            end
+            min_all = isempty(d_all) ? 0.0 : minimum(d_all)
+            max_all = isempty(d_all) ? 0.0 : maximum(d_all)
+            @info "Hyper $i/$nrounds  α=$(round(alpha, digits=4))  E=$(round(E, digits=1))  |extra|=$(round(extra_norm, digits=2))  vol=$(round(vol, digits=1))  min3d=$(round(min3d, digits=2))  max3d=$(round(max3d, digits=2))  min_all=$(round(min_all, digits=2))  max_all=$(round(max_all, digits=2))  ndim=$D"
+        end
+        push!(extra_d, extra_norm)
+
+        if extra_norm < 0.5 && extra_norm_prev < 0.5
+            trace && @info "Hyper: extra dimensions converged (|extra|=$(round(extra_norm, digits=3)))"
+            converged = true
+            break
+        end
+        extra_norm_prev = extra_norm
+
+        res = relax_fn(calc; itermax=schedule_every, relax_kwargs..., trace=trace)
+        push!(results, res)
+
+        # Check volume limits to prevent cell collapse / blow-up
+        vol_now = CellBase.volume(cell)
+        if vol_now > vol_init * max_vol_change || vol_now < vol_init / max_vol_change
+            trace && @info "Hyper: volume out of limits (init=$(round(vol_init, digits=1)) now=$(round(vol_now, digits=1)) factor=$max_vol_change), restoring to previous round"
+            set_cellmat!(calc, cmat_before)
+            set_positions!(calc, pos_before)
+            # Reset cached energy/forces so next calculate! picks up restored state
+            calculate!(calc; forces=true)
+            break
+        end
+
+        new_alpha = sf(alpha)
+        # Cap alpha to prevent penalty overwhelm (forces ~ new_alpha * extra_dim)
+        new_alpha = min(new_alpha, 0.5)
+        # Detect cell blow-up: stop if 3D max distance exceeds 20 Å
+        try
+            pos3d = positions(get_cell(calc))[1:3, :]
+            nat = size(pos3d, 2)
+            max3d_now = 0.0
+            for a=1:nat, b=a+1:nat
+                d = norm(pos3d[:, a] .- pos3d[:, b])
+                max3d_now = max(max3d_now, d)
+            end
+            if max3d_now > 20.0
+                trace && @info "Hyper: cell blow-up detected (max3d=$(round(max3d_now, digits=1)) Å), restoring to previous round"
+                set_cellmat!(calc, cmat_before)
+                set_positions!(calc, pos_before)
+                calculate!(calc; forces=true)
+                break
+            end
+        catch
+        end
+        set_modifier_parameter!(calc, ExtraDimensionPenaltyModifier, :alpha, new_alpha)
     end
 
     (results=results, extra_dim_norms=extra_d)

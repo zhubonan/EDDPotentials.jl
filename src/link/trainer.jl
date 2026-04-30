@@ -6,13 +6,14 @@ using ArgParse
 using .EDDPotentialsCore:
     LinearInterface,
     ManualFluxBackPropInterface,
+    clear_transient_gradients!,
     load_model,
     save_model_artifact
 
 const TRAINING_DIR = "training"
 
 # Symbol-typed parameters that need String→Symbol coercion from TOML
-const _SYMBOL_PARAMS = (:damping_mode, :solver)
+const _SYMBOL_PARAMS = (:damping_mode, :solver, :optimizer)
 
 """
     _symbolize_kwargs(kwargs::Dict{String,Any}) -> NamedTuple
@@ -172,9 +173,32 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
             throw(ErrorException("Unknown `training_mode`: $(training_mode)"))
         end
 
-        @info "Starting training"
+        @info "Starting training ($(tra.train_method))"
         # Train one model and save it...
-        if tra.batch_size > 0
+        if tra.train_method == "sgd"
+            train_sgd!(
+                model,
+                x_train,
+                y_train;
+                x_val,
+                y_val,
+                max_epochs=tra.max_iter,
+                earlystop=tra.earlystop,
+                show_progress=tra.show_progress,
+                keep_best=tra.keep_best,
+                log_file=tra.log_file,
+                weights,
+                optimizer=Symbol(tra.optimizer),
+                lr=tra.lr,
+                momentum=tra.momentum,
+                batch_size=max(1, tra.batch_size),
+                weight_decay=tra.weight_decay,
+                grad_clip=tra.grad_clip,
+                feature_spec=bu.cf,
+                elemental_energies=make_symbol_keys(bu.state.elemental_energies),
+                _symbolize_kwargs(tra.training_kwargs)...,
+            )
+        elseif tra.batch_size > 0
             @info "Using batched LM with batch_size=$(tra.batch_size)"
             train_lm_batched!(
                 model,
@@ -199,7 +223,7 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
                 y_train;
                 x_val,
                 y_val,
-                maxIter=tra.max_iter,
+                max_epochs=tra.max_iter,
                 earlystop=tra.earlystop,
                 show_progress=tra.show_progress,
                 p=tra.p,

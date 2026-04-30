@@ -171,6 +171,24 @@ function eddp_enthalpy(calc::MetaCalculator; kwargs...)
     eddp_energy(calc; kwargs...)
 end
 
+"""
+    eddp_energy_std(calc::MetaCalculator; kwargs...)
+
+Compute ensemble energy standard deviation by delegating to the source calculator.
+"""
+function eddp_energy_std(calc::MetaCalculator; kwargs...)
+    eddp_energy_std(calc.source; kwargs...)
+end
+
+"""
+    eddp_energy_std_per_atom(calc::MetaCalculator; kwargs...)
+
+Compute per-atom ensemble energy standard deviation by delegating to the source calculator.
+"""
+function eddp_energy_std_per_atom(calc::MetaCalculator; kwargs...)
+    eddp_energy_std_per_atom(calc.source; kwargs...)
+end
+
 # Position accessors with modifier dispatch
 
 """
