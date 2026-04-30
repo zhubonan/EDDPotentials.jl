@@ -89,20 +89,18 @@ function _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, cor
 
     # forces
     # Note that we add the negative size here since F=-dE/dx
+    # Each pair is visited twice (i→j and j→i) so apply force on
+    # the central atom only with no extra factor.
     gcore = -core.g(rij, pair_rcut) * core.a
     if iat != jat
         for elm in axes(modvij, 1)
-            # Newton's second law - only need to update this atom
-            # as we also go through the same ij pair with ji
-            fcore[elm, iat] -= 2 * gcore * modvij[elm]
-            #fcore[elm, jat] +=  gcore * modvij[elm]
+            fcore[elm, iat] -= gcore * modvij[elm]
         end
     end
     for elm1 in axes(score, 1)
         for elm2 in axes(score, 2)
-            #@inbounds
-            score[elm1, elm2, iat] += vij[elm1] * modvij[elm2] * gcore
+            score[elm1, elm2, iat] += vij[elm1] * modvij[elm2] * gcore / 2.0
         end
     end
-    ecore[iat] += core.f(rij, pair_rcut) * core.a
+    ecore[iat] += core.f(rij, pair_rcut) * core.a / 2.0
 end

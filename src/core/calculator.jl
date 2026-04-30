@@ -116,7 +116,12 @@ model interface (`nn`) into a reusable calculator object.
 mutable struct NNCalc{T,N<:NeighbourList,M<:AbstractCellFeatureSpec,X<:AbstractNNInterface,D} <:
                AbstractCalc
     cell::Cell{T,D}
-    last_cell::Cell{T,D}
+    "Cached cell matrix for change detection"
+    last_cellmat::Matrix{T}
+    "Cached positions for change detection"
+    last_positions::Matrix{T}
+    "Cached species for change detection"
+    last_species::Vector{Symbol}
     "Positions when the NeighbourList is built"
     last_nn_build_pos::Vector{SVector{D,T}}
     "NeighbourList"
@@ -153,14 +158,15 @@ get_cell(ac::NNCalc) = ac.cell
 # end
 
 """
-    is_equal(cell_a, cell_b)
+    _cell_unchanged(cell, last_cellmat, last_positions, last_species)
 
-Check if two cells are equal to each other
+Check if the cell matches the cached state (cell matrix, positions, species).
 """
-function is_equal(cell_a, cell_b)
-    all(cellmat(cell_a) .== cellmat(cell_b)) &&
-        all(positions(cell_a) .== positions(cell_b)) &&
-        all(species(cell_a) .== species(cell_b))
+function _cell_unchanged(cell, last_cellmat, last_positions, last_species)
+    all(cellmat(cell) .== last_cellmat) || return false
+    all(positions(cell) .== last_positions) || return false
+    all(species(cell) .== last_species) || return false
+    return true
 end
 
 _make_symbol_keys(x) = x
@@ -192,8 +198,10 @@ function NNCalc(
     ) # Buffer for force calculation 
     NNCalc(
         cell,
-        deepcopy(cell),
-        sposarray(cell),
+        copy(cellmat(cell)),          # last_cellmat
+        copy(positions(cell)),        # last_positions
+        copy(species(cell)),          # last_species
+        sposarray(cell),              # last_nn_build_pos
         nl,
         cf,
         v,
@@ -265,7 +273,7 @@ function eddp_stress(calc::NNCalc; rebuild_nl=true, make_copy=true)
 end
 
 function _need_calc(calc::NNCalc, forces)
-    if is_equal(get_cell(calc), calc.last_cell) && calc.param.energy_calculated
+    if _cell_unchanged(get_cell(calc), calc.last_cellmat, calc.last_positions, calc.last_species) && calc.param.energy_calculated
         if forces
             calc.param.forces_calculated && return false
         else
@@ -291,7 +299,9 @@ use incremental neighbor list updates instead of full rebuilds.
     # Disable rebuilding NL - we have done this already
     @timeit to "_calculate" _calculate!(calc, false, forces)
     # Update as the last calculated cell
-    calc.last_cell = deepcopy(calc.cell)
+    calc.last_cellmat .= cellmat(calc.cell)
+    copy!(calc.last_positions, positions(calc.cell))
+    calc.last_species .= species(calc.cell)
     calc
 end
 

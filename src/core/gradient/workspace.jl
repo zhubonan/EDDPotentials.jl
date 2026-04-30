@@ -39,6 +39,30 @@ end
 
 
 """
+    FeatureBuffers{T}
+
+Per-task buffers for feature computation in `compute_fv_gv_one!`.
+Stored in a `Vector` indexed by chunk/thread slot for thread-safety.
+Allocated lazily on first use.
+"""
+struct FeatureBuffers{T}
+    "Cached pij values for three-body computation"
+    pij::Matrix{T}
+    "Cached pik values for three-body computation"
+    pik::Matrix{T}
+    "Cached qjk values for three-body computation"
+    qjk::Matrix{T}
+    "Cached inverse fij values"
+    inv_fij::Vector{T}
+    "Cached inverse fik values"
+    inv_fik::Vector{T}
+    "Cached inverse fjk values"
+    inv_fjk::Vector{T}
+    "Buffer for unique neighbour indices (per-atom deduplication)"
+    neighbour_indices::Vector{Int}
+end
+
+"""
     GradientWorkspace{T,N}
 
 Storage for gradients and other intermediate results.
@@ -74,6 +98,8 @@ struct GradientWorkspace{T,N}
     hardcore::HardcoreWorkspace{T,N}
     do_grad::Bool
     one_body_offset::Int
+    "Per-task feature computation buffers (lazily allocated, slot-indexed for thread-safety)"
+    feat_bufs::Vector{FeatureBuffers{T}}
 end
 
 
@@ -117,6 +143,7 @@ function GradientWorkspace(
         HardcoreWorkspace(T, core, nat, ndims),
         do_grad,
         one_body_offset,
+        FeatureBuffers{T}[],  # feat_bufs — lazily allocated
     )
 end
 

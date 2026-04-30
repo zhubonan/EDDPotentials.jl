@@ -83,6 +83,28 @@ end
 
 
 """
+    _ensure_feat_buf!(workspace::GradientWorkspace, npmax3, nqmax3, lfe3, nl)
+
+Lazily allocate per-atom feature computation buffers in the workspace.
+Uses `nl.nmax` (max NL capacity) for the neighbour_indices buffer so no
+per-atom resize is ever needed.  Thread-safe: index 0 = uninitialized,
+push! a new FeatureBuffers on first use.
+"""
+function _ensure_feat_buf!(workspace::GradientWorkspace, npmax3, nqmax3, lfe3, nl::NeighbourList)
+    isempty(workspace.feat_bufs) || return
+    T = eltype(workspace.fvec)
+    push!(workspace.feat_bufs, FeatureBuffers{T}(
+        zeros(T, npmax3, lfe3),
+        zeros(T, npmax3, lfe3),
+        zeros(T, nqmax3, lfe3),
+        zeros(T, lfe3),
+        zeros(T, lfe3),
+        zeros(T, lfe3),
+        zeros(Int, nl.nmax),
+    ))
+end
+
+"""
     compute_fv_gv_one!(workspace, features2, features3, iat, cell, nl; offset, do_grad)
 
 Compute feature vector and gradients for a single atom.
@@ -159,19 +181,36 @@ function compute_fv_gv_one!(
     maxrcut = isempty(features3) ? maximum(x -> x.rcut, features2) :
               maximum(x -> x.rcut, (features3..., features2...))
 
-    # Caches for three body terms
-    pij = zeros(npmax3, lfe3)
-    inv_fij = zeros(lfe3)
-
-    pik = zeros(npmax3, lfe3)
-    inv_fik = zeros(lfe3)
-
-    qjk = zeros(nqmax3, lfe3)
-    inv_fjk = zeros(lfe3)
+    # Ensure pre-allocated per-atom feature computation buffers
+    _ensure_feat_buf!(workspace, npmax3, nqmax3, lfe3, nl)
+    bufs = workspace.feat_bufs[1]
+    pij = bufs.pij
+    inv_fij = bufs.inv_fij
+    pik = bufs.pik
+    inv_fik = bufs.inv_fik
+    qjk = bufs.qjk
+    inv_fjk = bufs.inv_fjk
     tiny_dist = 1e-14
 
-
-    neighbour_indices = unique(nl.orig_indices[1:nl.nneigh[iat], iat])
+    # In-place unique neighbour indices using pre-allocated buffer
+    nidx = bufs.neighbour_indices
+    n = nl.nneigh[iat]
+    if n == 0
+        neighbour_indices = view(nidx, 1:0)
+    else
+        for j = 1:n
+            nidx[j] = nl.orig_indices[j, iat]
+        end
+        sort!(view(nidx, 1:n))
+        k = 1
+        for j = 2:n
+            if nidx[j] != nidx[k]
+                k += 1
+                nidx[k] = nidx[j]
+            end
+        end
+        neighbour_indices = view(nidx, 1:k)
+    end
     if do_grad
         # TODO information below may be cached to accelerate the computation?
         # Compute the indexing array for the gradients - tells each element is connected to which atom
