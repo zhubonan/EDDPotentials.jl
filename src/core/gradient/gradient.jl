@@ -16,7 +16,7 @@ end
 
 struct FeatureSpeciesLookup
     spec_to_idx::Dict{Symbol,Int}
-    _2b_data::Matrix{Tuple{Int,Int}}
+    _2b_data::Matrix{Vector{Tuple{Int,Int}}}
     _3b_data::Array{Tuple{Int,Int},3}
     totalfe2::Int
 end
@@ -24,13 +24,13 @@ end
 function FeatureSpeciesLookup(features2, features3, elements)
     ne = length(elements)
     spec_to_idx = Dict{Symbol,Int}(s => i for (i, s) in enumerate(elements))
-    _2b_data = fill((0, 0), ne, ne)
+    _2b_data = [Tuple{Int,Int}[] for _ = 1:ne, _ = 1:ne]
     _3b_data = fill((0, 0), ne, ne, ne)
     offset = 1
     for (ife, f) in enumerate(features2)
         ci = spec_to_idx[f.sij_idx[1]]
         cj = spec_to_idx[f.sij_idx[2]]
-        _2b_data[ci, cj] = (offset, ife)
+        push!(_2b_data[ci, cj], (offset, ife))
         offset += f.np
     end
     totalfe2 = offset - 1
@@ -378,8 +378,8 @@ function compute_fv_gv_one!(
         if spec_lookup !== nothing
             ci = get(spec_lookup.spec_to_idx, sym[iat], 0)
             cj = get(spec_lookup.spec_to_idx, sym[jat], 0)
-            (start2, ife2) = ci > 0 && cj > 0 ? spec_lookup._2b_data[ci, cj] : (0, 0)
-            if start2 > 0
+            two_body_data = ci > 0 && cj > 0 ? spec_lookup._2b_data[ci, cj] : Tuple{Int,Int}[]
+            for (start2, ife2) in two_body_data
                 f = features2[ife2]
                 i = offset + start2
                 fij2 = f.f(rij, f.rcut)
@@ -523,9 +523,9 @@ function compute_fv_gv_one!(
                         ijkp_buf[m] = pij[m, ife_buf] * pik[m, ife_buf]
                     end
 
-                    # BLAS ger! for fvec accumulation (contiguous slice)
-                    BLAS.ger!(1.0, view(ijkp_buf, 1:f.np), view(qjk, 1:f.nq, ife_buf),
-                              reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.np, f.nq))
+                    # BLAS ger! for fvec accumulation (contiguous slice, qjk-first)
+                    BLAS.ger!(1.0, view(qjk, 1:f.nq, ife_buf), view(ijkp_buf, 1:f.np),
+                              reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.nq, f.np))
 
                     # Precompute force gradient factors
                     _precompute_3b_factors!(
@@ -582,8 +582,8 @@ function compute_fv_gv_one!(
                     @inbounds for m = 1:f.np
                         ijkp_buf[m] = pij[m, ife_buf] * pik[m, ife_buf]
                     end
-                    BLAS.ger!(1.0, view(ijkp_buf, 1:f.np), view(qjk, 1:f.nq, ife_buf),
-                              reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.np, f.nq))
+                    BLAS.ger!(1.0, view(qjk, 1:f.nq, ife_buf), view(ijkp_buf, 1:f.np),
+                              reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.nq, f.np))
                     i += f.np * f.nq
                 end
             elseif spec_lookup === nothing || start3 <= 0
@@ -609,8 +609,8 @@ function compute_fv_gv_one!(
                         @inbounds for m = 1:f.np
                             ijkp_buf[m] = pij[m, ife] * pik[m, ife]
                         end
-                        BLAS.ger!(1.0, view(ijkp_buf, 1:f.np), view(qjk, 1:f.nq, ife),
-                                  reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.np, f.nq))
+                        BLAS.ger!(1.0, view(qjk, 1:f.nq, ife), view(ijkp_buf, 1:f.np),
+                                  reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.nq, f.np))
 
                         _precompute_3b_factors!(
                             bufs.ffact_center, bufs.ffact_j, bufs.ffact_k,
@@ -665,8 +665,8 @@ function compute_fv_gv_one!(
                         @inbounds for m = 1:f.np
                             ijkp_buf[m] = pij[m, ife] * pik[m, ife]
                         end
-                        BLAS.ger!(1.0, view(ijkp_buf, 1:f.np), view(qjk, 1:f.nq, ife),
-                                  reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.np, f.nq))
+                        BLAS.ger!(1.0, view(qjk, 1:f.nq, ife), view(ijkp_buf, 1:f.np),
+                                  reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.nq, f.np))
                         i += f.np * f.nq
                     end
                 end
