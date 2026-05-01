@@ -49,7 +49,6 @@ using Test
         "md.jl",
         "hot.jl",
         "records.jl",
-        "quickbuild.jl",
         "link/link.jl",
         "hyper.jl",
         "minsep.jl",
