@@ -17,7 +17,7 @@ end
 struct FeatureSpeciesLookup
     spec_to_idx::Dict{Symbol,Int}
     _2b_data::Matrix{Vector{Tuple{Int,Int}}}
-    _3b_data::Array{Tuple{Int,Int},3}
+    _3b_data::Array{Vector{Tuple{Int,Int}},3}
     totalfe2::Int
 end
 
@@ -25,7 +25,7 @@ function FeatureSpeciesLookup(features2, features3, elements)
     ne = length(elements)
     spec_to_idx = Dict{Symbol,Int}(s => i for (i, s) in enumerate(elements))
     _2b_data = [Tuple{Int,Int}[] for _ = 1:ne, _ = 1:ne]
-    _3b_data = fill((0, 0), ne, ne, ne)
+    _3b_data = [Tuple{Int,Int}[] for _ = 1:ne, _ = 1:ne, _ = 1:ne]
     offset = 1
     for (ife, f) in enumerate(features2)
         ci = spec_to_idx[f.sij_idx[1]]
@@ -39,8 +39,8 @@ function FeatureSpeciesLookup(features2, features3, elements)
         ci = spec_to_idx[f.sijk_idx[1]]
         cj = spec_to_idx[f.sijk_idx[2]]
         ck = spec_to_idx[f.sijk_idx[3]]
-        _3b_data[ci, cj, ck] = (offset, ife)
-        _3b_data[ci, ck, cj] = (offset, ife)
+        push!(_3b_data[ci, cj, ck], (offset, ife))
+        push!(_3b_data[ci, ck, cj], (offset, ife))
         offset += f.np * f.nq
     end
     FeatureSpeciesLookup(spec_to_idx, _2b_data, _3b_data, totalfe2)
@@ -502,91 +502,96 @@ function compute_fv_gv_one!(
             # Starting index for three-body feature update
             if spec_lookup !== nothing
                 ck = get(spec_lookup.spec_to_idx, sym[kat], 0)
-                (start3, ife3) = ci > 0 && cj > 0 && ck > 0 ? spec_lookup._3b_data[ci, cj, ck] : (0, 0)
+                three_body_data = ci > 0 && cj > 0 && ck > 0 ? spec_lookup._3b_data[ci, cj, ck] : Tuple{Int,Int}[]
+                has_3b = !isempty(three_body_data)
+            else
+                has_3b = false
             end
-            if spec_lookup !== nothing && start3 > 0
-                f = features3[ife3]
-                ife_buf = same_3b ? 1 : ife3
-                i = offset + spec_lookup.totalfe2 + start3
-                if do_grad
-                    rcut = f.rcut
-                    gij = f.g(rij, rcut) * inv_fij[ife_buf]
-                    gik = f.g(rik, rcut) * inv_fik[ife_buf]
-                    gjk = f.g(rjk, rcut) * inv_fjk[ife_buf]
-                    gtmp1 = f.p .* gij
-                    gtmp2 = f.p .* gik
-                    gtmp3 = gjk .* f.q
+            if has_3b
+                for (start3, ife3) in three_body_data
+                    f = features3[ife3]
+                    ife_buf = same_3b ? 1 : ife3
+                    i = offset + spec_lookup.totalfe2 + start3
+                    if do_grad
+                        rcut = f.rcut
+                        gij = f.g(rij, rcut) * inv_fij[ife_buf]
+                        gik = f.g(rik, rcut) * inv_fik[ife_buf]
+                        gjk = f.g(rjk, rcut) * inv_fjk[ife_buf]
+                        gtmp1 = f.p .* gij
+                        gtmp2 = f.p .* gik
+                        gtmp3 = gjk .* f.q
 
-                    # Precompute ijkp = pij .* pik (needed for both ger! and loops)
-                    ijkp_buf = bufs.ijkp_buf
-                    @inbounds for m = 1:f.np
-                        ijkp_buf[m] = pij[m, ife_buf] * pik[m, ife_buf]
-                    end
-
-                    # BLAS ger! for fvec accumulation (contiguous slice, qjk-first)
-                    BLAS.ger!(1.0, view(qjk, 1:f.nq, ife_buf), view(ijkp_buf, 1:f.np),
-                              reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.nq, f.np))
-
-                    # Precompute force gradient factors
-                    _precompute_3b_factors!(
-                        bufs.ffact_center, bufs.ffact_j, bufs.ffact_k,
-                        modvij, modvik, modvjk,
-                        gtmp1, gtmp2, gtmp3,
-                        f.np, f.nq,
-                    )
-
-                    # Accumulate gradients with precomputed force factors
-                    @fastmath @inbounds for m = 1:f.np
-                        ijkp = ijkp_buf[m]
-                        gscale1_m = gtmp1[m] * ijkp
-                        gscale2_m = gtmp2[m] * ijkp
-                        fc = view(bufs.ffact_center, :, m)
-                        for o = 1:f.nq
-                            val = ijkp * qjk[o, ife_buf]
-                            val == 0 && (i += 1; continue)
-
-                            gs1 = gscale1_m * qjk[o, ife_buf]
-                            gs2 = gscale2_m * qjk[o, ife_buf]
-                            gs3 = gtmp3[o] * val
-
-                            # gvec center: precomputed factor (depends on m only)
-                            gvec[1, i, 1, iat] += val * fc[1]
-                            gvec[2, i, 1, iat] += val * fc[2]
-                            gvec[3, i, 1, iat] += val * fc[3]
-
-                            # gvec atom j: precomputed factor
-                            gvec[1, i, ineigth_j, iat] += val * bufs.ffact_j[1, m, o]
-                            gvec[2, i, ineigth_j, iat] += val * bufs.ffact_j[2, m, o]
-                            gvec[3, i, ineigth_j, iat] += val * bufs.ffact_j[3, m, o]
-
-                            # gvec atom k: precomputed factor
-                            gvec[1, i, ineigth_k, iat] += val * bufs.ffact_k[1, m, o]
-                            gvec[2, i, ineigth_k, iat] += val * bufs.ffact_k[2, m, o]
-                            gvec[3, i, ineigth_k, iat] += val * bufs.ffact_k[3, m, o]
-
-                            # stotv: use gs1, gs2, gs3 (factoring doesn't help here)
-                            stotv[1, 1, i, iat] += vij[1]*modvij[1]*gs1 + vik[1]*modvik[1]*gs2 + vjk[1]*modvjk[1]*gs3
-                            stotv[1, 2, i, iat] += vij[1]*modvij[2]*gs1 + vik[1]*modvik[2]*gs2 + vjk[1]*modvjk[2]*gs3
-                            stotv[1, 3, i, iat] += vij[1]*modvij[3]*gs1 + vik[1]*modvik[3]*gs2 + vjk[1]*modvjk[3]*gs3
-                            stotv[2, 1, i, iat] += vij[2]*modvij[1]*gs1 + vik[2]*modvik[1]*gs2 + vjk[2]*modvjk[1]*gs3
-                            stotv[2, 2, i, iat] += vij[2]*modvij[2]*gs1 + vik[2]*modvik[2]*gs2 + vjk[2]*modvjk[2]*gs3
-                            stotv[2, 3, i, iat] += vij[2]*modvij[3]*gs1 + vik[2]*modvik[3]*gs2 + vjk[2]*modvjk[3]*gs3
-                            stotv[3, 1, i, iat] += vij[3]*modvij[1]*gs1 + vik[3]*modvik[1]*gs2 + vjk[3]*modvjk[1]*gs3
-                            stotv[3, 2, i, iat] += vij[3]*modvij[2]*gs1 + vik[3]*modvik[2]*gs2 + vjk[3]*modvjk[2]*gs3
-                            stotv[3, 3, i, iat] += vij[3]*modvij[3]*gs1 + vik[3]*modvik[3]*gs2 + vjk[3]*modvjk[3]*gs3
-                            i += 1
+                        # Precompute ijkp = pij .* pik (needed for both ger! and loops)
+                        ijkp_buf = bufs.ijkp_buf
+                        @inbounds for m = 1:f.np
+                            ijkp_buf[m] = pij[m, ife_buf] * pik[m, ife_buf]
                         end
+
+                        # BLAS ger! for fvec accumulation (contiguous slice, qjk-first)
+                        BLAS.ger!(1.0, view(qjk, 1:f.nq, ife_buf), view(ijkp_buf, 1:f.np),
+                                  reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.nq, f.np))
+
+                        # Precompute force gradient factors
+                        _precompute_3b_factors!(
+                            bufs.ffact_center, bufs.ffact_j, bufs.ffact_k,
+                            modvij, modvik, modvjk,
+                            gtmp1, gtmp2, gtmp3,
+                            f.np, f.nq,
+                        )
+
+                        # Accumulate gradients with precomputed force factors
+                        @fastmath @inbounds for m = 1:f.np
+                            ijkp = ijkp_buf[m]
+                            gscale1_m = gtmp1[m] * ijkp
+                            gscale2_m = gtmp2[m] * ijkp
+                            fc = view(bufs.ffact_center, :, m)
+                            for o = 1:f.nq
+                                val = ijkp * qjk[o, ife_buf]
+                                val == 0 && (i += 1; continue)
+
+                                gs1 = gscale1_m * qjk[o, ife_buf]
+                                gs2 = gscale2_m * qjk[o, ife_buf]
+                                gs3 = gtmp3[o] * val
+
+                                # gvec center: precomputed factor (depends on m only)
+                                gvec[1, i, 1, iat] += val * fc[1]
+                                gvec[2, i, 1, iat] += val * fc[2]
+                                gvec[3, i, 1, iat] += val * fc[3]
+
+                                # gvec atom j: precomputed factor
+                                gvec[1, i, ineigth_j, iat] += val * bufs.ffact_j[1, m, o]
+                                gvec[2, i, ineigth_j, iat] += val * bufs.ffact_j[2, m, o]
+                                gvec[3, i, ineigth_j, iat] += val * bufs.ffact_j[3, m, o]
+
+                                # gvec atom k: precomputed factor
+                                gvec[1, i, ineigth_k, iat] += val * bufs.ffact_k[1, m, o]
+                                gvec[2, i, ineigth_k, iat] += val * bufs.ffact_k[2, m, o]
+                                gvec[3, i, ineigth_k, iat] += val * bufs.ffact_k[3, m, o]
+
+                                # stotv: use gs1, gs2, gs3 (factoring doesn't help here)
+                                stotv[1, 1, i, iat] += vij[1]*modvij[1]*gs1 + vik[1]*modvik[1]*gs2 + vjk[1]*modvjk[1]*gs3
+                                stotv[1, 2, i, iat] += vij[1]*modvij[2]*gs1 + vik[1]*modvik[2]*gs2 + vjk[1]*modvjk[2]*gs3
+                                stotv[1, 3, i, iat] += vij[1]*modvij[3]*gs1 + vik[1]*modvik[3]*gs2 + vjk[1]*modvjk[3]*gs3
+                                stotv[2, 1, i, iat] += vij[2]*modvij[1]*gs1 + vik[2]*modvik[1]*gs2 + vjk[2]*modvjk[1]*gs3
+                                stotv[2, 2, i, iat] += vij[2]*modvij[2]*gs1 + vik[2]*modvik[2]*gs2 + vjk[2]*modvjk[2]*gs3
+                                stotv[2, 3, i, iat] += vij[2]*modvij[3]*gs1 + vik[2]*modvik[3]*gs2 + vjk[2]*modvjk[3]*gs3
+                                stotv[3, 1, i, iat] += vij[3]*modvij[1]*gs1 + vik[3]*modvik[1]*gs2 + vjk[3]*modvjk[1]*gs3
+                                stotv[3, 2, i, iat] += vij[3]*modvij[2]*gs1 + vik[3]*modvik[2]*gs2 + vjk[3]*modvjk[2]*gs3
+                                stotv[3, 3, i, iat] += vij[3]*modvij[3]*gs1 + vik[3]*modvik[3]*gs2 + vjk[3]*modvjk[3]*gs3
+                                i += 1
+                            end
+                        end
+                    else
+                        ijkp_buf = bufs.ijkp_buf
+                        @inbounds for m = 1:f.np
+                            ijkp_buf[m] = pij[m, ife_buf] * pik[m, ife_buf]
+                        end
+                        BLAS.ger!(1.0, view(qjk, 1:f.nq, ife_buf), view(ijkp_buf, 1:f.np),
+                                  reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.nq, f.np))
+                        i += f.np * f.nq
                     end
-                else
-                    ijkp_buf = bufs.ijkp_buf
-                    @inbounds for m = 1:f.np
-                        ijkp_buf[m] = pij[m, ife_buf] * pik[m, ife_buf]
-                    end
-                    BLAS.ger!(1.0, view(qjk, 1:f.nq, ife_buf), view(ijkp_buf, 1:f.np),
-                              reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.nq, f.np))
-                    i += f.np * f.nq
                 end
-            elseif spec_lookup === nothing || start3 <= 0
+            else
                 i = totalfe2 + offset + 1
                 if do_grad
                     for (ife, f) in enumerate(features3)
