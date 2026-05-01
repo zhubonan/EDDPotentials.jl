@@ -62,6 +62,14 @@ struct FeatureBuffers{T}
     neighbour_indices::Vector{Int}
     "O(1) reverse mapping: original atom index → position in unique neighbour list"
     reverse_neighbour_map::Vector{Int}
+    "Pre-allocated scratch for pij .* pik outer product input"
+    ijkp_buf::Vector{T}
+    "Precomputed force factor on center atom i (3 × npmax3)"
+    ffact_center::Matrix{T}
+    "Precomputed force factor on neighbour j (3 × npmax3 × nqmax3)"
+    ffact_j::Array{T,3}
+    "Precomputed force factor on neighbour k (3 × npmax3 × nqmax3)"
+    ffact_k::Array{T,3}
 end
 
 """
