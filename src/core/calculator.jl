@@ -196,7 +196,9 @@ function NNCalc(
         do_grad=true,
         one_body_offset=one_body_offset(cf),
     ) # Buffer for force calculation
-    _populate_feat_bufs!(workspace, cf.two_body, cf.three_body, nl)
+    if cf isa CellFeature
+        _populate_feat_bufs!(workspace, cf.two_body, cf.three_body, nl)
+    end
     NNCalc(
         cell,
         copy(cellmat(cell)),          # last_cellmat

@@ -170,8 +170,30 @@ function _populate_feat_bufs!(workspace::GradientWorkspace, features2, features3
 end
 
 function _ensure_feat_buf!(workspace::GradientWorkspace, npmax3, nqmax3, lfe3, nl::NeighbourList)
-    # feat_bufs is now eagerly populated in get_workspace; this is a no-op
-    return
+    isempty(workspace.feat_bufs) || return
+    lock(workspace.feat_bufs_lock) do
+        isempty(workspace.feat_bufs) || return
+        T = eltype(workspace.fvec)
+        ngps = 10
+        nslots = Threads.nthreads() * ngps + 1
+        max_atom_id = size(nl.orig_indices, 2)
+        for _ = 1:nslots
+            push!(workspace.feat_bufs, FeatureBuffers{T}(
+                zeros(T, npmax3, lfe3),
+                zeros(T, npmax3, lfe3),
+                zeros(T, nqmax3, lfe3),
+                zeros(T, lfe3),
+                zeros(T, lfe3),
+                zeros(T, lfe3),
+                zeros(Int, nl.nmax),
+                zeros(Int, max_atom_id + 1),
+                zeros(T, npmax3),
+                zeros(T, 3, npmax3),
+                zeros(T, 3, npmax3, nqmax3),
+                zeros(T, 3, npmax3, nqmax3),
+            ))
+        end
+    end
 end
 
 function _precompute_3b_factors!(
@@ -677,6 +699,7 @@ function compute_fv_gv(
     elements = sort(unique(_elems))
     spec_lookup = FeatureSpeciesLookup(features2, features3, elements)
     # Update for each atom (chunk-task threading following nntools.jl pattern)
+    _populate_feat_bufs!(workspace, features2, features3, nl)
     nat = natoms(cell)
     chunks = _atom_chunks(nat)
     Threads.@threads for ci in eachindex(chunks)
@@ -750,6 +773,7 @@ function compute_fv!(
     for f in f3; append!(_elems, f.sijk_idx); end
     elements = sort(unique(_elems))
     spec_lookup = FeatureSpeciesLookup(f2, f3, elements)
+    _populate_feat_bufs!(workspace, f2, f3, nl)
     nat = natoms(cell)
     chunks = _atom_chunks(nat)
     Threads.@threads for ci in eachindex(chunks)
@@ -941,6 +965,7 @@ function compute_fv_gv!(
     for f in features3; append!(_elems, f.sijk_idx); end
     elements = sort(unique(_elems))
     spec_lookup = FeatureSpeciesLookup(features2, features3, elements)
+    _populate_feat_bufs!(workspace, features2, features3, nl)
     nat = natoms(cell)
     chunks = _atom_chunks(nat)
     Threads.@threads for ci in eachindex(chunks)
