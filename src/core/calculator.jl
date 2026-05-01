@@ -195,7 +195,8 @@ function NNCalc(
         core,
         do_grad=true,
         one_body_offset=one_body_offset(cf),
-    ) # Buffer for force calculation 
+    ) # Buffer for force calculation
+    _populate_feat_bufs!(workspace, cf.two_body, cf.three_body, nl)
     NNCalc(
         cell,
         copy(cellmat(cell)),          # last_cellmat

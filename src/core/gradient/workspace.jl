@@ -60,6 +60,8 @@ struct FeatureBuffers{T}
     inv_fjk::Vector{T}
     "Buffer for unique neighbour indices (per-atom deduplication)"
     neighbour_indices::Vector{Int}
+    "O(1) reverse mapping: original atom index → position in unique neighbour list"
+    reverse_neighbour_map::Vector{Int}
 end
 
 """
@@ -100,6 +102,7 @@ struct GradientWorkspace{T,N}
     one_body_offset::Int
     "Per-task feature computation buffers (lazily allocated, slot-indexed for thread-safety)"
     feat_bufs::Vector{FeatureBuffers{T}}
+    feat_bufs_lock::ReentrantLock
 end
 
 
@@ -144,6 +147,7 @@ function GradientWorkspace(
         do_grad,
         one_body_offset,
         FeatureBuffers{T}[],  # feat_bufs — lazily allocated
+        ReentrantLock(),
     )
 end
 

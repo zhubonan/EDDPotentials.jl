@@ -13,6 +13,58 @@ function similar_zero(x)
     y
 end
 
+struct FeatureSpeciesLookup
+    spec_to_idx::Dict{Symbol,Int}
+    _2b_data::Matrix{Tuple{Int,Int}}
+    _3b_data::Array{Tuple{Int,Int},3}
+    totalfe2::Int
+end
+
+function FeatureSpeciesLookup(features2, features3, elements)
+    ne = length(elements)
+    spec_to_idx = Dict{Symbol,Int}(s => i for (i, s) in enumerate(elements))
+    _2b_data = fill((0, 0), ne, ne)
+    _3b_data = fill((0, 0), ne, ne, ne)
+    offset = 1
+    for (ife, f) in enumerate(features2)
+        ci = spec_to_idx[f.sij_idx[1]]
+        cj = spec_to_idx[f.sij_idx[2]]
+        _2b_data[ci, cj] = (offset, ife)
+        offset += f.np
+    end
+    totalfe2 = offset - 1
+    offset = 1
+    for (ife, f) in enumerate(features3)
+        ci = spec_to_idx[f.sijk_idx[1]]
+        cj = spec_to_idx[f.sijk_idx[2]]
+        ck = spec_to_idx[f.sijk_idx[3]]
+        _3b_data[ci, cj, ck] = (offset, ife)
+        _3b_data[ci, ck, cj] = (offset, ife)
+        offset += f.np * f.nq
+    end
+    FeatureSpeciesLookup(spec_to_idx, _2b_data, _3b_data, totalfe2)
+end
+
+function _atom_chunks(natoms; ngps=10)
+    nt = Threads.nthreads()
+    nchunks = nt * ngps
+    nper = div(natoms, nchunks)
+    if nper == 0
+        return [i:i for i = 1:natoms]
+    end
+    out = UnitRange{Int}[]
+    i = 1
+    for _ = 1:nchunks
+        push!(out, i:i+nper-1)
+        i += nper
+    end
+    m = mod(natoms, nchunks)
+    if m != 0
+        push!(out, natoms-m+1:natoms)
+    end
+    out
+end
+
 function _is_same_pqrcutf(features3)
     isempty(features3) && return true
     (
@@ -80,25 +132,41 @@ end
 
 
 """
-    _ensure_feat_buf!(workspace::GradientWorkspace, npmax3, nqmax3, lfe3, nl)
+    _populate_feat_bufs!(workspace::GradientWorkspace, features2, features3, nl)
 
-Lazily allocate per-atom feature computation buffers in the workspace.
-Uses `nl.nmax` (max NL capacity) for the neighbour_indices buffer so no
-per-atom resize is ever needed.  Thread-safe: index 0 = uninitialized,
-push! a new FeatureBuffers on first use.
+Eagerly populate per-thread `FeatureBuffers` in the workspace. Called once from
+`get_workspace` before any threaded access, so no locking is needed.
 """
-function _ensure_feat_buf!(workspace::GradientWorkspace, npmax3, nqmax3, lfe3, nl::NeighbourList)
+function _populate_feat_bufs!(workspace::GradientWorkspace, features2, features3, nl::NeighbourList)
     isempty(workspace.feat_bufs) || return
+    same_3b = _is_same_pqrcutf(features3)
+    lfe3::Int = isempty(features3) ? 0 : 1
+    if !same_3b
+        lfe3 = length(features3)
+    end
+    npmax3 = isempty(features3) ? 0 : maximum(length(x.p) for x in features3)
+    nqmax3 = isempty(features3) ? 0 : maximum(length(x.q) for x in features3)
     T = eltype(workspace.fvec)
-    push!(workspace.feat_bufs, FeatureBuffers{T}(
-        zeros(T, npmax3, lfe3),
-        zeros(T, npmax3, lfe3),
-        zeros(T, nqmax3, lfe3),
-        zeros(T, lfe3),
-        zeros(T, lfe3),
-        zeros(T, lfe3),
-        zeros(Int, nl.nmax),
-    ))
+    ngps = 10
+    nslots = Threads.nthreads() * ngps + 1
+    max_atom_id = size(nl.orig_indices, 2)
+    for _ = 1:nslots
+        push!(workspace.feat_bufs, FeatureBuffers{T}(
+            zeros(T, npmax3, lfe3),
+            zeros(T, npmax3, lfe3),
+            zeros(T, nqmax3, lfe3),
+            zeros(T, lfe3),
+            zeros(T, lfe3),
+            zeros(T, lfe3),
+            zeros(Int, nl.nmax),
+            zeros(Int, max_atom_id + 1),
+        ))
+    end
+end
+
+function _ensure_feat_buf!(workspace::GradientWorkspace, npmax3, nqmax3, lfe3, nl::NeighbourList)
+    # feat_bufs is now eagerly populated in get_workspace; this is a no-op
+    return
 end
 
 """
@@ -144,6 +212,8 @@ function compute_fv_gv_one!(
     ;
     offset=workspace.one_body_offset,
     do_grad=workspace.do_grad,
+    spec_lookup=nothing,
+    _bufs=nothing,
 )
 
     # NeighbourList must be built with vectors for gradient computation
@@ -179,8 +249,12 @@ function compute_fv_gv_one!(
               maximum(x -> x.rcut, (features3..., features2...))
 
     # Ensure pre-allocated per-atom feature computation buffers
-    _ensure_feat_buf!(workspace, npmax3, nqmax3, lfe3, nl)
-    bufs = workspace.feat_bufs[1]
+    if _bufs !== nothing
+        bufs = _bufs
+    else
+        _ensure_feat_buf!(workspace, npmax3, nqmax3, lfe3, nl)
+        bufs = workspace.feat_bufs[Threads.threadid()]
+    end
     pij = bufs.pij
     inv_fij = bufs.inv_fij
     pik = bufs.pik
@@ -191,6 +265,7 @@ function compute_fv_gv_one!(
 
     # In-place unique neighbour indices using pre-allocated buffer
     nidx = bufs.neighbour_indices
+    revmap = bufs.reverse_neighbour_map
     n = nl.nneigh[iat]
     if n == 0
         neighbour_indices = view(nidx, 1:0)
@@ -207,6 +282,10 @@ function compute_fv_gv_one!(
             end
         end
         neighbour_indices = view(nidx, 1:k)
+        # Build O(1) reverse mapping: original atom index -> position in unique list
+        for pos = 1:k
+            revmap[neighbour_indices[pos]] = pos
+        end
     end
     if do_grad
         # TODO information below may be cached to accelerate the computation?
@@ -226,7 +305,7 @@ function compute_fv_gv_one!(
         # Check atoms are not overlapping...
         @assert rij > tiny_dist
 
-        ineigth_j = findfirst(x -> x == jat, neighbour_indices) + 1
+        ineigth_j = revmap[jat] + 1
 
         modvij = vij / rij
         if !isempty(features3)
@@ -239,47 +318,90 @@ function compute_fv_gv_one!(
         end
 
         # Update two body features and forces
-        i = 1 + offset
-
-        for (_, f) in enumerate(features2)
-            # Skip if this rij is not for this feature
-            if !permequal(f.sij_idx, sym[iat], sym[jat])
-                i += f.np
-                continue
-            end
-
-            fij2 = f.f(rij, f.rcut)
-            if do_grad
-                gij = f.g(rij, f.rcut)
-                @fastmath @inbounds for m = 1:length(f.p)
-                    val = fast_pow(fij2, f.p[m])
-                    fvec[i, iat] += val
-                    if val != 0.0
-                        gfij = f.p[m] * val / fij2 * gij
-                    else
-                        gfij = zero(val)
+        if spec_lookup !== nothing
+            ci = get(spec_lookup.spec_to_idx, sym[iat], 0)
+            cj = get(spec_lookup.spec_to_idx, sym[jat], 0)
+            (start2, ife2) = ci > 0 && cj > 0 ? spec_lookup._2b_data[ci, cj] : (0, 0)
+            if start2 > 0
+                f = features2[ife2]
+                i = offset + start2
+                fij2 = f.f(rij, f.rcut)
+                if do_grad
+                    gij = f.g(rij, f.rcut)
+                    @fastmath @inbounds for m = 1:length(f.p)
+                        val = fast_pow(fij2, f.p[m])
+                        fvec[i, iat] += val
+                        if val != 0.0
+                            gfij = f.p[m] * val / fij2 * gij
+                        else
+                            gfij = zero(val)
+                        end
+                        gvec[1, i, 1, iat] -= modvij[1] * gfij
+                        gvec[2, i, 1, iat] -= modvij[2] * gfij
+                        gvec[3, i, 1, iat] -= modvij[3] * gfij
+                        gvec[1, i, ineigth_j, iat] += modvij[1] * gfij
+                        gvec[2, i, ineigth_j, iat] += modvij[2] * gfij
+                        gvec[3, i, ineigth_j, iat] += modvij[3] * gfij
+                        stotv[1, 1, i, iat] += vij[1] * modvij[1] * gfij
+                        stotv[1, 2, i, iat] += vij[1] * modvij[2] * gfij
+                        stotv[1, 3, i, iat] += vij[1] * modvij[3] * gfij
+                        stotv[2, 1, i, iat] += vij[2] * modvij[1] * gfij
+                        stotv[2, 2, i, iat] += vij[2] * modvij[2] * gfij
+                        stotv[2, 3, i, iat] += vij[2] * modvij[3] * gfij
+                        stotv[3, 1, i, iat] += vij[3] * modvij[1] * gfij
+                        stotv[3, 2, i, iat] += vij[3] * modvij[2] * gfij
+                        stotv[3, 3, i, iat] += vij[3] * modvij[3] * gfij
+                        i += 1
                     end
-                    gvec[1, i, 1, iat] -= modvij[1] * gfij
-                    gvec[2, i, 1, iat] -= modvij[2] * gfij
-                    gvec[3, i, 1, iat] -= modvij[3] * gfij
-                    gvec[1, i, ineigth_j, iat] += modvij[1] * gfij
-                    gvec[2, i, ineigth_j, iat] += modvij[2] * gfij
-                    gvec[3, i, ineigth_j, iat] += modvij[3] * gfij
-                    stotv[1, 1, i, iat] += vij[1] * modvij[1] * gfij
-                    stotv[1, 2, i, iat] += vij[1] * modvij[2] * gfij
-                    stotv[1, 3, i, iat] += vij[1] * modvij[3] * gfij
-                    stotv[2, 1, i, iat] += vij[2] * modvij[1] * gfij
-                    stotv[2, 2, i, iat] += vij[2] * modvij[2] * gfij
-                    stotv[2, 3, i, iat] += vij[2] * modvij[3] * gfij
-                    stotv[3, 1, i, iat] += vij[3] * modvij[1] * gfij
-                    stotv[3, 2, i, iat] += vij[3] * modvij[2] * gfij
-                    stotv[3, 3, i, iat] += vij[3] * modvij[3] * gfij
-                    i += 1
+                else
+                    @fastmath @inbounds for m = 1:length(f.p)
+                        fvec[i, iat] += fast_pow(fij2, f.p[m])
+                        i += 1
+                    end
                 end
-            else
-                @fastmath @inbounds for m = 1:length(f.p)
-                    fvec[i, iat] += fast_pow(fij2, f.p[m])
-                    i += 1
+            end
+        else
+            i = 1 + offset
+            for (_, f) in enumerate(features2)
+                # Skip if this rij is not for this feature
+                if !permequal(f.sij_idx, sym[iat], sym[jat])
+                    i += f.np
+                    continue
+                end
+
+                fij2 = f.f(rij, f.rcut)
+                if do_grad
+                    gij = f.g(rij, f.rcut)
+                    @fastmath @inbounds for m = 1:length(f.p)
+                        val = fast_pow(fij2, f.p[m])
+                        fvec[i, iat] += val
+                        if val != 0.0
+                            gfij = f.p[m] * val / fij2 * gij
+                        else
+                            gfij = zero(val)
+                        end
+                        gvec[1, i, 1, iat] -= modvij[1] * gfij
+                        gvec[2, i, 1, iat] -= modvij[2] * gfij
+                        gvec[3, i, 1, iat] -= modvij[3] * gfij
+                        gvec[1, i, ineigth_j, iat] += modvij[1] * gfij
+                        gvec[2, i, ineigth_j, iat] += modvij[2] * gfij
+                        gvec[3, i, ineigth_j, iat] += modvij[3] * gfij
+                        stotv[1, 1, i, iat] += vij[1] * modvij[1] * gfij
+                        stotv[1, 2, i, iat] += vij[1] * modvij[2] * gfij
+                        stotv[1, 3, i, iat] += vij[1] * modvij[3] * gfij
+                        stotv[2, 1, i, iat] += vij[2] * modvij[1] * gfij
+                        stotv[2, 2, i, iat] += vij[2] * modvij[2] * gfij
+                        stotv[2, 3, i, iat] += vij[2] * modvij[3] * gfij
+                        stotv[3, 1, i, iat] += vij[3] * modvij[1] * gfij
+                        stotv[3, 2, i, iat] += vij[3] * modvij[2] * gfij
+                        stotv[3, 3, i, iat] += vij[3] * modvij[3] * gfij
+                        i += 1
+                    end
+                else
+                    @fastmath @inbounds for m = 1:length(f.p)
+                        fvec[i, iat] += fast_pow(fij2, f.p[m])
+                        i += 1
+                    end
                 end
             end
         end
@@ -306,7 +428,7 @@ function compute_fv_gv_one!(
             rjk > maxrcut && continue
             @assert rjk > tiny_dist
 
-            ineigth_k = findfirst(x -> x == kat, neighbour_indices) + 1
+            ineigth_k = revmap[kat] + 1
 
             # Start update of the three body term
             modvik = vik / rik
@@ -321,40 +443,33 @@ function compute_fv_gv_one!(
             _update_qjk!(qjk, inv_fjk, rjk, features3, same_3b)
 
             # Starting index for three-body feature update
-            i = totalfe2 + offset + 1
-
-            if do_grad
-                # -- Full three-body with force + stress gradients --
-                for (ife, f) in enumerate(features3)
-                    if same_3b
-                        ife = 1
-                    end
-                    if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-                        i += f.np * f.nq
-                        continue
-                    end
-
+            if spec_lookup !== nothing
+                ck = get(spec_lookup.spec_to_idx, sym[kat], 0)
+                (start3, ife3) = ci > 0 && cj > 0 && ck > 0 ? spec_lookup._3b_data[ci, cj, ck] : (0, 0)
+            end
+            if spec_lookup !== nothing && start3 > 0
+                f = features3[ife3]
+                ife_buf = same_3b ? 1 : ife3
+                i = offset + spec_lookup.totalfe2 + start3
+                if do_grad
                     rcut = f.rcut
-                    gij = f.g(rij, rcut) * inv_fij[ife]
-                    gik = f.g(rik, rcut) * inv_fik[ife]
-                    gjk = f.g(rjk, rcut) * inv_fjk[ife]
+                    gij = f.g(rij, rcut) * inv_fij[ife_buf]
+                    gik = f.g(rik, rcut) * inv_fik[ife_buf]
+                    gjk = f.g(rjk, rcut) * inv_fjk[ife_buf]
                     gtmp1 = f.p .* gij
                     gtmp2 = f.p .* gik
                     gtmp3 = gjk .* f.q
-
                     for m = 1:f.np
-                        ijkp = pij[m, ife] * pik[m, ife]
+                        ijkp = pij[m, ife_buf] * pik[m, ife_buf]
                         gscale1_m = gtmp1[m] * ijkp
                         gscale2_m = gtmp2[m] * ijkp
                         @fastmath @inbounds for o = 1:f.nq
-                            val = ijkp * qjk[o, ife]
+                            val = ijkp * qjk[o, ife_buf]
                             fvec[i, iat] += val
                             val == 0 && (i += 1; continue)
-
-                            gs1 = gscale1_m * qjk[o, ife]
-                            gs2 = gscale2_m * qjk[o, ife]
+                            gs1 = gscale1_m * qjk[o, ife_buf]
+                            gs2 = gscale2_m * qjk[o, ife_buf]
                             gs3 = gtmp3[o] * val
-
                             gvec[1, i, 1, iat] -= modvij[1]*gs1 + modvik[1]*gs2
                             gvec[2, i, 1, iat] -= modvij[2]*gs1 + modvik[2]*gs2
                             gvec[3, i, 1, iat] -= modvij[3]*gs1 + modvik[3]*gs2
@@ -364,7 +479,6 @@ function compute_fv_gv_one!(
                             gvec[1, i, ineigth_k, iat] += modvik[1]*gs2 + modvjk[1]*gs3
                             gvec[2, i, ineigth_k, iat] += modvik[2]*gs2 + modvjk[2]*gs3
                             gvec[3, i, ineigth_k, iat] += modvik[3]*gs2 + modvjk[3]*gs3
-
                             stotv[1, 1, i, iat] += vij[1]*modvij[1]*gs1 + vik[1]*modvik[1]*gs2 + vjk[1]*modvjk[1]*gs3
                             stotv[1, 2, i, iat] += vij[1]*modvij[2]*gs1 + vik[1]*modvik[2]*gs2 + vjk[1]*modvjk[2]*gs3
                             stotv[1, 3, i, iat] += vij[1]*modvij[3]*gs1 + vik[1]*modvik[3]*gs2 + vjk[1]*modvjk[3]*gs3
@@ -377,22 +491,81 @@ function compute_fv_gv_one!(
                             i += 1
                         end
                     end
-                end  # 3body-feature update loop
-            else
-                # -- Feature-only path (no gradients) --
-                for (ife, f) in enumerate(features3)
-                    if same_3b
-                        ife = 1
-                    end
-                    if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-                        i += f.np * f.nq
-                        continue
-                    end
+                else
                     @fastmath @inbounds for m = 1:f.np
-                        ijkp = pij[m, ife] * pik[m, ife]
+                        ijkp = pij[m, ife_buf] * pik[m, ife_buf]
                         for o = 1:f.nq
-                            fvec[i, iat] += ijkp * qjk[o, ife]
+                            fvec[i, iat] += ijkp * qjk[o, ife_buf]
                             i += 1
+                        end
+                    end
+                end
+            elseif spec_lookup === nothing || start3 <= 0
+                i = totalfe2 + offset + 1
+                if do_grad
+                    for (ife, f) in enumerate(features3)
+                        if same_3b
+                            ife = 1
+                        end
+                        if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
+                            i += f.np * f.nq
+                            continue
+                        end
+                        rcut = f.rcut
+                        gij = f.g(rij, rcut) * inv_fij[ife]
+                        gik = f.g(rik, rcut) * inv_fik[ife]
+                        gjk = f.g(rjk, rcut) * inv_fjk[ife]
+                        gtmp1 = f.p .* gij
+                        gtmp2 = f.p .* gik
+                        gtmp3 = gjk .* f.q
+                        for m = 1:f.np
+                            ijkp = pij[m, ife] * pik[m, ife]
+                            gscale1_m = gtmp1[m] * ijkp
+                            gscale2_m = gtmp2[m] * ijkp
+                            @fastmath @inbounds for o = 1:f.nq
+                                val = ijkp * qjk[o, ife]
+                                fvec[i, iat] += val
+                                val == 0 && (i += 1; continue)
+                                gs1 = gscale1_m * qjk[o, ife]
+                                gs2 = gscale2_m * qjk[o, ife]
+                                gs3 = gtmp3[o] * val
+                                gvec[1, i, 1, iat] -= modvij[1]*gs1 + modvik[1]*gs2
+                                gvec[2, i, 1, iat] -= modvij[2]*gs1 + modvik[2]*gs2
+                                gvec[3, i, 1, iat] -= modvij[3]*gs1 + modvik[3]*gs2
+                                gvec[1, i, ineigth_j, iat] += modvij[1]*gs1 - modvjk[1]*gs3
+                                gvec[2, i, ineigth_j, iat] += modvij[2]*gs1 - modvjk[2]*gs3
+                                gvec[3, i, ineigth_j, iat] += modvij[3]*gs1 - modvjk[3]*gs3
+                                gvec[1, i, ineigth_k, iat] += modvik[1]*gs2 + modvjk[1]*gs3
+                                gvec[2, i, ineigth_k, iat] += modvik[2]*gs2 + modvjk[2]*gs3
+                                gvec[3, i, ineigth_k, iat] += modvik[3]*gs2 + modvjk[3]*gs3
+                                stotv[1, 1, i, iat] += vij[1]*modvij[1]*gs1 + vik[1]*modvik[1]*gs2 + vjk[1]*modvjk[1]*gs3
+                                stotv[1, 2, i, iat] += vij[1]*modvij[2]*gs1 + vik[1]*modvik[2]*gs2 + vjk[1]*modvjk[2]*gs3
+                                stotv[1, 3, i, iat] += vij[1]*modvij[3]*gs1 + vik[1]*modvik[3]*gs2 + vjk[1]*modvjk[3]*gs3
+                                stotv[2, 1, i, iat] += vij[2]*modvij[1]*gs1 + vik[2]*modvik[1]*gs2 + vjk[2]*modvjk[1]*gs3
+                                stotv[2, 2, i, iat] += vij[2]*modvij[2]*gs1 + vik[2]*modvik[2]*gs2 + vjk[2]*modvjk[2]*gs3
+                                stotv[2, 3, i, iat] += vij[2]*modvij[3]*gs1 + vik[2]*modvik[3]*gs2 + vjk[2]*modvjk[3]*gs3
+                                stotv[3, 1, i, iat] += vij[3]*modvij[1]*gs1 + vik[3]*modvik[1]*gs2 + vjk[3]*modvjk[1]*gs3
+                                stotv[3, 2, i, iat] += vij[3]*modvij[2]*gs1 + vik[3]*modvik[2]*gs2 + vjk[3]*modvjk[2]*gs3
+                                stotv[3, 3, i, iat] += vij[3]*modvij[3]*gs1 + vik[3]*modvik[3]*gs2 + vjk[3]*modvjk[3]*gs3
+                                i += 1
+                            end
+                        end
+                    end
+                else
+                    for (ife, f) in enumerate(features3)
+                        if same_3b
+                            ife = 1
+                        end
+                        if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
+                            i += f.np * f.nq
+                            continue
+                        end
+                        @fastmath @inbounds for m = 1:f.np
+                            ijkp = pij[m, ife] * pik[m, ife]
+                            for o = 1:f.nq
+                                fvec[i, iat] += ijkp * qjk[o, ife]
+                                i += 1
+                            end
                         end
                     end
                 end
@@ -418,9 +591,23 @@ function compute_fv_gv(
 
     # Generate the gradient workspace
     workspace = get_workspace(features2, features3, nl; core, offset)
-    # Update for each atom
-    for iat = 1:natoms(cell)
-        compute_fv_gv_one!(workspace, features2, features3, iat, cell, nl; offset=offset)
+    # Build species lookup for O(1) feature matching
+    _elems = Symbol[]
+    for f in features2; append!(_elems, f.sij_idx); end
+    for f in features3; append!(_elems, f.sijk_idx); end
+    elements = sort(unique(_elems))
+    spec_lookup = FeatureSpeciesLookup(features2, features3, elements)
+    # Update for each atom (chunk-task threading following nntools.jl pattern)
+    nat = natoms(cell)
+    chunks = _atom_chunks(nat)
+    Threads.@threads for ci in eachindex(chunks)
+        bufs = workspace.feat_bufs[ci]
+        for iat in chunks[ci]
+            compute_fv_gv_one!(
+                workspace, features2, features3, iat, cell, nl;
+                offset=offset, spec_lookup=spec_lookup, _bufs=bufs,
+            )
+        end
     end
     workspace
 end
@@ -479,18 +666,30 @@ function compute_fv!(
     kwargs...,
 )
     reset!(workspace)
-    for iat = 1:natoms(cell)
-        compute_fv_gv_one!(
-            workspace,
-            f2,
-            f3,
-            iat,
-            cell,
-            nl;
-            do_grad=false,
-            offset,
-            kwargs...,
-        )
+    _elems = Symbol[]
+    for f in f2; append!(_elems, f.sij_idx); end
+    for f in f3; append!(_elems, f.sijk_idx); end
+    elements = sort(unique(_elems))
+    spec_lookup = FeatureSpeciesLookup(f2, f3, elements)
+    nat = natoms(cell)
+    chunks = _atom_chunks(nat)
+    Threads.@threads for ci in eachindex(chunks)
+        bufs = workspace.feat_bufs[ci]
+        for iat in chunks[ci]
+            compute_fv_gv_one!(
+                workspace,
+                f2,
+                f3,
+                iat,
+                cell,
+                nl;
+                do_grad=false,
+                offset,
+                spec_lookup=spec_lookup,
+                _bufs=bufs,
+                kwargs...,
+            )
+        end
     end
     workspace.fvec
 end
@@ -577,7 +776,10 @@ function get_workspace(
     # nn_max is only needed to size gradient arrays — skip the expensive
     # unique-per-column scan when not computing gradients
     nn_max = do_grad ? maximum(x -> length(unique(x)), eachcol(nl.orig_indices)) + 1 : 1
-    GradientWorkspace(_fvec, nn_max; core, do_grad, ndims)
+    ws = GradientWorkspace(_fvec, nn_max; core, do_grad, ndims)
+    # Eagerly allocate per-thread feature buffers to avoid race conditions
+    _populate_feat_bufs!(ws, features2, features3, nl)
+    ws
 end
 
 get_workspace(cf::CellFeature, nl, do_grad=true; fvec=nothing) =
@@ -655,8 +857,21 @@ function compute_fv_gv!(
     offset=workspace.one_body_offset,
 )
     reset!(workspace)
-    for iat = 1:natoms(cell)
-        compute_fv_gv_one!(workspace, features2, features3, iat, cell, nl; offset=offset)
+    _elems = Symbol[]
+    for f in features2; append!(_elems, f.sij_idx); end
+    for f in features3; append!(_elems, f.sijk_idx); end
+    elements = sort(unique(_elems))
+    spec_lookup = FeatureSpeciesLookup(features2, features3, elements)
+    nat = natoms(cell)
+    chunks = _atom_chunks(nat)
+    Threads.@threads for ci in eachindex(chunks)
+        bufs = workspace.feat_bufs[ci]
+        for iat in chunks[ci]
+            compute_fv_gv_one!(
+                workspace, features2, features3, iat, cell, nl;
+                offset=offset, spec_lookup=spec_lookup, _bufs=bufs,
+            )
+        end
     end
     workspace
 end
