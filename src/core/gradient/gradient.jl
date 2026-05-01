@@ -301,9 +301,10 @@ function compute_fv_gv_one!(
     # All values of q
     nqmax3 = isempty(features3) ? 0 : maximum(length(x.q) for x in features3)
 
-    # Maximum cut off 
+    # Maximum cutoff
     maxrcut = isempty(features3) ? maximum(x -> x.rcut, features2) :
               maximum(x -> x.rcut, (features3..., features2...))
+    maxrcut_sq = maxrcut * maxrcut
 
     # Ensure pre-allocated per-atom feature computation buffers
     if _bufs !== nothing
@@ -481,7 +482,9 @@ function compute_fv_gv_one!(
 
             # Compute the distance between extended j and k
             vjk = nl.ea.positions[kextend] .- nl.ea.positions[jextend]
-            rjk = norm(vjk)
+            rjk_sq = vjk[1]*vjk[1] + vjk[2]*vjk[2] + vjk[3]*vjk[3]
+            rjk_sq > maxrcut_sq && continue
+            rjk = sqrt(rjk_sq)
             rjk > maxrcut && continue
             @assert rjk > tiny_dist
 
