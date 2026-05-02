@@ -270,6 +270,7 @@ function compute_fv_gv_one!(
     offset=workspace.one_body_offset,
     do_grad=workspace.do_grad,
     spec_lookup=nothing,
+    atom_species_ints=nothing,
     _bufs=nothing,
 )
 
@@ -377,9 +378,9 @@ function compute_fv_gv_one!(
 
         # Update two body features and forces
         if spec_lookup !== nothing
-            ci = get(spec_lookup.spec_to_idx, sym[iat], 0)
-            cj = get(spec_lookup.spec_to_idx, sym[jat], 0)
-            two_body_data = ci > 0 && cj > 0 ? spec_lookup._2b_data[ci, cj] : Tuple{Int,Int}[]
+            ci = atom_species_ints[iat]
+            cj = atom_species_ints[jat]
+            two_body_data = spec_lookup._2b_data[ci, cj]
             for (start2, ife2) in two_body_data
                 f = features2[ife2]
                 i = offset + start2
@@ -504,8 +505,8 @@ function compute_fv_gv_one!(
 
             # Starting index for three-body feature update
             if spec_lookup !== nothing
-                ck = get(spec_lookup.spec_to_idx, sym[kat], 0)
-                three_body_data = ci > 0 && cj > 0 && ck > 0 ? spec_lookup._3b_data[ci, cj, ck] : Tuple{Int,Int}[]
+                ck = atom_species_ints[kat]
+                three_body_data = spec_lookup._3b_data[ci, cj, ck]
                 has_3b = !isempty(three_body_data)
             else
                 has_3b = false
@@ -513,9 +514,6 @@ function compute_fv_gv_one!(
             if has_3b
                 for (start3, ife3) in three_body_data
                     f = features3[ife3]
-                    if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
-                        continue
-                    end
                     ife_buf = same_3b ? 1 : ife3
                     i = offset + spec_lookup.totalfe2 + start3
                     if do_grad
@@ -709,6 +707,7 @@ function compute_fv_gv(
     for f in features3; append!(_elems, f.sijk_idx); end
     elements = sort(unique(_elems))
     spec_lookup = FeatureSpeciesLookup(features2, features3, elements)
+    atom_species_ints = [spec_lookup.spec_to_idx[s] for s in species(cell)]
     # Update for each atom (chunk-task threading following nntools.jl pattern)
     _populate_feat_bufs!(workspace, features2, features3, nl)
     nat = natoms(cell)
@@ -718,7 +717,7 @@ function compute_fv_gv(
         for iat in chunks[ci]
             compute_fv_gv_one!(
                 workspace, features2, features3, iat, cell, nl;
-                offset=offset, spec_lookup=spec_lookup, _bufs=bufs,
+                offset=offset, spec_lookup=spec_lookup, atom_species_ints=atom_species_ints, _bufs=bufs,
             )
         end
     end
@@ -784,6 +783,7 @@ function compute_fv!(
     for f in f3; append!(_elems, f.sijk_idx); end
     elements = sort(unique(_elems))
     spec_lookup = FeatureSpeciesLookup(f2, f3, elements)
+    atom_species_ints = [spec_lookup.spec_to_idx[s] for s in species(cell)]
     _populate_feat_bufs!(workspace, f2, f3, nl)
     nat = natoms(cell)
     chunks = _atom_chunks(nat)
@@ -800,6 +800,7 @@ function compute_fv!(
                 do_grad=false,
                 offset,
                 spec_lookup=spec_lookup,
+                atom_species_ints=atom_species_ints,
                 _bufs=bufs,
                 kwargs...,
             )
@@ -976,6 +977,7 @@ function compute_fv_gv!(
     for f in features3; append!(_elems, f.sijk_idx); end
     elements = sort(unique(_elems))
     spec_lookup = FeatureSpeciesLookup(features2, features3, elements)
+    atom_species_ints = [spec_lookup.spec_to_idx[s] for s in species(cell)]
     _populate_feat_bufs!(workspace, features2, features3, nl)
     nat = natoms(cell)
     chunks = _atom_chunks(nat)
@@ -984,7 +986,7 @@ function compute_fv_gv!(
         for iat in chunks[ci]
             compute_fv_gv_one!(
                 workspace, features2, features3, iat, cell, nl;
-                offset=offset, spec_lookup=spec_lookup, _bufs=bufs,
+                offset=offset, spec_lookup=spec_lookup, atom_species_ints=atom_species_ints, _bufs=bufs,
             )
         end
     end
