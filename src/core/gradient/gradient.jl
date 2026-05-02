@@ -513,6 +513,9 @@ function compute_fv_gv_one!(
             if has_3b
                 for (start3, ife3) in three_body_data
                     f = features3[ife3]
+                    if !permequal(f.sijk_idx, sym[iat], sym[jat], sym[kat])
+                        continue
+                    end
                     ife_buf = same_3b ? 1 : ife3
                     i = offset + spec_lookup.totalfe2 + start3
                     if do_grad
