@@ -40,7 +40,7 @@ function FeatureSpeciesLookup(features2, features3, elements)
         cj = spec_to_idx[f.sijk_idx[2]]
         ck = spec_to_idx[f.sijk_idx[3]]
         push!(_3b_data[ci, cj, ck], (offset, ife))
-        push!(_3b_data[ci, ck, cj], (offset, ife))
+        cj != ck && push!(_3b_data[ci, ck, cj], (offset, ife))
         offset += f.np * f.nq
     end
     FeatureSpeciesLookup(spec_to_idx, _2b_data, _3b_data, totalfe2)
