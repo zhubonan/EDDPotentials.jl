@@ -17,6 +17,7 @@ using EDDPotentials:
 using EDDPotentials.EDDPotentialsCore: compute_fv_gv, ManualFluxBackPropInterface
 using EDDPotentials: fd_desc, force_gradient, stress_gradient, test_finite_difference
 using CellBase
+using CellBase: add_dimensions
 using LinearAlgebra
 using NLSolversBase
 using Test
@@ -155,4 +156,46 @@ end
     @test allclose(grad, -eforce, atol=1e-4, rtol=1e-4)
 
     @test test_finite_difference(calc)
+end
+
+@testset "Higher-Dimensional Feature Gradients" begin
+    function _make_4d_cell(lattice=12.0, extra_val=0.0)
+        pos = Float64[
+            0.0  2.0  1.0
+            0.0  1.0  2.0
+            0.0  2.0  1.0
+            extra_val extra_val extra_val
+        ]
+        Cell(Lattice(lattice, lattice, lattice), [:H, :H, :H], pos)
+    end
+
+    @testset "Two-body: fvec invariance (extra dims=0)" begin
+        cell4 = _make_4d_cell(12.0, 0.0)
+        cf = CellFeature([:H], p2=2:4)
+        fb4 = compute_fv_gv(cf, cell4)
+        cell3 = Cell(Lattice(12, 12, 12), [:H, :H, :H], cell4.positions[1:3, :])
+        fb3 = compute_fv_gv(cf, cell3)
+        @test fb3.fvec ≈ fb4.fvec
+    end
+
+    @testset "Two-body: gradient FD in 4D" begin
+        cell4 = _make_4d_cell(12.0, 0.1)
+        cf = CellFeature([:H], p2=2:4)
+        diff, gvec_ideal = fd_desc(cf, cell4)
+        @test maximum(abs.(diff - gvec_ideal)) < 1e-7
+    end
+
+    @testset "Two-body: force gradient FD in 4D" begin
+        cell4 = _make_4d_cell(12.0, 0.1)
+        cf = CellFeature([:H], p2=2:4)
+        diff, forces = force_gradient(cf, cell4)
+        @test maximum(abs.(diff + forces)) < 1e-7
+    end
+
+    @testset "Three-body: gradient FD in 4D" begin
+        cell4 = _make_4d_cell(12.0, 0.1)
+        cf = CellFeature([:H], p2=[], p3=2:3, q3=2:3)
+        diff, gvec_ideal = fd_desc(cf, cell4)
+        @test maximum(abs.(diff - gvec_ideal)) < 1e-7
+    end
 end
