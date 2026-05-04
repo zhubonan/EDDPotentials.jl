@@ -47,7 +47,7 @@ function build_and_relax(
         set_modifier_parameter!(metacalc_pos, ExtraDimensionPenaltyModifier, :alpha, 0.5)
         scheduled_penalty_relax!(metacalc_pos;
             schedule_every, max_iterations=div(target_iterations, 2),
-            alpha_start=0.5, n_hold=typemax(Int), relax_fn=opt_fire, trace)
+            alpha_start=0.5, ramp_alpha=false, relax_fn=opt_fire, trace)
 
         metacalc_full = MetaCalculator(source, [penalty, cell_relax])
         scheduled_penalty_relax!(metacalc_full;

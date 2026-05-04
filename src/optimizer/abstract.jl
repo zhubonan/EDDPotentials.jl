@@ -166,8 +166,7 @@ function set_augmented_positions_internal!(calc::AbstractCalc, x::AbstractVector
             return
         end
     else
-        cell = get_cell(calc)
-        ndim = size(get_positions(cell), 1)
-        set_positions!(cell, reshape(x, ndim, :))
+        ndim = size(get_positions(get_cell(calc)), 1)
+        set_positions!(calc, reshape(x, ndim, :))
     end
 end

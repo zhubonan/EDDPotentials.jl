@@ -41,6 +41,8 @@ struct TrajectoryFrame{T}
     smax::T
     positions::Matrix{T}
     cell_matrix::Union{Nothing, Matrix{T}}
+    forces::Union{Nothing, Matrix{T}}
+    stress::Union{Nothing, Matrix{T}}
 end
 
 """
@@ -68,9 +70,11 @@ function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
     fmax = maximum(norm.(eachcol(F)))
 
     smax = 0.0
+    stress_mat = nothing
     if is_variable_cell(calc)
         S = optimizer_effective_stress(calc; rebuild_nl=true)
         smax = maximum(abs.(S))
+        stress_mat = S
     end
 
     # Standard logging
@@ -107,7 +111,9 @@ function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
             fmax,
             smax,
             copy(get_positions(cell)),
-            copy(cellmat(cell))
+            copy(cellmat(cell)),
+            copy(F),
+            stress_mat !== nothing ? copy(stress_mat) : nothing,
         )
         push!(opt.trajectory, frame)
     end
