@@ -226,37 +226,6 @@ function _precompute_3b_factors!(
     end
 end
 
-function _precompute_3b_combined_factors!(
-    ffact_center, ffact_j, ffact_k,
-    modvij, modvik, modvjk,
-    gtmp1, gtmp2, gtmp3,
-    np, nq,
-    ijkp, qjk_col,
-)
-    # ffact_center[axis, m] = -(modvij[axis]*gtmp1[m] + modvik[axis]*gtmp2[m]) * ijkp[m]
-    @inbounds for m = 1:np
-        g1 = gtmp1[m]; g2 = gtmp2[m]; ik = ijkp[m]
-        ffact_center[1, m] = -(modvij[1]*g1 + modvik[1]*g2) * ik
-        ffact_center[2, m] = -(modvij[2]*g1 + modvik[2]*g2) * ik
-        ffact_center[3, m] = -(modvij[3]*g1 + modvik[3]*g2) * ik
-    end
-    # ffact_j[axis,m,o] = (modvij[axis]*gtmp1[m] - modvjk[axis]*gtmp3[o]) * ijkp[m] * qjk[o]
-    # ffact_k[axis,m,o] = (modvik[axis]*gtmp2[m] + modvjk[axis]*gtmp3[o]) * ijkp[m] * qjk[o]
-    @inbounds for o = 1:nq
-        g3o = gtmp3[o]; qo = qjk_col[o]
-        vjko1 = modvjk[1]*g3o; vjko2 = modvjk[2]*g3o; vjko3 = modvjk[3]*g3o
-        for m = 1:np
-            g1 = gtmp1[m]; g2 = gtmp2[m]; ikq = ijkp[m] * qo
-            ffact_j[1, m, o] = (modvij[1]*g1 - vjko1) * ikq
-            ffact_j[2, m, o] = (modvij[2]*g1 - vjko2) * ikq
-            ffact_j[3, m, o] = (modvij[3]*g1 - vjko3) * ikq
-            ffact_k[1, m, o] = (modvik[1]*g2 + vjko1) * ikq
-            ffact_k[2, m, o] = (modvik[2]*g2 + vjko2) * ikq
-            ffact_k[3, m, o] = (modvik[3]*g2 + vjko3) * ikq
-        end
-    end
-end
-
 """
     compute_fv_gv_one!(workspace, features2, features3, iat, cell, nl; offset, do_grad)
 
@@ -566,46 +535,44 @@ function compute_fv_gv_one!(
                         BLAS.ger!(1.0, view(qjk, 1:f.nq, ife_buf), view(ijkp_buf, 1:f.np),
                                   reshape(view(fvec, i:i+f.np*f.nq-1, iat), f.nq, f.np))
 
-                        # Precompute combined force factors (ijkp and qjk pre-multiplied)
-                        qjk_col = view(qjk, 1:f.nq, ife_buf)
-                        _precompute_3b_combined_factors!(
+                        # Precompute force gradient factors
+                        _precompute_3b_factors!(
                             bufs.ffact_center, bufs.ffact_j, bufs.ffact_k,
                             modvij, modvik, modvjk,
                             gtmp1, gtmp2, gtmp3,
                             f.np, f.nq,
-                            view(ijkp_buf, 1:f.np), qjk_col,
                         )
 
-                        # Accumulate gradients with pre-multiplied force factors
+                        # Accumulate gradients with precomputed force factors
                         @fastmath @inbounds for m = 1:f.np
                             ijkp = ijkp_buf[m]
-                            ijkp == 0 && (i += f.nq; continue)
                             gscale1_m = gtmp1[m] * ijkp
                             gscale2_m = gtmp2[m] * ijkp
-                            fc = view(bufs.ffact_center, :, m)  # pre-multiplied by ijkp[m]
+                            fc = view(bufs.ffact_center, :, m)
                             for o = 1:f.nq
-                                qo = qjk_col[o]
-                                qo == 0 && (i += 1; continue)
-                                val = ijkp * qo
+                                val = ijkp * qjk[o, ife_buf]
+                                val == 0 && (i += 1; continue)
 
-                                gs1 = gscale1_m * qo
-                                gs2 = gscale2_m * qo
+                                gs1 = gscale1_m * qjk[o, ife_buf]
+                                gs2 = gscale2_m * qjk[o, ife_buf]
                                 gs3 = gtmp3[o] * val
 
-                                # gvec center: fc pre-multiplied by ijkp[m], multiply by qo
-                                gvec[1, i, 1, iat] += qo * fc[1]
-                                gvec[2, i, 1, iat] += qo * fc[2]
-                                gvec[3, i, 1, iat] += qo * fc[3]
+                                # gvec center: precomputed factor (depends on m only)
+                                gvec[1, i, 1, iat] += val * fc[1]
+                                gvec[2, i, 1, iat] += val * fc[2]
+                                gvec[3, i, 1, iat] += val * fc[3]
 
-                                # gvec j/k: pre-multiplied by ijkp[m] * qjk[o]
-                                gvec[1, i, ineigth_j, iat] += bufs.ffact_j[1, m, o]
-                                gvec[2, i, ineigth_j, iat] += bufs.ffact_j[2, m, o]
-                                gvec[3, i, ineigth_j, iat] += bufs.ffact_j[3, m, o]
+                                # gvec atom j: precomputed factor
+                                gvec[1, i, ineigth_j, iat] += val * bufs.ffact_j[1, m, o]
+                                gvec[2, i, ineigth_j, iat] += val * bufs.ffact_j[2, m, o]
+                                gvec[3, i, ineigth_j, iat] += val * bufs.ffact_j[3, m, o]
 
-                                gvec[1, i, ineigth_k, iat] += bufs.ffact_k[1, m, o]
-                                gvec[2, i, ineigth_k, iat] += bufs.ffact_k[2, m, o]
-                                gvec[3, i, ineigth_k, iat] += bufs.ffact_k[3, m, o]
+                                # gvec atom k: precomputed factor
+                                gvec[1, i, ineigth_k, iat] += val * bufs.ffact_k[1, m, o]
+                                gvec[2, i, ineigth_k, iat] += val * bufs.ffact_k[2, m, o]
+                                gvec[3, i, ineigth_k, iat] += val * bufs.ffact_k[3, m, o]
 
+                                # stotv: use gs1, gs2, gs3 (factoring doesn't help here)
                                 stotv[1, 1, i, iat] += vij[1]*modvij[1]*gs1 + vik[1]*modvik[1]*gs2 + vjk[1]*modvjk[1]*gs3
                                 stotv[1, 2, i, iat] += vij[1]*modvij[2]*gs1 + vik[1]*modvik[2]*gs2 + vjk[1]*modvjk[2]*gs3
                                 stotv[1, 3, i, iat] += vij[1]*modvij[3]*gs1 + vik[1]*modvik[3]*gs2 + vjk[1]*modvjk[3]*gs3
