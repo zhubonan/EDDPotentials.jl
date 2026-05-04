@@ -170,6 +170,99 @@ Access modifiers via `get_modifier(calc, Type)`, `get_parameter`/`set_parameter!
 
 See the [Hyperdimensional Relaxation](docs/src/howto/hyperdimensional_relaxation.md) guide for end-to-end examples.
 
+## Fortran repose (Reference Implementation)
+
+The Fortran EDDP implementation lives at `eddp/` (symlink to the eddp-dev tree).
+
+### Paths
+
+- Source: `eddp/repose/src/` (main), `eddp/nn/src/nn.f90` (neural network module)
+- Binary: `eddp/repose/bin/repose`
+- Benchmark: `eddp/repose/benchmarks/SiO2-1536-ramble/` (1536-atom SiO₂ with trained model)
+
+### Compilation
+
+```bash
+cd eddp/repose/src
+
+# Step 1: compile dependencies (spglib first — others need its .mod file)
+gfortran -Ofast -march=native -ffast-math -funroll-loops -g \
+  -fno-strict-aliasing -fno-inline -cpp -fopenmp -D OPENMP \
+  -c spglib_f08.f90 constants.f90 rng.f90
+
+# Step 2: compile nn module
+gfortran -Ofast -march=native -ffast-math -funroll-loops -g \
+  -fno-strict-aliasing -fno-inline -cpp -fopenmp -D OPENMP \
+  -c ../../nn/src/nn.f90
+
+# Step 3: compile repose sources
+gfortran -Ofast -march=native -ffast-math -funroll-loops -g \
+  -fno-strict-aliasing -fno-inline -cpp -fopenmp -D OPENMP \
+  -c cell.f90 ddp.f90 opt.f90 md.f90 repose.f90
+
+# Step 4: link
+gfortran -Ofast -march=native -ffast-math -funroll-loops -g \
+  -fno-strict-aliasing -fno-inline -fopenmp \
+  nn.o opt.o md.o ddp.o cell.o constants.o rng.o spglib_f08.o repose.o \
+  -o repose -llapack -lblas -fopenmp
+
+# Step 5: install
+cp repose ../bin/repose
+```
+
+Build notes:
+- `make BUILD=fast` may fail due to missing spglib version; the manual steps above are reliable.
+- Without OpenMP: omit `-fopenmp -D OPENMP` from all compilation and link lines.
+- Default build (no `BUILD=fast`) uses `-O2`; `BUILD=fast` adds `-Ofast -march=native -ffast-math`.
+
+### Testing
+
+```bash
+# Run the SiO₂-1536 benchmark (known-working with current source)
+cd eddp/repose/benchmarks/SiO2-1536-ramble
+eddp/repose/bin/repose -n -q -ompnp 1 -m 1 SiO2
+# Expected: "num ions: 1536", "converged in 1 steps", timing table with -ball/-feat/-netw
+
+# Run the Julia vs Fortran feature benchmark
+cd <repo root>
+julia --project=. scripts/bench_sio2.jl --repose eddp/repose/bin/repose --runs 3
+```
+
+### `.ddp` File Format
+
+The recompiled binary uses the **current** format. Read order in `nn_load` (`eddp/nn/src/nn.f90`):
+1. Header: `depth, inputs, outputs, nwgts, nnds` (5 integers)
+2. Layers: `depth` integers
+3. Weights: `nwgts` reals
+4. Activation functions: `depth` strings (e.g. `linear linear linear`)
+5. `in_shift`: `inputs` reals
+6. `in_scale`: `inputs` reals
+7. `out_shift`: `outputs` reals
+8. `out_scale`: `outputs` reals
+9. Comment: metadata string
+
+Comment line is parsed by `read_ddp` (`eddp/repose/src/ddp.f90`) to determine feature parameters:
+```
+composition: O-Si rmax:  5.000 length: 8 64 0 0  powers: 2.000 2.517 ...
+```
+Fields: `ntwo` (2-body features per pair), `nthree` (3-body features per triplet), `pow`/`pow2` (geometric power sequences).
+
+Feature count must be consistent: `nfeat = ncomp + ntwo*ncomp² + nthree*ncomp²*(ncomp+1)/2`.
+
+Network dimension: `nnds = Σ(layers[i]+1)`, `nwgts = Σ((layers[i]+1)*layers[i+1])`.
+
+### Timing Output
+
+`repose -n -q -ompnp 1 -m 1 <seedname>` prints to stderr:
+```
+total  :        3.8096 sec 100.00 %
+ddp    :        3.4986 sec  91.84 %
+ -ball :        1.3261 sec  34.81 %    ← neighbour list construction
+ -feat :        1.3593 sec  35.68 %    ← features + force/stress gradients
+ -netw :        0.8131 sec  21.34 %    ← NN forward pass
+```
+Note: `-feat` includes feature values AND force/stress gradient computation (they are interleaved in the same loops). `-ball` is the neighbor list build (separate from feature computation).
+
 ## Key Dependencies
 
 - **CellBase.jl** (`../CellBase.jl/`) — crystal structure representation, neighbor lists, file I/O

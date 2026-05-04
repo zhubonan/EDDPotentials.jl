@@ -5,6 +5,7 @@ using EDDPotentials:
     CellFeature,
     MetaCalculator,
     CellRelaxationModifier,
+    ExtraDimensionPenaltyModifier,
     is_variable_cell,
     NNCalc,
     lj_baseline_calc,
@@ -397,5 +398,102 @@ end
         sigma = Dict((:H, :O) => 1.25, (:O, :H) => 1.35)
         epsilon = Dict((:H, :O) => 0.9)
         @test_throws ArgumentError lj_baseline_weights([:H, :O]; sigma, epsilon, rcut=4.0)
+    end
+
+    @testset "LJ in 1 extra dimension" begin
+        sigma = 1.1
+        epsilon = 0.7
+        rcut = 3.0
+        r_3d = 1.35
+
+        function _make_lj_4d_sym(extra_val=0.0)
+            pos_4d = Float64[
+                0.0 r_3d
+                0.0 0.0
+                0.0 0.0
+                extra_val extra_val
+            ]
+            Cell(Lattice(12.0, 12.0, 12.0), [:Ar, :Ar], pos_4d)
+        end
+
+        @testset "Energy invariance when extra dims at zero" begin
+            cell4 = _make_lj_4d_sym(0.0)
+            calc4 = lj_baseline_calc(cell4; sigma, epsilon, rcut)
+            cell3 = Cell(Lattice(12, 12, 12), [:Ar, :Ar], cell4.positions[1:3, :])
+            calc3 = lj_baseline_calc(cell3; sigma, epsilon, rcut)
+            @test eddp_energy(calc4) ≈ eddp_energy(calc3) atol = 1e-10
+            @test eddp_energy(calc3) ≈ _force_shifted_lj_energy(r_3d, sigma, epsilon, rcut) atol =
+                1e-10
+        end
+
+        @testset "Energy differs when extra dims change pair distance" begin
+            # Different extra-dim values for the two atoms so 4D distance ≠ 3D distance
+            pos_4d = Float64[
+                0.0 r_3d
+                0.0 0.0
+                0.0 0.0
+                0.1 0.5
+            ]
+            cell4 = Cell(Lattice(12.0, 12.0, 12.0), [:Ar, :Ar], pos_4d)
+            calc4 = lj_baseline_calc(cell4; sigma, epsilon, rcut)
+            calc3 = lj_baseline_calc(Cell(Lattice(12, 12, 12), [:Ar, :Ar], pos_4d[1:3, :]);
+                sigma, epsilon, rcut)
+            @test eddp_energy(calc4) ≠ eddp_energy(calc3)
+        end
+
+        @testset "Forces FD in 4D" begin
+            pos_4d = Float64[
+                0.0 r_3d
+                0.0 0.0
+                0.0 0.0
+                0.1 0.4
+            ]
+            cell4 = Cell(Lattice(12, 12, 12), [:Ar, :Ar], pos_4d)
+            calc = lj_baseline_calc(cell4; sigma, epsilon, rcut)
+            ftmp = eddp_forces(calc)
+            @test size(ftmp, 1) == 4
+            etmp = eddp_energy(calc)
+            for d in 1:4, a in 1:2
+                p0 = positions(get_cell(calc))[d, a]
+                positions(get_cell(calc))[d, a] = p0 + 1e-6
+                ep = eddp_energy(calc)
+                positions(get_cell(calc))[d, a] = p0 - 1e-6
+                em = eddp_energy(calc)
+                positions(get_cell(calc))[d, a] = p0
+                fd = -(ep - em) / 2e-6
+                @test fd ≈ ftmp[d, a] atol = 1e-5
+            end
+        end
+
+        @testset "Penalty modifier: energy and forces" begin
+            alpha = 0.1
+            cell4 = _make_lj_4d_sym(0.2)
+            source = lj_baseline_calc(cell4; sigma, epsilon, rcut)
+            mod = ExtraDimensionPenaltyModifier(alpha; start_dim=4)
+            mc = MetaCalculator(source, [mod])
+
+            E_raw = eddp_energy(source)
+            E_meta = eddp_energy(mc)
+            expected_penalty = alpha * sum(cell4.positions[4, :] .^ 2)
+            @test E_meta ≈ E_raw + expected_penalty atol = 1e-10
+
+            F_raw = eddp_forces(source)
+            F_meta = eddp_forces(mc)
+            @test F_meta[1:3, :] ≈ F_raw[1:3, :] atol = 1e-10
+            @test F_meta[4, :] ≈ F_raw[4, :] .- 2 * alpha .* cell4.positions[4, :] atol =
+                1e-10
+        end
+
+        @testset "Penalty drives extra dims toward zero under relaxation" begin
+            cell4 = _make_lj_4d_sym(0.3)
+            source = lj_baseline_calc(cell4; sigma, epsilon, rcut)
+            mc = MetaCalculator(
+                source,
+                [ExtraDimensionPenaltyModifier(10.0; start_dim=4)],
+            )
+            opt_tpsd(mc; itermax=50, f_tol=1e-10)
+            final_extra = positions(get_cell(mc))[4, :]
+            @test maximum(abs.(final_extra)) < 0.01
+        end
     end
 end
