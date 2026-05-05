@@ -20,8 +20,8 @@ using Test
 
 isdefined(Main, :_h2_cell) || include("utils.jl")
 
-feature_dtype(cf::CellFeature) = !isempty(cf.two_body) ? eltype(cf.two_body[1].p) :
-                                 !isempty(cf.three_body) ? eltype(cf.three_body[1].p) :
+feature_dtype(cf::CellFeature) = !isempty(cf.p2) ? eltype(cf.p2) :
+                                 !isempty(cf.p3) ? eltype(cf.p3) :
                                  Float64
 feature_dtype(cf::RandomEmbeddedCellFeature) = eltype(cf.embedding)
 
@@ -144,13 +144,7 @@ end
     @testset "Embedded Model Artifact" begin
         cell = _h2o_cell()
         cf = CellFeature([:H, :O]; p2=[2.0, 3.0], p3=[2.0], q3=[2.0])
-        embed = CellEmbedding(
-            cf,
-            BodyEmbedding(Float32, cf.two_body, 2),
-            BodyEmbedding(Float32, cf.three_body, 2),
-            2,
-            2,
-        )
+        embed = CellEmbedding(Float32, cf, 2, 2)
         embed.two_body.weight .= reshape(
             Float32.(collect(1:length(embed.two_body.weight))),
             size(embed.two_body.weight),

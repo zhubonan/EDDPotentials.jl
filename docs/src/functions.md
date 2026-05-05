@@ -6,6 +6,8 @@ Reference documentation for all public functions and types in EDDPotentials.jl.
 
 Types and functions for defining and computing atomic environment descriptors. See [Understanding Features](concepts/features.md) for a conceptual introduction.
 
+The primary user-facing type is [`CellFeature`](@ref), a parametric immutable struct that centralizes all two-body/three-body feature parameters. The keyword constructor `CellFeature(elements; p2=..., ...)` is the main public API. The [`FeatureProto`](@ref) type is a lightweight internal container used by [`RandomEmbeddedCellFeature`](@ref).
+
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [

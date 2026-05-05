@@ -23,7 +23,7 @@ using NLSolversBase
 using Test
 using Flux
 
-
+isdefined(Main, :_h2_cell) || include("utils.jl")
 @testset "Gradients" begin
 
     # Run test cases

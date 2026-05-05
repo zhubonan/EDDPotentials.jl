@@ -197,7 +197,7 @@ function NNCalc(
         one_body_offset=one_body_offset(cf),
     ) # Buffer for force calculation
     if cf isa CellFeature
-        _populate_feat_bufs!(workspace, cf.two_body, cf.three_body, nl)
+        _populate_feat_bufs!(workspace, cf, nl)
     end
     NNCalc(
         cell,

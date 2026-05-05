@@ -1033,13 +1033,11 @@ function _print_train_config(fc_train, ntrain, nval, ntest, nnodes, ninp, nparam
     println("  Structures : $ntotal total  →  $ntrain train / $nval val / $ntest test")
     println("  Species    : $(join(string.(cf.elements), ", "))")
     if cf isa CellFeature
-        if !isempty(cf.two_body)
-            tbf = cf.two_body[1]
-            println("  2-body     : p=$(tbf.p)  rcut=$(tbf.rcut)")
+        if !isempty(cf.p2)
+            println("  2-body     : p=$(cf.p2)  rcut=$(cf.rcut2)")
         end
-        if !isempty(cf.three_body)
-            tbf3 = cf.three_body[1]
-            println("  3-body     : p=$(tbf3.p)  q=$(tbf3.q)  rcut=$(tbf3.rcut)")
+        if !isempty(cf.p3)
+            println("  3-body     : p=$(cf.p3)  q=$(cf.q3)  rcut=$(cf.rcut3)")
         end
     end
     println("  Features   : $(ninp) per atom  ($(typeof(cf).name.name))")

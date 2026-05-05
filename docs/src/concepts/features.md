@@ -106,15 +106,20 @@ This function is smooth and goes to zero at the cutoff radius `$r_c$`. Each feat
 - **Small p (2-3)**: Features decay slowly, capture long-range structure
 - **Large p (5-6)**: Features decay quickly, sensitive to nearest neighbors only
 
-### Example
+All two-body channels share identical power exponents (`p2`) and cutoff radius (`rcut2`), specified once via the `CellFeature` constructor:
 
 ```julia
 using EDDPotentials
 
-# Create two-body features for C-C interactions
-feat2 = TwoBodyFeature([2, 3, 4], (:C, :C), 4.0)
+# Two-body powers and cutoff are shared across all species pairs
+cf = CellFeature([:C]; p2=[2, 3, 4], rcut2=4.0)
 
-println("Features: ", nfeatures(feat2))  # 3 (one per power)
+# Inspect feature count per channel
+using EDDPotentials.EDDPotentialsCore: nfeatures_per_channel
+println("Features per two-body channel: ", nfeatures_per_channel(cf, 2))  # 3
+
+# Get the feature range for a specific pair
+println(two_body_range(cf, :C, :C))
 ```
 
 ### Why Multiple Powers?
@@ -122,12 +127,11 @@ println("Features: ", nfeatures(feat2))  # 3 (one per power)
 Using multiple powers gives the network flexibility to learn both short and long-range interactions:
 
 ```julia
-using EDDPotentials: TwoBodyFeature
 # Minimal (may miss long-range effects)
-feat_minimal = TwoBodyFeature([4], (:C, :C), 4.0)
+cf_minimal = CellFeature([:C]; p2=[4])
 
 # Standard (good balance)
-feat_standard = TwoBodyFeature([2, 3, 4, 5], (:C, :C), 4.0)
+cf_standard = CellFeature([:C]; p2=[2, 3, 4, 5])
 ```
 
 More powers = more expressive model, but also longer training and higher overfitting risk. Diminishing returns beyond p=2:6.
@@ -149,14 +153,15 @@ Where:
 - **q** controls sensitivity to the distance between j and k atoms
 - The triplet geometry (including bond angle) is implicitly encoded through the three distances
 
-### Example
+All three-body channels share identical `p3`, `q3` exponents and cutoff radius (`rcut3`):
 
 ```julia
-using EDDPotentials: ThreeBodyFeature
-# Three-body features for C-C-C triplets
-feat3 = ThreeBodyFeature([2, 3, 4], [1, 2], (:C, :C, :C), 3.5)
+using EDDPotentials
+# Three-body powers and cutoff are shared across all species triplets
+cf = CellFeature([:C]; p3=[2, 3, 4], q3=[1, 2], rcut3=3.5)
 
-println("Features: ", nfeatures(feat3))  # 6 (3p × 2q)
+using EDDPotentials.EDDPotentialsCore: nfeatures_per_channel
+println("Features per three-body channel: ", nfeatures_per_channel(cf, 3))  # 6 (3p × 2q)
 ```
 
 ### Why Three-Body Features Are Essential
@@ -309,37 +314,40 @@ The feature vector for each atom is stored as a column in the `(nfeatures × nat
 
 ### Standard CellFeature Layout
 
-For a `CellFeature` with `N` elements, `M` two-body feature specs, and `K` three-body feature specs:
+For a `CellFeature` with `NELEM` elements:
 
 ```
 fvec[i, iat] layout (per atom):
-  i=1..N            →  one-body (one-hot species encoding, offset=0)
-  i=N+1..N+Σnp₂    →  two-body features
-  i=...rest...       →  three-body features
+  i=1..NELEM                 →  one-body (one-hot species encoding)
+  i=NELEM+1..NELEM+n₂        →  two-body features (NELEM² × NP2 features)
+  i=NELEM+n₂+1..end          →  three-body features (NELEM·NELEM·(NELEM+1)/2 × NP3 × NQ3 features)
 ```
 
-**One-body** (`cell.jl:260-280`): A one-hot vector of length `one_body_offset = N`. For atom of species `s`, `fvec[ispec, iat] = 1.0` where `ispec` is the index of `s` in `cf.elements`.
+**One-body** (`cell.jl`): A one-hot vector of length `one_body_offset = NELEM`. For atom of species `s`, `fvec[spec_index(cf, s), iat] = 1.0`.
 
-**Two-body** (`gradient.jl:379-464`): Features are grouped by `TwoBodyFeature` spec. The specs are listed in `cf.two_body` as a tuple, ordered by all `(i, j)` element pairs. For each spec, `np` powers are stored contiguously. During computation, the species pair of the central atom `iat` and neighbor `jat` is matched via `permequal` against each spec; if it matches, `np` entries are filled; otherwise skipped by advancing the index `i += np`.
+**Two-body**: Features are organized in **row-major species-channel order**. All `NELEM²` ordered pairs `(ci, cj)` are enumerated: (1,1), (1,2), ..., (1,N), (2,1), ..., (N,N). Each channel contributes `NP2` features (one per p-exponent, stored contiguously). The channel index for species `(ci, cj)` is obtained via `two_body_channel(cf, ci, cj)` at O(1) cost; the feature vector range via `two_body_range(cf, ci, cj)`.
 
-Example for `[:C, :H]` with `p2=2:4`:
+Example for `[:C, :H]` with `p2=2:4` (NP2=3):
 ```
-TwoBodyFeature specs tuple order:
-  (C,C) (C,H) (H,C) (H,H)   — 4 specs × 3 powers = 12 features
+Channel order: (C,C)=1, (C,H)=2, (H,C)=3, (H,H)=4   — 4 channels × 3 powers = 12 features
 
 fvec layout after one-body [C, H]:
   [C-C_p2, C-C_p3, C-C_p4, C-H_p2, C-H_p3, C-H_p4,
    H-C_p2, H-C_p3, H-C_p4, H-H_p2, H-H_p3, H-H_p4]
+
+Feature range for (C,H): two_body_range(cf, :C, :H) → positions 5:7
 ```
 
-**Three-body** (`gradient.jl:505-684`): Similar grouping by `ThreeBodyFeature` spec. Specs are listed in `cf.three_body` as a tuple ordered by center element `i` first, then unordered neighbor pair `(j,k)` with `j ≤ k`. Each spec has `np × nq` features stored in **q-fastest** order: `(m=1, o=1..nq, m=2, o=1..nq, ...)`.
+**Three-body**: Features are in **center-ordered, neighbor-unordered channel order**. Triplets are enumerated for center `ci=1..NELEM`, then neighbor pair `(cj, ck)` with `cj ≤ ck`. That is: (1,1,1), (1,1,2), ..., (1, N, N), (2,1,1), ..., (N, N, N). The `three_body_channel` lookup is symmetric in `cj↔ck`. Each channel contributes `NP3 × NQ3` features in **q-fastest** order: `(m=1, o=1..NQ3, m=2, o=1..NQ3, ...)`.
 
-Example for `[:C]` with `p3=2:3, q3=1:2`:
+Example for `[:C]` with `p3=2:3, q3=1:2` (NP3=2, NQ3=2):
 ```
-ThreeBodyFeature spec: (C,C,C) — 1 spec × 2 powers × 2 q-powers = 4 features
+Channel: (C,C,C)=1 — 1 channel × 4 features
 
 fvec layout after two-body:
   [m1_o1, m1_o2, m2_o1, m2_o2]
+
+Feature range: three_body_range(cf, :C, :C, :C) → the 4-feature block
 ```
 
 ### Single Embedding Layout (`RandomEmbeddedCellFeature`)
@@ -387,46 +395,30 @@ Key difference: `one_body_offset = 0`, since each embedding's one-body features 
 
 Each embedding is computed independently via `compute_embedded_fv_gv_one!` with its own `emb_offset = _nbody_offset(cf, k)` (`multi_embedded.jl:108-111`). Hard-core repulsion is only computed for the first embedding to avoid double-counting (`compute_hardcore=(k == 1)`).
 
-### FeatureSpeciesLookup — O(1) Feature Dispatch
+### CellFeature O(1) Feature Dispatch
 
-The standard `CellFeature` path (non-embedded) uses `FeatureSpeciesLookup` (`gradient.jl:24-47`) to accelerate feature computation from O(N_features × N_neighbors) to O(1) per neighbor pair/triplet. Without it, the code must iterate over all feature specs and test `permequal` for every neighbor interaction. The lookup does the reverse — given the species of the atoms involved, it directly returns only the feature specs and fvec offsets that apply.
+The refactored `CellFeature` (parametric struct) makes feature dispatch O(1) by pre-building lookup arrays at construction time. There is no longer a separate `FeatureSpeciesLookup` struct — the lookup tables are built directly into `CellFeature` fields:
 
-**Structure:**
-- `spec_to_idx`: `Dict{Symbol → Int}` mapping element symbol to its index in the element list.
-- `_2b_data[ci, cj]`: `Vector{Tuple{Int, Int}}` — for species pair `(ci, cj)`, a list of `(start_offset, feature_index)` tuples. `start_offset` is the 1-indexed position in fvec (relative to `offset`), and `feature_index` identifies which `features2[ife2]` to use.
-- `_3b_data[ci, cj, ck]`: Same structure for three-body, but with double registration for unordered neighbors.
-- `totalfe2`: Total number of two-body feature slots, used as the starting offset for the three-body section.
+- **`spec_to_idx`**: `Dict{Symbol, Int}` mapping element symbol → integer index.
+- **`two_body_channel[ci, cj]`**: `Matrix{Int}` giving the channel index (1..NELEM²) for a species pair.
+- **`three_body_channel[ci, cj, ck]`**: `Array{Int,3}` giving the channel index (1..NELEM·NELEM·(NELEM+1)/2), symmetric in `cj↔ck`.
 
-**Construction** (`gradient.jl:29-46`):
+During computation, the kernel reads the channel index directly and computes the fvec offset from type-level constants:
+
 ```
-offset = 1
-for (ife, f) in enumerate(features2)
-    ci, cj = species indices of f.sij_idx
-    push!(_2b_data[ci, cj], (offset, ife))
-    offset += f.np      # advance by number of powers in this spec
-end
-totalfe2 = offset - 1   # snapshot total two-body feature count
+ch2 = cf.two_body_channel[ci, cj]
+offset2 = NELEM + (ch2 - 1) * NP2     # NP2 is a compile-time constant
 
-offset = 1
-for (ife, f) in enumerate(features3)
-    ci, cj, ck = species indices of f.sijk_idx
-    push!(_3b_data[ci, cj, ck], (offset, ife))
-    cj != ck && push!(_3b_data[ci, ck, cj], (offset, ife))  # double register
-    offset += f.np * f.nq
-end
+ch3 = cf.three_body_channel[ci, cj, ck]
+offset3 = NELEM + NELEM²*NP2 + (ch3 - 1) * NP3 * NQ3
 ```
 
-**Two-body dispatch** (`gradient.jl:379-420`): For a center atom `iat` (species `ci`) and neighbor `jat` (species `cj`):
-```
-_2b_data[ci, cj] → [(start2_1, ife2_1), (start2_2, ife2_2), ...]
-```
-Then for each `(start2, ife2)`, features are written to `fvec[offset + start2, iat]` with `np` consecutive slots. This is O(number of matching specs for that species pair) rather than O(total specs).
+This eliminates:
+- Scanning a list of feature specs and testing species tuples at runtime (old `permequal` approach)
+- Runtime `np`/`nq` field lookups (now `NP3`/`NQ3` compile-time constants)
+- The separate `FeatureSpeciesLookup` struct entirely
 
-**Three-body dispatch** (`gradient.jl:506-599`): For a triplet with center `ci`, neighbors `cj` and `ck`:
-```
-_3b_data[ci, cj, ck] → [(start3_1, ife3_1), (start3_2, ife3_2), ...]
-```
-Because of the double registration (`cj != ck` case), both `_3b_data[ci, cj, ck]` and `_3b_data[ci, ck, cj]` contain the same entries — so the lookup works regardless of which neighbor order is encountered in the loop. Features are written to `fvec[offset + totalfe2 + start3, iat]` with `np × nq` consecutive slots (q-fastest). A `permequal` guard inside the loop still verifies the species tuple matches (`gradient.jl:516-518`), since the lookup key `(ci, cj, ck)` is coarser than the exact triplet `(center, neighbor1, neighbor2)` — for example, `_2b_data[C, C]` would contain both `(C,C)` and `(C,C)` specs which pass, as well as potentially a `(C,__)` spec that doesn't match the second species.
+The `lookup(cf, s)` / `lookup(cf, s1, s2)` / `lookup(cf, s1, s2, s3)` functions are retained as backward-compatible aliases wrapping `spec_index` and `two_body_range`/`three_body_range`.
 
 ### Gradient Workspace Array Shapes
 
@@ -436,16 +428,53 @@ Because of the double registration (`cj != ck` case), both `_3b_data[ci, cj, ck]
 
 ### Chain Rule: Forces and Stress
 
-Forces are obtained via `_force_update!` (`gradient.jl:1007-1025`):
+Forces are obtained via `_force_update!` (`gradient.jl`):
 
 ```
 forces[elm, jat] = -Σᵢ Σₓ gvec[elm, x, j_local, iat] × gv[x, iat]
 ```
 
-where `gv = dE/d(fvec)` is the upstream gradient from the neural network. Stress is obtained via `_stress_update!` (`gradient.jl:1032-1047`):
+where `gv = dE/d(fvec)` is the upstream gradient from the neural network. Stress is obtained via `_stress_update!`:
 
 ```
 stress[a, b] = Σᵢₐₜ Σₓ stotv[a, b, x, iat] × gv[x, iat]
+```
+
+## CellFeature Lookup API
+
+The refactored `CellFeature` provides a unified lookup API. These methods replace the old separate `FeatureLookup`/`FeatureSpeciesLookup` structs and `cf.two_body`/`cf.three_body` field access patterns.
+
+### Species Mapping
+
+```julia
+spec_index(cf, sym)       # Symbol → integer (1-based)
+spec_symbol(cf, idx)      # integer → Symbol
+```
+
+### Two-Body Lookups
+
+```julia
+two_body_channel(cf, ci::Int, cj::Int)           # O(1) channel index 1..NELEM²
+two_body_range(cf, ci::Int, cj::Int)             # UnitRange in feature vector
+two_body_range(cf, si::Symbol, sj::Symbol)       # Symbol-based variant
+```
+
+### Three-Body Lookups
+
+```julia
+three_body_channel(cf, ci::Int, cj::Int, ck::Int)  # channel index, symmetric in cj↔ck
+three_body_range(cf, ci::Int, cj::Int, ck::Int)    # UnitRange in feature vector
+three_body_range(cf, si::Symbol, sj::Symbol, sk::Symbol)  # Symbol-based variant
+```
+
+### Channel Counts
+
+```julia
+nfeatures_per_channel(cf, bodyorder)    # features per species channel (bodyorder=2 or 3)
+nchannels(cf, bodyorder)                # number of species channels
+nfeatures(cf)                           # total features (1b + 2b + 3b)
+feature_size(cf)                        # (n_onebody, n_twobody, n_threebody)
+total_two_body_features(cf)             # NELEM² * NP2
 ```
 
 ## Next Steps

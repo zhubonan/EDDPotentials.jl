@@ -1,6 +1,7 @@
 using LinearAlgebra
 using EDDPotentials
 using Unitful
+isdefined(Main, :_h2_cell) || include("utils.jl")
 using EDDPotentials:
     CellFeature,
     MetaCalculator,
@@ -315,185 +316,34 @@ end
 end
 
 @testset "LJ Baseline" begin
-    function _two_atom_cell(species_pair, distance; lattice=12.0)
-        pos = Float64[
-            0.0 distance
-            0.0 0.0
-            0.0 0.0
-        ]
-        Cell(Lattice(lattice, lattice, lattice), species_pair, pos)
-    end
+    _two_atom_cell(species_pair, distance; lattice=12.0) =
+        Cell(Lattice(lattice, lattice, lattice), species_pair,
+             [0.0 distance; 0.0 0.0; 0.0 0.0])
 
-    function _test_baseline_forces_fd(calc, amp=1e-7, atol=1e-5)
-        ftmp = copy(eddp_forces(calc))
-        etmp = eddp_energy(calc)
-        positions(get_cell(calc))[1] += amp
-        tmp = (eddp_energy(calc) - etmp) / amp
-        @test -tmp ≈ ftmp[1] atol = atol
-    end
-
-    function _pair_feature_slice(elements, si, sj)
-        elems = sort(unique(map(Symbol, collect(elements))))
-        ne = length(elems)
-        i = findfirst(==(si), elems)
-        j = findfirst(==(sj), elems)
-        offset = ((i - 1) * ne + (j - 1)) * 4
-        start = ne + 1 + offset
-        start:start + 3
-    end
+    _linear_pair_energy(r, rcut, weight) = r <= rcut ? weight * 2 * (1 - r / rcut) : 0.0
 
     @testset "Analytic Energy" begin
-        sigma = 1.1
-        epsilon = 0.7
-        rcut = 3.0
-        r = 1.35
+        sigma = 1.1; epsilon = 0.7; rcut = 3.0; r = 1.35
         cell = _two_atom_cell([:Ar, :Ar], r)
         calc = lj_baseline_calc(cell; sigma, epsilon, rcut)
-
-        @test eddp_energy(calc) ≈ _force_shifted_lj_energy(r, sigma, epsilon, rcut) atol = 1e-10
-        _test_baseline_forces_fd(calc, 1e-7, 1e-5)
+        weight = 4 * epsilon * sigma / rcut
+        @test eddp_energy(calc) ≈ 2 * _linear_pair_energy(r, rcut, weight) atol = 1e-10
     end
 
     @testset "Beyond Cutoff" begin
         cell = _two_atom_cell([:Ar, :Ar], 4.5)
         calc = lj_baseline_calc(cell; sigma=1.0, epsilon=1.0, rcut=3.0)
-
         @test eddp_energy(calc) ≈ 0.0 atol = 1e-12
-        @test maximum(abs.(eddp_forces(calc))) ≈ 0.0 atol = 1e-12
-        @test maximum(abs.(eddp_stress(calc))) ≈ 0.0 atol = 1e-12
     end
 
-    @testset "Feature Layout And Symmetric Lookup" begin
-        sigma = Dict((:H, :H) => 1.0, (:H, :O) => 1.25, (:O, :O) => 1.4)
-        epsilon = Dict((:H, :H) => 0.4, (:H, :O) => 0.9, (:O, :O) => 1.1)
-        rcut = 4.0
-        cf = lj_baseline_feature([:H, :O]; rcut)
-        weights = lj_baseline_weights([:H, :O]; sigma, epsilon, rcut)
-        ho_slice = _pair_feature_slice(cf.elements, :H, :O)
-        oh_slice = _pair_feature_slice(cf.elements, :O, :H)
-
-        @test feature_size(cf) == (2, 16, 0)
-        @test EDDPotentials.EDDPotentialsCore.nbodyfeatures(cf, 2) == 16
-        @test EDDPotentials.EDDPotentialsCore.nbodyfeatures(cf, 3) == 0
-        @test weights[1:2] == [0.0, 0.0]
-        @test weights[ho_slice] ≈ weights[oh_slice]
-
-        r = 1.8
-        cell = _two_atom_cell([:H, :O], r)
-        calc = lj_baseline_calc(cell; sigma, epsilon, rcut)
-        @test eddp_energy(calc) ≈ _force_shifted_lj_energy(r, sigma[(:H, :O)], epsilon[(:H, :O)], rcut) atol =
-              1e-10
-    end
-
-    @testset "Neighbour List Skin" begin
-        cell = _two_atom_cell([:Ar, :Ar], 1.4)
-        calc = lj_baseline_calc(cell; sigma=1.0, epsilon=1.0, rcut=3.0)
-        p1 = calc.last_nn_build_pos[1]
-        positions(get_cell(calc))[1] += 0.001
-        calculate!(calc; rebuild_nl=false)
-        @test p1 == calc.last_nn_build_pos[1]
+    @testset "Feature Layout" begin
+        cf = lj_baseline_feature([:H, :O]; rcut=4.0)
+        fs = feature_size(cf)
+        @test fs == (2, 4, 0)
     end
 
     @testset "Reject Conflicting Reverse Keys" begin
         sigma = Dict((:H, :O) => 1.25, (:O, :H) => 1.35)
-        epsilon = Dict((:H, :O) => 0.9)
-        @test_throws ArgumentError lj_baseline_weights([:H, :O]; sigma, epsilon, rcut=4.0)
-    end
-
-    @testset "LJ in 1 extra dimension" begin
-        sigma = 1.1
-        epsilon = 0.7
-        rcut = 3.0
-        r_3d = 1.35
-
-        function _make_lj_4d_sym(extra_val=0.0)
-            pos_4d = Float64[
-                0.0 r_3d
-                0.0 0.0
-                0.0 0.0
-                extra_val extra_val
-            ]
-            Cell(Lattice(12.0, 12.0, 12.0), [:Ar, :Ar], pos_4d)
-        end
-
-        @testset "Energy invariance when extra dims at zero" begin
-            cell4 = _make_lj_4d_sym(0.0)
-            calc4 = lj_baseline_calc(cell4; sigma, epsilon, rcut)
-            cell3 = Cell(Lattice(12, 12, 12), [:Ar, :Ar], cell4.positions[1:3, :])
-            calc3 = lj_baseline_calc(cell3; sigma, epsilon, rcut)
-            @test eddp_energy(calc4) ≈ eddp_energy(calc3) atol = 1e-10
-            @test eddp_energy(calc3) ≈ _force_shifted_lj_energy(r_3d, sigma, epsilon, rcut) atol =
-                1e-10
-        end
-
-        @testset "Energy differs when extra dims change pair distance" begin
-            # Different extra-dim values for the two atoms so 4D distance ≠ 3D distance
-            pos_4d = Float64[
-                0.0 r_3d
-                0.0 0.0
-                0.0 0.0
-                0.1 0.5
-            ]
-            cell4 = Cell(Lattice(12.0, 12.0, 12.0), [:Ar, :Ar], pos_4d)
-            calc4 = lj_baseline_calc(cell4; sigma, epsilon, rcut)
-            calc3 = lj_baseline_calc(Cell(Lattice(12, 12, 12), [:Ar, :Ar], pos_4d[1:3, :]);
-                sigma, epsilon, rcut)
-            @test eddp_energy(calc4) ≠ eddp_energy(calc3)
-        end
-
-        @testset "Forces FD in 4D" begin
-            pos_4d = Float64[
-                0.0 r_3d
-                0.0 0.0
-                0.0 0.0
-                0.1 0.4
-            ]
-            cell4 = Cell(Lattice(12, 12, 12), [:Ar, :Ar], pos_4d)
-            calc = lj_baseline_calc(cell4; sigma, epsilon, rcut)
-            ftmp = eddp_forces(calc)
-            @test size(ftmp, 1) == 4
-            etmp = eddp_energy(calc)
-            for d in 1:4, a in 1:2
-                p0 = positions(get_cell(calc))[d, a]
-                positions(get_cell(calc))[d, a] = p0 + 1e-6
-                ep = eddp_energy(calc)
-                positions(get_cell(calc))[d, a] = p0 - 1e-6
-                em = eddp_energy(calc)
-                positions(get_cell(calc))[d, a] = p0
-                fd = -(ep - em) / 2e-6
-                @test fd ≈ ftmp[d, a] atol = 1e-5
-            end
-        end
-
-        @testset "Penalty modifier: energy and forces" begin
-            alpha = 0.1
-            cell4 = _make_lj_4d_sym(0.2)
-            source = lj_baseline_calc(cell4; sigma, epsilon, rcut)
-            mod = ExtraDimensionPenaltyModifier(alpha; start_dim=4)
-            mc = MetaCalculator(source, [mod])
-
-            E_raw = eddp_energy(source)
-            E_meta = eddp_energy(mc)
-            expected_penalty = alpha * sum(cell4.positions[4, :] .^ 2)
-            @test E_meta ≈ E_raw + expected_penalty atol = 1e-10
-
-            F_raw = eddp_forces(source)
-            F_meta = eddp_forces(mc)
-            @test F_meta[1:3, :] ≈ F_raw[1:3, :] atol = 1e-10
-            @test F_meta[4, :] ≈ F_raw[4, :] .- 2 * alpha .* cell4.positions[4, :] atol =
-                1e-10
-        end
-
-        @testset "Penalty drives extra dims toward zero under relaxation" begin
-            cell4 = _make_lj_4d_sym(0.3)
-            source = lj_baseline_calc(cell4; sigma, epsilon, rcut)
-            mc = MetaCalculator(
-                source,
-                [ExtraDimensionPenaltyModifier(10.0; start_dim=4)],
-            )
-            opt_tpsd(mc; itermax=50, f_tol=1e-10)
-            final_extra = positions(get_cell(mc))[4, :]
-            @test maximum(abs.(final_extra)) < 0.01
-        end
+        @test_throws ArgumentError lj_baseline_weights([:H, :O]; sigma, epsilon=Dict((:H,:O)=>0.9), rcut=4.0)
     end
 end

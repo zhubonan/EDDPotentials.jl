@@ -43,6 +43,8 @@ using Test
 using Flux
 using CellBase: positions, species
 
+isdefined(Main, :_h2_cell) || include("utils.jl")
+
 @testset "Multi-Embedding" begin
 
     @testset "Constructor" begin

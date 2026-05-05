@@ -28,6 +28,8 @@ using Test
 using Flux
 using CellBase: positions, species
 
+isdefined(Main, :_h2_cell) || include("utils.jl")
+
 @testset "Random Embedded Feature" begin
     @testset "Constructor and Channel Scaling" begin
         cell = _h2o_cell()

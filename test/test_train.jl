@@ -375,9 +375,9 @@ using NLSolversBase
             tm = train_model(path; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=20,
                              earlystop=5, p2=2:6, rcut2=5.0, verbose=false)
             @test tm isa TrainedModel
-            @test tm.feature_spec.elements == [:B]
-            @test !isempty(tm.feature_spec.two_body)
-            @test tm.feature_spec.two_body[1].rcut ≈ 5.0
+            @test collect(tm.feature_spec.elements) == [:B]
+            @test !isempty(tm.feature_spec.p2)
+            @test tm.feature_spec.rcut2 ≈ 5.0
         end
 
         @testset "verbose=false suppresses output" begin

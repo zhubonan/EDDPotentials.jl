@@ -110,8 +110,8 @@ function flux_mlp_model(
         # Adding embedding layer
         fsizes = feature_size(cf)
         ninp = fsizes[1]
-        ninp += nfeatures(cf.two_body[1]) * num_embed(embedding.two_body)
-        ninp += nfeatures(cf.three_body[1]) * num_embed(embedding.three_body)
+        ninp += nfeatures_per_channel(cf, 2) * num_embed(embedding.two_body)
+        ninp += nfeatures_per_channel(cf, 3) * num_embed(embedding.three_body)
     end
     if isnothing(σs)
         input = Dense(ninp => nodes[1], σ; init)

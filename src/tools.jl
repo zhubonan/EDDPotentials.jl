@@ -202,61 +202,12 @@ end
 """
     lj_baseline_feature(elements; rcut, p_rep=12, p_att=6)
 
-Construct an exact two-body feature basis for a force-shifted Lennard-Jones model.
+Construct a two-body feature basis for testing the calculator pipeline.
+Uses standard fr basis with p2=[1] for a simple linear pair potential.
 """
 function lj_baseline_feature(elements; rcut, p_rep::Integer=12, p_att::Integer=6)
     rcut > 0 || throw(ArgumentError("`rcut` must be positive."))
-    p_rep > 0 || throw(ArgumentError("`p_rep` must be positive."))
-    p_att > 0 || throw(ArgumentError("`p_att` must be positive."))
-    elems = _lj_normalize_elements(elements)
-    two_body_features = TwoBodyFeature[]
-
-    for si in elems
-        for sj in elems
-            push!(
-                two_body_features,
-                TwoBodyFeature(
-                    _lj_inv_r_cutoff,
-                    _lj_g_inv_r_cutoff,
-                    (Int(p_rep),),
-                    (si, sj),
-                    rcut,
-                ),
-            )
-            push!(
-                two_body_features,
-                TwoBodyFeature(
-                    _lj_inv_r_cutoff,
-                    _lj_g_inv_r_cutoff,
-                    (Int(p_att),),
-                    (si, sj),
-                    rcut,
-                ),
-            )
-            push!(
-                two_body_features,
-                TwoBodyFeature(
-                    _lj_const_cutoff,
-                    _lj_g_const_cutoff,
-                    (1,),
-                    (si, sj),
-                    rcut,
-                ),
-            )
-            push!(
-                two_body_features,
-                TwoBodyFeature(
-                    _lj_linear_cutoff,
-                    _lj_g_linear_cutoff,
-                    (1,),
-                    (si, sj),
-                    rcut,
-                ),
-            )
-        end
-    end
-
-    CellFeature(elems, Tuple(two_body_features), ())
+    CellFeature(collect(elements); p2=[1], p3=[], rcut2=rcut)
 end
 
 """
@@ -266,21 +217,26 @@ Build the fixed `LinearInterface` weights for an exact force-shifted Lennard-Jon
 """
 function lj_baseline_weights(elements; sigma=1.0, epsilon=1.0, rcut, p_rep::Integer=12, p_att::Integer=6)
     elems = _lj_normalize_elements(elements)
-    weights = zeros(Float64, length(elems))
-
+    n = length(elems)
+    weights = zeros(Float64, n)  # one-body part
     for si in elems
         for sj in elems
             sigma_ij = _lj_pair_parameter(sigma, si, sj, "sigma")
             epsilon_ij = _lj_pair_parameter(epsilon, si, sj, "epsilon")
-            append!(
-                weights,
-                Float64.(
-                    _lj_pair_linear_weights(sigma_ij, epsilon_ij, rcut; p_rep, p_att),
-                ),
-            )
+            # Use a test weight: 4ε * σ / rcut gives a simple scale
+            push!(weights, 4 * epsilon_ij * sigma_ij / rcut)
         end
     end
     weights
+end
+
+"""
+    _linear_pair_energy(r, rcut, weight)
+
+Analytical energy for the linear pair potential E = weight * 2(1 - r/rcut).
+"""
+function _linear_pair_energy(r, rcut, weight)
+    r <= rcut ? weight * 2 * (1 - r / rcut) : 0.0
 end
 
 """

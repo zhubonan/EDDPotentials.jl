@@ -102,42 +102,41 @@ if !fortran_only
     println("  CellFeature: $nfe features")
     @assert nfe == 418 "Expected 418 features, got $nfe"
 
-    spec_lookup = EDDPotentialsCore.FeatureSpeciesLookup(cf.two_body, cf.three_body, elem_list)
-    atom_species_ints = [spec_lookup.spec_to_idx[s] for s in species(cell)]
+    atom_species_ints = [cf.spec_to_idx[s] for s in species(cell)]
 
     rcut = EDDPotentialsCore.suggest_rcut(cf; shell=4)
     nl = NeighbourList(cell, rcut; savevec=true)
     avg_nn = sum(nl.nneigh) / nat
     println("  rcut=$rcut, avg neighbours/atom=$(round(avg_nn, digits=1))")
 
-    function julia_compute!(do_grad, cell, nl, cf, lookup, atom_species_ints)
+    function julia_compute!(do_grad, cell, nl, cf, atom_species_ints)
         ws = EDDPotentialsCore.get_workspace(cf, nl, do_grad)
         for iat in 1:natoms(cell)
             EDDPotentialsCore.compute_fv_gv_one!(
-                ws, cf.two_body, cf.three_body, iat, cell, nl;
+                ws, cf, iat, cell, nl;
                 offset=ws.one_body_offset, do_grad=do_grad,
-                spec_lookup=lookup, atom_species_ints=atom_species_ints,
+                atom_species_ints=atom_species_ints,
             )
         end
         ws
     end
 
-    julia_compute!(false, cell, nl, cf, spec_lookup, atom_species_ints)
+    julia_compute!(false, cell, nl, cf, atom_species_ints)
 
     jl_feat_times = Float64[]
     println("\n  features only:")
     for i in 1:n_runs
-        t = @elapsed julia_compute!(false, cell, nl, cf, spec_lookup, atom_species_ints)
+        t = @elapsed julia_compute!(false, cell, nl, cf, atom_species_ints)
         push!(jl_feat_times, t)
         println("    run $i: $(round(t, digits=4)) s  ($(round(t/nat*1e6, digits=1)) us/atom)")
     end
     jl_feat_best = minimum(jl_feat_times)
 
     jl_grad_times = Float64[]
-    julia_compute!(true, cell, nl, cf, spec_lookup, atom_species_ints)
+    julia_compute!(true, cell, nl, cf, atom_species_ints)
     println("\n  features + gradients:")
     for i in 1:n_runs
-        t = @elapsed julia_compute!(true, cell, nl, cf, spec_lookup, atom_species_ints)
+        t = @elapsed julia_compute!(true, cell, nl, cf, atom_species_ints)
         push!(jl_grad_times, t)
         println("    run $i: $(round(t, digits=4)) s  ($(round(t/nat*1e6, digits=1)) us/atom)")
     end
@@ -146,21 +145,21 @@ if !fortran_only
     if nthreads() > 1
         println("\n  threaded ($(nthreads()) threads), features only:")
         ws_mt = EDDPotentialsCore.get_workspace(cf, nl, false)
-        function julia_compute_mt!(ws, cf, cell, nl, lookup, atom_species_ints)
+        function julia_compute_mt!(ws, cf, cell, nl, atom_species_ints)
             EDDPotentialsCore.reset!(ws)
             Threads.@threads for iat in 1:natoms(cell)
                 EDDPotentialsCore.compute_fv_gv_one!(
-                    ws, cf.two_body, cf.three_body, iat, cell, nl;
+                    ws, cf, iat, cell, nl;
                     offset=ws.one_body_offset, do_grad=false,
-                    spec_lookup=lookup, atom_species_ints=atom_species_ints,
+                    atom_species_ints=atom_species_ints,
                 )
             end
             ws
         end
-        julia_compute_mt!(ws_mt, cf, cell, nl, spec_lookup, atom_species_ints)
+        julia_compute_mt!(ws_mt, cf, cell, nl, atom_species_ints)
         jl_mt_times = Float64[]
         for i in 1:n_runs
-            t = @elapsed julia_compute_mt!(ws_mt, cf, cell, nl, spec_lookup, atom_species_ints)
+            t = @elapsed julia_compute_mt!(ws_mt, cf, cell, nl, atom_species_ints)
             push!(jl_mt_times, t)
             println("    run $i: $(round(t, digits=4)) s  ($(round(t/nat*1e6, digits=1)) us/atom)")
         end

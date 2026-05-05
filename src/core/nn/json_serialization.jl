@@ -196,42 +196,32 @@ function _elemental_energies_from_data(data)
     Dict(Symbol(key) => Float64(value) for (key, value) in pairs(data))
 end
 
-function _feature_section_data(feats, names)
-    isempty(feats) && return nothing
-    first_feat = feats[1]
-    Dict(
-        "p" => _typed_vector_to_data(first_feat.p),
-        "rcut" => first_feat.rcut,
-        "f" => _basis_function_name(first_feat.f),
-        "g" => _basis_function_name(first_feat.g),
-        names...,
-    )
-end
-
 function _feature_to_data(cf::CellFeature)
-    Dict(
+    d = Dict(
         "feature_type" => "cell_feature",
         "dtype" => begin
-            if !isempty(cf.two_body)
-                _dtype_name(eltype(cf.two_body[1].p))
-            elseif !isempty(cf.three_body)
-                _dtype_name(eltype(cf.three_body[1].p))
+            if !isempty(cf.p2)
+                _dtype_name(eltype(cf.p2))
+            elseif !isempty(cf.p3)
+                _dtype_name(eltype(cf.p3))
             else
                 "Float64"
             end
         end,
         "elements" => string.(cf.elements),
-        "two_body" => _feature_section_data(cf.two_body, ()),
-        "three_body" => begin
-            isempty(cf.three_body) ? nothing : Dict(
-                "p" => _typed_vector_to_data(cf.three_body[1].p),
-                "q" => _typed_vector_to_data(cf.three_body[1].q),
-                "rcut" => cf.three_body[1].rcut,
-                "f" => _basis_function_name(cf.three_body[1].f),
-                "g" => _basis_function_name(cf.three_body[1].g),
-            )
-        end,
+        "p2" => _typed_vector_to_data(cf.p2),
+        "rcut2" => cf.rcut2,
+        "f2" => _basis_function_name(cf.f2),
+        "g2" => _basis_function_name(cf.g2),
     )
+    if !isempty(cf.p3)
+        d["p3"] = _typed_vector_to_data(cf.p3)
+        d["q3"] = _typed_vector_to_data(cf.q3)
+        d["rcut3"] = cf.rcut3
+        d["f3"] = _basis_function_name(cf.f3)
+        d["g3"] = _basis_function_name(cf.g3)
+    end
+    d
 end
 
 function _feature_to_data(cf::RandomEmbeddedCellFeature)
@@ -284,27 +274,28 @@ function _feature_from_data(data)
     feature_dtype = haskey(data, "dtype") ? _dtype_from_name(data["dtype"]) : Float64
 
     if feature_type == "cell_feature"
-        p2 = two_body === nothing ? feature_dtype[] : _typed_vector_from_data(two_body["p"])
-        p3 = three_body === nothing ? feature_dtype[] : _typed_vector_from_data(three_body["p"])
-        q3 = three_body === nothing ? feature_dtype[] : _typed_vector_from_data(three_body["q"])
-        rcut2 = two_body === nothing ? (three_body === nothing ? 4.0 : Float64(three_body["rcut"])) :
-                Float64(two_body["rcut"])
-        rcut3 = three_body === nothing ? rcut2 : Float64(three_body["rcut"])
-        f2 = two_body === nothing ? fr : _basis_function_from_name(two_body["f"])
-        g2 = two_body === nothing ? gfr : _basis_function_from_name(two_body["g"])
-        f3 = three_body === nothing ? fr : _basis_function_from_name(three_body["f"])
-        g3 = three_body === nothing ? gfr : _basis_function_from_name(three_body["g"])
+        # New format: p2/rcut2/f2/g2 at top level
+        p2 = _typed_vector_from_data(data["p2"])
+        rcut2 = Float64(data["rcut2"])
+        f2 = _basis_function_from_name(data["f2"])
+        g2 = _basis_function_from_name(data["g2"])
+        # Three-body: present if p3 key exists
+        if haskey(data, "p3") && !isempty(data["p3"])
+            p3 = _typed_vector_from_data(data["p3"])
+            q3 = _typed_vector_from_data(data["q3"])
+            rcut3 = Float64(data["rcut3"])
+            f3 = _basis_function_from_name(data["f3"])
+            g3 = _basis_function_from_name(data["g3"])
+        else
+            p3 = feature_dtype[]
+            q3 = feature_dtype[]
+            rcut3 = rcut2
+            f3 = fr
+            g3 = gfr
+        end
         return CellFeature(
             elements;
-            p2,
-            p3,
-            q3,
-            rcut2,
-            rcut3,
-            f2,
-            g2,
-            f3,
-            g3,
+            p2, p3, q3, rcut2, rcut3, f2, g2, f3, g3,
             geometry_sequence=false,
         )
     elseif feature_type == "random_embedded_cell_feature"
@@ -411,9 +402,8 @@ function _layer_from_data(data, feature_spec::AbstractCellFeatureSpec)
         three_body_weight = _typed_matrix_from_data(_require_key(data, "three_body_weight"))
         T = haskey(data, "dtype") ? _dtype_from_name(data["dtype"]) : eltype(two_body_weight)
         layer = CellEmbedding(
+            T,
             feature_spec,
-            BodyEmbedding(T, feature_spec.two_body, Int(_require_key(data, "n"))),
-            BodyEmbedding(T, feature_spec.three_body, Int(_require_key(data, "m"))),
             Int(_require_key(data, "n")),
             Int(_require_key(data, "m")),
         )

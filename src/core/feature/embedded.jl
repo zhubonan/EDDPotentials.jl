@@ -48,10 +48,10 @@ function _embedded_prototypes(
     p2t, p3t, q3t = _normalize_embedded_sequences(p2, p3, q3; geometry_sequence)
     dummy = elements[1]
 
-    proto2 = isempty(p2t) ? nothing : TwoBodyFeature(f2, g2, p2t, (dummy, dummy), rcut2)
+    proto2 = isempty(p2t) ? nothing : FeatureProto(p2t, (), rcut2, length(p2t), 0, f2, g2)
     proto3 =
         isempty(p3t) || isempty(q3t) ? nothing :
-        ThreeBodyFeature(f3, g3, p3t, q3t, (dummy, dummy, dummy), rcut3)
+        FeatureProto(p3t, q3t, rcut3, length(p3t), length(q3t), f3, g3)
 
     kwargs = (; nembed=nothing, seed=nothing, T=Float64, p2=p2t, p3=p3t, q3=q3t, rcut2, rcut3, geometry_sequence)
     elements, proto2, proto3, kwargs
@@ -174,6 +174,14 @@ function Base.show(io::IO, ::MIME"text/plain", x::RandomEmbeddedCellFeature)
 end
 
 embedding_size(cf::RandomEmbeddedCellFeature) = size(cf.embedding, 2)
+
+nfeatures_per_channel(cf::RandomEmbeddedCellFeature, body) = 
+    body == 2 ? (isnothing(cf.two_body_proto) ? 0 : nfeatures(cf.two_body_proto)) :
+    body == 3 ? (isnothing(cf.three_body_proto) ? 0 : nfeatures(cf.three_body_proto)) : 0
+
+nchannels(cf::RandomEmbeddedCellFeature, body) =
+    body == 2 ? length(cf.pair_channels) :
+    body == 3 ? length(cf.triplet_channels) : 0
 
 """
     one_body_offset(cf)

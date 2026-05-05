@@ -67,10 +67,12 @@ export eddp_energy,
     eddp_enthalpy,
     eddp_energy_std,
     eddp_energy_std_per_atom
-export CellFeature, nfeatures
+export CellFeature, nfeatures, nfeatures_per_channel, nchannels, nbodyfeatures, feature_size, one_body_offset, suggest_rcut
+export feature_names, two_body_channel, two_body_range, three_body_channel, three_body_range
+export spec_index, spec_symbol, lookup
 export RandomEmbeddedCellFeature
 export MultiRandomEmbeddedCellFeature
-export TwoBodyFeature, ThreeBodyFeature, permequal, feature_size, one_body_offset
+export FeatureProto, feature_size, one_body_offset
 export ModelArtifact,
     FeatureArtifact,
     load_model,
