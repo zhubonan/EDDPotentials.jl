@@ -197,56 +197,29 @@ if !julia_only
                     run(`sh $wrapper`)
 
                     err_str = isfile(errfile) ? read(errfile, String) : ""
-                    # Parse fine-grained Fortran timing with state tracking.
-                    # Labels with colons attached (e.g. "--feat:") have the value at
-                    # token [2]; labels with a space before colon (e.g. " -ball :")
-                    # have the value at token [3].
-                    ball_t = f2b_feat_t = f2b_force_t = f2b_stress_t = NaN
-                    f3b_feat_t = f3b_force_t = f3b_stress_t = NaN
-                    netw_t = NaN
-                    state = ""   # "f2" or "f3" when inside a -f2body/-f3body block
+                    ball_t = feat_t = netw_t = ddp_t = NaN
                     for line in split(err_str, "\n")
                         toks = split(line)
                         length(toks) < 3 && continue
                         val_idx = toks[2] == ":" ? 3 : 2
-                        if occursin("-netw ", line)
-                            state = ""
-                            netw_t = parse(Float64, toks[val_idx])
-                        elseif occursin("-f2body:", line)
-                            state = "f2"
-                        elseif occursin("-f3body:", line)
-                            state = "f3"
-                        elseif occursin("--feat:", line)
-                            t = parse(Float64, toks[val_idx])
-                            state == "f2" && (f2b_feat_t = t)
-                            state == "f3" && (f3b_feat_t = t)
-                        elseif occursin("--force:", line)
-                            t = parse(Float64, toks[val_idx])
-                            state == "f2" && (f2b_force_t = t)
-                            state == "f3" && (f3b_force_t = t)
-                        elseif occursin("--stress:", line)
-                            t = parse(Float64, toks[val_idx])
-                            state == "f2" && (f2b_stress_t = t)
-                            state == "f3" && (f3b_stress_t = t)
-                        elseif occursin("-ball", line)
+                        if occursin("-ball", line)
                             ball_t = parse(Float64, toks[val_idx])
+                        elseif occursin("-feat", line)
+                            feat_t = parse(Float64, toks[val_idx])
+                        elseif occursin("-netw", line)
+                            netw_t = parse(Float64, toks[val_idx])
+                        elseif occursin("ddp", line)
+                            ddp_t = parse(Float64, toks[val_idx])
                         end
                     end
 
-                    f2b_t = f2b_feat_t + f2b_force_t      # two-body feat+force (excl. stress)
-                    f3b_t = f3b_feat_t + f3b_force_t      # three-body feat+force
-                    feat_force_t = f2b_t + f3b_t          # total feat+force
-                    feat_only_t  = f2b_feat_t + f3b_feat_t # feature values only
-
-                    f2b_us = round(f2b_t / nat * 1e6, digits=1)
-                    f3b_us = round(f3b_t / nat * 1e6, digits=1)
-                    feat_us = round(feat_force_t / nat * 1e6, digits=1)
+                    feat_us = round(feat_t / nat * 1e6, digits=1)
                     println("    run $irun: " *
                             "ball=$(round(ball_t*1000, digits=1))ms  " *
-                            "f2b(f=$(round(f2b_feat_t*1000, digits=1)) g=$(round(f2b_force_t*1000, digits=1)))ms  " *
-                            "f3b(f=$(round(f3b_feat_t*1000, digits=1)) g=$(round(f3b_force_t*1000, digits=1)))ms  " *
-                            "netw=$(round(netw_t*1000, digits=1))ms  ($feat_us us/atom)")
-                    push!(times_list, feat_force_t)
+                            "feat=$(round(feat_t*1000, digits=1))ms  " *
+                            "netw=$(round(netw_t*1000, digits=1))ms  " *
+                            "ddp=$(round(ddp_t*1000, digits=1))ms  ($feat_us us/atom)")
+                    push!(times_list, feat_t)
                 catch e
                     println("    run $irun: FAILED - $e")
                 end
@@ -282,10 +255,10 @@ if @isdefined(ft_results) && !isempty(ft_results)
         best = minimum(times)
         best_us = round(best / nat * 1e6, digits=1)
         omp_n = match(r"omp(\d+)", key).captures[1]
-        println("  Fortran (OMP=$omp_n, feat+force):  $(round(best*1000, digits=1)) ms  ($best_us us/atom)")
+        println("  Fortran (OMP=$omp_n, feat):  $(round(best*1000, digits=1)) ms  ($best_us us/atom)")
         if @isdefined(jl_grad_best)
             ratio = jl_grad_best / best
-            println("    --> Julia feat+grad / Fortran: $(round(ratio, digits=2))x")
+            println("    --> Julia feat+grad / Fortran feat: $(round(ratio, digits=2))x")
         end
     end
 end
