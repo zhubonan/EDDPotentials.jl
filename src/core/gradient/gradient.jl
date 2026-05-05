@@ -178,11 +178,11 @@ function compute_fv_gv_one!(
         _ensure_feat_buf!(workspace, npmax3, nqmax3, lfe3, nl)
         bufs = workspace.feat_bufs[Threads.threadid()]
     end
-    pij = bufs.pij
+    #pij = bufs.pij
     inv_fij = bufs.inv_fij
-    pik = bufs.pik
+    #pik = bufs.pik
     inv_fik = bufs.inv_fik
-    qjk = bufs.qjk
+    #qjk = bufs.qjk
     inv_fjk = bufs.inv_fjk
     tiny_dist = 1e-14
 
@@ -231,9 +231,10 @@ function compute_fv_gv_one!(
         if has_3b
             ftmp = cf.f3(rij, cf.rcut3)
             inv_fij[1] = 1.0 / ftmp
-            @inbounds @simd for m = 1:npmax3
-                pij[m, 1] = fast_pow(ftmp, cf.p3[m])
-            end
+            pij = ftmp .^ cf.p3
+            # @inbounds @simd for m = 1:npmax3
+            #     pij[m, 1] = fast_pow(ftmp, cf.p3[m])
+            # end
         end
 
         # Add hard core repulsion
@@ -261,15 +262,16 @@ function compute_fv_gv_one!(
                         gvec[dir, i2, 1, iat] -= modvij[dir] * gfij
                         gvec[dir, i2, ineigth_j, iat] += modvij[dir] * gfij
                     end
-                    stotv[1, 1, i2, iat] += vij[1] * modvij[1] * gfij
-                    stotv[1, 2, i2, iat] += vij[1] * modvij[2] * gfij
-                    stotv[1, 3, i2, iat] += vij[1] * modvij[3] * gfij
-                    stotv[2, 1, i2, iat] += vij[2] * modvij[1] * gfij
-                    stotv[2, 2, i2, iat] += vij[2] * modvij[2] * gfij
-                    stotv[2, 3, i2, iat] += vij[2] * modvij[3] * gfij
-                    stotv[3, 1, i2, iat] += vij[3] * modvij[1] * gfij
-                    stotv[3, 2, i2, iat] += vij[3] * modvij[2] * gfij
-                    stotv[3, 3, i2, iat] += vij[3] * modvij[3] * gfij
+                    vijt = vij .* gfij
+                    stotv[1, 1, i2, iat] += vijt[1] * modvij[1]
+                    stotv[1, 2, i2, iat] += vijt[1] * modvij[2]
+                    stotv[1, 3, i2, iat] += vijt[1] * modvij[3] 
+                    stotv[2, 1, i2, iat] += vijt[2] * modvij[1]
+                    stotv[2, 2, i2, iat] += vijt[2] * modvij[2]
+                    stotv[2, 3, i2, iat] += vijt[2] * modvij[3]
+                    stotv[3, 1, i2, iat] += vijt[3] * modvij[1]
+                    stotv[3, 2, i2, iat] += vijt[3] * modvij[2]
+                    stotv[3, 3, i2, iat] += vijt[3] * modvij[3]
                     i2 += 1
                 end
             else
@@ -309,16 +311,18 @@ function compute_fv_gv_one!(
             # Compute pik
             ftmp = cf.f3(rik, cf.rcut3)
             inv_fik[1] = 1.0 / ftmp
-            @inbounds @simd for m = 1:npmax3
-                pik[m, 1] = fast_pow(ftmp, cf.p3[m])
-            end
+            pik = ftmp .^ cf.p3
+            # @inbounds @simd for m = 1:npmax3
+            #     pik[m, 1] = fast_pow(ftmp, cf.p3[m])
+            # end
 
             # Compute qjk
             ftmp = cf.f3(rjk, cf.rcut3)
             inv_fjk[1] = 1.0 / ftmp
-            @inbounds @simd for o = 1:nqmax3
-                qjk[o, 1] = fast_pow(ftmp, cf.q3[o])
-            end
+            qjk = ftmp .^ cf.q3
+            # @inbounds @simd for o = 1:nqmax3
+            #     qjk[o, 1] = fast_pow(ftmp, cf.q3[o])
+            # end
 
             cj = atom_species_ints[jat]
             ck = atom_species_ints[kat]
@@ -336,7 +340,7 @@ function compute_fv_gv_one!(
 
                 ijkp_buf = bufs.ijkp_buf
                 @inbounds @simd for m = 1:NP3
-                    ijkp_buf[m] = pij[m, 1] * pik[m, 1]
+                    ijkp_buf[m] = pij[m] * pik[m]
                 end
                 
                 # Update the feature vector
@@ -344,7 +348,7 @@ function compute_fv_gv_one!(
                     ijkp_m = ijkp_buf[m]
                     oo = (m - 1) * NQ3 - 1 + i3
                     @inbounds @simd for o = 1:NQ3
-                        fvec[oo + o, iat] += qjk[o, 1] * ijkp_m
+                        fvec[oo + o, iat] += qjk[o] * ijkp_m
                     end
                 end
 
@@ -361,11 +365,11 @@ function compute_fv_gv_one!(
                     gscale2_m = gtmp2[m] * ijkp
                     fc = view(bufs.ffact_center, :, m)
                     @inbounds for o = 1:NQ3
-                        val = ijkp * qjk[o, 1]
+                        val = ijkp * qjk[o]
                         val == 0 && (i3 += 1; continue)
 
-                        gs1 = gscale1_m * qjk[o, 1]
-                        gs2 = gscale2_m * qjk[o, 1]
+                        gs1 = gscale1_m * qjk[o]
+                        gs2 = gscale2_m * qjk[o]
                         gs3 = gtmp3[o] * val
 
                         @inbounds @simd for dir in 1:D
@@ -389,13 +393,13 @@ function compute_fv_gv_one!(
             else
                 ijkp_buf = bufs.ijkp_buf
                 @inbounds @simd for m = 1:NP3
-                    ijkp_buf[m] = pij[m, 1] * pik[m, 1]
+                    ijkp_buf[m] = pij[m] * pik[m]
                 end
                 for m = 1:NP3
                     ijkp_m = ijkp_buf[m]
                     oo = (m-1) * NQ3 - 1 + i3
                     @inbounds @simd for o = 1:NQ3
-                        fvec[oo + o, iat] += qjk[o, 1] * ijkp_m
+                        fvec[oo + o, iat] += qjk[o] * ijkp_m
                     end
                 end
             end

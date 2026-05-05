@@ -37,9 +37,9 @@ struct CellFeature{T, F2, G2, F3, G3, NELEM, NP2, NP3, NQ3} <: AbstractCellFeatu
     # ── Parameters ──
     rcut2::Float64
     rcut3::Float64
-    p2::NTuple{NP2, T}
-    p3::NTuple{NP3, T}
-    q3::NTuple{NQ3, T}
+    p2::SVector{NP2, T}
+    p3::SVector{NP3, T}
+    q3::SVector{NQ3, T}
     f2::F2
     g2::G2
     f3::F3
@@ -182,6 +182,8 @@ function CellFeature(
     p3t = Tuple(p3)
     q3t = Tuple(q3)
 
+    T = isempty(p2t) ? (isempty(p3t) ? (isempty(q3t) ? Float64 : eltype(q3t)) : eltype(p3t)) : eltype(p2t)
+
     # Sort the elements to ensure stability
     elements_vec = sort(unique(map(Symbol, elements)))
     isempty(elements_vec) && throw(ArgumentError("CellFeature requires at least one element."))
@@ -231,7 +233,9 @@ function CellFeature(
         two_body_species_vec, two_body_channel,
         three_body_species_vec, three_body_channel,
         rcut2, rcut3,
-        p2t, p3t, q3t,
+        SVector{length(p2t), T}(p2t),
+        SVector{length(p3t), T}(p3t),
+        SVector{length(q3t), T}(q3t),
         f2, g2, f3, g3,
     )
 end
