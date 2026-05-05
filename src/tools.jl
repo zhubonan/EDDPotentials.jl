@@ -346,12 +346,14 @@ Sum the components of the gradients collected from neighbour of each atom:
 function gvec_index_transfer(workspace)
     gvec = workspace.gvec
     # Recover the gradient in the dFj/dri format
-    gvec_ideal = zeros(size(gvec, 1), size(gvec, 2), size(gvec, 4), size(gvec, 4))
+    gvec_ideal = zeros(size(gvec, 2), size(gvec, 1), size(gvec, 4), size(gvec, 4))
     for iat in axes(gvec, 4)
         for j = 1:workspace.gvec_nn[iat]
             # Transfor neighbour local index to atom index
             jat = workspace.gvec_index[j, iat]  # index of the atoms that has moved
-            gvec_ideal[:, :, iat, jat] .+= gvec[:, :, j, iat]
+            for a in axes(gvec_ideal, 1), b in axes(gvec_ideal, 2)
+                gvec_ideal[a, b, iat, jat] += gvec[b, a, j, iat]
+            end
         end
     end
     gvec_ideal
@@ -373,7 +375,7 @@ function fd_desc(cf, cell, step=1e-6)
     # Recover the gradient in the dFj/dri format
     gvec_ideal = gvec_index_transfer(fb)
 
-    diff = zeros(size(gvec, 1), size(gvec, 2), natoms(cell), natoms(cell))  # dFj/dri
+    diff = zeros(size(gvec, 2), size(gvec, 1), natoms(cell), natoms(cell))  # dFj/dri
     for iat = 1:natoms(cell)
         for dir = 1:size(cell.positions, 1)
             dcell = deepcopy(cell)
@@ -412,7 +414,7 @@ function force_gradient(cf, cell, core_size=0)
     fb = compute_fv_gv(cf, cell, core=core)
     gvec = fb.gvec # dFi/drj order
     # coefficients such that param * fvec = energies
-    param = rand(1, size(fb.gvec, 2))
+    param = rand(1, size(fb.gvec, 1))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
     n1bd = one_body_offset(cf)
@@ -421,7 +423,7 @@ function force_gradient(cf, cell, core_size=0)
     forces = copy(fb.tot_forces)
 
     # dE/dri
-    diff = zeros(size(gvec, 1), natoms(cell))
+    diff = zeros(size(gvec, 2), natoms(cell))
     for iat = 1:natoms(cell)
         for dir = 1:size(cell.positions, 1)
             dcell = deepcopy(cell)
@@ -466,7 +468,7 @@ function stress_gradient(cf, cell, core_size=0, step=1e-6)
     end
     fb = compute_fv_gv(cf, cell)
     # coefficients such that param * fvec = energies
-    param = rand(1, size(fb.gvec, 2))
+    param = rand(1, size(fb.gvec, 1))
     gv = repeat(transpose(param), 1, natoms(cell))
     # Compute forces
     n1bd = one_body_offset(cf)

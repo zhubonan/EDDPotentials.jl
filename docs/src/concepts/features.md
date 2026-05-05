@@ -423,21 +423,21 @@ The `lookup(cf, s)` / `lookup(cf, s1, s2)` / `lookup(cf, s1, s2, s3)` functions 
 ### Gradient Workspace Array Shapes
 
 - **`fvec`**: `(nfeatures, natoms)` — feature vectors per atom
-- **`gvec`**: `(ndims, nfeatures, nn_max, natoms)` — feature gradients `∂F_i / ∂r_j` where `j` ranges over the center atom (index 1) and its unique neighbors (indices 2..nn). `nn_max` is the max number of unique neighbors + 1 across all atoms. `gvec_index[:, iat]` maps local neighbor slot to actual atom index.
-- **`stotv`**: `(3, 3, nfeatures, natoms)` — strain derivatives `∂F / ∂ε` for stress computation
+- **`gvec`**: `(nfeatures, ndims, nn_max, natoms)` — feature gradients `∂F_i / ∂r_j` where `j` ranges over the center atom (index 1) and its unique neighbors (indices 2..nn). `nn_max` is the max number of unique neighbors + 1 across all atoms. `gvec_index[:, iat]` maps local neighbor slot to actual atom index.
+- **`stotv`**: `(nfeatures, 3, 3, natoms)` — strain derivatives `∂F / ∂ε` for stress computation
 
 ### Chain Rule: Forces and Stress
 
 Forces are obtained via `_force_update!` (`gradient.jl`):
 
 ```
-forces[elm, jat] = -Σᵢ Σₓ gvec[elm, x, j_local, iat] × gv[x, iat]
+forces[elm, jat] = -Σᵢ Σₓ gvec[x, elm, j_local, iat] × gv[x, iat]
 ```
 
 where `gv = dE/d(fvec)` is the upstream gradient from the neural network. Stress is obtained via `_stress_update!`:
 
 ```
-stress[a, b] = Σᵢₐₜ Σₓ stotv[a, b, x, iat] × gv[x, iat]
+stress[a, b] = Σᵢₐₜ Σₓ stotv[x, a, b, iat] × gv[x, iat]
 ```
 
 ## CellFeature Lookup API

@@ -73,9 +73,9 @@ function _populate_feat_bufs!(workspace::GradientWorkspace, cf::CellFeature{<:An
             zeros(Int, nl.nmax),
             zeros(Int, max_atom_id + 1),
             zeros(T, npmax3),
-            zeros(T, ndims, npmax3),
-            zeros(T, ndims, npmax3, nqmax3),
-            zeros(T, ndims, npmax3, nqmax3),
+            zeros(T, npmax3, ndims),
+            zeros(T, npmax3 * nqmax3, ndims),
+            zeros(T, npmax3 * nqmax3, ndims),
         ))
     end
 end
@@ -100,9 +100,9 @@ function _ensure_feat_buf!(workspace::GradientWorkspace, npmax3, nqmax3, lfe3, n
                 zeros(Int, nl.nmax),
                 zeros(Int, max_atom_id + 1),
                 zeros(T, npmax3),
-                zeros(T, ndims, npmax3),
-                zeros(T, ndims, npmax3, nqmax3),
-                zeros(T, ndims, npmax3, nqmax3),
+                zeros(T, npmax3, ndims),
+                zeros(T, npmax3 * nqmax3, ndims),
+                zeros(T, npmax3 * nqmax3, ndims),
             ))
         end
     end
@@ -118,16 +118,17 @@ function _precompute_3b_factors!(
     @inbounds for m = 1:np
         g1 = gtmp1[m]; g2 = gtmp2[m]
         for axis in 1:D
-            ffact_center[axis, m] = -(modvij[axis]*g1 + modvik[axis]*g2)
+            ffact_center[m, axis] = -(modvij[axis]*g1 + modvik[axis]*g2)
         end
     end
     @inbounds for o = 1:nq
         g3o = gtmp3[o]
         for m = 1:np
             g1 = gtmp1[m]; g2 = gtmp2[m]
+            idx = (m - 1) * nq + o
             for axis in 1:D
-                ffact_j[axis, m, o] = modvij[axis]*g1 - modvjk[axis]*g3o
-                ffact_k[axis, m, o] = modvik[axis]*g2 + modvjk[axis]*g3o
+                ffact_j[idx, axis] = modvij[axis]*g1 - modvjk[axis]*g3o
+                ffact_k[idx, axis] = modvik[axis]*g2 + modvjk[axis]*g3o
             end
         end
     end
@@ -259,19 +260,19 @@ function compute_fv_gv_one!(
                         gfij = zero(val)
                     end
                     @inbounds @simd for dir in 1:D
-                        gvec[dir, i2, 1, iat] -= modvij[dir] * gfij
-                        gvec[dir, i2, ineigth_j, iat] += modvij[dir] * gfij
+                        gvec[i2, dir, 1, iat] -= modvij[dir] * gfij
+                        gvec[i2, dir, ineigth_j, iat] += modvij[dir] * gfij
                     end
                     vijt = vij .* gfij
-                    stotv[1, 1, i2, iat] += vijt[1] * modvij[1]
-                    stotv[1, 2, i2, iat] += vijt[1] * modvij[2]
-                    stotv[1, 3, i2, iat] += vijt[1] * modvij[3] 
-                    stotv[2, 1, i2, iat] += vijt[2] * modvij[1]
-                    stotv[2, 2, i2, iat] += vijt[2] * modvij[2]
-                    stotv[2, 3, i2, iat] += vijt[2] * modvij[3]
-                    stotv[3, 1, i2, iat] += vijt[3] * modvij[1]
-                    stotv[3, 2, i2, iat] += vijt[3] * modvij[2]
-                    stotv[3, 3, i2, iat] += vijt[3] * modvij[3]
+                    stotv[i2, 1, 1, iat] += vijt[1] * modvij[1]
+                    stotv[i2, 1, 2, iat] += vijt[1] * modvij[2]
+                    stotv[i2, 1, 3, iat] += vijt[1] * modvij[3] 
+                    stotv[i2, 2, 1, iat] += vijt[2] * modvij[1]
+                    stotv[i2, 2, 2, iat] += vijt[2] * modvij[2]
+                    stotv[i2, 2, 3, iat] += vijt[2] * modvij[3]
+                    stotv[i2, 3, 1, iat] += vijt[3] * modvij[1]
+                    stotv[i2, 3, 2, iat] += vijt[3] * modvij[2]
+                    stotv[i2, 3, 3, iat] += vijt[3] * modvij[3]
                     i2 += 1
                 end
             else
@@ -363,7 +364,7 @@ function compute_fv_gv_one!(
                     ijkp = ijkp_buf[m]
                     gscale1_m = gtmp1[m] * ijkp
                     gscale2_m = gtmp2[m] * ijkp
-                    fc = view(bufs.ffact_center, :, m)
+                    fc = view(bufs.ffact_center, m, :)
                     @inbounds for o = 1:NQ3
                         val = ijkp * qjk[o]
                         val == 0 && (i3 += 1; continue)
@@ -372,21 +373,22 @@ function compute_fv_gv_one!(
                         gs2 = gscale2_m * qjk[o]
                         gs3 = gtmp3[o] * val
 
+                        idx = (m - 1) * NQ3 + o
                         @inbounds @simd for dir in 1:D
-                          gvec[dir, i3, 1, iat] += val * fc[dir]
-                          gvec[dir, i3, ineigth_j, iat] += val * bufs.ffact_j[dir, m, o]
-                          gvec[dir, i3, ineigth_k, iat] += val * bufs.ffact_k[dir, m, o]
+                          gvec[i3, dir, 1, iat] += val * fc[dir]
+                          gvec[i3, dir, ineigth_j, iat] += val * bufs.ffact_j[idx, dir]
+                          gvec[i3, dir, ineigth_k, iat] += val * bufs.ffact_k[idx, dir]
                         end
 
-                        stotv[1, 1, i3, iat] += vij[1]*modvij[1]*gs1 + vik[1]*modvik[1]*gs2 + vjk[1]*modvjk[1]*gs3
-                        stotv[1, 2, i3, iat] += vij[1]*modvij[2]*gs1 + vik[1]*modvik[2]*gs2 + vjk[1]*modvjk[2]*gs3
-                        stotv[1, 3, i3, iat] += vij[1]*modvij[3]*gs1 + vik[1]*modvik[3]*gs2 + vjk[1]*modvjk[3]*gs3
-                        stotv[2, 1, i3, iat] += vij[2]*modvij[1]*gs1 + vik[2]*modvik[1]*gs2 + vjk[2]*modvjk[1]*gs3
-                        stotv[2, 2, i3, iat] += vij[2]*modvij[2]*gs1 + vik[2]*modvik[2]*gs2 + vjk[2]*modvjk[2]*gs3
-                        stotv[2, 3, i3, iat] += vij[2]*modvij[3]*gs1 + vik[2]*modvik[3]*gs2 + vjk[2]*modvjk[3]*gs3
-                        stotv[3, 1, i3, iat] += vij[3]*modvij[1]*gs1 + vik[3]*modvik[1]*gs2 + vjk[3]*modvjk[1]*gs3
-                        stotv[3, 2, i3, iat] += vij[3]*modvij[2]*gs1 + vik[3]*modvik[2]*gs2 + vjk[3]*modvjk[2]*gs3
-                        stotv[3, 3, i3, iat] += vij[3]*modvij[3]*gs1 + vik[3]*modvik[3]*gs2 + vjk[3]*modvjk[3]*gs3
+                        stotv[i3, 1, 1, iat] += vij[1]*modvij[1]*gs1 + vik[1]*modvik[1]*gs2 + vjk[1]*modvjk[1]*gs3
+                        stotv[i3, 1, 2, iat] += vij[1]*modvij[2]*gs1 + vik[1]*modvik[2]*gs2 + vjk[1]*modvjk[2]*gs3
+                        stotv[i3, 1, 3, iat] += vij[1]*modvij[3]*gs1 + vik[1]*modvik[3]*gs2 + vjk[1]*modvjk[3]*gs3
+                        stotv[i3, 2, 1, iat] += vij[2]*modvij[1]*gs1 + vik[2]*modvik[1]*gs2 + vjk[2]*modvjk[1]*gs3
+                        stotv[i3, 2, 2, iat] += vij[2]*modvij[2]*gs1 + vik[2]*modvik[2]*gs2 + vjk[2]*modvjk[2]*gs3
+                        stotv[i3, 2, 3, iat] += vij[2]*modvij[3]*gs1 + vik[2]*modvik[3]*gs2 + vjk[2]*modvjk[3]*gs3
+                        stotv[i3, 3, 1, iat] += vij[3]*modvij[1]*gs1 + vik[3]*modvik[1]*gs2 + vjk[3]*modvjk[1]*gs3
+                        stotv[i3, 3, 2, iat] += vij[3]*modvij[2]*gs1 + vik[3]*modvik[2]*gs2 + vjk[3]*modvjk[2]*gs3
+                        stotv[i3, 3, 3, iat] += vij[3]*modvij[3]*gs1 + vik[3]*modvik[3]*gs2 + vjk[3]*modvjk[3]*gs3
                         i3 += 1
                     end
                 end
@@ -537,9 +539,9 @@ function _force_update!(workspace, gv; offset=workspace.one_body_offset)
     for iv in axes(gvec, 4)
         for ia = 1:workspace.gvec_nn[iv]
             iat = workspace.gvec_index[ia, iv]
-            for i = 1+offset:size(gvec, 2)
+            for i = 1+offset:size(gvec, 1)
                 for elm in axes(workspace.forces, 1)
-                    workspace.forces[elm, iat] -= gvec[elm, i, ia, iv] * gv[i, iv]
+                    workspace.forces[elm, iat] -= gvec[i, elm, ia, iv] * gv[i, iv]
                 end
             end
         end
@@ -555,9 +557,9 @@ function _stress_update!(workspace::GradientWorkspace, gv; offset=workspace.one_
     stotv = workspace.stotv
     fill!(workspace.stress, 0)
     for iat in axes(stotv, 4)
-        for i = 1+offset:size(stotv, 3)
+        for i = 1+offset:size(stotv, 1)
             for a in axes(workspace.stress, 1), b in axes(workspace.stress, 2)
-                workspace.stress[a, b, iat] -= stotv[a, b, i, iat] * gv[i, iat]
+                workspace.stress[a, b, iat] -= stotv[i, a, b, iat] * gv[i, iat]
             end
         end
     end

@@ -339,12 +339,12 @@ function compute_embedded_fv_gv_one!(
 
                     if do_grad && raw != 0.0 && wpair != 0.0
                         gfij = feat2.p[m] * fast_pow(fij2, feat2.p[m] - 1) * gij * wpair
-                        for elm in axes(gvec, 1)
-                            gvec[elm, i, 1, iat] -= modvij[elm] * gfij
-                            gvec[elm, i, ineigh_j, iat] += modvij[elm] * gfij
+                        for elm in axes(gvec, 2)
+                            gvec[i, elm, 1, iat] -= modvij[elm] * gfij
+                            gvec[i, elm, ineigh_j, iat] += modvij[elm] * gfij
                         end
-                        for elm2 in axes(stotv, 2), elm1 in axes(stotv, 1)
-                            stotv[elm1, elm2, i, iat] += vij[elm1] * modvij[elm2] * gfij
+                        for elm2 in axes(stotv, 3), elm1 in axes(stotv, 2)
+                            stotv[i, elm1, elm2, iat] += vij[elm1] * modvij[elm2] * gfij
                         end
                     end
                     i += 1
@@ -402,14 +402,14 @@ function compute_embedded_fv_gv_one!(
                             t2 = modvik * dlog_ik * val
                             t3 = modvjk * (feat3.q[o] * gjk) * val
 
-                            for elm in axes(gvec, 1)
-                                gvec[elm, i, 1, iat] -= t1[elm] + t2[elm]
-                                gvec[elm, i, ineigh_j, iat] += t1[elm] - t3[elm]
-                                gvec[elm, i, ineigh_k, iat] += t2[elm] + t3[elm]
+                            for elm in axes(gvec, 2)
+                                gvec[i, elm, 1, iat] -= t1[elm] + t2[elm]
+                                gvec[i, elm, ineigh_j, iat] += t1[elm] - t3[elm]
+                                gvec[i, elm, ineigh_k, iat] += t2[elm] + t3[elm]
                             end
 
-                            for elm2 in axes(stotv, 2), elm1 in axes(stotv, 1)
-                                stotv[elm1, elm2, i, iat] += (
+                            for elm2 in axes(stotv, 3), elm1 in axes(stotv, 2)
+                                stotv[i, elm1, elm2, iat] += (
                                     vij[elm1] * t1[elm2] +
                                     vik[elm1] * t2[elm2] +
                                     vjk[elm1] * t3[elm2]
