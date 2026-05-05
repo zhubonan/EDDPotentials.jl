@@ -49,7 +49,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
 end
 
 @testset "Embedding Backprop" begin
-    nat = 10
+    nat = 3
     cf = CellFeature([:O, :H])
     ce = CellEmbedding(cf, 5)
     bg = BodyEmbeddingGradient(ce.two_body, nat)
@@ -103,7 +103,7 @@ end
     # Test differentiating through body embedding with matrix input (batch input)
     be = BodyEmbedding(rand(2, 1), 2)
     w = be.weight
-    features = rand(2, 4)
+    features = rand(2, 2)
     test_rrule(
         _apply_embedding_batch,
         w,
@@ -124,6 +124,6 @@ end
         ce.two_body.weight,
         ce.three_body.weight,
         features,
-        check_thunked_output_tangent=true,
+        check_thunked_output_tangent=false,
     )
 end

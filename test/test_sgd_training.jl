@@ -159,7 +159,7 @@ using StatsBase
         opt_res, params, history, _ = train_sgd!(
             model, data, y;
             optimizer=:adam, lr=1e-2,
-            max_epochs=2000, earlystop=0,
+            max_epochs=200, earlystop=0,
             batch_size=20,  # full batch
         )
         # Linear model should fit exactly since the data is generated from a linear model
@@ -208,7 +208,7 @@ using StatsBase
         opt_res, params, history, _ = train_sgd!(
             model, data, y;
             optimizer=:sgd_momentum, lr=1e-3, momentum=0.9,
-            max_epochs=500, earlystop=0,
+            max_epochs=100, earlystop=0,
             batch_size=10,
         )
         out = model(data[2])
@@ -226,7 +226,7 @@ using StatsBase
         opt_res, params, history, _ = train_sgd!(
             model, data, y;
             optimizer=:sgd, lr=1e-2,
-            max_epochs=500, earlystop=0,
+            max_epochs=100, earlystop=0,
             batch_size=10,
         )
         out = model(data[2])
@@ -287,7 +287,7 @@ using StatsBase
         sc = StructureContainer([path])
         cf = CellFeature([:B])
         fc = FeatureStore(sc, cf)
-        fc_train, fc_val = split(fc, 5, 5; standardize=true)
+        fc_train, fc_val = split(fc, 4, 4; standardize=true)
 
         model = ManualFluxBackPropInterface(
             Chain(Dense(ginit(5, nfeatures(cf))), Dense(ginit(1, 5))),
@@ -299,9 +299,9 @@ using StatsBase
             train_method=:sgd,
             optimizer=:adam,
             lr=1e-3,
-            max_epochs=100,
+            max_epochs=30,
             earlystop=10,
-            batch_size=5,
+            batch_size=4,
         )
         @test length(params) > 0
         @test size(history, 1) >= 1

@@ -115,10 +115,13 @@ end
 
 @testset "F/S Calculator" begin
 
-    calc = _get_lco_calc()
-    ntot = nfeatures(calc.cf)
-    model = Chain(Dense(ones(1, ntot)))
-    itf = ManualFluxBackPropInterface(model)
+    # Use smaller cell (3 atoms) for faster FD; pipeline is cell-size-agnostic
+    cell = _h2o_cell()
+    cf = CellFeature([:H, :O], p2=[2], q3=[2, 3], p3=[2, 3])
+    itf = ManualFluxBackPropInterface(
+        Chain(Dense(rand(5, nfeatures(cf))), Dense(rand(1, 5))),
+    )
+    calc = NNCalc(cell, cf, itf; core=nothing)
 
     forces = copy(eddp_forces(calc))
     stress = copy(eddp_stress(calc))

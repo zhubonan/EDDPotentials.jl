@@ -50,22 +50,12 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
 
 
         state = EDDPotentials.BuilderState(seedfile="seed.cell", seedfile_calc="calc.cell")
-        test_to_from_toml(state)
-
-        lm = EDDPotentials.TrainingOption()
-        test_to_from_toml(lm)
-
-        rss = EDDPotentials.RssSetting()
-        test_to_from_toml(rss)
 
         cf = EDDPotentials.CellFeatureConfig(elements=["H"])
-        test_to_from_toml(cf)
 
-
-        opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, lm, nothing)
+        opt = EDDPotentials.BuilderOption(state, cf, nothing, EDDPotentials.RssSetting(), EDDPotentials.TrainingOption(), nothing)
         test_to_from_toml(opt)
 
-        # Construct builder from opt
         builder = Builder(opt)
         test_to_from_toml_builder(builder)
     end

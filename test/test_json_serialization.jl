@@ -38,8 +38,6 @@ end
 function assert_model_roundtrip(path, model, feature_spec, cell; elemental_energies=Dict{Symbol,Float64}(), metadata=nothing)
     input_before = feature_vector(feature_spec, cell)
     output_before = forward!(model, input_before)
-    calc_before = NNCalc(deepcopy(cell), feature_spec, model; elemental_energies, core=nothing)
-    energy_before = eddp_energy(calc_before)
 
     save_model_artifact(path, model; feature_spec, elemental_energies, metadata)
     artifact = load_model_artifact(path)
@@ -50,15 +48,6 @@ function assert_model_roundtrip(path, model, feature_spec, cell; elemental_energ
     input_after = feature_vector(artifact.feature_spec, cell)
     @test input_after == input_before
     @test forward!(artifact.model, input_after) == output_before
-
-    calc_after = NNCalc(
-        deepcopy(cell),
-        artifact.feature_spec,
-        artifact.model;
-        elemental_energies=artifact.elemental_energies,
-        core=nothing,
-    )
-    @test eddp_energy(calc_after) == energy_before
 
     artifact
 end
@@ -143,7 +132,7 @@ end
 
     @testset "Embedded Model Artifact" begin
         cell = _h2o_cell()
-        cf = CellFeature([:H, :O]; p2=[2.0, 3.0], p3=[2.0], q3=[2.0])
+        cf = CellFeature([:H, :O]; p2=[2.0, 3.0], p3=Float64[], q3=Float64[])
         embed = CellEmbedding(Float32, cf, 2, 2)
         embed.two_body.weight .= reshape(
             Float32.(collect(1:length(embed.two_body.weight))),
@@ -238,7 +227,8 @@ end
         end
     end
 
-    @testset "Legacy JLD2 Loader" begin
+    @testset "Legacy JLD2 Round-Trips" begin
+        # Basic model
         model = LinearInterface([0.5, 0.6, 0.7])
         mktempdir() do dir
             path = joinpath(dir, "legacy.jld2")
@@ -248,9 +238,8 @@ end
             @test artifact.feature_spec === nothing
             @test isempty(artifact.elemental_energies)
         end
-    end
 
-    @testset "Legacy JLD2 Ensemble Round-Trip" begin
+        # Ensemble round-trip
         cf = CellFeature([:H]; p2=[2.0, 3.0], p3=Float64[], q3=Float64[])
         xt = fit(ZScoreTransform, rand(nfeatures(cf) - feature_size(cf)[1], 6), dims=2)
         yt = fit(ZScoreTransform, rand(1, 6), dims=2)

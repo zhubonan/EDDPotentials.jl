@@ -154,7 +154,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
     @testset "Descriptor gradient finite difference" begin
         cell = _h2o_cell()
         mcf = MultiRandomEmbeddedCellFeature(
-            [:H, :O]; nembed=3, n_multi=2, seeds=[17, 31],
+            [:H, :O]; nembed=2, n_multi=2, seeds=[17, 31],
             p2=2:2, p3=2:2, q3=2:2,
         )
 

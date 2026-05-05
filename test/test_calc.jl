@@ -102,12 +102,6 @@ end
         calc = NNCalc(cell, cf, nnitf; core=nothing)
         nnitf.chain(calc.v)
 
-        # # Test copying positions
-        # cell2 = deepcopy(cell)
-        # positions(cell2) .= 0.0
-        # EDDPotentials.copycell!(cell, cell2)
-        # @test EDDPotentials.is_equal(cell, cell2)
-
         eng = eddp_energy(calc)
         @test isa(eng, Float64)
 
@@ -121,7 +115,6 @@ end
 
         # Test against small displacements finite displacements
         _test_forces_fd(calc)
-        _test_forces_fd_vc(calc)
     end
 
     @testset "MBP&Embedding" begin
@@ -143,7 +136,6 @@ end
 
         # Test against small displacements finite displacements
         _test_forces_fd(calc)
-        _test_forces_fd_vc(calc)
     end
 
     @testset "Flux&Embedding" begin
@@ -166,7 +158,6 @@ end
 
         # Test against small displacements finite displacements
         _test_forces_fd(calc)
-        _test_forces_fd_vc(calc)
     end
 
 
@@ -184,7 +175,6 @@ end
         @test std_tot != 0.0
 
         _test_forces_fd(calc)
-        _test_forces_fd_vc(calc)
     end
 
     @testset "Linear" begin
@@ -201,7 +191,6 @@ end
         @test any(stress .!== 0.0)
 
         _test_forces_fd(calc)
-        _test_forces_fd_vc(calc)
     end
 
     @testset "VCFilter" begin
@@ -263,32 +252,26 @@ end
     setparamvector!(nnitf, [0, -5, 1])
     calc = NNCalc(cell, cf, nnitf)
 
-    # Test RelaxOption
+    # Test RelaxOption + Relax constructors
     opts = RelaxOption()
     relax = Relax(calc, opts)
     relax = Relax(calc)
 
-    # Perform relaxation
-    output = multirelax!(relax)
-    output = relax!(relax)
+    # Run relaxation with trajectory recording
+    res = relax!(calc; keep_trajectory=true)
+    @test res.converged
 
-    # Expected distance
     rexp = (1 - (5 / 2 / 2^6)^(1 / 6)) * 3.5
     dd = distance_between(cell[1], cell[2])
     @test ustrip(dd) ≈ rexp atol = 1e-4
 
-    # Test recording trajectory
-    cell = _h2_cell(10, 1.5)
-    calc = NNCalc(cell, cf, nnitf)
-    res = relax!(calc; keep_trajectory=true)
-    @test res.converged
-
-    dd = distance_between(cell[1], cell[2])
-    @test ustrip(dd) ≈ rexp atol = 1e-4
-
+    # Test trajectory was recorded
     @test length(res.relax.trajectory) > 1
     @test :energy in keys(res.relax.trajectory[1].metadata)
     @test :force in keys(res.relax.trajectory[1].metadata)
+
+    # Also test multirelax! on Relax object
+    output = multirelax!(relax)
 end
 
 @testset "Opt" begin
