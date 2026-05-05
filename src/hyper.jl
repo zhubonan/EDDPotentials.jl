@@ -84,6 +84,7 @@ is multiplied by `alpha_ramp_factor` (capped at `max_alpha`), unless
 `ramp_alpha=false`.
 
 **Termination conditions** (checked after each round):
+- Extra dimensions collapsed: `extra_norm < extra_dim_tol` → terminate
 - Two consecutive rounds with `dr_3d < pos_tol` (no 3D movement) → terminate
 - Volume out of bounds (factor `max_vol_change` from initial) → restore and terminate
 - Cell blow-up (any 3D interatomic distance > 20 Å) → restore and terminate
@@ -105,6 +106,9 @@ function scheduled_penalty_relax!(
     pos_tol=1e-4,
     ramp_alpha=true,
     max_vol_change=3.0,
+    extra_dim_tol=0.1,
+    dynamic_alpha=false,
+    force_ratio=2.0,
 )
     cell = get_cell(calc)
     nrounds = div(max_iterations, schedule_every)
@@ -171,7 +175,19 @@ function scheduled_penalty_relax!(
 
         dr_3d = maximum(norm.(eachcol(pos[1:3, :] .- pos_3d_round_start)))
 
-        if ramp_alpha
+        if dynamic_alpha && D > 3
+            max_extra_coord = maximum(norm.(eachcol(pos[4:end, :])))
+            raw_forces = eddp_forces(calc.source)
+            max_phys_extra_f = maximum(norm.(eachcol(raw_forces[4:end, :])))
+            if max_extra_coord > 1e-12 && max_phys_extra_f > 1e-12
+                new_alpha = min(force_ratio * max_phys_extra_f / (2 * max_extra_coord), max_alpha)
+                new_alpha = max(new_alpha, alpha)
+            elseif max_phys_extra_f <= 1e-12 && max_extra_coord > extra_dim_tol
+                new_alpha = min(alpha * alpha_ramp_factor, max_alpha)
+            else
+                new_alpha = alpha
+            end
+        elseif ramp_alpha
             new_alpha = min(alpha * alpha_ramp_factor, max_alpha)
         else
             new_alpha = alpha
@@ -185,6 +201,12 @@ function scheduled_penalty_relax!(
         push!(diagnostics, diag)
 
         trace && @info "Hyper round $i done  α=$(round(alpha, digits=4))→$(round(new_alpha, digits=4))  iters=$iterations_used  dr_3d=$(round(dr_3d, digits=4))  |F|=$(round(max_total_force, digits=4))  |F3d|=$(round(max_3d_force, digits=4))  |Fext|=$(round(max_extra_force, digits=4))  |extra|=$(round(extra_norm, digits=2))"
+
+        extra_norm_post = D > 3 ? maximum(norm.(eachcol(pos[4:end, :]))) : 0.0
+        if extra_dim_tol > 0 && extra_norm_post < extra_dim_tol
+            trace && @info "Hyper: extra dimensions collapsed (|extra|=$(round(extra_norm_post, digits=5)) < tol=$(extra_dim_tol)), terminating"
+            break
+        end
 
         this_stationary = dr_3d < pos_tol
         if this_stationary && prev_stationary
@@ -235,7 +257,8 @@ end
     hyper_gen_relax(bu; ndim=3, outfile=nothing, label=nothing,
                     schedule_every=50, target_iterations=500,
                     alpha_start=1e-4,
-                    relax_kwargs=(;))
+                    relax_kwargs=(;),
+                    dynamic_alpha=false, force_ratio=2.0, max_alpha=1.0)
 
 Generate a random structure, add extra dimensions, and relax using a
 scheduled penalty that gradually forces the extra coordinates back to
@@ -251,10 +274,20 @@ Returns a NamedTuple `(results, extra_dim_norms, round_diagnostics)`.
 - `target_iterations::Int`: Maximum relaxation iterations
 - `alpha_start::Float64`: Starting penalty coefficient
 - `relax_kwargs`: Additional keyword arguments passed to the optimizer
+- `dynamic_alpha::Bool`: Enable force-adaptive penalty scheduling
+- `force_ratio::Float64`: Target penalty-to-physical force ratio
+- `max_alpha::Float64`: Maximum penalty coefficient
+- `ramp_alpha::Bool`: Ramp alpha by `alpha_ramp_factor` each round
+- `alpha_ramp_factor::Float64`: Multiplicative factor for alpha ramping
+- `pos_tol::Float64`: 3D displacement tolerance for stationarity check
+- `extra_dim_tol::Float64`: Extra-dim norm tolerance for early termination
 """
 function hyper_gen_relax(bu; ndim=3, outfile=nothing, label=nothing,
                     schedule_every=50, target_iterations=500,
-                    alpha_start=1e-4, relax_fn=opt_tpsd, relax_kwargs=(;))
+                    alpha_start=1e-4, relax_fn=opt_tpsd, relax_kwargs=(;),
+                    dynamic_alpha=false, force_ratio=2.0, max_alpha=1.0,
+                    ramp_alpha=true, alpha_ramp_factor=5.0,
+                    pos_tol=1e-4, extra_dim_tol=0.1)
 
     structure = build_one(joinpath(bu.state.workdir, bu.rss.seedfile))
     if ndim > 0
@@ -267,7 +300,14 @@ function hyper_gen_relax(bu; ndim=3, outfile=nothing, label=nothing,
                     max_iterations=target_iterations,
                     alpha_start,
                     relax_fn,
-                    relax_kwargs)
+                    relax_kwargs,
+                    dynamic_alpha,
+                    force_ratio,
+                    max_alpha,
+                    ramp_alpha,
+                    alpha_ramp_factor,
+                    pos_tol,
+                    extra_dim_tol)
     if outfile !== nothing
         structure_3d = remove_dimensions(structure)
         vcalc3d = hyper_get_calc(structure_3d, bu)
@@ -288,6 +328,9 @@ end
         external_pressure_GPa=0.0,
         relax_fn=opt_tpsd,
         relax_kwargs=(;),
+        dynamic_alpha=false,
+        force_ratio=2.0,
+        max_alpha=1.0,
     )
 
 Create a hyperdimensional calculator from an [`EDDPCalculator`](@ref) and
@@ -309,6 +352,13 @@ function hyper_gen_relax(
     external_pressure_GPa=0.0,
     relax_fn=opt_tpsd,
     relax_kwargs=(;),
+    dynamic_alpha=false,
+    force_ratio=2.0,
+    max_alpha=1.0,
+    ramp_alpha=true,
+    alpha_ramp_factor=5.0,
+    pos_tol=1e-4,
+    extra_dim_tol=0.1,
 )
     hcell = deepcopy(cell)
     if ndim > 0
@@ -328,5 +378,12 @@ function hyper_gen_relax(
         alpha_start,
         relax_fn,
         relax_kwargs,
+        dynamic_alpha,
+        force_ratio,
+        max_alpha,
+        ramp_alpha,
+        alpha_ramp_factor,
+        pos_tol,
+        extra_dim_tol,
     )
 end

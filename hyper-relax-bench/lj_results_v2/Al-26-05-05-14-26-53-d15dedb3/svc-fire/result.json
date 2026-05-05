@@ -1,0 +1,13 @@
+{
+  "converged": true,
+  "final_energy": -59.63030503544146,
+  "fmax": 0.0009386555825129942,
+  "iterations": 140,
+  "min_dist": 2.1933477412170554,
+  "n_traj_frames": 140,
+  "optimizer": "fire",
+  "protocol": "standard-vc",
+  "structure": "Al-26-05-05-14-26-53-d15dedb3",
+  "vol_ratio": 0.8944840471243002,
+  "wall_s": 0.044700011
+}

@@ -19,6 +19,7 @@ function opt_tpsd(
     itermax=1000,
     trace=0,
     α_tol=1e-10,
+    maxstep=0.2,
     callback=nothing,
     keep_trajectory=false,
     trajectory=nothing,
@@ -35,6 +36,7 @@ function opt_tpsd(
         e_tol,
         itermax,
         α_tol,
+        maxstep,
         log_level,
         keep_trajectory=keep_trajectory,
     )

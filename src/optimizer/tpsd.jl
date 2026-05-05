@@ -18,6 +18,7 @@ and bypasses Optim.jl overhead for improved performance.
 - `e_tol::T = 1e-5`: Energy convergence tolerance (energy change per atom)
 - `itermax::Int = 1000`: Maximum iterations
 - `α_tol::T = 1e-10`: Minimum step size (alpha) tolerance
+- `maxstep::T = 0.2`: Maximum displacement per iteration (Euclidean norm)
 - `log_level::Symbol = :standard`: Logging verbosity (`:minimal`, `:standard`, `:detailed`)
 - `keep_trajectory::Bool = false`: Store optimization trajectory
 
@@ -58,6 +59,9 @@ Native TPSD typically achieves 20-40% speedup compared to Optim.jl version.
     e_tol::Float64 = 1e-5
     itermax::Int = 1000
     α_tol::Float64 = 1e-10
+
+    # Step size limiting
+    maxstep::Float64 = 0.2
 
     # Logging
     log_level::Symbol = :standard  # :minimal, :standard, :detailed
@@ -135,8 +139,17 @@ function step!(opt::NativeTPSD, calc::AbstractCalc)
         end
     end
 
-    # Take step: x_new = x - α * g
-    x_new = x - opt.α * g
+    # Compute step: dr = α * g (steepest descent)
+    dr = opt.α * g
+
+    # Limit step size to prevent catastrophic overshooting
+    norm_dr = sqrt(dot(dr, dr))
+    if norm_dr > opt.maxstep
+        dr *= opt.maxstep / norm_dr
+    end
+
+    # Take step: x_new = x - dr
+    x_new = x - dr
 
     # Update calculator with new positions
     set_augmented_positions_internal!(calc, x_new)

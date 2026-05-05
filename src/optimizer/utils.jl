@@ -43,6 +43,7 @@ struct TrajectoryFrame{T}
     cell_matrix::Union{Nothing, Matrix{T}}
     forces::Union{Nothing, Matrix{T}}
     stress::Union{Nothing, Matrix{T}}
+    extra_dim_norm::T
 end
 
 """
@@ -105,15 +106,19 @@ function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
     # Store in trajectory if requested
     if keep_traj
         cell = get_cell(calc)
+        pos = get_positions(cell)
+        D = size(pos, 1)
+        extra_norm = D > 3 ? maximum(norm.(eachcol(pos[4:end, :]))) : 0.0
         frame = TrajectoryFrame(
             opt.iteration,
             E,
             fmax,
             smax,
-            copy(get_positions(cell)),
+            copy(pos),
             copy(cellmat(cell)),
             copy(F),
             stress_mat !== nothing ? copy(stress_mat) : nothing,
+            extra_norm,
         )
         push!(opt.trajectory, frame)
     end
