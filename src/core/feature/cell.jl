@@ -44,6 +44,11 @@ struct CellFeature{T, F2, G2, F3, G3, NELEM, NP2, NP3, NQ3} <: AbstractCellFeatu
     g2::G2
     f3::F3
     g3::G3
+
+    # ── Spline lookup tables (derived from p2/p3/q3, rcut, f) ──
+    p2_table::SplineTable{NP2}
+    p3_table::SplineTable{NP3}
+    q3_table::SplineTable{NQ3}
 end
 
 # ─── Lookup methods ───────────────────────────────────────────────────────────
@@ -157,6 +162,7 @@ given elements.
 - `f3=fr`: Basis function for three-body interactions
 - `g3=gfr`: Gradient of f3
 - `geometry_sequence=false`: Convert p/q ranges to geometric sequences
+- `spline_ngrid=3000`: Number of grid points for spline interpolation tables
 """
 function CellFeature(
     elements;
@@ -170,6 +176,7 @@ function CellFeature(
     f3=fr,
     g3=gfr,
     geometry_sequence=false,
+    spline_ngrid::Int=3000,
 )
     # Apply geometry sequence for the powers
     if geometry_sequence
@@ -228,6 +235,10 @@ function CellFeature(
         three_body_channel[ci, ck, cj] = ch  # symmetry
     end
 
+    _p2t_spline = build_spline_table(p2t, rcut2, spline_ngrid; f=f2)
+    _p3t_spline = build_spline_table(p3t, rcut3, spline_ngrid; f=f3)
+    _q3t_spline = build_spline_table(q3t, rcut3, spline_ngrid; f=f3)
+
     return CellFeature(
         elements_nt, spec_to_idx,
         two_body_species_vec, two_body_channel,
@@ -237,6 +248,7 @@ function CellFeature(
         SVector{length(p3t), T}(p3t),
         SVector{length(q3t), T}(q3t),
         f2, g2, f3, g3,
+        _p2t_spline, _p3t_spline, _q3t_spline,
     )
 end
 
@@ -468,4 +480,44 @@ Get a suggested rcut for a collection of features.
 """
 function suggest_rcut(features...; shell=1.0)
     maximum(x.rcut for x in features) + shell
+end
+
+# ─── Spline-based power evaluation ─────────────────────────────────────────────
+# For Float64 exponents: use spline table (fast lookup vs expensive x^p)
+# For Int exponents: use direct evaluation (x^n is already fast via repeated multiplication)
+
+@inline function evaluate_p2(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,NP2}, r) where {T<:Integer, NP2}
+    fij2 = cf.f2(r, cf.rcut2)
+    fijp2 = fij2 .^ cf.p2
+    return fijp2, fij2
+end
+
+@inline function evaluate_p2(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,NP2}, r) where {T<:AbstractFloat, NP2}
+    fij2 = cf.f2(r, cf.rcut2)
+    fijp2 = evaluate_svector(cf.p2_table, r)
+    return fijp2, fij2
+end
+
+@inline function evaluate_p3(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,NP3}, r) where {T<:Integer, NP3}
+    ftmp = cf.f3(r, cf.rcut3)
+    pij = ftmp .^ cf.p3
+    return pij, ftmp
+end
+
+@inline function evaluate_p3(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,NP3}, r) where {T<:AbstractFloat, NP3}
+    ftmp = cf.f3(r, cf.rcut3)
+    pij = evaluate_svector(cf.p3_table, r)
+    return pij, ftmp
+end
+
+@inline function evaluate_q3(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,NQ3}, r) where {T<:Integer, NQ3}
+    ftmp = cf.f3(r, cf.rcut3)
+    qjk = ftmp .^ cf.q3
+    return qjk, ftmp
+end
+
+@inline function evaluate_q3(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,NQ3}, r) where {T<:AbstractFloat, NQ3}
+    ftmp = cf.f3(r, cf.rcut3)
+    qjk = evaluate_svector(cf.q3_table, r)
+    return qjk, ftmp
 end

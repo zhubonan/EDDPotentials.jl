@@ -169,6 +169,7 @@ function compute_fv_gv_one!(
     do_grad=workspace.do_grad,
     atom_species_ints,
     _bufs=nothing,
+    use_spline=true,
 ) where {NELEM, NP2, NP3, NQ3, F, D}
 
     do_grad && (@assert nl.has_vectors)
@@ -252,10 +253,14 @@ function compute_fv_gv_one!(
             ch2 = cf.two_body_channel[ci, cj]
             i2 = offset + (ch2 - 1) * NP2 + 1
             i21 = i2 - 1
-            fij2 = cf.f2(rij, cf.rcut2)
-            fij2 == 0 && continue
-            # Update the feature vector
-            fijp2 = fij2 .^ cf.p2
+            if use_spline
+                fijp2, fij2 = evaluate_p2(cf, rij)
+                fij2 == 0 && continue
+            else
+                fij2 = cf.f2(rij, cf.rcut2)
+                fij2 == 0 && continue
+                fijp2 = fij2 .^ cf.p2
+            end
             @turbo for m in 1:NP2
                 fvec[i21 + m, iat] += fijp2[m]
             end
@@ -285,11 +290,15 @@ function compute_fv_gv_one!(
         has_3b || continue
 
         # Pre-compute three-body pij factors
-        ftmp = cf.f3(rij, cf.rcut3)
-        # Skip if f function evaluated to be zero
-        ftmp == 0 && continue
+        if use_spline
+            pij, ftmp = evaluate_p3(cf, rij)
+            ftmp == 0 && continue
+        else
+            ftmp = cf.f3(rij, cf.rcut3)
+            ftmp == 0 && continue
+            pij = ftmp .^ cf.p3
+        end
         inv_fij = 1.0 / ftmp
-        pij = ftmp .^ cf.p3  # Power operation - slow!
 
         (;gs1, gs2, gs3) = bufs
 
@@ -314,16 +323,26 @@ function compute_fv_gv_one!(
             modvjk = vjk / rjk
 
             # Compute pik
-            ftmp = cf.f3(rik, cf.rcut3)
-            ftmp == 0 && continue
+            if use_spline
+                pik, ftmp = evaluate_p3(cf, rik)
+                ftmp == 0 && continue
+            else
+                ftmp = cf.f3(rik, cf.rcut3)
+                ftmp == 0 && continue
+                pik = ftmp .^ cf.p3
+            end
             inv_fik = 1.0 / ftmp
-            pik = ftmp .^ cf.p3
 
             # Compute qjk
-            ftmp = cf.f3(rjk, cf.rcut3)
-            ftmp == 0 && continue
+            if use_spline
+                qjk, ftmp = evaluate_q3(cf, rjk)
+                ftmp == 0 && continue
+            else
+                ftmp = cf.f3(rjk, cf.rcut3)
+                ftmp == 0 && continue
+                qjk = ftmp .^ cf.q3
+            end
             inv_fjk = 1.0 / ftmp
-            qjk = ftmp .^ cf.q3
 
             # Resolve the channel
             cj = atom_species_ints[jat]
@@ -386,6 +405,7 @@ function compute_fv_gv(
     nl=NeighbourList(cell, suggest_rcut(cf; shell=0.0); savevec=true),
     core=nothing,
     offset=nothing,
+    use_spline=true,
 )
     _offset = isnothing(offset) ? one_body_offset(cf) : offset
     workspace = get_workspace(cf, nl; core, offset=_offset)
@@ -399,6 +419,7 @@ function compute_fv_gv(
             compute_fv_gv_one!(
                 workspace, cf, iat, cell, nl;
                 offset=_offset, atom_species_ints=atom_species_ints, _bufs=bufs,
+                use_spline=use_spline,
             )
         end
     end
@@ -413,6 +434,7 @@ function compute_fv!(
     cell::Cell;
     nl,
     offset=workspace.one_body_offset,
+    use_spline=true,
     kwargs...,
 )
     reset!(workspace)
@@ -433,6 +455,7 @@ function compute_fv!(
                 offset,
                 atom_species_ints=atom_species_ints,
                 _bufs=bufs,
+                use_spline=use_spline,
                 kwargs...,
             )
         end
@@ -481,6 +504,7 @@ function compute_fv_gv!(
     cell::Cell;
     nl=NeighbourList(cell, suggest_rcut(cf; shell=0.0); savevec=true),
     offset=workspace.one_body_offset,
+    use_spline=true,
 )
     reset!(workspace)
     atom_species_ints = [cf.spec_to_idx[s] for s in species(cell)]
@@ -493,6 +517,7 @@ function compute_fv_gv!(
             compute_fv_gv_one!(
                 workspace, cf, iat, cell, nl;
                 offset=offset, atom_species_ints=atom_species_ints, _bufs=bufs,
+                use_spline=use_spline,
             )
         end
     end

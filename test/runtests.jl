@@ -19,6 +19,7 @@ include("test_core_module_namespace.jl")
 
 include("test_records.jl")
 include("test_cellfeature.jl")
+include("test_spline.jl")
 include("test_random_embedded_feature.jl")
 include("test_multi_embedding.jl")
 include("test_embedding.jl")

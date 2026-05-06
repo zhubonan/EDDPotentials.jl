@@ -458,6 +458,7 @@ function compute_fv!(
     cell::Cell;
     nl,
     offset=workspace.one_body_offset,
+    use_spline=true,
 )
     reset!(workspace)
     for iat = 1:natoms(cell)
@@ -472,6 +473,7 @@ function compute_fv_gv!(
     cell::Cell;
     nl=NeighbourList(cell, suggest_rcut(cf; shell=0.0); savevec=true),
     offset=workspace.one_body_offset,
+    use_spline=true,
 )
     reset!(workspace)
     for iat = 1:natoms(cell)

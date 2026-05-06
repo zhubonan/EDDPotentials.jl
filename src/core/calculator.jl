@@ -293,14 +293,14 @@ Core computation function for energy, forces, and stress. Results are cached —
 subsequent calls with an unchanged cell are no-ops. Set `rebuild_nl=false` to
 use incremental neighbor list updates instead of full rebuilds.
 """
-@timeit to function calculate!(calc::NNCalc; forces=true, rebuild_nl=true)
+@timeit to function calculate!(calc::NNCalc; forces=true, rebuild_nl=true, use_spline=true)
     # Nothing to do if the cell has not changed since last time
 
     _need_calc(calc, forces) || return
 
     @timeit to "_rebuild" _rebuild_on_demand(calc; rebuild_nl)
     # Disable rebuilding NL - we have done this already
-    @timeit to "_calculate" _calculate!(calc, false, forces)
+    @timeit to "_calculate" _calculate!(calc, false, forces, use_spline)
     # Update as the last calculated cell
     calc.last_cellmat .= cellmat(calc.cell)
     copy!(calc.last_positions, positions(calc.cell))
@@ -377,12 +377,13 @@ end
 
 Internal function to compute energy, forces and stress.
 """
-function _calculate!(calc::NNCalc, rebuild=true, compute_forces=true)
+function _calculate!(calc::NNCalc, rebuild=true, compute_forces=true, use_spline=true)
     # Compute feature vector and the gradients
     @timeit to "update_feature_vector!" update_feature_vector!(
         calc;
         rebuild_nl=rebuild,
         compute_gradients=compute_forces,
+        use_spline=use_spline,
     )
     # Energy evaluation
     calc.eng .= @timeit to "forward!" forward!(calc.nninterface, calc.v)[1, :]
@@ -418,7 +419,7 @@ end
 
 Returns the updated the feature vectors after atomic displacements
 """
-function update_feature_vector!(calc::NNCalc; rebuild_nl=true, compute_gradients=true)
+function update_feature_vector!(calc::NNCalc; rebuild_nl=true, compute_gradients=true, use_spline=true)
 
     cell = get_cell(calc)
     nl = calc.nl
@@ -431,9 +432,9 @@ function update_feature_vector!(calc::NNCalc; rebuild_nl=true, compute_gradients
     one_body_vectors!(calc.v, cell, calc.cf)
     n1bd = one_body_offset(calc.cf)
     if compute_gradients
-        @timeit to "compute_fv_gv!" compute_fv_gv!(calc.workspace, calc.cf, cell; nl, offset=n1bd)
+        @timeit to "compute_fv_gv!" compute_fv_gv!(calc.workspace, calc.cf, cell; nl, offset=n1bd, use_spline)
     else
-        @timeit to "compute_fv!" compute_fv!(calc.workspace, calc.cf, cell; nl, offset=n1bd)
+        @timeit to "compute_fv!" compute_fv!(calc.workspace, calc.cf, cell; nl, offset=n1bd, use_spline)
     end
     # Construct the combined feature vector that includes onebody interactions
     calc.v

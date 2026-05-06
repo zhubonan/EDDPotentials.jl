@@ -172,6 +172,7 @@ function compute_fv!(
     cell::Cell;
     nl,
     offset=nothing,
+    use_spline=true,
 )
     reset!(workspace)
     one_body_vectors!(workspace.fvec, cell, cf)
@@ -196,11 +197,11 @@ function compute_fv_gv!(
     cell::Cell;
     nl,
     offset=nothing,
+    use_spline=true,
 )
     reset!(workspace)
     one_body_vectors!(workspace.fvec, cell, cf)
     for iat = 1:natoms(cell)
-        # Zero per-atom gradient arrays once for all embeddings
         if workspace.do_grad
             workspace.gvec[:, :, :, iat] .= 0.0
             workspace.stotv[:, :, :, iat] .= 0.0

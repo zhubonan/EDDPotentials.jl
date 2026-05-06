@@ -139,6 +139,7 @@ g(r)= \begin{cases}
 """
 gfr(r::T, rcut) where {T} = r <= rcut ? -2 / rcut : zero(T)
 
+include("spline_table.jl")
 include("cell.jl")
 include("embedded.jl")
 include("multi_embedded.jl")

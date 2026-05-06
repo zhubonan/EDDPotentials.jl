@@ -109,61 +109,93 @@ if !fortran_only
     avg_nn = sum(nl.nneigh) / nat
     println("  rcut=$rcut, avg neighbours/atom=$(round(avg_nn, digits=1))")
 
-    function julia_compute!(do_grad, cell, nl, cf, atom_species_ints)
-        ws = EDDPotentialsCore.get_workspace(cf, nl, do_grad)
+    ws_feat = EDDPotentialsCore.get_workspace(cf, nl, false)
+    ws_grad = EDDPotentialsCore.get_workspace(cf, nl, true)
+
+    function julia_compute!(ws, do_grad, cell, nl, cf, atom_species_ints; use_spline=true)
+        EDDPotentialsCore.reset!(ws)
         for iat in 1:natoms(cell)
             EDDPotentialsCore.compute_fv_gv_one!(
                 ws, cf, iat, cell, nl;
                 offset=ws.one_body_offset, do_grad=do_grad,
                 atom_species_ints=atom_species_ints,
+                use_spline=use_spline,
             )
         end
         ws
     end
 
-    julia_compute!(false, cell, nl, cf, atom_species_ints)
-
-    jl_feat_times = Float64[]
-    println("\n  features only:")
-    for i in 1:n_runs
-        t = @elapsed julia_compute!(false, cell, nl, cf, atom_species_ints)
-        push!(jl_feat_times, t)
-        println("    run $i: $(round(t, digits=4)) s  ($(round(t/nat*1e6, digits=1)) us/atom)")
-    end
-    jl_feat_best = minimum(jl_feat_times)
-
-    jl_grad_times = Float64[]
-    julia_compute!(true, cell, nl, cf, atom_species_ints)
-    println("\n  features + gradients:")
-    for i in 1:n_runs
-        t = @elapsed julia_compute!(true, cell, nl, cf, atom_species_ints)
-        push!(jl_grad_times, t)
-        println("    run $i: $(round(t, digits=4)) s  ($(round(t/nat*1e6, digits=1)) us/atom)")
-    end
-    jl_grad_best = minimum(jl_grad_times)
-
-    if nthreads() > 1
-        println("\n  threaded ($(nthreads()) threads), features only:")
-        ws_mt = EDDPotentialsCore.get_workspace(cf, nl, false)
-        function julia_compute_mt!(ws, cf, cell, nl, atom_species_ints)
-            EDDPotentialsCore.reset!(ws)
-            Threads.@threads for iat in 1:natoms(cell)
-                EDDPotentialsCore.compute_fv_gv_one!(
-                    ws, cf, iat, cell, nl;
-                    offset=ws.one_body_offset, do_grad=false,
-                    atom_species_ints=atom_species_ints,
-                )
-            end
-            ws
+    n_warmup = max(3, n_runs ÷ 2)
+    for use_spline in (true, false)
+        label = use_spline ? "spline" : "direct"
+        println("\n  features only ($label), $n_warmup warmup + $n_runs timed:")
+        for _ in 1:n_warmup
+            julia_compute!(ws_feat, false, cell, nl, cf, atom_species_ints; use_spline)
         end
-        julia_compute_mt!(ws_mt, cf, cell, nl, atom_species_ints)
-        jl_mt_times = Float64[]
+        feat_times = Float64[]
         for i in 1:n_runs
-            t = @elapsed julia_compute_mt!(ws_mt, cf, cell, nl, atom_species_ints)
-            push!(jl_mt_times, t)
+            GC.gc()
+            t = @elapsed julia_compute!(ws_feat, false, cell, nl, cf, atom_species_ints; use_spline)
+            push!(feat_times, t)
             println("    run $i: $(round(t, digits=4)) s  ($(round(t/nat*1e6, digits=1)) us/atom)")
         end
-        jl_mt_best = minimum(jl_mt_times)
+        if use_spline
+            global jl_feat_best = minimum(feat_times)
+        else
+            global jl_feat_direct_best = minimum(feat_times)
+        end
+
+        println("\n  features + gradients ($label), $n_warmup warmup + $n_runs timed:")
+        for _ in 1:n_warmup
+            julia_compute!(ws_grad, true, cell, nl, cf, atom_species_ints; use_spline)
+        end
+        grad_times = Float64[]
+        for i in 1:n_runs
+            GC.gc()
+            t = @elapsed julia_compute!(ws_grad, true, cell, nl, cf, atom_species_ints; use_spline)
+            push!(grad_times, t)
+            println("    run $i: $(round(t, digits=4)) s  ($(round(t/nat*1e6, digits=1)) us/atom)")
+        end
+        if use_spline
+            global jl_grad_best = minimum(grad_times)
+        else
+            global jl_grad_direct_best = minimum(grad_times)
+        end
+    end
+
+    if nthreads() > 1
+        for use_spline in (true, false)
+            label = use_spline ? "spline" : "direct"
+            println("\n  threaded ($(nthreads()) threads), features only ($label):")
+            ws_mt = EDDPotentialsCore.get_workspace(cf, nl, false)
+            function julia_compute_mt!(ws, cf, cell, nl, atom_species_ints; use_spline=true)
+                EDDPotentialsCore.reset!(ws)
+                Threads.@threads for iat in 1:natoms(cell)
+                    EDDPotentialsCore.compute_fv_gv_one!(
+                        ws, cf, iat, cell, nl;
+                        offset=ws.one_body_offset, do_grad=false,
+                        atom_species_ints=atom_species_ints,
+                        use_spline=use_spline,
+                    )
+                end
+                ws
+            end
+            for _ in 1:n_warmup
+                julia_compute_mt!(ws_mt, cf, cell, nl, atom_species_ints; use_spline)
+            end
+            jl_mt_times = Float64[]
+            for i in 1:n_runs
+                GC.gc()
+                t = @elapsed julia_compute_mt!(ws_mt, cf, cell, nl, atom_species_ints; use_spline)
+                push!(jl_mt_times, t)
+                println("    run $i: $(round(t, digits=4)) s  ($(round(t/nat*1e6, digits=1)) us/atom)")
+            end
+            if use_spline
+                global jl_mt_best = minimum(jl_mt_times)
+            else
+                global jl_mt_direct_best = minimum(jl_mt_times)
+            end
+        end
     end
 end
 
@@ -240,13 +272,30 @@ println("  Summary ($nat atoms, 418 features)")
 println("=" ^ 70)
 
 if @isdefined(jl_feat_best)
-    println("  Julia (1 thread, feat only):    $(round(jl_feat_best*1000, digits=1)) ms  ($(round(jl_feat_best/nat*1e6, digits=1)) us/atom)")
+    println("  Julia spline (1 thread, feat only):    $(round(jl_feat_best*1000, digits=1)) ms  ($(round(jl_feat_best/nat*1e6, digits=1)) us/atom)")
+end
+if @isdefined(jl_feat_direct_best)
+    println("  Julia direct (1 thread, feat only):    $(round(jl_feat_direct_best*1000, digits=1)) ms  ($(round(jl_feat_direct_best/nat*1e6, digits=1)) us/atom)")
+    if @isdefined(jl_feat_best)
+        ratio = jl_feat_direct_best / jl_feat_best
+        println("    --> spline speedup: $(round(ratio, digits=2))x")
+    end
 end
 if @isdefined(jl_grad_best)
-    println("  Julia (1 thread, feat+grad):    $(round(jl_grad_best*1000, digits=1)) ms  ($(round(jl_grad_best/nat*1e6, digits=1)) us/atom)")
+    println("  Julia spline (1 thread, feat+grad):    $(round(jl_grad_best*1000, digits=1)) ms  ($(round(jl_grad_best/nat*1e6, digits=1)) us/atom)")
+end
+if @isdefined(jl_grad_direct_best)
+    println("  Julia direct (1 thread, feat+grad):    $(round(jl_grad_direct_best*1000, digits=1)) ms  ($(round(jl_grad_direct_best/nat*1e6, digits=1)) us/atom)")
+    if @isdefined(jl_grad_best)
+        ratio = jl_grad_direct_best / jl_grad_best
+        println("    --> spline speedup: $(round(ratio, digits=2))x")
+    end
 end
 if @isdefined(jl_mt_best)
-    println("  Julia ($(nthreads()) threads, feat only):  $(round(jl_mt_best*1000, digits=1)) ms  ($(round(jl_mt_best/nat*1e6, digits=1)) us/atom)")
+    println("  Julia spline ($(nthreads()) threads, feat only):  $(round(jl_mt_best*1000, digits=1)) ms  ($(round(jl_mt_best/nat*1e6, digits=1)) us/atom)")
+end
+if @isdefined(jl_mt_direct_best)
+    println("  Julia direct ($(nthreads()) threads, feat only):  $(round(jl_mt_direct_best*1000, digits=1)) ms  ($(round(jl_mt_direct_best/nat*1e6, digits=1)) us/atom)")
 end
 
 if @isdefined(ft_results) && !isempty(ft_results)
@@ -257,7 +306,7 @@ if @isdefined(ft_results) && !isempty(ft_results)
         println("  Fortran (OMP=$omp_n, feat):  $(round(best*1000, digits=1)) ms  ($best_us us/atom)")
         if @isdefined(jl_grad_best)
             ratio = jl_grad_best / best
-            println("    --> Julia feat+grad / Fortran feat: $(round(ratio, digits=2))x")
+            println("    --> Julia spline feat+grad / Fortran feat: $(round(ratio, digits=2))x")
         end
     end
 end
