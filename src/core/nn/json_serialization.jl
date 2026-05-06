@@ -1,5 +1,5 @@
 using JSON
-using Flux: Chain, Dense, tanh
+using Flux: Chain, Dense, tanh, tanh_fast
 
 """
     ModelArtifact

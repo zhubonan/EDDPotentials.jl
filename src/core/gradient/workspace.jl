@@ -70,6 +70,9 @@ struct FeatureBuffers{T}
     ffact_j::Matrix{T}
     "Precomputed force factor on neighbour k ((npmax3 * nqmax3) × ndims)"
     ffact_k::Matrix{T}
+    gs1::Vector{T}
+    gs2::Vector{T}
+    gs3::Vector{T}
 end
 
 """

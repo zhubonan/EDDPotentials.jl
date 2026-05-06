@@ -314,8 +314,9 @@ function compute_embedded_fv_gv_one!(
         ineigh_j = findfirst(isequal(jat), neighbour_indices) + 1
         modvij = vij / rij
 
+        fijtmp = feat3.f(rij, feat3.rcut)
+        fijtmp == 0 && continue
         if !isnothing(feat3)
-            fijtmp = feat3.f(rij, feat3.rcut)
             inv_fij = 1.0 / fijtmp
             for m = 1:feat3.np
                 pij[m] = fast_pow(fijtmp, feat3.p[m])
@@ -371,6 +372,9 @@ function compute_embedded_fv_gv_one!(
 
             fiktmp = feat3.f(rik, feat3.rcut)
             fjktmp = feat3.f(rjk, feat3.rcut)
+            fiktmp == 0 && continue
+            fjktmp == 0 && continue
+
             inv_fik = 1.0 / fiktmp
             inv_fjk = 1.0 / fjktmp
             for m = 1:feat3.np
