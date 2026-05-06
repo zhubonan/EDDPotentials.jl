@@ -74,7 +74,7 @@ function _populate_feat_bufs!(workspace::GradientWorkspace, cf::CellFeature{<:An
             zeros(Int, nl.nmax),
             zeros(Int, max_atom_id + 1),
             zeros(T, npmax3),
-            zeros(T, npmax3, ndims),
+            zeros(T, npmax3 * nqmax3, ndims),
             zeros(T, npmax3 * nqmax3, ndims),
             zeros(T, npmax3 * nqmax3, ndims),
             zeros(T, npmax3 * nqmax3),
@@ -104,7 +104,7 @@ function _ensure_feat_buf!(workspace::GradientWorkspace, npmax3, nqmax3, lfe3, n
                 zeros(Int, nl.nmax),
                 zeros(Int, max_atom_id + 1),
                 zeros(T, npmax3),
-                zeros(T, npmax3, ndims),
+                zeros(T, npmax3 * nqmax3, ndims),
                 zeros(T, npmax3 * nqmax3, ndims),
                 zeros(T, npmax3 * nqmax3, ndims),
                 zeros(T, npmax3 * nqmax3),
@@ -123,8 +123,12 @@ function _precompute_3b_factors!(
     ::Cell{F,D},
 ) where {F, D, np, nq}
     for axis in 1:D
-        @turbo for m = 1:np
-            @inbounds ffact_center[m, axis] = -(modvij[axis]*gtmp1[m] + modvik[axis]*gtmp2[m])
+        for m = 1:np
+            im = (m - 1) * nq
+            ftmp = -(modvij[axis]*gtmp1[m] + modvik[axis]*gtmp2[m])
+            @turbo for o in 1:nq
+                ffact_center[im + o, axis] = ftmp
+            end
         end
     end
     # for axis = 1:D
@@ -142,9 +146,8 @@ function _precompute_3b_factors!(
             g2 = gtmp2[m] * modvik[axis]
             im = (m - 1) * nq
             @turbo for o = 1:nq
-                #g3o = gtmp3[o] * modvjk[axis]
-                ffact_j[im + o, axis] = g1 - gtmp3[o] * modvjk[axis]
                 ffact_k[im + o, axis] = g2 + gtmp3[o] * modvjk[axis]
+                ffact_j[im + o, axis] = g1 - gtmp3[o] * modvjk[axis]
             end
         end
     end
@@ -195,12 +198,6 @@ function compute_fv_gv_one!(
         _ensure_feat_buf!(workspace, npmax3, nqmax3, lfe3, nl)
         bufs = workspace.feat_bufs[Threads.threadid()]
     end
-    #pij = bufs.pij
-    #inv_fij = bufs.inv_fij
-    #pik = bufs.pik
-    #inv_fik = bufs.inv_fik
-    #qjk = bufs.qjk
-    #inv_fjk = bufs.inv_fjk
     tiny_dist = 1e-14
 
     # In-place unique neighbour indices using pre-allocated buffer
@@ -592,8 +589,7 @@ function _gvec_update!(gvec, iat, i31, ineigth_j, ineigth_k, ijkp_buf, qjk, ffac
     vout = qjk * ijkp_buf' 
     for dir in 1:D
         @turbo for nn = 1:(NP3 * NQ3)
-            m = div(nn - 1, NQ3) + 1
-            gvec[i31 + nn, dir, 1, iat] += vout[nn] * ffact_center[m, dir]
+            gvec[i31 + nn, dir, 1, iat] += vout[nn] * ffact_center[nn, dir]
         end
         @turbo for nn = 1:(NP3 * NQ3)
             gvec[i31 + nn, dir, ineigth_j, iat] += vout[nn] * ffact_j[nn, dir]
