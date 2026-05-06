@@ -244,15 +244,6 @@ function compute_fv_gv_one!(
         ineigth_j = revmap[jat] + 1
         modvij = vij / rij
 
-        # Pre-compute three-body pij factors
-        ftmp = cf.f3(rij, cf.rcut3)
-        ftmp == 0 && continue
-        inv_fij = 1.0 / ftmp
-        pij = ftmp .^ cf.p3
-        # @inbounds @simd for m = 1:npmax3
-        #     pij[m, 1] = fast_pow(ftmp, cf.p3[m])
-        # end
-
         # Add hard core repulsion
         if !isnothing(core_repulsion)
             _hard_core_update!(ecore, fcore, score, iat, jat, rij, vij, modvij, core_repulsion, sym[iat], sym[jat])
@@ -263,43 +254,49 @@ function compute_fv_gv_one!(
             cj = atom_species_ints[jat]
             ch2 = cf.two_body_channel[ci, cj]
             i2 = offset + (ch2 - 1) * NP2 + 1
+            i21 = i2 - 1
             fij2 = cf.f2(rij, cf.rcut2)
+            fij2 == 0 && continue
             if do_grad
+                fijp2 = fij2 .^ cf.p2
+                @turbo for m in 1:NP2
+                    fvec[i21 + m, iat] += fijp2[m]
+                end
                 gij = cf.g2(rij, cf.rcut2)
-                @fastmath @inbounds for m = 1:NP2
-                    val = fast_pow(fij2, cf.p2[m])
-                    fvec[i2, iat] += val
-                    if val != 0.0
-                        gfij = cf.p2[m] * val / fij2 * gij
-                    else
-                        gfij = zero(val)
+                @fastmath gfij = cf.p2 .* fijp2 ./ fij2 .* gij
+                for dir in 1:D
+                    @turbo for m in 1:NP2
+                        gvec[i21 + m, dir, 1, iat] -= modvij[dir] * gfij[m]
                     end
-                    @inbounds @simd for dir in 1:D
-                        gvec[i2, dir, 1, iat] -= modvij[dir] * gfij
-                        gvec[i2, dir, ineigth_j, iat] += modvij[dir] * gfij
+                    @turbo for m in 1:NP2
+                        gvec[i21 + m, dir, ineigth_j, iat] += modvij[dir] * gfij[m]
                     end
-                    vijt = vij .* gfij
-                    stotv[i2, 1, 1, iat] += vijt[1] * modvij[1]
-                    stotv[i2, 1, 2, iat] += vijt[1] * modvij[2]
-                    stotv[i2, 1, 3, iat] += vijt[1] * modvij[3] 
-                    stotv[i2, 2, 1, iat] += vijt[2] * modvij[1]
-                    stotv[i2, 2, 2, iat] += vijt[2] * modvij[2]
-                    stotv[i2, 2, 3, iat] += vijt[2] * modvij[3]
-                    stotv[i2, 3, 1, iat] += vijt[3] * modvij[1]
-                    stotv[i2, 3, 2, iat] += vijt[3] * modvij[2]
-                    stotv[i2, 3, 3, iat] += vijt[3] * modvij[3]
-                    i2 += 1
+                end
+                outer2 = vij * modvij'
+                for jj in 1:3
+                    for ii in 1:3
+                        @turbo for m in 1:NP2
+                            stotv[i21 + m, ii, jj, iat] += outer2[ii, jj] * gfij[m]
+                        end
+                    end
                 end
             else
-                @fastmath @inbounds for m = 1:NP2
-                    fvec[i2, iat] += fast_pow(fij2, cf.p2[m])
-                    i2 += 1
+                i21 = i2 - 1
+                @turbo for m = 1:NP2
+                    fvec[i21  + m, iat] += fast_pow(fij2, cf.p2[m])
                 end
             end
         end
 
         # ─── Three-body features ───
         has_3b || continue
+
+        # Pre-compute three-body pij factors
+        ftmp = cf.f3(rij, cf.rcut3)
+        # Skip if f function evaluated to be zero
+        ftmp == 0 && continue
+        inv_fij = 1.0 / ftmp
+        pij = ftmp .^ cf.p3
 
         (;gs1, gs2, gs3) = bufs
 
@@ -331,18 +328,12 @@ function compute_fv_gv_one!(
             ftmp == 0 && continue
             inv_fik = 1.0 / ftmp
             pik = ftmp .^ cf.p3
-            # @inbounds @simd for m = 1:npmax3
-            #     pik[m, 1] = fast_pow(ftmp, cf.p3[m])
-            # end
 
             # Compute qjk
             ftmp = cf.f3(rjk, cf.rcut3)
             ftmp == 0 && continue
             inv_fjk = 1.0 / ftmp
             qjk = ftmp .^ cf.q3
-            # @inbounds @simd for o = 1:nqmax3
-            #     qjk[o, 1] = fast_pow(ftmp, cf.q3[o])
-            # end
 
             cj = atom_species_ints[jat]
             ck = atom_species_ints[kat]
@@ -358,10 +349,6 @@ function compute_fv_gv_one!(
                 gtmp2 = cf.p3 .* gik
                 gtmp3 = cf.q3 .* gjk
 
-                # ijkp_buf = bufs.ijkp_buf
-                # @inbounds @simd for m = 1:NP3
-                #     ijkp_buf[m] = pij[m] * pik[m]
-                # end
                 ijkp_buf = pij .* pik  # Static vector
                 
                 # Update the feature vector
@@ -382,40 +369,13 @@ function compute_fv_gv_one!(
                 )
                 # Forces
                 i31 = i3 - 1
-                @assert !any(isnan.(ijkp_buf))
-                @assert !any(isnan.(qjk))
-                @assert !any(isnan.(bufs.ffact_center))
-                @assert !any(isinf.(gtmp1))
-                @assert !any(isinf.(gtmp2))
-                @assert !any(isinf.(gtmp3))
-                @assert !any(isinf.(modvij))
-                @assert !any(isinf.(modvik))
-                @assert !any(isinf.(modvjk))
-                @assert !any(isnan.(bufs.ffact_j))
-                @assert !any(isnan.(bufs.ffact_k))
                 _gvec_update!(gvec, iat, i31, ineigth_j, ineigth_k, ijkp_buf, qjk, bufs.ffact_center, 
                               bufs.ffact_j, bufs.ffact_k, Val(D), Val(NP3), Val(NQ3))
-                # for dir in 1:D
-                #     @turbo for nn = 1:(NP3 * NQ3)
-                #         m = div(nn, NQ3) + 1
-                #         o = (nn - 1) % NQ3 + 1
-                #         val = ijkp_buf[m] * qjk[o]
-                #         gvec[i31 + nn, dir, 1, iat] += val * bufs.ffact_center[m, dir]
-                #         gvec[i31 + nn, dir, ineigth_j, iat] += val * bufs.ffact_j[nn, dir]
-                #         gvec[i31 + nn, dir, ineigth_k, iat] += val * bufs.ffact_k[nn, dir]
-                #     end
-                # end
 
                 # Precompute stress factors
                 _precompute_gs!(gs1, gs2, gs3, ijkp_buf, qjk, gtmp1, gtmp2, gtmp3, Val(NP3), Val(NQ3))
 
-                        #idx = (m - 1) * NQ3 + o
-                        # @inbounds @simd for dir in 1:D
-                        #   gvec[i3, dir, 1, iat] += val * fc[dir]
-                        #   gvec[i3, dir, ineigth_j, iat] += val * bufs.ffact_j[idx, dir]
-                        #   gvec[i3, dir, ineigth_k, iat] += val * bufs.ffact_k[idx, dir]
-                        # end
-
+                # Outer products
                 outerij = vij * modvij'
                 outerik = vik * modvik'
                 outerjk = vjk * modvjk'
