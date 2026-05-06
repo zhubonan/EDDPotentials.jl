@@ -254,11 +254,12 @@ function compute_fv_gv_one!(
             i21 = i2 - 1
             fij2 = cf.f2(rij, cf.rcut2)
             fij2 == 0 && continue
+            # Update the feature vector
+            fijp2 = fij2 .^ cf.p2
+            @turbo for m in 1:NP2
+                fvec[i21 + m, iat] += fijp2[m]
+            end
             if do_grad
-                fijp2 = fij2 .^ cf.p2
-                @turbo for m in 1:NP2
-                    fvec[i21 + m, iat] += fijp2[m]
-                end
                 gij = cf.g2(rij, cf.rcut2)
                 @fastmath gfij = cf.p2 .* fijp2 ./ fij2 .* gij
                 for dir in 1:D
@@ -277,11 +278,6 @@ function compute_fv_gv_one!(
                         end
                     end
                 end
-            else
-                i21 = i2 - 1
-                @turbo for m = 1:NP2
-                    fvec[i21  + m, iat] += fast_pow(fij2, cf.p2[m])
-                end
             end
         end
 
@@ -293,7 +289,7 @@ function compute_fv_gv_one!(
         # Skip if f function evaluated to be zero
         ftmp == 0 && continue
         inv_fij = 1.0 / ftmp
-        pij = ftmp .^ cf.p3
+        pij = ftmp .^ cf.p3  # Power operation - slow!
 
         (;gs1, gs2, gs3) = bufs
 
@@ -306,10 +302,7 @@ function compute_fv_gv_one!(
             end
 
             vjk = nl.ea.positions[kextend] .- nl.ea.positions[jextend]
-            rjk_sq = zero(eltype(vjk))
-            @inbounds for d in 1:D
-                rjk_sq += vjk[d]*vjk[d]
-            end
+            rjk_sq = sum(vjk .^ 2)
             rjk_sq > maxrcut_sq && continue
             rjk = sqrt(rjk_sq)
             rjk > maxrcut && continue
@@ -332,12 +325,25 @@ function compute_fv_gv_one!(
             inv_fjk = 1.0 / ftmp
             qjk = ftmp .^ cf.q3
 
+            # Resolve the channel
             cj = atom_species_ints[jat]
             ck = atom_species_ints[kat]
             ch3 = cf.three_body_channel[ci, cj, ck]
             ch3 == 0 && continue
 
             i3 = offset + total_fe2 + (ch3 - 1) * tbfe3 + 1
+            i31 = i3 - 1
+
+            # Feature vector update
+            ijkp_buf = pij .* pik
+            for m = 1:NP3
+                ijkp_m = ijkp_buf[m]
+                oo = (m-1) * NQ3 + i31
+                @inbounds @simd for o = 1:NQ3
+                    fvec[oo + o, iat] += qjk[o] * ijkp_m
+                end
+            end
+
             if do_grad
                 gij = cf.g3(rij, cf.rcut3) * inv_fij
                 gik = cf.g3(rik, cf.rcut3) * inv_fik
@@ -345,17 +351,6 @@ function compute_fv_gv_one!(
                 gtmp1 = cf.p3 .* gij
                 gtmp2 = cf.p3 .* gik
                 gtmp3 = cf.q3 .* gjk
-
-                ijkp_buf = pij .* pik  # Static vector
-                
-                # Update the feature vector
-                @inbounds for m = 1:NP3
-                    ijkp_m = ijkp_buf[m]
-                    oo = (m - 1) * NQ3 - 1 + i3
-                    @inbounds @simd for o = 1:NQ3
-                        fvec[oo + o, iat] += qjk[o] * ijkp_m
-                    end
-                end
 
                 _precompute_3b_factors!(
                     bufs.ffact_center, bufs.ffact_j, bufs.ffact_k,
@@ -372,24 +367,11 @@ function compute_fv_gv_one!(
                 # Precompute stress factors
                 _precompute_gs!(gs1, gs2, gs3, ijkp_buf, qjk, gtmp1, gtmp2, gtmp3, Val(NP3), Val(NQ3))
 
-                # Outer products
+                # Stress update TODO: use virial for large cell
                 outerij = vij * modvij'
                 outerik = vik * modvik'
                 outerjk = vjk * modvjk'
                 _update_stotv!(stotv, i31, iat, outerij, outerik, outerjk, gs1, gs2, gs3, Val(NP3), Val(NQ3))
-
-            else
-                ijkp_buf = bufs.ijkp_buf
-                @inbounds @simd for m = 1:NP3
-                    ijkp_buf[m] = pij[m] * pik[m]
-                end
-                for m = 1:NP3
-                    ijkp_m = ijkp_buf[m]
-                    oo = (m-1) * NQ3 - 1 + i3
-                    @inbounds @simd for o = 1:NQ3
-                        fvec[oo + o, iat] += qjk[o] * ijkp_m
-                    end
-                end
             end
         end # i,j,k pair
     end
