@@ -309,7 +309,7 @@ function create_ensemble(
     save_ensemble_model=false,
     clean_individual_models=false,
     dataset_path=dataset_name(bu),
-    ensemble_target=:test,
+    ensemble_target=:training,
     pattern=nothing,
     alg=:fnnls,
 )

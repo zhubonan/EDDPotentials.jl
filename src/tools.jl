@@ -305,11 +305,12 @@ function lj_baseline_calc(
     p_rep::Integer=12,
     p_att::Integer=6,
     elemental_energies=Dict(),
+    nmax=500,
 )
     elems = _lj_normalize_elements(species(cell))
     cf = lj_baseline_feature(elems; rcut, p_rep, p_att)
     model = lj_baseline_model(elems; sigma, epsilon, rcut, p_rep, p_att)
-    NNCalc(cell, cf, model; core=nothing, elemental_energies)
+    NNCalc(cell, cf, model; core=nothing, elemental_energies, nmax)
 end
 
 

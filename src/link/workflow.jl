@@ -498,8 +498,8 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
                 "$(outdir)",
                 "--relax-mode",
                 "$(state.relax_mode)",
-            ]),
-            state.rss_num_threads,
+            ]);
+            julia_threads=state.rss_num_threads,
         ) for num in nstructs
     ]
 
@@ -509,8 +509,8 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
         a, b = state.rss_pressure_gpa_range
         for i in eachindex(cmds)
             cmds[i] = add_threads_env(
-                Cmd([cmds[i]..., "--pressure-range", "$(a),$(b)"]),
-                state.rss_num_threads,
+                Cmd([cmds[i]..., "--pressure-range", "$(a),$(b)"]);
+                julia_threads=state.rss_num_threads,
             )
         end
     end
@@ -542,6 +542,32 @@ end
 
 
 """
+    _populate_hyper_option(state::BuilderState; verbose::Bool=true) -> RelaxOption
+
+Create a RelaxOption from the BuilderState, copying hyper_* fields into the
+RelaxOption when `relax_mode == "hyperspace"`. Uses `state.relax` as the base.
+"""
+function _populate_hyper_option(state; verbose::Bool=true)
+    opt = deepcopy(state.relax)
+    opt.verbose = verbose
+    if state.relax_mode == "hyperspace"
+        opt.hyper_ndim = state.hyper_ndim
+        opt.hyper_alpha_start = state.hyper_alpha_start
+        opt.hyper_schedule_every = state.hyper_schedule_every
+        opt.hyper_target_iterations = state.hyper_target_iterations
+        opt.hyper_dynamic_alpha = state.hyper_dynamic_alpha
+        opt.hyper_force_ratio = state.hyper_force_ratio
+        opt.hyper_max_alpha = state.hyper_max_alpha
+        opt.hyper_ramp_alpha = state.hyper_ramp_alpha
+        opt.hyper_alpha_ramp_factor = state.hyper_alpha_ramp_factor
+        opt.hyper_phase1_alpha = state.hyper_phase1_alpha
+        opt.hyper_phase1_fraction = state.hyper_phase1_fraction
+    end
+    opt
+end
+
+
+"""
     _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
 
 Run RSS generation internally within the current process.
@@ -554,9 +580,7 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
     ensure_dir(outdir)
 
     (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max, relax_mode) = state
-    hyper_kwargs = (; ndim=state.hyper_ndim, alpha_start=state.hyper_alpha_start,
-        schedule_every=state.hyper_schedule_every, target_iterations=state.hyper_target_iterations,
-        pressure_gpa=state.rss_pressure_gpa, trace=true)
+    _relax_option = _populate_hyper_option(state)
     hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
         md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
         relax_cell=state.hot_relax_cell)
@@ -577,10 +601,9 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
         pressure_gpa=state.rss_pressure_gpa,
         pressure_gpa_range=state.rss_pressure_gpa_range,
         seedfile_weights,
-        relax_option=bu.state.relax,
+        relax_option=_relax_option,
         elemental_energies=make_symbol_keys(state.elemental_energies),
         relax_mode,
-        hyper_kwargs,
         hot_kwargs,
     )
 end
@@ -605,9 +628,9 @@ function run_rss(builder::Builder)
     ensure_dir(searchdir)
     (; seedfile, seedfile_weights) = rs
     state = builder.state
-    hyper_kwargs = (; ndim=state.hyper_ndim, alpha_start=state.hyper_alpha_start,
-        schedule_every=state.hyper_schedule_every, target_iterations=state.hyper_target_iterations,
-        pressure_gpa=rs.pressure_gpa, trace=state.rss_nprocs > 0)
+    _relax_option = deepcopy(rs.relax)
+    _relax_option.verbose = state.rss_nprocs > 0
+    _relax_mode = _relax_option.hyper_ndim > 0 ? "hyperspace" : state.relax_mode
     hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
         md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
         relax_cell=state.hot_relax_cell)
@@ -626,10 +649,9 @@ function run_rss(builder::Builder)
         max_err=rs.max_err,
         pressure_gpa=rs.pressure_gpa,
         seedfile_weights,
-        relax_option=rs.relax,
+        relax_option=_relax_option,
         elemental_energies=make_symbol_keys(state.elemental_energies),
-        relax_mode=state.relax_mode,
-        hyper_kwargs,
+        relax_mode=_relax_mode,
         hot_kwargs,
     )
 end
@@ -704,16 +726,19 @@ function _run_rss_link()
 
     relax_mode = args["relax-mode"]
     state = bu.state
-    hyper_kwargs = (; ndim=state.hyper_ndim, alpha_start=state.hyper_alpha_start,
-        schedule_every=state.hyper_schedule_every, target_iterations=state.hyper_target_iterations,
-        pressure_gpa=pressure_gpa, trace=true)
+    rs = bu.rss
+    _relax_option = deepcopy(rs.relax)
+    _relax_option.verbose = true
+    if _relax_option.hyper_ndim > 0
+        relax_mode = "hyperspace"
+    end
     hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
         md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
         relax_cell=state.hot_relax_cell)
 
     (; seedfile, seedfile_weights) = state
     _run_rss(
-        joinpath.(state.workdir, seedfile),
+        joinpath.(Ref(state.workdir), seedfile),
         ensemble,
         bu.cf;
         core_size=state.core_size,
@@ -725,10 +750,9 @@ function _run_rss_link()
         pressure_gpa_range,
         seedfile_weights,
         niggli_reduce_output=state.rss_niggli_reduce,
-        relax_option=state.relax,
+        relax_option=_relax_option,
         elemental_energies=make_symbol_keys(state.elemental_energies),
         relax_mode,
-        hyper_kwargs,
         hot_kwargs,
     )
 end
@@ -790,25 +814,22 @@ function _perform_training_external(bu::Builder)
         julia_cmd = "using EDDPotentials;using CUDA;EDDPotentials.USE_CUDA[]=true;EDDPotentials.run_trainer()"
     end
 
-    cmd = Cmd(
-        Cmd([
-            Base.julia_cmd()...,
-            "--project=$(project_path)",
-            "-e",
-            julia_cmd,
-            "$(builder_file)",
-            "--iteration",
-            "$(bu.state.iteration)",
-        ]),
-        env=("OMP_NUM_THREADS" => "1",),
-    )
+    cmd = Cmd([
+        Base.julia_cmd()...,
+        "--project=$(project_path)",
+        "-e",
+        julia_cmd,
+        "$(builder_file)",
+        "--iteration",
+        "$(bu.state.iteration)",
+    ])
 
     # Call multiple trainer processes
     @info "Subprocess launch command: $cmd"
     tasks = Task[]
     for i = 1:tra.num_workers
         # Run with ids
-        _cmd = add_threads_env(Cmd([cmd..., "--id", "$i"]), tra.num_threads_per_worker)
+        _cmd = add_threads_env(Cmd([cmd..., "--id", "$i"]); julia_threads=tra.num_threads_per_worker)
         if tra.cuda_visible_devices != ""
             devices = split(tra.cuda_visible_devices, ",")
             _cmd = addenv(_cmd, "EDDP_CUDA_DEVICE" => devices[(i-1)%length(devices)+1])

@@ -41,6 +41,9 @@ struct TrajectoryFrame{T}
     smax::T
     positions::Matrix{T}
     cell_matrix::Union{Nothing, Matrix{T}}
+    forces::Union{Nothing, Matrix{T}}
+    stress::Union{Nothing, Matrix{T}}
+    extra_dim_norm::T
 end
 
 """
@@ -68,18 +71,34 @@ function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
     fmax = maximum(norm.(eachcol(F)))
 
     smax = 0.0
+    stress_mat = nothing
     if is_variable_cell(calc)
         S = optimizer_effective_stress(calc; rebuild_nl=true)
         smax = maximum(abs.(S))
+        stress_mat = S
     end
 
     # Standard logging
     if opt.log_level == :standard
+        cell = get_cell(calc)
+        pos = get_positions(cell)
+        D = size(pos, 1)
+        _hyper = D > 3
         if opt.iteration == 1
-            println("Iter    Energy          Fmax          Smax")
-            println("----  --------------  ------------  ------------")
+            if _hyper
+                println("Iter    Energy          Fmax          Smax        |extra|")
+                println("----  --------------  ------------  ------------  ----------")
+            else
+                println("Iter    Energy          Fmax          Smax")
+                println("----  --------------  ------------  ------------")
+            end
         end
-        @printf("%4d  %14.8f  %12.6e  %12.6e\n", opt.iteration, E, fmax, smax)
+        if _hyper
+            extra_norm = maximum(norm.(eachcol(pos[4:end, :])))
+            @printf("%4d  %14.8f  %12.6e  %12.6e  %10.4f\n", opt.iteration, E, fmax, smax, extra_norm)
+        else
+            @printf("%4d  %14.8f  %12.6e  %12.6e\n", opt.iteration, E, fmax, smax)
+        end
     end
 
     # Detailed logging (includes algorithm-specific info)
@@ -101,13 +120,19 @@ function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
     # Store in trajectory if requested
     if keep_traj
         cell = get_cell(calc)
+        pos = get_positions(cell)
+        D = size(pos, 1)
+        extra_norm = D > 3 ? maximum(norm.(eachcol(pos[4:end, :]))) : 0.0
         frame = TrajectoryFrame(
             opt.iteration,
             E,
             fmax,
             smax,
-            copy(get_positions(cell)),
-            copy(cellmat(cell))
+            copy(pos),
+            copy(cellmat(cell)),
+            copy(F),
+            stress_mat !== nothing ? copy(stress_mat) : nothing,
+            extra_norm,
         )
         push!(opt.trajectory, frame)
     end

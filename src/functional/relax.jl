@@ -1,4 +1,5 @@
 using LinearAlgebra
+using StatsBase: mean
 using GarishPrint
 using ExtXYZ
 #=
@@ -22,6 +23,20 @@ using Configurations
     iterations::Int = 1000
     maxstep::Float64 = 0.2
     trajectory_file::String = ""
+    hyper_ndim::Int = 0
+    hyper_alpha_start::Float64 = 1e-4
+    hyper_schedule_every::Int = 50
+    hyper_target_iterations::Int = 0
+    hyper_alpha_ramp_factor::Float64 = 5.0
+    hyper_max_alpha::Float64 = 1.0
+    hyper_ramp_alpha::Bool = true
+    hyper_pos_tol::Float64 = 1e-4
+    hyper_max_vol_change::Float64 = 3.0
+    hyper_extra_dim_tol::Float64 = 0.1
+    hyper_dynamic_alpha::Bool = false
+    hyper_force_ratio::Float64 = 2.0
+    hyper_phase1_alpha::Float64 = 1e-4
+    hyper_phase1_fraction::Float64 = 0.5
 end
 
 struct Relax{T}
@@ -65,6 +80,147 @@ end
 
 precompile(Base.show, (Base.TTY, MIME"text/plain", RelaxResult))
 precompile(Base.show, (Base.TTY, MIME"text/plain", Relax))
+
+"""
+    _method_to_native_fn(method::String)
+
+Map a RelaxOption method string to a native optimizer function for hyperspace relaxation.
+"""
+function _method_to_native_fn(method::String)
+    if method in ("tpsd", "TPSD")
+        return opt_tpsd
+    elseif method in ("fire", "FIRE")
+        return opt_fire
+    else
+        return opt_tpsd
+    end
+end
+
+"""
+    _hyper_max_iterations(opts::RelaxOption)
+
+Return the effective max iterations for hyperspace relaxation.
+Uses `hyper_target_iterations` if set (>0), otherwise falls back to `iterations`.
+"""
+_hyper_max_iterations(opts::RelaxOption) = opts.hyper_target_iterations > 0 ? opts.hyper_target_iterations : opts.iterations
+
+"""
+    _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
+
+Perform hyperspace relaxation on a calculator with a bound cell.
+
+Extracts model components from the calculator, adds extra dimensions,
+builds a `MetaCalculator` with `ExtraDimensionPenaltyModifier` and
+`CellRelaxationModifier`, runs `scheduled_penalty_relax!`, then does a
+3D cleanup relaxation.
+
+Supports `EDDPCalculator`, `NNCalc`, and `MetaCalculator` (extracts source).
+"""
+function _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
+    relax_fn = _method_to_native_fn(opts.method)
+    smat = external_stress_matrix(opts.external_pressure)
+
+    if calc isa EDDPCalculator
+        cell = get_cell(calc)
+        hcell = CellBase.add_dimensions(deepcopy(cell), opts.hyper_ndim)
+        P = smat[1, 1]
+        metacalc = create_calculator(calc, hcell; modifiers=[
+            ExtraDimensionPenaltyModifier(opts.hyper_alpha_start; start_dim=4),
+            CellRelaxationModifier(hcell; external_pressure=smat),
+        ])
+        max_iter = _hyper_max_iterations(opts)
+        scheduled_penalty_relax!(metacalc;
+            schedule_every=opts.hyper_schedule_every,
+            max_iterations=max_iter,
+            alpha_start=opts.hyper_alpha_start,
+            relax_fn,
+            alpha_ramp_factor=opts.hyper_alpha_ramp_factor,
+            max_alpha=opts.hyper_max_alpha,
+            pos_tol=opts.hyper_pos_tol,
+            ramp_alpha=opts.hyper_ramp_alpha,
+            max_vol_change=opts.hyper_max_vol_change,
+            extra_dim_tol=opts.hyper_extra_dim_tol,
+            dynamic_alpha=opts.hyper_dynamic_alpha,
+            force_ratio=opts.hyper_force_ratio,
+        )
+        _relax_hyper_finalize!(metacalc, opts)
+    elseif calc isa MetaCalculator
+        _relax_hyper_from_nncalc!(calc.source, opts)
+    elseif calc isa NNCalc
+        _relax_hyper_from_nncalc!(calc, opts)
+    else
+        error("Hyperspace relaxation not supported for calculator type $(typeof(calc))")
+    end
+end
+
+function _relax_hyper_from_nncalc!(nncalc::NNCalc, opts::RelaxOption)
+    relax_fn = _method_to_native_fn(opts.method)
+    cell = get_cell(nncalc)
+
+    hcell = CellBase.add_dimensions(deepcopy(cell), opts.hyper_ndim)
+    source = NNCalc(hcell, nncalc.cf, nncalc.nninterface;
+        nmax=nncalc.nl.nmax,
+        core=nncalc.workspace.hardcore.core_repulsion,
+        elemental_energies=nncalc.elemental_energies,
+    )
+
+    penalty = ExtraDimensionPenaltyModifier(opts.hyper_alpha_start; start_dim=4)
+    smat = external_stress_matrix(opts.external_pressure)
+    cell_relax = CellRelaxationModifier(hcell; external_pressure=smat)
+    metacalc = MetaCalculator(source, [penalty, cell_relax])
+
+    max_iter = _hyper_max_iterations(opts)
+    scheduled_penalty_relax!(metacalc;
+        schedule_every=opts.hyper_schedule_every,
+        max_iterations=max_iter,
+        alpha_start=opts.hyper_alpha_start,
+        relax_fn,
+        alpha_ramp_factor=opts.hyper_alpha_ramp_factor,
+        max_alpha=opts.hyper_max_alpha,
+        pos_tol=opts.hyper_pos_tol,
+        ramp_alpha=opts.hyper_ramp_alpha,
+        max_vol_change=opts.hyper_max_vol_change,
+        extra_dim_tol=opts.hyper_extra_dim_tol,
+        dynamic_alpha=opts.hyper_dynamic_alpha,
+        force_ratio=opts.hyper_force_ratio,
+    )
+
+    _relax_hyper_finalize!(metacalc, opts)
+end
+
+function _relax_hyper_finalize!(metacalc, opts)
+    hcell = get_cell(metacalc)
+    cell_3d = remove_dimensions(hcell)
+    positions(cell_3d) = positions(cell_3d)[1:3, :]
+
+    if opts.verbose
+        pos = positions(hcell)
+        D = size(pos, 1)
+        nat = size(pos, 2)
+        avg_extra = D > 3 ? mean(norm(pos[4:end, a]) for a in 1:nat) : 0.0
+        @printf("\n╔══ 3D cleanup  ⟨|extra|⟩=%.4f ══╗\n", avg_extra)
+    end
+
+    source_calc = metacalc isa MetaCalculator ? metacalc.source : metacalc
+    calc_3d = NNCalc(cell_3d,
+        source_calc.cf,
+        source_calc.nninterface;
+        nmax=source_calc.nl.nmax,
+        core=source_calc.workspace.hardcore.core_repulsion,
+        elemental_energies=source_calc.elemental_energies,
+    )
+
+    cleanup_opts = deepcopy(opts)
+    cleanup_opts.hyper_ndim = 0
+    cleanup_opts.relax_cell = false
+    re = Relax(calc_3d, cleanup_opts)
+    try
+        return relax!(re)
+    catch
+        re2 = Relax(calc_3d, cleanup_opts)
+        return RelaxResult(re2, 0.0, 0.0, -1.0, 0, false)
+    end
+end
 
 """
     stress_matrix(vector=AbstractVector)
@@ -136,6 +292,8 @@ function relax!(re::Relax)
         _method = BFGS(; linesearch=BackTracking(; maxstep))
     elseif method == "cg"
         _method = ConjugateGradient(; linesearch=BackTracking(maxstep=0.2))
+    elseif method == "fire"
+        _method = TwoPointSteepestDescent(; maxstep)
     else
         throw(KeyError("Unknown `method`: $(method)"))
     end
@@ -277,9 +435,16 @@ end
 Optimise the cell using the Optim interface. Collect the trajectory if requested.
 Note that the trajectory is collected for all force evaluations and may not 
 corresponds to the actual iterations of the underlying LBFGS iterations.
+
+When `hyper_ndim > 0` is passed as a keyword argument, hyperspace relaxation
+is performed instead of standard relaxation.
 """
 function relax!(calc::AbstractCalc; multi=true, relax_cell=true, method="tpsd", kwargs...)
-    relax = Relax(calc, RelaxOption(; method, relax_cell, kwargs...))
+    opts = RelaxOption(; method, relax_cell, kwargs...)
+    if opts.hyper_ndim > 0
+        return _relax_hyper!(calc, opts)
+    end
+    relax = Relax(calc, opts)
     if multi
         multirelax!(relax)
     else

@@ -105,15 +105,21 @@ make_symbol_keys(x) = x
 
 
 """
-    add_threads_env(cmd, threads)
+    add_threads_env(cmd; julia_threads=1, omp_threads=1)
 
-Add JULIA_NUM_THREADS environment variable to a command.
+Set JULIA_NUM_THREADS and OMP_NUM_THREADS environment variables on a command.
 
 # Arguments
 - `cmd`: Command to modify
-- `threads`: Number of threads to set
+
+# Keywords
+- `julia_threads`: Number of Julia threads (default 1)
+- `omp_threads`: Number of OpenMP threads (default 1)
 
 # Returns
-- Modified command with environment variable set
+- Modified command with environment variables set
 """
-add_threads_env(cmd, threads) = addenv(cmd, "JULIA_NUM_THREADS" => threads)
+add_threads_env(cmd; julia_threads=1, omp_threads=1) = addenv(cmd,
+    "JULIA_NUM_THREADS" => julia_threads,
+    "OMP_NUM_THREADS" => omp_threads,
+)

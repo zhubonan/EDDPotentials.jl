@@ -184,7 +184,7 @@ export time_fs, time_ps
 # Hot-AIRSS exports
 export HotAIRSSOption, hot_airss!, HotAIRSSResult
 # Hyperspace relaxation exports
-export hyper_get_calc, scheduled_penalty_relax!, hyper_gen_relax
+export hyper_get_calc, scheduled_penalty_relax!, hyper_gen_relax, HyperRoundDiagnostics
 export TrainingResults
 export evaluate, EvaluationConfig, AggregatedMetrics
 export EnergyMetrics, ForceMetrics, StressMetrics, LayerSaturationReport

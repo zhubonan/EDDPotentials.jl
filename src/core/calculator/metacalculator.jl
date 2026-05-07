@@ -275,6 +275,8 @@ function set_modifier_parameter!(calc::MetaCalculator, type::Type{<:AbstractModi
     mod = get_modifier(calc, type)
     isnothing(mod) && throw(ArgumentError("No modifier of type $type found in calculator pipeline"))
     set_parameter!(mod, name, value)
+    calc.energy_dirty = true
+    calc.forces_dirty = true
 end
 
 # Display

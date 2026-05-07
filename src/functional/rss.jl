@@ -2,6 +2,8 @@
 Routines for performing random structure searching using models
 =#
 
+using Printf
+
 """
     build_and_relax(seedfile::AbstractString, ensemble, cf;timeout=10, nmax=500, pressure_gpa=0., 
 
@@ -20,18 +22,21 @@ function build_and_relax(
     relax_option=RelaxOption(),
     elemental_energies=Dict{Symbol,Any}(),
     relax_mode="standard",
-    hyper_kwargs=NamedTuple(),
     hot_kwargs=NamedTuple(),
 )
     cell = build_one(seedfile; timeout, init_structure_transform)
 
-    if relax_mode == "hyperspace"
-        ndim = get(hyper_kwargs, :ndim, 3)
-        alpha_start = get(hyper_kwargs, :alpha_start, Float64(1e-4))
-        schedule_every = get(hyper_kwargs, :schedule_every, 25)
-        target_iterations = get(hyper_kwargs, :target_iterations, 200)
-        trace = get(hyper_kwargs, :trace, false)
-        pressure_gpa = get(hyper_kwargs, :pressure_gpa, Float64(0.0))
+    _is_hyper = relax_option.hyper_ndim > 0 || relax_mode == "hyperspace"
+
+    if _is_hyper
+        ndim = relax_option.hyper_ndim > 0 ? relax_option.hyper_ndim : 3
+        alpha_start = relax_option.hyper_alpha_start
+        schedule_every = relax_option.hyper_schedule_every
+        target_iterations = _hyper_max_iterations(relax_option)
+        phase1_alpha = relax_option.hyper_phase1_alpha
+        phase1_frac = relax_option.hyper_phase1_fraction
+        pressure_gpa = relax_option.external_pressure[1]
+        trace = relax_option.verbose
 
         cell = CellBase.add_dimensions(cell, ndim)
         source = NNCalc(cell, cf, ensemble; nmax,
@@ -41,35 +46,59 @@ function build_and_relax(
         P_ext = [p_clamped 0 0; 0 p_clamped 0; 0 0 p_clamped]
         cell_relax = CellRelaxationModifier(cell; external_pressure=P_ext)
 
-        # Two-phase hyperspace: Phase 1 pins cell to prevent 3D collapse
-        # while atoms settle. Phase 2 enables cell relaxation.
+        phase1_iters = round(Int, target_iterations * phase1_frac)
+        phase2_iters = target_iterations - phase1_iters
+
+        trace && @printf("\n╔══ Phase 1: Position-only relaxation  α=%.1e  iters=%d  ndim=%d ══╗\n",
+            phase1_alpha, phase1_iters, ndim)
+
         metacalc_pos = MetaCalculator(source, [penalty])
-        set_modifier_parameter!(metacalc_pos, ExtraDimensionPenaltyModifier, :alpha, 0.5)
+        set_modifier_parameter!(metacalc_pos, ExtraDimensionPenaltyModifier, :alpha, phase1_alpha)
+        p1_ramp = relax_option.hyper_dynamic_alpha ? true : false
         scheduled_penalty_relax!(metacalc_pos;
-            schedule_every, max_iterations=div(target_iterations, 2),
-            alpha_start=0.5, n_hold=typemax(Int), relax_fn=opt_fire, trace)
+            schedule_every, max_iterations=phase1_iters,
+            alpha_start=phase1_alpha, relax_fn=opt_fire, trace,
+            ramp_alpha=p1_ramp,
+            alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,
+            max_alpha=relax_option.hyper_max_alpha,
+            dynamic_alpha=relax_option.hyper_dynamic_alpha,
+            force_ratio=relax_option.hyper_force_ratio)
+
+        trace && @printf("\n╔══ Phase 2: Variable-cell relaxation  α=%.1e  iters=%d ══╗\n",
+            alpha_start, phase2_iters)
 
         metacalc_full = MetaCalculator(source, [penalty, cell_relax])
         scheduled_penalty_relax!(metacalc_full;
-            schedule_every, max_iterations=target_iterations - div(target_iterations, 2),
-            alpha_start=alpha_start, relax_fn=opt_fire, trace)
+            schedule_every, max_iterations=phase2_iters,
+            alpha_start, relax_fn=opt_fire, trace,
+            ramp_alpha=relax_option.hyper_ramp_alpha,
+            alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,
+            max_alpha=relax_option.hyper_max_alpha,
+            pos_tol=relax_option.hyper_pos_tol,
+            max_vol_change=relax_option.hyper_max_vol_change,
+            extra_dim_tol=relax_option.hyper_extra_dim_tol,
+            dynamic_alpha=relax_option.hyper_dynamic_alpha,
+            force_ratio=relax_option.hyper_force_ratio)
 
         cell = remove_dimensions(get_cell(metacalc_full))
         positions(cell) = positions(cell)[1:3, :]
+
+        trace && @printf("\n╔══ Phase 3: 3D cleanup ══╗\n")
+
         try
             re3d_opt = deepcopy(relax_option)
-            re3d_opt.relax_cell = false
+            re3d_opt.hyper_ndim = 0
             calc3d = NNCalc(cell, cf, ensemble; nmax,
                 core=_make_core_repulsion(core_size), elemental_energies)
             re3d = Relax(calc3d, re3d_opt)
             return relax!(re3d)
         catch
-            # Hyperspace produced degenerate 3D cell — fall through to standard
         end
-        # Fallback: standard relaxation from scratch
         calc = NNCalc(cell, cf, ensemble; nmax,
             core=_make_core_repulsion(core_size), elemental_energies)
-        re = Relax(calc, relax_option)
+        fallback_opt = deepcopy(relax_option)
+        fallback_opt.hyper_ndim = 0
+        re = Relax(calc, fallback_opt)
         return relax!(re)
 
     elseif relax_mode == "hot"
@@ -128,7 +157,6 @@ function _run_rss(
     core_size=0.5,
     elemental_energies=Dict{Symbol,Any}(),
     relax_mode="standard",
-    hyper_kwargs=NamedTuple(),
     hot_kwargs=NamedTuple(),
 )
     _relax_option = deepcopy(relax_option)
@@ -171,7 +199,6 @@ function _run_rss(
             core_size,
             elemental_energies,
             relax_mode,
-            hyper_kwargs,
             hot_kwargs,
         )
 
@@ -242,7 +269,6 @@ function build_and_relax_one(
     core_size=0.5,
     elemental_energies=Dict{Symbol,Any}(),
     relax_mode="standard",
-    hyper_kwargs=NamedTuple(),
     hot_kwargs=NamedTuple(),
 )
     nerr = 1
@@ -258,7 +284,6 @@ function build_and_relax_one(
                 core_size,
                 elemental_energies,
                 relax_mode,
-                hyper_kwargs,
                 hot_kwargs,
             )
         catch err
