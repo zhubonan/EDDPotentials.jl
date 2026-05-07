@@ -103,26 +103,28 @@ ensemble_energy = sum(w * predict_energy(m, fvec) for (w, m) in zip(weights, mod
 [`create_ensemble`](@ref), [`EnsembleNNInterface`](@ref)
 """
 function nnls_weights(models, x, y; alg=:fnnls, error_threshold=0.5)
-    all_engs = zeros(length(x), length(models))
+    nstruct = length(x)
+    nmodels = length(models)
+    all_engs = zeros(nstruct, nmodels)
     nat = map(x -> size(x, 2), x)
     y_pa = y ./ nat
-    mask = ones(Bool, length(x))
+    bad_count = zeros(Int, nstruct)
 
     for (i, model) in enumerate(models)
         y_tmp = predict_energy.(Ref(model), x)
         all_engs[:, i] = y_tmp
         ae = abs.(y_tmp ./ nat .- y_pa)
-        @. mask = mask & (ae < error_threshold)
+        bad_count .+= (ae .>= error_threshold)
     end
+    mask = bad_count .<= div(nmodels, 2)
     nselected = sum(mask)
-    if nselected != length(x)
-        @info "Using $(nselected)/$(length(x)) structures with AE < $(error_threshold) eV/atom."
+    if nselected != nstruct
+        @info "Using $(nselected)/$(nstruct) structures with AE < $(error_threshold) eV/atom."
     end
     if sum(mask) < 100
         mask .= true
         @info "Less than 100 observations selected, using all structures instead."
     end
-    #wt = nnls(all_engs, y)
     wt = nonneg_lsq(all_engs[mask, :], y[mask]; alg)
     wt
 end

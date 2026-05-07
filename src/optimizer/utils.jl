@@ -80,11 +80,25 @@ function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
 
     # Standard logging
     if opt.log_level == :standard
+        cell = get_cell(calc)
+        pos = get_positions(cell)
+        D = size(pos, 1)
+        _hyper = D > 3
         if opt.iteration == 1
-            println("Iter    Energy          Fmax          Smax")
-            println("----  --------------  ------------  ------------")
+            if _hyper
+                println("Iter    Energy          Fmax          Smax        |extra|")
+                println("----  --------------  ------------  ------------  ----------")
+            else
+                println("Iter    Energy          Fmax          Smax")
+                println("----  --------------  ------------  ------------")
+            end
         end
-        @printf("%4d  %14.8f  %12.6e  %12.6e\n", opt.iteration, E, fmax, smax)
+        if _hyper
+            extra_norm = maximum(norm.(eachcol(pos[4:end, :])))
+            @printf("%4d  %14.8f  %12.6e  %12.6e  %10.4f\n", opt.iteration, E, fmax, smax, extra_norm)
+        else
+            @printf("%4d  %14.8f  %12.6e  %12.6e\n", opt.iteration, E, fmax, smax)
+        end
     end
 
     # Detailed logging (includes algorithm-specific info)

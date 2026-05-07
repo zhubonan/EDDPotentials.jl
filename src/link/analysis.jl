@@ -82,6 +82,13 @@ end
 
 
 """
+Convert core_size parameter to a minimum distance for probe structures.
+Repulsion kicks in at about 3/4 of the core size.
+"""
+_core_rmin(core_size::Float64) = 0.75 * core_size
+_core_rmin(core_sizes::Dict{String,Float64}) = 0.75 * minimum(values(core_sizes))
+
+"""
     write_model_structures(bu::Builder; iteration)
 
 Generate and write model structures for training at specified iteration.

@@ -1,3 +1,5 @@
+using Printf
+
 """
     hyper_get_calc(cell, bu::Builder; alpha=1e-3) -> MetaCalculator
 
@@ -148,7 +150,9 @@ function scheduled_penalty_relax!(
             end
             min_all = isempty(d_all) ? 0.0 : minimum(d_all)
             max_all = isempty(d_all) ? 0.0 : maximum(d_all)
-            @info "Hyper $i/$nrounds  α=$(round(alpha, digits=4))  E=$(round(E, digits=1))  |extra|=$(round(extra_norm, digits=2))  vol=$(round(vol, digits=1))  min3d=$(round(min3d, digits=2))  max3d=$(round(max3d, digits=2))  min_all=$(round(min_all, digits=2))  max_all=$(round(max_all, digits=2))  ndim=$D"
+            avg_extra = D > 3 ? mean(norm(pos[4:end, a]) for a in 1:nat) : 0.0
+            @printf("\n── Round %d/%d  α=%.4e  E=%.1f  |extra|=%.4f  ⟨|extra|⟩=%.4f  vol=%.1f  ndim=%d ──\n",
+                i, nrounds, alpha, E, extra_norm, avg_extra, vol, D)
         end
         push!(extra_d, extra_norm)
 

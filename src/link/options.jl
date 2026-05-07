@@ -94,6 +94,13 @@ to perform various actions during the construction of the potentials.
     hyper_alpha_start::Float64 = 1e-4
     hyper_schedule_every::Int = 25
     hyper_target_iterations::Int = 200
+    hyper_dynamic_alpha::Bool = false
+    hyper_force_ratio::Float64 = 2.0
+    hyper_max_alpha::Float64 = 1.0
+    hyper_ramp_alpha::Bool = true
+    hyper_alpha_ramp_factor::Float64 = 5.0
+    hyper_phase1_alpha::Float64 = 1e-4
+    hyper_phase1_fraction::Float64 = 0.5
     "Relaxation mode: `standard` (3D), `hyperspace`, or `hot`"
     relax_mode::String = "standard"
     "Number of MD+relax rounds for hot-AIRSS mode"
