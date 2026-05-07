@@ -532,8 +532,8 @@ function _force_update!(workspace, gv; offset=workspace.one_body_offset)
     for iv in axes(gvec, 4)
         for ia = 1:workspace.gvec_nn[iv]
             iat = workspace.gvec_index[ia, iv]
-            for i = 1+offset:size(gvec, 1)
-                for elm in axes(workspace.forces, 1)
+            for elm in axes(workspace.forces, 1)
+                @turbo for i = 1+offset:size(gvec, 1)
                     workspace.forces[elm, iat] -= gvec[i, elm, ia, iv] * gv[i, iv]
                 end
             end
@@ -550,8 +550,8 @@ function _stress_update!(workspace::GradientWorkspace, gv; offset=workspace.one_
     stotv = workspace.stotv
     fill!(workspace.stress, 0)
     for iat in axes(stotv, 4)
-        for i = 1+offset:size(stotv, 1)
-            for a in axes(workspace.stress, 1), b in axes(workspace.stress, 2)
+        for a in axes(workspace.stress, 1), b in axes(workspace.stress, 2)
+            @turbo for i = 1+offset:size(stotv, 1)
                 workspace.stress[a, b, iat] -= stotv[i, a, b, iat] * gv[i, iat]
             end
         end

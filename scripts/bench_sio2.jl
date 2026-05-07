@@ -12,6 +12,7 @@ Options:
     --repose PATH   Path to repose binary
     --ompnp N       Number of OMP threads for Fortran (default: 1)
     --runs N        Number of runs (default: 5)
+    --ft-steps N    Number of steps per Fortran run (default: 5, amortizes alloc)
     --julia-only    Only run Julia benchmark
     --fortran-only  Only run Fortran benchmark
 =#
@@ -38,6 +39,7 @@ const BENCH_DIR = joinpath(REPOSE_DIR, "benchmarks", "SiO2-1536-ramble")
 repose_bin = joinpath(REPOSE_DIR, "bin", "repose")
 omp_threads = 1
 n_runs = 5
+n_ft_steps = 5
 julia_only = false
 fortran_only = false
 
@@ -48,6 +50,8 @@ for i in 1:length(ARGS)
         global omp_threads = parse(Int, ARGS[i+1])
     elseif ARGS[i] == "--runs" && i < length(ARGS)
         global n_runs = parse(Int, ARGS[i+1])
+    elseif ARGS[i] == "--ft-steps" && i < length(ARGS)
+        global n_ft_steps = parse(Int, ARGS[i+1])
     elseif ARGS[i] == "--julia-only"
         global julia_only = true
     elseif ARGS[i] == "--fortran-only"
@@ -216,14 +220,14 @@ if !julia_only
 
         for n_omp in unique([1, omp_threads])
             n_omp > Sys.CPU_THREADS && continue
-            println("\n  --- repose -ompnp $n_omp ---")
+            println("\n  --- repose -ompnp $n_omp -m $n_ft_steps ---")
             times_list = Float64[]
 
             for irun in 1:n_runs
                 try
                     errfile = joinpath(BENCH_DIR, "stderr_$(n_omp)_$(irun).txt")
                     wrapper = joinpath(BENCH_DIR, "run_$(n_omp)_$(irun).sh")
-                    write(wrapper, "#!/bin/sh\ncd \"$(BENCH_DIR)\"\n\"$(repose_bin)\" -n -q -ompnp $(n_omp) -m 1 SiO2 2>\"$(errfile)\"\n")
+                    write(wrapper, "#!/bin/sh\ncd \"$(BENCH_DIR)\"\n\"$(repose_bin)\" -n -q -ompnp $(n_omp) -m $(n_ft_steps) SiO2 2>\"$(errfile)\"\n")
                     chmod(wrapper, 0o755)
                     run(`sh $wrapper`)
 
@@ -244,13 +248,14 @@ if !julia_only
                         end
                     end
 
-                    feat_us = round(feat_t / nat * 1e6, digits=1)
+                    feat_t_per_step = feat_t / n_ft_steps
+                    feat_us = round(feat_t_per_step / nat * 1e6, digits=1)
                     println("    run $irun: " *
-                            "ball=$(round(ball_t*1000, digits=1))ms  " *
-                            "feat=$(round(feat_t*1000, digits=1))ms  " *
-                            "netw=$(round(netw_t*1000, digits=1))ms  " *
-                            "ddp=$(round(ddp_t*1000, digits=1))ms  ($feat_us us/atom)")
-                    push!(times_list, feat_t)
+                            "ball=$(round(ball_t*1000/n_ft_steps, digits=1))ms  " *
+                            "feat=$(round(feat_t_per_step*1000, digits=1))ms/step  " *
+                            "netw=$(round(netw_t*1000/n_ft_steps, digits=1))ms  " *
+                            "ddp=$(round(ddp_t*1000/n_ft_steps, digits=1))ms  ($feat_us us/atom)")
+                    push!(times_list, feat_t_per_step)
                 catch e
                     println("    run $irun: FAILED - $e")
                 end
