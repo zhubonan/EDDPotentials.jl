@@ -82,11 +82,11 @@ end
 
     gflux = grad[1].layers[1].two_body.weight
     gmbp = chaing.layers[1].two_body.gw
-    @test all(gmbp .≈ gmbp)
+    @test all(gflux .≈ gmbp)
 
     gflux = grad[1].layers[1].three_body.weight
     gmbp = chaing.layers[1].three_body.gw
-    @test all(gmbp .≈ gmbp)
+    @test all(gflux .≈ gmbp)
 
     # Evaluation mode - test the gradients of the input matrix
     forward!(chaing, chain, inp)

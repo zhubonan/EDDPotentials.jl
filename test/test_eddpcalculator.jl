@@ -1,5 +1,5 @@
 using EDDPotentials
-using EDDPotentials: EDDPCalculator, eddp_energy, eddp_forces, eddp_stress, nfeatures
+using EDDPotentials: EDDPCalculator, eddp_energy, eddp_forces, eddp_stress, nfeatures, CoreRepulsion, create_calculator, predict, eddp_energy_per_atom, eddp_energy_std
 using EDDPotentials.EDDPotentialsCore:
     LinearInterface,
     ManualFluxBackPropInterface,
@@ -162,5 +162,112 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
             e_std = eddp_energy_std(calc, deepcopy(cell))
             @test e_std >= 0
         end
+    end
+
+    @testset "Cache invalidation" begin
+        calc = EDDPCalculator(deepcopy(cell), cf, model; elemental_energies, core_repulsion=nothing)
+
+        e1 = eddp_energy(calc)
+        f1 = copy(eddp_forces(calc))
+        @test calc._energy_calculated
+        @test calc._forces_calculated
+
+        # Position change: should invalidate and recalculate
+        pos = positions(get_cell(calc))
+        pos[1, 1] += 0.05
+        set_positions!(calc, pos)
+        @test calc._forces_calculated
+        e2 = eddp_energy(calc)
+        @test e2 != e1
+        @test calc._energy_calculated
+
+        # Lattice change: should invalidate
+        cmat = cellmat(get_cell(calc))
+        cmat[1, 1] *= 1.01
+        set_cellmat!(calc, cmat)
+        e3 = eddp_energy(calc)
+        @test calc._energy_calculated
+
+        # Species change: should invalidate via set_cell!
+        cf_multi = CellFeature([:H, :He]; p2=[2.0], p3=Float64[], q3=Float64[])
+        model_multi = LinearInterface(collect(range(0.1, length=nfeatures(cf_multi), step=0.1)))
+        cell_multi = Cell(Lattice(6.0, 6.0, 6.0), [:H, :H],
+                          [0.0 1.0; 0.0 0.0; 0.0 0.0])
+        calc_multi = EDDPCalculator(cell_multi, cf_multi, model_multi; elemental_energies=Dict{Symbol,Float64}(), core_repulsion=nothing)
+        e_a = eddp_energy(calc_multi)
+        cell_modified = deepcopy(get_cell(calc_multi))
+        CellBase.species(cell_modified)[1] = :He
+        set_cell!(calc_multi, cell_modified)
+        @test calc_multi._forces_calculated == false
+        e_b = eddp_energy(calc_multi)
+        @test calc_multi._energy_calculated
+    end
+
+    @testset "Force caching — energy-only then force" begin
+        calc = EDDPCalculator(deepcopy(cell), cf, model; elemental_energies, core_repulsion=nothing)
+
+        e1 = eddp_energy(calc; forces=false)
+        @test calc._energy_calculated
+        @test calc._forces_calculated == false
+
+        f1 = eddp_forces(calc)
+        @test calc._forces_calculated
+    end
+
+    @testset "core=nothing backward compat" begin
+        calc = EDDPCalculator(deepcopy(cell), cf, model; elemental_energies, core=nothing)
+        @test calc.core_repulsion === nothing
+
+        calc2 = EDDPCalculator(deepcopy(cell), cf, model; elemental_energies)
+        @test calc2.core_repulsion isa CoreRepulsion
+    end
+
+    @testset "create_calculator independence" begin
+        model_calc = EDDPCalculator(cf, model, elemental_energies; core_repulsion=nothing)
+        @test model_calc.cell === nothing
+
+        bound = create_calculator(model_calc, deepcopy(cell))
+        @test bound.cell !== nothing
+
+        # Model-level calculator must remain unbound
+        @test model_calc.cell === nothing
+        @test model_calc.workspace === nothing
+
+        # Bound calculator must give correct energy independently
+        e_model = eddp_energy(ref_calc)
+        e_bound = eddp_energy(bound)
+        @test e_bound ≈ e_model
+
+        # Modify the bound calculator — model-level must be unaffected
+        pos = positions(get_cell(bound))
+        pos[1, 1] += 0.1
+        set_positions!(bound, pos)
+        e_bound2 = eddp_energy(bound)
+        # Model-level calc is still unbound
+        @test model_calc.cell === nothing
+        # Creating a fresh bound calc from the model should match original
+        fresh = create_calculator(model_calc, deepcopy(cell))
+        @test eddp_energy(fresh) ≈ e_model
+    end
+
+    @testset "predict function" begin
+        calc = EDDPCalculator(deepcopy(cell), cf, model; elemental_energies, core_repulsion=nothing)
+
+        result = predict(calc, cell)
+        @test result.energy isa Float64
+        @test result.forces isa Matrix
+        @test result.stress isa Matrix
+
+        result_min = predict(calc, cell; forces=false, stress=false)
+        @test !haskey(result_min, :forces)
+        @test !haskey(result_min, :stress)
+        @test result.energy ≈ result_min.energy
+    end
+
+    @testset "eddp_energy_per_atom" begin
+        calc = EDDPCalculator(deepcopy(cell), cf, model; elemental_energies, core_repulsion=nothing)
+        e = eddp_energy(calc)
+        e_pa = eddp_energy_per_atom(calc)
+        @test e_pa ≈ e / length(cell)
     end
 end

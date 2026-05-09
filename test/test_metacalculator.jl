@@ -1,4 +1,6 @@
 using EDDPotentials
+using EDDPotentials: ExtraDimensionPenaltyModifier, AdditiveCalculatorModifier, VolumeConstraintModifier
+using EDDPotentials.EDDPotentialsCore: LinearInterface
 using CellBase
 using Test
 using LinearAlgebra
@@ -119,4 +121,43 @@ end
             calc, AdditiveCalculatorModifier, :alpha, 0.1
         )
     end
+end
+
+@testset "MetaCalculator modifier energy/force composition" begin
+    pos_4d = Float64[
+        0.0 1.0
+        0.0 2.0
+        0.0 0.5
+        0.1 0.3
+    ]
+    cell4 = Cell(Lattice(8.0, 8.0, 8.0), [:H, :H], pos_4d)
+    cf = CellFeature([:H]; p2=[2.0], p3=Float64[], q3=Float64[])
+    model = LinearInterface([0.1, 0.2])
+    source = EDDPCalculator(cell4, cf, model; core_repulsion=nothing)
+
+    alpha = 0.5
+    mod = ExtraDimensionPenaltyModifier(alpha; start_dim=4)
+    mc = MetaCalculator(source, [mod])
+
+    E_src = eddp_energy(source)
+    E_meta = eddp_energy(mc)
+    expected_penalty = alpha * sum(pos_4d[4, :] .^ 2)
+    @test E_meta ≈ E_src + expected_penalty atol = 1e-10
+
+    F_src = eddp_forces(source)
+    F_meta = eddp_forces(mc)
+    @test F_meta[1:3, :] ≈ F_src[1:3, :] atol = 1e-10
+    @test F_meta[4, :] ≈ F_src[4, :] .- 2 * alpha .* pos_4d[4, :] atol = 1e-10
+
+    # Stress should be unchanged by penalty modifier
+    S_src = eddp_stress(source)
+    S_meta = eddp_stress(mc)
+    @test S_meta ≈ S_src atol = 1e-10
+
+    # Modifier parameter override via set_modifier_parameter!
+    alpha2 = 2.0
+    set_modifier_parameter!(mc, ExtraDimensionPenaltyModifier, :alpha, alpha2)
+    E_meta2 = eddp_energy(mc)
+    expected_penalty2 = alpha2 * sum(pos_4d[4, :] .^ 2)
+    @test E_meta2 ≈ E_src + expected_penalty2 atol = 1e-10
 end

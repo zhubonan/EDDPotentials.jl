@@ -1,3 +1,4 @@
+using EDDPotentials
 using EDDPotentials: TwoBodyFeature, ThreeBodyFeature, CellFeature, nfeatures
 using Test
 
@@ -29,11 +30,11 @@ using Test
     @test length(cftot.two_body) == 5
     @test length(cftot.three_body) == 7
 
-    # # Test feature functions
-    # @test all(cf2.two_body[1](4.0) .== 0)
-    # @test all(cf2.three_body[1](4.0, 4.0, 4.0) .== 0)
-    # @test all(cf2.three_body[1](3.0, 4.0, 4.0) .== 0)
-    # @test any(cf2.three_body[1](3.0, 3.0, 3.0) .!= 0)
+    # Test feature cutoff functions
+    @test all(cf2.two_body[1](4.0) .== 0)
+    # Two-body feature should be non-zero inside cutoff
+    fval_inner = cf2.two_body[1](2.0)
+    @test any(fval_inner .!= 0)
 
 end
 
