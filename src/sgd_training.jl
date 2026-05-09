@@ -9,6 +9,7 @@ This follows the same pattern as `generate_f_g_optim` in training.jl.
 
 using Printf
 using Random
+using StatsBase: mean
 using Flux
 using Zygote: withgradient
 using .EDDPotentialsCore:

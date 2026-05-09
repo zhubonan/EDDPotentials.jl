@@ -2,6 +2,8 @@
 Routines for building structures
 =#
 
+using StatsBase: Weights, sample
+
 """
     build_one(seedfile;timeout=10, init_structure_transform=nothing)
 

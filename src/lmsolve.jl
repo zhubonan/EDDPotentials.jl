@@ -10,7 +10,7 @@ using OptimBase
 using LinearAlgebra
 import NLSolversBase: value, jacobian
 import StatsBase
-import StatsBase: coef, dof, nobs, rss, stderror, weights, residuals
+import StatsBase: coef, dof, mean, nobs, rss, stderror, weights, residuals
 import LsqFit
 
 import Base.summary

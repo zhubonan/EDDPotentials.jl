@@ -32,7 +32,7 @@ function rattle_cell!(cell::Cell, amp)
     local new_cellpar
     i = 0
     while true
-        new_cellpar = [x * (1 + rand() * amp) for x in cellpar(cell)]
+        new_cellpar = [x * (1 + (2rand() - 1) * amp) for x in cellpar(cell)]
         CellBase.isvalidcellpar(new_cellpar...) && break
         # Cannot found a valid cell parameters?
         if i > 10

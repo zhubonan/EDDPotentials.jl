@@ -1,5 +1,6 @@
 using EDDPotentials
 using CellBase
+using Random
 using Test
 
 @testset "Tools" begin
@@ -10,6 +11,28 @@ using Test
     EDDPotentials.rattle_cell!(cell, 0.01)
     @test all(cpar .!= cellpar(cell))
     @test all(isapprox.(spos, CellBase.scaled_positions(cell), atol=1e-10))
+
+    Random.seed!(1234)
+    length_changes = Float64[]
+    for _ = 1:50
+        test_cell = Cell(Lattice(10, 10, 10), [:H], [[0.0, 0.0, 4]])
+        EDDPotentials.rattle_cell!(test_cell, 0.01)
+        append!(length_changes, cellpar(test_cell)[1:3] .- cpar[1:3])
+    end
+    @test minimum(length_changes) < 0
+    @test maximum(length_changes) > 0
+
+    Random.seed!(5678)
+    pos_cell = Cell(Lattice(10, 10, 10), [:H], [[5.0, 5.0, 5.0]])
+    pos0 = copy(get_positions(pos_cell))
+    pos_changes = Float64[]
+    for _ = 1:50
+        set_positions!(pos_cell, pos0)
+        rattle!(pos_cell, 0.01)
+        append!(pos_changes, get_positions(pos_cell) .- pos0)
+    end
+    @test minimum(pos_changes) < 0
+    @test maximum(pos_changes) > 0
 end
 
 include("utils.jl")

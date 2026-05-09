@@ -269,6 +269,7 @@ using NLSolversBase
             @test tm isa TrainedModel
             @test tm.val_results isa TrainingResults
             @test tm.test_results isa TrainingResults
+            @test occursin("Average Spearman", sprint(show, tm.test_results))
         end
 
         @testset "predict on TrainedModel" begin

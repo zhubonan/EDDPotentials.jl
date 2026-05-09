@@ -1,5 +1,6 @@
 using Printf
 using LinearAlgebra: norm, dot, tr
+using StatsBase: mean
 
 # ---------------------------------------------------------------------------
 # Configuration

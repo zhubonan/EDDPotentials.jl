@@ -1,4 +1,5 @@
 using Printf
+using StatsBase: mean
 
 """
     hyper_get_calc(cell, bu::Builder; alpha=1e-3) -> MetaCalculator

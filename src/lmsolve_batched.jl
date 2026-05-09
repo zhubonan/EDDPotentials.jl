@@ -16,6 +16,7 @@ using Random
 using OptimBase
 using Logging
 import StatsBase
+import StatsBase: mean
 import NLSolversBase: value, jacobian
 
 using .EDDPotentialsCore: to
