@@ -350,3 +350,23 @@ end
     @test result.n_structures == 1
     @test !isnan(result.force_component_rmse)
 end
+
+@testset "evaluate StructureContainer" begin
+    calc = _make_simple_eddp_calc()
+
+    cells = typeof(_h2_cell())[]
+    energies = Float64[]
+    for i in 1:2
+        cell = _h2_cell(4.0 + 0.1 * i)
+        energy = -10.0 - i
+        cell.metadata[:enthalpy] = energy
+        cell.arrays[:REF_forces] = rand(3, 2) .* 0.1
+        push!(cells, cell)
+        push!(energies, energy)
+    end
+    sc = StructureContainer(cells, energies)
+
+    result = evaluate(calc, sc; compute_timing=false, compute_saturation=false)
+    @test result.n_structures == 2
+    @test !isnan(result.force_component_rmse)
+end

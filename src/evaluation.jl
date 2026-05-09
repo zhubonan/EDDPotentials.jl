@@ -591,6 +591,24 @@ function evaluate(
     )
 end
 
+"""
+    evaluate(calc, sc::StructureContainer; config=EvaluationConfig(energy_key=:enthalpy,
+             force_key=:REF_forces), kwargs...) -> AggregatedMetrics
+
+Evaluate an `EDDPCalculator` directly against the structures in a
+`StructureContainer`. The default reference keys match `StructureContainer`'s
+normalised data convention: energies in `cell.metadata[:enthalpy]` and forces
+in `cell.arrays[:REF_forces]`.
+"""
+function evaluate(
+    calc,
+    sc::StructureContainer;
+    config=EvaluationConfig(energy_key=:enthalpy, force_key=:REF_forces),
+    kwargs...,
+)
+    evaluate(calc, sc.structures; config, kwargs...)
+end
+
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
