@@ -120,7 +120,7 @@ results, dnorm = scheduled_penalty_relax!(metacalc;
 For variable-cell hyperspace relaxation, pass `relax_kwargs=(relax_cell=true,)` to `scheduled_penalty_relax!`:
 
 The `hyper_gen_relax` function provides high-level entry points for both workflows:
-- `hyper_gen_relax(bu::Builder; ...)` — uses a Builder configuration; hyperspace parameters in `link.toml` under `[state]`: `hyper_ndim`, `hyper_alpha_start`, `hyper_schedule_every`, `hyper_target_iterations`.
+- `hyper_gen_relax(bu::Builder; ...)` — uses a Builder to access the model/seed configuration; hyperspace controls are passed as keyword arguments to `hyper_gen_relax`, while `link!`/RSS hyperspace settings belong under `[state.relax]` in `link.toml`.
 - `hyper_gen_relax(calc::EDDPCalculator, cell::Cell; ...)` — standalone mode with a pre-trained model and a cell, no Builder needed. Uses `create_calculator` internally to assemble the modifier pipeline.
 
 ### Feature System

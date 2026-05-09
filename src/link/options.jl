@@ -26,7 +26,8 @@ to perform various actions during the construction of the potentials.
 - `max_iterations`: The maximum number of iteration to be performed for building the potential.
 - `per_generation`: Number of structure to be generated (and relaxed) for each generation.
 - `shake_per_generation`: The number of shaken structure for **each** relaxed structure to be generated.
-- `build_timeout`: Timeout for assuming the `buildcell` file has failed to generate the structure.
+- `buildcell_nprocs`: Number of concurrent `buildcell` processes to use during generation 0 bulk structure generation.
+- `build_timeout`: Timeout in seconds for each `buildcell` process during generation 0 bulk structure generation.
 - `shake_amp`: The amplitude of atomic displacements for shaking relaxed structures.
 - `shake_cell_amp`: The amplitude of cell deformations for shaking relaxed structures.
 - `n_parallel`: Deprecated.
@@ -53,10 +54,6 @@ to perform various actions during the construction of the potentials.
 - `elemental_energies`: The energies of elements species. It is **very important** to specify them for multi-composition searches.
    The reference energies may be obtained via *atom-in-a-large-cell* calculations or total energies of the pseudo atom calculation.
    The latter is printed in the `.castep` file for the on-the-fly generated potentials of CASTEP.
-- `hyper_ndim`: Number of extra dimensions for hyperdimensional relaxation (default 3).
-- `hyper_alpha_start`: Starting penalty coefficient for extra dimensions (default 1e-4).
-- `hyper_schedule_every`: Iterations between penalty schedule updates (default 50).
-- `hyper_target_iterations`: Maximum iterations for hyperdimensional relaxation (default 500).
 """
 @option mutable struct BuilderState <: EDDPotentialsOption
     seedfile::Union{String,Vector{String}}
@@ -68,7 +65,8 @@ to perform various actions during the construction of the potentials.
     per_generation::Int = 100
     per_generation_threshold::Float64 = 0.98
     shake_per_minima::Int = 10
-    build_timeout::Float64 = 1.0
+    buildcell_nprocs::Int = 1
+    build_timeout::Float64 = 60.0
     shake_amp::Float64 = 0.02
     shake_cell_amp::Float64 = 0.02
     n_parallel::Int = 1
@@ -90,17 +88,6 @@ to perform various actions during the construction of the potentials.
     builder_file_path::String = ""
     relax::RelaxOption = RelaxOption()
     elemental_energies = Dict{String,Any}()
-    hyper_ndim::Int = 3
-    hyper_alpha_start::Float64 = 1e-4
-    hyper_schedule_every::Int = 25
-    hyper_target_iterations::Int = 200
-    hyper_dynamic_alpha::Bool = false
-    hyper_force_ratio::Float64 = 2.0
-    hyper_max_alpha::Float64 = 1.0
-    hyper_ramp_alpha::Bool = true
-    hyper_alpha_ramp_factor::Float64 = 5.0
-    hyper_phase1_alpha::Float64 = 1e-4
-    hyper_phase1_fraction::Float64 = 0.5
     "Relaxation mode: `standard` (3D), `hyperspace`, or `hot`"
     relax_mode::String = "standard"
     "Number of MD+relax rounds for hot-AIRSS mode"

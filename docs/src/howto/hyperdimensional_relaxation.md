@@ -193,17 +193,20 @@ println("Standard 3D energy: ", eddp_energy(source_3d))
 
 ## Configuring via link.toml
 
-The `BuilderState` now supports hyperspace parameters:
+For `link!` / RSS workflows, hyperspace settings live under `state.relax`:
 
 ```toml
 [state]
-hyper_ndim = 3
-hyper_alpha_start = 1e-4
-hyper_schedule_every = 50
-hyper_target_iterations = 500
+relax_mode = "hyperspace"
+
+    [state.relax]
+    hyper_ndim = 3
+    hyper_alpha_start = 1e-4
+    hyper_schedule_every = 50
+    hyper_target_iterations = 500
 ```
 
-These are automatically read when calling `hyper_gen_relax(bu)`.
+`hyper_gen_relax(bu)` itself is configured through its keyword arguments.
 
 ## Penalty Schedule
 

@@ -1,4 +1,5 @@
 using EDDPotentials
+using CellBase
 using Test
 using Logging
 
@@ -72,6 +73,52 @@ function prepare_folder(func)
     end
 end
 
+function with_fake_buildcell(f; sleep_seconds=0.0)
+    mktempdir() do bindir
+        timeout_log = joinpath(bindir, "timeout.log")
+        start_log = joinpath(bindir, "buildcell-starts.log")
+        build_output = joinpath(bindir, "buildcell-output.cell")
+        sample_cell = CellBase.read_res(joinpath(@__DIR__, "data", "training", "8B-22-09-16-17-27-38-08314cef.res"))
+        CellBase.write_cell(build_output, sample_cell)
+
+        timeout_script = joinpath(bindir, "timeout")
+        open(timeout_script, "w") do io
+            write(
+                io,
+                "#!/bin/sh\n" *
+                "set -eu\n" *
+                "printf '%s\\n' \"\$1\" >> \"\$FAKE_TIMEOUT_LOG\"\n" *
+                "shift\n" *
+                "exec \"\$@\"\n",
+            )
+        end
+        chmod(timeout_script, 0o755)
+
+        buildcell_script = joinpath(bindir, "buildcell")
+        open(buildcell_script, "w") do io
+            write(
+                io,
+                "#!/bin/sh\n" *
+                "set -eu\n" *
+                "date +%s.%N >> \"\$FAKE_BUILDCELL_START_LOG\"\n" *
+                "sleep \"\${FAKE_BUILDCELL_SLEEP:-0}\"\n" *
+                "cat \"\$FAKE_BUILDCELL_OUTPUT\"\n",
+            )
+        end
+        chmod(buildcell_script, 0o755)
+
+        withenv(
+            "PATH" => string(bindir, ":", ENV["PATH"]),
+            "FAKE_TIMEOUT_LOG" => timeout_log,
+            "FAKE_BUILDCELL_START_LOG" => start_log,
+            "FAKE_BUILDCELL_SLEEP" => string(sleep_seconds),
+            "FAKE_BUILDCELL_OUTPUT" => build_output,
+        ) do
+            f((; timeout_log, start_log))
+        end
+    end
+end
+
 function check_airss(; verbose=false)
     try
         buildcell = run(`buildcell`, devnull, devnull; wait=false)
@@ -84,6 +131,30 @@ function check_airss(; verbose=false)
         return false
     end
     return true
+end
+
+@testset "initial buildcell generation" begin
+    prepare_folder() do target
+        with_fake_buildcell(; sleep_seconds=0.3) do logs
+            builder = Builder(joinpath(target, "link-test.toml"))
+            builder.state.n_initial = 4
+            builder.state.buildcell_nprocs = 2
+            builder.state.build_timeout = 7.5
+
+            EDDPotentials._generate_random_structures(builder, 0)
+
+            outdir = joinpath(builder.state.workdir, "gen0")
+            resfiles = filter(x -> endswith(x, ".res"), readdir(outdir; join=true))
+            @test length(resfiles) == 4
+
+            timeout_args = readlines(logs.timeout_log)
+            @test timeout_args == fill("7.5", 4)
+
+            starts = sort(parse.(Float64, readlines(logs.start_log)))
+            @test length(starts) == 4
+            @test minimum(diff(starts)) < 0.2
+        end
+    end
 end
 
 if check_airss(; verbose=true)

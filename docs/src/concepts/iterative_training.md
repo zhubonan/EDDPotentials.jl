@@ -177,6 +177,8 @@ max_iterations = 10              # Stop after this many generations
 n_initial = 500                  # Generation 0 structures (binary)
 per_generation = 100             # Generation N structures (N≥1)
 shake_per_minima = 10            # Shaken variants per relaxed structure
+buildcell_nprocs = 8             # Parallel buildcell jobs for generation 0
+build_timeout = 60.0             # Seconds allowed per buildcell launch
 
 workdir = "."                    # All outputs go here
 seedfile = "C-SEARCH.cell"       # buildcell input for RSS
@@ -249,6 +251,7 @@ train_split = [0.8, 0.1, 0.1]    # [train, validation, test] ratios
 [state]
 rss_pressure_gpa = 1.0           # Positive pressure prevents empty cells
 core_size = 1.2                  # Hard-core radius (< bond length)
+buildcell_nprocs = 16            # Parallel buildcell jobs for generation 0
 rss_nprocs = 16                  # Parallel RSS processes
 
 # Uncertainty filters

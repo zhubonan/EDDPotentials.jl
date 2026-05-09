@@ -94,7 +94,8 @@ _select_seed(names::AbstractString, weights=[1.0]) = _select_seed([names], weigh
     build_random_structures(seedfile, outdir;n=1, show_progress=false, timeout=60, seedfile_weights)
 
 Build multiple random structures in the target folder. A glob pattern may be used for the
-`seedfile` argument.
+`seedfile` argument. When `nprocs > 1`, multiple `buildcell` subprocesses are launched
+concurrently.
 
 """
 function build_random_structures(
@@ -105,24 +106,59 @@ function build_random_structures(
     timeout=60,
     outfmt="res",
     seedfile_weights=[1.0],
+    nprocs=1,
 )
-    i = 0
+    if n <= 0
+        return
+    end
+
     if show_progress
         prog = Progress(n)
+        prog_lock = ReentrantLock()
     end
-    while i < n
+
+    function build_and_write_one!()
         this_seed = _select_seed(seedfile, seedfile_weights)[1]
         cell = build_one(this_seed; timeout)
         label = EDDPotentials.get_label(EDDPotentials.stem(this_seed))
         cell.metadata[:label] = label
         if outfmt == "res"
             write_res(joinpath(outdir, "$(label).res"), cell)
-        else
+        elseif outfmt == "cell"
             CellBase.write_cell(joinpath(outdir, "$(label).cell"), cell)
+        else
+            throw(ArgumentError("Unsupported output format: $outfmt"))
         end
-        i += 1
+
         if show_progress
-            ProgressMeter.update!(prog)
+            lock(prog_lock) do
+                ProgressMeter.next!(prog)
+            end
         end
+        return
     end
+
+    nworkers = min(max(nprocs, 1), n)
+    if nworkers == 1
+        for _ = 1:n
+            build_and_write_one!()
+        end
+        return
+    end
+
+    jobs = Channel{Int}(n)
+    for i = 1:n
+        put!(jobs, i)
+    end
+    close(jobs)
+
+    tasks = [
+        @async begin
+            for _ in jobs
+                build_and_write_one!()
+            end
+        end for _ = 1:nworkers
+    ]
+
+    foreach(fetch, tasks)
 end

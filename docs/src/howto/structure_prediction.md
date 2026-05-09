@@ -323,7 +323,8 @@ fc = FeatureContainer(cf, StructureContainer(all_structures))
 **Optimal configuration:**
 ```julia
 # For 64-core node
-builder.rss.nprocs = 64          # 64 parallel buildcell processes
+builder.state.buildcell_nprocs = 64  # 64 parallel buildcell processes for generation 0
+builder.state.build_timeout = 60.0   # Per-build timeout in seconds
 builder.state.max_structures = 50000  # Large batch
 ```
 

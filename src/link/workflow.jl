@@ -417,7 +417,7 @@ function _generate_random_structures(bu::Builder, iter)
     outdir = _input_structure_dir(bu)
     ensure_dir(outdir)
     ndata = length(glob_allow_abs(joinpath(outdir, "*.res")))
-    (; seedfile, seedfile_weights, workdir) = bu.state
+    (; seedfile, seedfile_weights, workdir, buildcell_nprocs, build_timeout) = bu.state
 
     if iter == 0
         # First cycle generate from the seed without relaxation
@@ -428,12 +428,14 @@ function _generate_random_structures(bu::Builder, iter)
         # Generate random structures
         nstruct = bu.state.n_initial - ndata
         if nstruct > 0
-            @info "Generating $(nstruct) initial training structures."
+            @info "Generating $(nstruct) initial training structures with $(buildcell_nprocs) buildcell process(es)."
             build_random_structures(
                 joinpath.(workdir, seedfile),
                 outdir;
                 seedfile_weights,
                 n=nstruct,
+                nprocs=buildcell_nprocs,
+                timeout=build_timeout,
             )
         end
     else
@@ -542,32 +544,6 @@ end
 
 
 """
-    _populate_hyper_option(state::BuilderState; verbose::Bool=true) -> RelaxOption
-
-Create a RelaxOption from the BuilderState, copying hyper_* fields into the
-RelaxOption when `relax_mode == "hyperspace"`. Uses `state.relax` as the base.
-"""
-function _populate_hyper_option(state; verbose::Bool=true)
-    opt = deepcopy(state.relax)
-    opt.verbose = verbose
-    if state.relax_mode == "hyperspace"
-        opt.hyper_ndim = state.hyper_ndim
-        opt.hyper_alpha_start = state.hyper_alpha_start
-        opt.hyper_schedule_every = state.hyper_schedule_every
-        opt.hyper_target_iterations = state.hyper_target_iterations
-        opt.hyper_dynamic_alpha = state.hyper_dynamic_alpha
-        opt.hyper_force_ratio = state.hyper_force_ratio
-        opt.hyper_max_alpha = state.hyper_max_alpha
-        opt.hyper_ramp_alpha = state.hyper_ramp_alpha
-        opt.hyper_alpha_ramp_factor = state.hyper_alpha_ramp_factor
-        opt.hyper_phase1_alpha = state.hyper_phase1_alpha
-        opt.hyper_phase1_fraction = state.hyper_phase1_fraction
-    end
-    opt
-end
-
-
-"""
     _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
 
 Run RSS generation internally within the current process.
@@ -580,7 +556,8 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
     ensure_dir(outdir)
 
     (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max, relax_mode) = state
-    _relax_option = _populate_hyper_option(state)
+    _relax_option = deepcopy(state.relax)
+    _relax_option.verbose = true
     hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
         md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
         relax_cell=state.hot_relax_cell)
@@ -726,8 +703,7 @@ function _run_rss_link()
 
     relax_mode = args["relax-mode"]
     state = bu.state
-    rs = bu.rss
-    _relax_option = deepcopy(rs.relax)
+    _relax_option = deepcopy(state.relax)
     _relax_option.verbose = true
     if _relax_option.hyper_ndim > 0
         relax_mode = "hyperspace"
