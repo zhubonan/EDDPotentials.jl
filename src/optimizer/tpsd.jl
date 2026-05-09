@@ -68,6 +68,9 @@ Native TPSD typically achieves 20-40% speedup compared to Optim.jl version.
     ext_pressure::Matrix{Float64} = zeros(3, 3)
     cell_damping::Float64 = 0.1
 
+    # Exact optimizer-step constraints
+    step_constraints::Vector{Any} = Any[]
+
     # Logging
     log_level::Symbol = :standard  # :minimal, :standard, :detailed
     keep_trajectory::Bool = false
@@ -150,10 +153,12 @@ function step!(opt::NativeTPSD, calc::AbstractCalc)
     end
 
     dr = opt.α .* g
+    apply_step_constraints!(opt.step_constraints, opt, calc, dr)
     norm_dr = sqrt(dot(dr, dr))
     if norm_dr > opt.maxstep
         dr .*= opt.maxstep / norm_dr
     end
+    apply_step_constraints!(opt.step_constraints, opt, calc, dr)
     x_new = x - dr
 
     _writeback_positions!(opt, calc, x_new)

@@ -24,6 +24,7 @@ function opt_tpsd(
     callback=nothing,
     keep_trajectory=false,
     trajectory=nothing,
+    step_constraints=Any[],
 )
     if !relax_cell
         s_tol = floatmax(Float64)
@@ -42,6 +43,7 @@ function opt_tpsd(
         relax_cell,
         ext_pressure,
         cell_damping,
+        step_constraints=collect(step_constraints),
     )
 
     wrapped_callback = isnothing(callback) && isnothing(trajectory) ? nothing : () -> begin
@@ -82,6 +84,7 @@ function opt_fire(
     callback=nothing,
     keep_trajectory=false,
     trajectory=nothing,
+    step_constraints=Any[],
 )
     if !relax_cell
         s_tol = floatmax(Float64)
@@ -107,6 +110,7 @@ function opt_fire(
         relax_cell,
         ext_pressure,
         cell_damping,
+        step_constraints=collect(step_constraints),
     )
 
     wrapped_callback = isnothing(callback) && isnothing(trajectory) ? nothing : () -> begin

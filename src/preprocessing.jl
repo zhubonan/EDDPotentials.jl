@@ -1,6 +1,5 @@
 using JLD2
-using StatsBase
-import StatsBase: transform!, reconstruct!, ZScoreTransform
+using StatsBase: fit, transform!, reconstruct!, ZScoreTransform
 using Random
 using Glob
 using CellBase
@@ -966,7 +965,7 @@ function standardize!(fs::FeatureStore; xt=nothing, yt=nothing)
                 )
             end
             total_x_train = reduce(hcat, fs.data)
-            xt = fit(StatsBase.ZScoreTransform, total_x_train, dims=2)
+            xt = fit(ZScoreTransform, total_x_train, dims=2)
             for i in eachindex(xt.scale)
                 if abs(xt.scale[i]) < 1e-6
                     xt.scale[i] = 1.0

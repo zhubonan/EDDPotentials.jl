@@ -11,7 +11,7 @@ For even faster loading, the composition string should be encoded inside the REM
 
 using CellBase
 import CellBase
-using StatsBase
+using StatsBase: countmap
 export read_shelx_record
 
 """

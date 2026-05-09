@@ -88,6 +88,9 @@ Best for rough optimization far from minimum.
     ext_pressure::Matrix{Float64} = zeros(3, 3)
     cell_damping::Float64 = 0.1
 
+    # Exact optimizer-step constraints
+    step_constraints::Vector{Any} = Any[]
+
     # Convergence criteria
     f_tol::Float64 = 1e-2
     s_tol::Float64 = 1e-1
@@ -212,10 +215,12 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
     opt.vel += opt.dt * gradient
 
     dr = opt.dt * opt.vel
+    apply_step_constraints!(opt.step_constraints, opt, calc, dr)
     normdr = sqrt(dot(dr, dr))
     if normdr > opt.maxstep
         dr *= opt.maxstep / normdr
     end
+    apply_step_constraints!(opt.step_constraints, opt, calc, dr)
 
     x_new = x + dr
     _writeback_positions!(opt, calc, x_new)
