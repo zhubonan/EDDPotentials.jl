@@ -41,7 +41,7 @@ ndim = 3
 hcell = add_dimensions(cell, ndim)
 
 # Create source calculator
-source = NNCalc(hcell, cf, ensemble)
+source = create_calculator(eddp_calc, hcell)
 
 # Build MetaCalculator with penalty modifier
 penalty = ExtraDimensionPenaltyModifier(1e-4; start_dim=4)
@@ -111,7 +111,7 @@ results, dnorm = hyper_gen_relax(calc, cell;
 
 This overload uses [`create_calculator`](@ref) internally to bind the model
 to the hyperdimensional cell with the appropriate modifier pipeline
-(`ExtraDimensionPenaltyModifier` + `CellRelaxationModifier`).
+(`ExtraDimensionPenaltyModifier`).
 
 ## Lennard-Jones Hyperspace Example
 
@@ -171,14 +171,14 @@ end
 hcell3 = add_dimensions(cell, ndim)
 source3 = lj_calc(hcell3; sigma=1.0, epsilon=1.0, rcut=3.0)
 penalty3 = ExtraDimensionPenaltyModifier(1e-4; start_dim=4)
-cell_relax3 = CellRelaxationModifier(hcell3)
-metacalc3 = MetaCalculator(source3, [penalty3, cell_relax3])
+metacalc3 = MetaCalculator(source3, [penalty3])
 
 results3, dnorm3 = scheduled_penalty_relax!(metacalc3;
     schedule_every=50,
     max_iterations=500,
     alpha_start=1e-4,
     relax_fn=opt_tpsd,
+    relax_kwargs=(relax_cell=true,),
 )
 
 relaxed3 = remove_dimensions(hcell3)
@@ -187,9 +187,8 @@ println("VC-relaxed energy: ", eddp_energy(metacalc3))
 
 # Compare with standard 3D relaxation
 source_3d = lj_calc(cell; sigma=1.0, epsilon=1.0, rcut=3.0)
-calc_3d = MetaCalculator(source_3d, [CellRelaxationModifier(cell)])
-opt_3d = opt_tpsd(calc_3d; itermax=500)
-println("Standard 3D energy: ", eddp_energy(calc_3d))
+opt_3d = opt_tpsd(source_3d; itermax=500, relax_cell=true)
+println("Standard 3D energy: ", eddp_energy(source_3d))
 ```
 
 ## Configuring via link.toml

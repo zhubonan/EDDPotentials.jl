@@ -113,7 +113,7 @@ For automated potential building with iterative training, see [AIRSS Workflow](t
 ## Analytic Lennard-Jones baseline
 
 For quick debugging, optimizer checks, or pair-potential baselines, you can create a
-force-shifted Lennard-Jones calculator directly in the regular `NNCalc` stack:
+force-shifted Lennard-Jones calculator directly in the standard calculator stack:
 
 ```julia
 using EDDPotentials

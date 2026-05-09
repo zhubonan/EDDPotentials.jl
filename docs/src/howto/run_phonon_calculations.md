@@ -67,19 +67,19 @@ println("Using iteration: ", builder.state.iteration)
 structure = read_res("my_structure.res")
 
 # Create calculator with ensemble
-calc = NNCalc(structure, builder.cf, load_ensemble(builder))
+eddp_calc = EDDPCalculator(builder.cf, load_ensemble(builder), Dict{Symbol,Float64}())
+calc = create_calculator(eddp_calc, structure)
 
 # Relax with variable cell optimization (important for phonons!)
-vc_calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
-converged = opt_tpsd(vc_calc; f_tol=0.01, itermax=200)
+converged = opt_tpsd(calc; relax_cell=true, f_tol=0.01, itermax=200)
 @assert converged
 
 # Extract relaxed structure
-relaxed_structure = get_cell(vc_calc)
+relaxed_structure = get_cell(calc)
 println("Relaxed volume: ", volume(relaxed_structure), " Å³")
 ```
 
-**Important**: Use variable cell relaxation (`MetaCalculator` with `CellRelaxationModifier`) to ensure the lattice parameters are at equilibrium. Fixed-cell relaxation can give incorrect phonon frequencies.
+**Important**: Use variable cell relaxation (`relax_cell=true` in [`opt_tpsd`](@ref) or [`opt_fire`](@ref)) to ensure the lattice parameters are at equilibrium. Fixed-cell relaxation can give incorrect phonon frequencies.
 
 ## Step 2: Run Finite Displacement
 
@@ -90,7 +90,7 @@ using EDDPotentialsTools
 
 # Run phonon calculation
 EDDPotentialsTools.run_phonon(
-    vc_calc;
+    calc;
     outdir="phonon",       # Output directory
     supercell=[2, 2, 2],   # Supercell size (optional)
     distance=0.01          # Displacement distance in Å (optional)
@@ -248,14 +248,14 @@ builder = Builder("si_potential/link.toml")
 structure = read_res("Si.res")
 
 # 2. Relax structure
-calc = NNCalc(structure, builder.cf, load_ensemble(builder))
-vc_calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
-converged = opt_tpsd(vc_calc; f_tol=0.001, itermax=300)
+eddp_calc = EDDPCalculator(builder.cf, load_ensemble(builder), Dict{Symbol,Float64}())
+calc = create_calculator(eddp_calc, structure)
+converged = opt_tpsd(calc; relax_cell=true, f_tol=0.001, itermax=300)
 @assert converged
 
 # 3. Calculate phonons
 EDDPotentialsTools.run_phonon(
-    vc_calc;
+    calc;
     outdir="phonon_si",
     supercell=[3, 3, 3],
     distance=0.01

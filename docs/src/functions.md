@@ -45,7 +45,7 @@ Pages = [
 
 ## Calculators
 
-Calculator types for energy, force, and stress evaluation. [`NNCalc`](@ref) is the primary calculator; [`MetaCalculator`](@ref) with [`CellRelaxationModifier`](@ref) adds lattice degrees of freedom for cell optimization (replaces the deprecated `VariableCellCalc`); [`EDDPCalculator`](@ref) bundles a trained model and provides the [`create_calculator`](@ref) factory for assembling calculator pipelines.
+[`EDDPCalculator`](@ref) is the primary calculator type for energy, force, and stress evaluation. The [`MetaCalculator`](@ref) composes a source calculator with an ordered modifier pipeline. Variable-cell optimization uses the `relax_cell` parameter on optimizer entry points ([`opt_tpsd`](@ref), [`opt_fire`](@ref), [`relax!`](@ref)). The [`create_calculator`](@ref) factory assembles calculator pipelines from a pre-trained [`EDDPCalculator`](@ref).
 
 ```@autodocs
 Modules = [EDDPotentials]
@@ -65,7 +65,6 @@ Modules = [EDDPotentials]
 Pages = [
     "core/calculator/modifiers/abstract.jl",
     "core/calculator/modifiers/dimension_penalty.jl",
-    "core/calculator/modifiers/cell_relaxation.jl",
     "core/calculator/modifiers/additive_calc.jl",
 ]
 ```
@@ -102,7 +101,7 @@ High-level relaxation interface wrapping optimizers with cell handling, converge
 ### Lennard-Jones baseline helper
 
 EDDP now includes a fixed-weight force-shifted Lennard-Jones baseline built on top of
-`CellFeature`, `LinearInterface`, and `NNCalc`.
+`CellFeature`, `LinearInterface`, and the calculator stack.
 
 Use `EDDPotentials.lj_baseline_calc(...)` when you want an analytic pair potential in
 the standard calculator stack without training a model.

@@ -68,7 +68,7 @@ The source tree has an internal core/functional split. The public API is availab
 - Feature generation (`core/feature/`) — two-body and three-body atomic environment descriptors
 - Gradient computation (`core/gradient/`) — chain rule for forces/stress from feature gradients
 - NN interface (`core/nn/`) — abstract `AbstractNNInterface` with Linear, Flux, Ensemble, and ManualFluxBackProp implementations
-- Calculator kernel (`core/calculator.jl`) — `NNCalc`, deprecated `VariableCellCalc` shim (→ `MetaCalculator` + `CellRelaxationModifier`), `EDDPCalculator` + `create_calculator` factory
+- Calculator kernel (`core/calculator.jl`) — internal `NNCalc`, public `EDDPCalculator` (constructor auto-binds to cell), `create_calculator` factory
 - Calculator modifiers (`core/calculator/modifiers/`) — pipeline-based modifiers for MetaCalculator
 - MetaCalculator (`core/calculator/metacalculator.jl`) — composes source calculator + modifier pipeline; delegates cell ownership to source
 
@@ -94,9 +94,9 @@ All calculators inherit from `AbstractCalc` and implement:
 - `calculate!(calc; forces=true, rebuild_nl=true)` — trigger computation (caching handled internally)
 
 Key calculator types:
-- **`NNCalc`** — primary calculator binding Cell + CellFeature + NNInterface with neighbor list caching
-- **`MetaCalculator`** — source calculator + ordered modifier pipeline with pre/post-calculate hooks; delegates cell ownership to source. Use with `CellRelaxationModifier` for variable-cell optimization (replaces the deprecated `VariableCellCalc`).
-- **`EDDPCalculator`** — model-level calculator (trained model not bound to any cell). Provides `create_calculator(calc, cell; modifiers=[])` factory that returns `NNCalc` (no modifiers) or `MetaCalculator(NNCalc, modifiers)`.
+- **`EDDPCalculator`** — the primary public calculator. Supports both unbound (model-level) and bound (cell-attached) modes via `set_cell!`. Auto-bind constructor: `EDDPCalculator(cell, cf, nn; ...)`.
+- **`MetaCalculator`** — source calculator + ordered modifier pipeline with pre/post-calculate hooks; delegates cell ownership to source. Use with `ExtraDimensionPenaltyModifier` for hyperspace relaxation. Variable-cell optimization is controlled via `relax_cell` parameter on optimizer entry points (`opt_tpsd`, `opt_fire`, `relax!`).
+- **`create_calculator(calc, cell; modifiers=[])`** — factory that returns a bound calculator or `MetaCalculator` with modifier pipeline.
 
 ### Hyperspace Relaxation
 
@@ -104,7 +104,7 @@ Hyperdimensional relaxation uses `MetaCalculator` with `ExtraDimensionPenaltyMod
 
 ```julia
 # Build the hyperspace calculator
-source = NNCalc(hcell, cf, ensemble)
+source = create_calculator(eddp_calc, hcell)
 penalty = ExtraDimensionPenaltyModifier(1e-4; start_dim=4)
 metacalc = MetaCalculator(source, [penalty])
 
@@ -117,12 +117,7 @@ results, dnorm = scheduled_penalty_relax!(metacalc;
 )
 ```
 
-For variable-cell hyperspace relaxation, add a `CellRelaxationModifier`:
-
-```julia
-modifiers = [ExtraDimensionPenaltyModifier(1e-4), CellRelaxationModifier(hcell)]
-metacalc = MetaCalculator(source, modifiers)
-```
+For variable-cell hyperspace relaxation, pass `relax_kwargs=(relax_cell=true,)` to `scheduled_penalty_relax!`:
 
 The `hyper_gen_relax` function provides high-level entry points for both workflows:
 - `hyper_gen_relax(bu::Builder; ...)` — uses a Builder configuration; hyperspace parameters in `link.toml` under `[state]`: `hyper_ndim`, `hyper_alpha_start`, `hyper_schedule_every`, `hyper_target_iterations`.
@@ -163,8 +158,8 @@ Submodules: `options.jl` (config types), `workflow.jl` (Builder/link!), `trainer
 
 Modifiers extend calculator behavior through `pre_calculate!` / `post_calculate!` hooks:
 - **`ExtraDimensionPenaltyModifier`** — penalize extra-dimensional coordinates (used by hyperspace relaxation)
-- **`CellRelaxationModifier`** — variable-cell optimization within MetaCalculator
 - **`AdditiveCalculatorModifier`** — combine additional calculator contributions
+- Variable-cell optimization is handled by the `relax_cell` keyword argument to `opt_tpsd`, `opt_fire`, and `relax!`.
 
 Access modifiers via `get_modifier(calc, Type)`, `get_parameter`/`set_parameter!`.
 
