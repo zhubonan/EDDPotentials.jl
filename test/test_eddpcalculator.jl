@@ -1,5 +1,5 @@
 using EDDPotentials
-using EDDPotentials: NNCalc, eddp_energy, eddp_forces, eddp_stress, nfeatures
+using EDDPotentials: EDDPCalculator, eddp_energy, eddp_forces, eddp_stress, nfeatures
 using EDDPotentials.EDDPotentialsCore:
     LinearInterface,
     ManualFluxBackPropInterface,
@@ -15,14 +15,12 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
 
 @testset "EDDPCalculator" begin
 
-    # Build a simple model for testing
     cell = _h2_cell()
     cf = CellFeature([:H]; p2=[2.0, 3.0], p3=Float64[], q3=Float64[])
     model = LinearInterface(collect(range(0.1, length=nfeatures(cf), step=0.1)))
     elemental_energies = Dict(:H => -1.2)
 
-    # Reference energy via the existing API
-    ref_calc = NNCalc(deepcopy(cell), cf, model; elemental_energies, core=nothing)
+    ref_calc = EDDPCalculator(deepcopy(cell), cf, model; elemental_energies, core_repulsion=nothing)
     ref_energy = eddp_energy(ref_calc)
     ref_forces = eddp_forces(ref_calc)
     ref_stress = eddp_stress(ref_calc)
@@ -34,7 +32,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
 
             calc = load_calculator(path)
             @test calc isa EDDPCalculator
-            @test calc._nncalc === nothing  # no cell bound yet
+            @test calc.cell === nothing
         end
     end
 
@@ -65,7 +63,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
             calc = load_calculator(path; core_repulsion=nothing)
 
             set_cell!(calc, deepcopy(cell))
-            @test calc._nncalc !== nothing
+            @test calc.cell !== nothing
             @test length(get_cell(calc)) == length(cell)
 
             e = eddp_energy(calc)
@@ -97,23 +95,19 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
             save_model_artifact(path, model; feature_spec=cf, elemental_energies)
             calc = load_calculator(path; core_repulsion=nothing)
 
-            # First prediction (creates NNCalc)
             e1 = eddp_energy(calc, deepcopy(cell))
-            nnc1 = calc._nncalc
-            @test nnc1 !== nothing
+            ws1 = calc.workspace
+            @test ws1 !== nothing
 
-            # Second prediction with same-size cell (should reuse workspace)
             e2 = eddp_energy(calc, deepcopy(cell))
             @test e2 ≈ e1
-            @test calc._nncalc === nnc1  # same NNCalc object
+            @test calc.workspace === ws1
 
-            # Prediction with different atom count (should create new NNCalc)
             cell3 = Cell(Lattice(4.0, 4.0, 4.0), [:H, :H, :H],
                          [0.0 0.1 0.2; 0.0 0.0 0.1; 0.1 0.0 0.0])
             e3 = eddp_energy(calc, cell3)
-            @test calc._nncalc !== nnc1  # new NNCalc created
+            @test calc.workspace !== ws1
 
-            # Prediction again with 2-atom cell (should create yet another new NNCalc)
             e4 = eddp_energy(calc, deepcopy(cell))
             @test e4 ≈ e1
         end
@@ -133,35 +127,17 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
         end
     end
 
-    @testset "extract_nncalc" begin
-        mktempdir() do dir
-            path = joinpath(dir, "model.json")
-            save_model_artifact(path, model; feature_spec=cf, elemental_energies)
-            calc = load_calculator(path; core_repulsion=nothing)
-
-            @test_throws ErrorException extract_nncalc(calc)
-
-            set_cell!(calc, deepcopy(cell))
-            nnc = extract_nncalc(calc)
-            @test nnc isa NNCalc
-            @test eddp_energy(nnc) ≈ ref_energy
-        end
-    end
-
     @testset "Optimization via set_cell!" begin
         mktempdir() do dir
             path = joinpath(dir, "model.json")
             save_model_artifact(path, model; feature_spec=cf, elemental_energies)
             calc = load_calculator(path; core_repulsion=nothing)
 
-            # Displace atoms from equilibrium
             test_cell = deepcopy(cell)
             set_positions!(test_cell, positions(test_cell) .+ 0.1)
             set_cell!(calc, test_cell)
 
-            # Run a few optimization steps
             res = opt_tpsd(calc; itermax=5)
-            # Just verify it runs without error and returns something
             @test res !== nothing
         end
     end
@@ -183,7 +159,6 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
             e = eddp_energy(calc, deepcopy(cell))
             @test e isa Float64
 
-            # Also test energy_std
             e_std = eddp_energy_std(calc, deepcopy(cell))
             @test e_std >= 0
         end

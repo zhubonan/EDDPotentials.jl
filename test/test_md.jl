@@ -219,9 +219,9 @@ end
     end
 end
 
-# ─── Integration with NNCalc ───
+# ─── Integration with EDDPCalculator ───
 
-@testset "MD with NNCalc" begin
+@testset "MD with EDDPCalculator" begin
     using Flux
     isdefined(Main, :_h2_cell) || include("utils.jl")
     calc = _get_lco_calc()

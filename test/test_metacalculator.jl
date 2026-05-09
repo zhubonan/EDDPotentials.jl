@@ -79,30 +79,22 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
 
         # With modifiers
         source = _get_calc()
-        cell = get_cell(source)
         mod1 = ExtraDimensionPenaltyModifier(0.01)
-  # mod2 = CellRelaxationModifier(cell)  # removed: CellRelaxationModifier deprecated
-        calc2 = MetaCalculator(source, [mod1, mod2])
+        calc2 = MetaCalculator(source, [mod1])
         str2 = sprint(show, calc2)
         @test occursin("ExtraDimensionPenaltyModifier", str2)
-  # @test occursin("CellRelaxationModifier", str2)  # removed: CellRelaxationModifier deprecated
     end
 end
 
 @testset "MetaCalculator with Modifiers" begin
     @testset "Modifier query" begin
         source = _get_calc()
-        cell = get_cell(source)
         mod1 = ExtraDimensionPenaltyModifier(0.01)
-  # mod2 = CellRelaxationModifier(cell)  # removed: CellRelaxationModifier deprecated
-        calc = MetaCalculator(source, [mod1, mod2])
+        calc = MetaCalculator(source, [mod1])
 
         # Test get_modifier
         penalty = get_modifier(calc, ExtraDimensionPenaltyModifier)
         @test penalty === mod1
-
-  # relax = get_modifier(calc, CellRelaxationModifier)  # removed: CellRelaxationModifier deprecated
-        @test relax === mod2
 
         # Non-existent modifier
         additive = get_modifier(calc, AdditiveCalculatorModifier)
@@ -124,72 +116,7 @@ end
 
         # Error for non-existent modifier
         @test_throws ArgumentError set_modifier_parameter!(
-  # calc, CellRelaxationModifier, :alpha, 0.1  # removed: CellRelaxationModifier deprecated
+            calc, AdditiveCalculatorModifier, :alpha, 0.1
         )
     end
-end
-
-@testset "MetaCalculator Pipeline Execution" begin
-    @testset "CellRelaxation pipeline" begin
-        source = _get_calc()
-        cell = get_cell(source)
-
-        # Create calculator with cell relaxation
-  # mod = CellRelaxationModifier(cell; external_pressure=diagm([1.0, 1.0, 1.0]))  # removed: CellRelaxationModifier deprecated
-        calc = MetaCalculator(source, [mod])
-
-        # Get augmented positions
-        pos = get_positions(calc)
-        @test size(pos, 2) == length(cell) + 3  # atoms + lattice vectors
-
-        # Get forces
-        forces = eddp_forces(calc)
-        @test size(forces, 2) == length(cell) + 3  # atomic + virial forces
-
-        # Get energy (should include enthalpy term)
-        E_source = eddp_energy(_get_calc())
-        E_calc = eddp_energy(calc)
-        # Energy should be different due to PV term, but we can't test exact values
-        @test E_calc isa Number
-    end
-
-    @testset "Multiple modifiers pipeline" begin
-        source = _get_calc()
-        cell = get_cell(source)
-
-        # Create calculator with cell relaxation modifier
-  # mod = CellRelaxationModifier(cell)  # removed: CellRelaxationModifier deprecated
-        calc = MetaCalculator(source, [mod])
-
-        # Modifier should be applied
-        E = eddp_energy(calc)
-        @test E isa Number
-
-  # # Positions should be augmented (from CellRelaxationModifier)  # removed: CellRelaxationModifier deprecated
-        pos = get_positions(calc)
-        @test size(pos, 2) > length(cell)
-
-        # Forces should be augmented
-        forces = eddp_forces(calc)
-        @test size(forces, 2) == length(cell) + 3
-    end
-end
-
-  # @testset "CellRelaxationModifier equivalence" begin  # removed: CellRelaxationModifier deprecated
-    base_calc = _get_calc()
-
-  # mod = CellRelaxationModifier(get_cell(base_calc))  # removed: CellRelaxationModifier deprecated
-    mc = MetaCalculator(base_calc, [mod])
-
-    E = eddp_energy(mc)
-    @test E isa Number
-
-    pos = get_positions(mc)
-    @test size(pos, 2) == length(get_cell(base_calc)) + 3
-
-    F = eddp_forces(mc)
-    @test size(F, 2) == length(get_cell(base_calc)) + 3
-
-    stress = eddp_stress(mc)
-    @test size(stress) == (3, 3)
 end

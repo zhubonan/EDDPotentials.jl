@@ -13,7 +13,7 @@ pair potentials with machine learning potentials.
 # Example
 ```julia
 # Combine EDDP with pair potential
-nn_calc = NNCalc(cell, cf, model)
+nn_calc = EDDPCalculator(cell, cf, model)
 pair_calc = PairpotCalc(cell, repulsion_workspace)
 
 # Create modifier that adds pair potential

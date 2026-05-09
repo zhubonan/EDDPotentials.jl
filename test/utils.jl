@@ -2,7 +2,7 @@
 Common functions for helping tests
 =#
 using EDDPotentials
-using EDDPotentials: CellFeature, nfeatures, NNCalc
+using EDDPotentials: CellFeature, nfeatures, EDDPCalculator
 using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
 using CellBase
 
@@ -64,7 +64,7 @@ function _get_calc()
     itf = ManualFluxBackPropInterface(
         Chain(Dense(rand(5, nfeatures(cf))), Dense(rand(1, 5))),
     )
-    calc = NNCalc(cell, cf, itf)
+    calc = EDDPCalculator(cell, cf, itf)
     calc
 end
 
@@ -74,7 +74,7 @@ function _get_lco_calc()
     itf = ManualFluxBackPropInterface(
         Chain(Dense(rand(5, nfeatures(cf))), Dense(rand(1, 5))),
     )
-    calc = NNCalc(cell, cf, itf)
+    calc = EDDPCalculator(cell, cf, itf)
     calc
 end
 

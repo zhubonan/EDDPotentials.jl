@@ -295,7 +295,7 @@ end
 """
     lj_baseline_calc(cell::Cell; sigma=1.0, epsilon=1.0, rcut, p_rep=12, p_att=6, elemental_energies=Dict())
 
-Construct an `NNCalc` that reproduces a force-shifted Lennard-Jones baseline.
+Construct an `EDDPCalculator` that reproduces a force-shifted Lennard-Jones baseline.
 """
 function lj_baseline_calc(
     cell::Cell;
@@ -363,7 +363,7 @@ end
 
 function _fd_energy(calc, p)
     _alter_pos(calc, p) do _
-        calc.param.energy_calculated = false
+        calc._energy_calculated = false
         eddp_energy(calc)
     end
 end
@@ -562,7 +562,7 @@ end
 """
 Perform finite difference tests on a given calculator.
 """
-function test_finite_difference(calc::NNCalc)
+function test_finite_difference(calc::EDDPCalculator)
 
     diff, grad = fd_desc(calc.cf, get_cell(calc))
     desc_ok = allclose(grad, diff, atol=1e-7)

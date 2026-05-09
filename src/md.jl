@@ -119,7 +119,7 @@ Top-level object for running MD simulations.
 
 Usage:
 ```julia
-calc = NNCalc(cell, cf, nn)
+calc = EDDPCalculator(cell, cf, nn)
 runner = MDRunner(calc, VelocityVerlet(), 1.0; temperature=300.0)
 run!(runner, 1000; trace=true)
 ```
@@ -271,7 +271,7 @@ end
 Create an MD simulation runner.
 
 Arguments:
-- `calc` — calculator (e.g. NNCalc)
+- `calc` — calculator (e.g. EDDPCalculator)
 - `integrator` — MDIntegrator (VelocityVerlet(), Langevin(...), BerendsenNVT(...))
 - `dt_fs` — timestep in femtoseconds
 

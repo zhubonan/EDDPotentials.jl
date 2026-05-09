@@ -68,7 +68,7 @@ The source tree has an internal core/functional split. The public API is availab
 - Feature generation (`core/feature/`) — two-body and three-body atomic environment descriptors
 - Gradient computation (`core/gradient/`) — chain rule for forces/stress from feature gradients
 - NN interface (`core/nn/`) — abstract `AbstractNNInterface` with Linear, Flux, Ensemble, and ManualFluxBackProp implementations
-- Calculator kernel (`core/calculator.jl`) — internal `NNCalc`, public `EDDPCalculator` (constructor auto-binds to cell), `create_calculator` factory
+- Calculator kernel (`core/calculator.jl`) — `EDDPCalculator` (model-level with optional cell binding), `create_calculator` factory
 - Calculator modifiers (`core/calculator/modifiers/`) — pipeline-based modifiers for MetaCalculator
 - MetaCalculator (`core/calculator/metacalculator.jl`) — composes source calculator + modifier pipeline; delegates cell ownership to source
 

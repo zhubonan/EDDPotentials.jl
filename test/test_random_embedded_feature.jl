@@ -4,7 +4,7 @@ using EDDPotentials:
     FeatureStore,
     StructureContainer,
     MetaCalculator,
-    NNCalc,
+    EDDPCalculator,
     get_cell,
     nfeatures,
     feature_vector,
@@ -137,7 +137,7 @@ using CellBase: positions, species
         end
 
         lin = LinearInterface(rand(nfeatures(embedded)))
-        calc = NNCalc(cell, embedded, lin; core=nothing)
+        calc = EDDPCalculator(cell, embedded, lin; core=nothing)
         @test isa(eddp_energy(calc), Float64)
         @test all(isapprox.(sum(eddp_forces(calc), dims=2), 0.0, atol=1e-10))
         @test size(eddp_stress(calc)) == (3, 3)
@@ -145,7 +145,7 @@ using CellBase: positions, species
         _test_forces_fd_vc(calc)
 
         mbp = ManualFluxBackPropInterface(embedded, 5)
-        calc2 = NNCalc(cell, embedded, mbp; core=nothing)
+        calc2 = EDDPCalculator(cell, embedded, mbp; core=nothing)
         @test isa(eddp_energy(calc2), Float64)
         @test all(isapprox.(sum(eddp_forces(calc2), dims=2), 0.0, atol=1e-10))
         _test_forces_fd(calc2)
@@ -185,12 +185,12 @@ using CellBase: positions, species
         end
 
         lin = LinearInterface(rand(nfeatures(embedded)))
-        calc = NNCalc(cell, embedded, lin; core=nothing)
+        calc = EDDPCalculator(cell, embedded, lin; core=nothing)
         _test_forces_fd(calc)
         _test_forces_fd_vc(calc)
 
         mbp = ManualFluxBackPropInterface(embedded, 5)
-        calc2 = NNCalc(_lco_cell(), embedded, mbp; core=nothing)
+        calc2 = EDDPCalculator(_lco_cell(), embedded, mbp; core=nothing)
         _test_forces_fd(calc2)
     end
 

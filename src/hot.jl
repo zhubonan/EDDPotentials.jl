@@ -194,7 +194,7 @@ See [`HotAIRSSOption`](@ref) for all options.
 
 # Example
 ```julia
-calc = NNCalc(cell, cf, nn)
+calc = EDDPCalculator(cell, cf, nn)
 result = hot_airss!(calc; cycles=5, md_temperature=800.0, md_steps=100)
 println("Final energy: ", result.final_energy)
 ```

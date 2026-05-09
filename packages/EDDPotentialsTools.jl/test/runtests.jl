@@ -1,5 +1,5 @@
 using EDDPotentials
-using EDDPotentials: CellFeature, NNCalc, eddp_energy
+using EDDPotentials: CellFeature, EDDPCalculator, eddp_energy
 using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
 using EDDPotentialsTools
 using CellBase
@@ -27,7 +27,7 @@ using Test
         chain.layers[1].bias .= 0
 
         model = ManualFluxBackPropInterface(chain)
-        NNCalc(cell, cf, model)
+        EDDPCalculator(cell, cf, model)
     end
 
     ase = pyimport("ase")

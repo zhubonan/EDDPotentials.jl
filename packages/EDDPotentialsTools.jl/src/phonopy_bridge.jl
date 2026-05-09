@@ -48,7 +48,7 @@ end
 """Get forces for a series of supercells"""
 function get_phonopy_forces(pyscells, cf, model)
     scells = phonopy2cell.(pyscells)
-    ctmp = EDDPotentials.NNCalc(scells[1], cf, model)
+    ctmp = EDDPotentials.EDDPCalculator(scells[1], cf, model)
     forces = []
     for scell in scells
         EDDPotentials.set_positions!(ctmp, positions(scell))

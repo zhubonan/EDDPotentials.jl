@@ -64,7 +64,7 @@ function plot_lj(builder, x=LinRange(1, 5, 100))
     for iter = 0:builder.state.iteration
         EDDPotentials.has_ensemble(builder, iter) || break
         ensemble = load_ensemble(builder, iter)
-        calc = NNCalc(cell, builder.cf, ensemble)
+        calc = EDDPCalculator(cell, builder.cf, ensemble)
         y = E.(x, Ref(calc))
         plot!(p, x, y, label="Iteration $iter")
     end

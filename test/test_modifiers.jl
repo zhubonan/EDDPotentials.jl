@@ -2,7 +2,7 @@ using EDDPotentials
 using CellBase
 using Test
 using LinearAlgebra
-using EDDPotentials.EDDPotentialsCore: set_parameter!, get_parameter, post_calculate!, modifies_positions, requires_forces, pre_calculate!, deformgradient
+using EDDPotentials.EDDPotentialsCore: set_parameter!, get_parameter, post_calculate!, requires_forces, pre_calculate!
 
 @testset "Modifier Interface" begin
     # Test abstract modifier interface
@@ -38,7 +38,6 @@ end
     @testset "Modifier properties" begin
         mod = ExtraDimensionPenaltyModifier(0.01)
         @test requires_forces(mod) == true
-        @test modifies_positions(mod) == false
     end
 
     @testset "post_calculate!" begin
@@ -92,19 +91,18 @@ end
 
 @testset "Modifier parameter access" begin
     mod_penalty = ExtraDimensionPenaltyModifier(0.01)
-    cell = Cell(Lattice(5.0, 5.0, 5.0), [:H], [[2.5, 2.5, 2.5]])
-    mod_relax = CellRelaxationModifier(cell)
+    mod_vol = VolumeConstraintModifier(100.0, 10.0)
 
     @testset "get_parameter" begin
         @test get_parameter(mod_penalty, :alpha) ≈ 0.01
-        @test get_parameter(mod_relax, :lattice_factor) ≈ 1.0
+        @test get_parameter(mod_vol, :k) ≈ 10.0
     end
 
     @testset "set_parameter!" begin
         set_parameter!(mod_penalty, :alpha, 0.05)
         @test mod_penalty.alpha ≈ 0.05
 
-        set_parameter!(mod_relax, :lattice_factor, 2.0)
-        @test mod_relax.lattice_factor ≈ 2.0
+        set_parameter!(mod_vol, :k, 20.0)
+        @test mod_vol.k ≈ 20.0
     end
 end

@@ -5,7 +5,7 @@ using EDDPotentials:
     CellFeature,
     MetaCalculator,
     ExtraDimensionPenaltyModifier,
-    NNCalc,
+    EDDPCalculator,
     lj_baseline_calc,
     lj_baseline_feature,
     lj_baseline_weights,
@@ -92,7 +92,7 @@ end
         nnitf = ManualFluxBackPropInterface(
             Chain(Dense(rand(5, nfeatures(cf))), Dense(rand(1, 5))),
         )
-        calc = NNCalc(cell, cf, nnitf; core=nothing)
+        calc = EDDPCalculator(cell, cf, nnitf; core=nothing)
         nnitf.chain(calc.v)
 
         # # Test copying positions
@@ -120,7 +120,7 @@ end
     @testset "MBP&Embedding" begin
         embed = CellEmbedding(cf, 2)
         nnitf = ManualFluxBackPropInterface(cf, 5; embedding=embed)
-        calc = NNCalc(cell, cf, nnitf; core=nothing)
+        calc = EDDPCalculator(cell, cf, nnitf; core=nothing)
         nnitf.chain(calc.v)
 
         eng = eddp_energy(calc)
@@ -143,7 +143,7 @@ end
         embed = CellEmbedding(cf, 2)
         model = flux_mlp_model(cf, 5; embedding=embed)
         nnitf = FluxInterface(model)
-        calc = NNCalc(cell, cf, nnitf; core=nothing)
+        calc = EDDPCalculator(cell, cf, nnitf; core=nothing)
         nnitf.model(calc.v)
 
         eng = eddp_energy(calc)
@@ -170,7 +170,7 @@ end
             ) for _ = 1:5
         ]
         nnitf = EnsembleNNInterface(Tuple(nnitfs), repeat([0.2], 5))
-        calc = NNCalc(cell, cf, nnitf; core=nothing)
+        calc = EDDPCalculator(cell, cf, nnitf; core=nothing)
         eng = eddp_energy(calc)
         std_tot = eddp_energy_std(calc)
         @test eng != 0.0
@@ -182,7 +182,7 @@ end
 
     @testset "Linear" begin
         nnitf = LinearInterface(rand(nfeatures(cf)))
-        calc = NNCalc(cell, cf, nnitf; core=nothing)
+        calc = EDDPCalculator(cell, cf, nnitf; core=nothing)
         eng = eddp_energy(calc)
         forces = eddp_forces(calc)
         stress = eddp_stress(calc)
@@ -200,7 +200,7 @@ end
     @testset "Neigh" begin
         # Check NeighbourList rebuild
         nnitf = LinearInterface(rand(nfeatures(cf)))
-        calc = NNCalc(cell, cf, nnitf)
+        calc = EDDPCalculator(cell, cf, nnitf)
         p1 = calc.last_nn_build_pos[1]
         positions(get_cell(calc))[1] += 3.0
         calculate!(calc; rebuild_nl=false)
@@ -228,7 +228,7 @@ end
     nnitf = LinearInterface(rand(nfeatures(cf)))
     # Attractive potential with -5f(x)^6 + f(x)^12
     setparamvector!(nnitf, [0, -5, 1])
-    calc = NNCalc(cell, cf, nnitf)
+    calc = EDDPCalculator(cell, cf, nnitf)
 
     # Test RelaxOption
     opts = RelaxOption()
@@ -246,7 +246,7 @@ end
 
     # Test recording trajectory
     cell = _h2_cell(10, 1.5)
-    calc = NNCalc(cell, cf, nnitf)
+    calc = EDDPCalculator(cell, cf, nnitf)
     res = relax!(calc; keep_trajectory=true)
     @test length(res.relax.trajectory) > 1
 end
@@ -343,11 +343,10 @@ end
     @testset "Neighbour List Skin" begin
         cell = _two_atom_cell([:Ar, :Ar], 1.4)
         calc = lj_baseline_calc(cell; sigma=1.0, epsilon=1.0, rcut=3.0)
-        nnc = calc isa EDDPCalculator ? calc._nncalc : calc
-        p1 = nnc.last_nn_build_pos[1]
+        p1 = calc.last_nn_build_pos[1]
         positions(get_cell(calc))[1] += 0.001
         calculate!(calc; rebuild_nl=false)
-        @test p1 == nnc.last_nn_build_pos[1]
+        @test p1 == calc.last_nn_build_pos[1]
     end
 
     @testset "Reject Conflicting Reverse Keys" begin

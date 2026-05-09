@@ -112,67 +112,33 @@ builds a `MetaCalculator` with `ExtraDimensionPenaltyModifier` and
 `CellRelaxationModifier`, runs `scheduled_penalty_relax!`, then does a
 3D cleanup relaxation.
 
-Supports `EDDPCalculator`, `NNCalc`, and `MetaCalculator` (extracts source).
+Supports `EDDPCalculator` and `MetaCalculator` (extracts source).
 """
 function _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
     relax_fn = _method_to_native_fn(opts.method)
     smat = external_stress_matrix(opts.external_pressure)
 
-    if calc isa EDDPCalculator
-        cell = get_cell(calc)
-        hcell = CellBase.add_dimensions(deepcopy(cell), opts.hyper_ndim)
-        P = smat[1, 1]
-        metacalc = create_calculator(calc, hcell; modifiers=[
-            ExtraDimensionPenaltyModifier(opts.hyper_alpha_start; start_dim=4),
-        ])
-        max_iter = _hyper_max_iterations(opts)
-        scheduled_penalty_relax!(metacalc;
-            schedule_every=opts.hyper_schedule_every,
-            max_iterations=max_iter,
-            alpha_start=opts.hyper_alpha_start,
-            relax_fn,
-            relax_kwargs=(relax_cell=true, ext_pressure=smat),
-            alpha_ramp_factor=opts.hyper_alpha_ramp_factor,
-            max_alpha=opts.hyper_max_alpha,
-            pos_tol=opts.hyper_pos_tol,
-            ramp_alpha=opts.hyper_ramp_alpha,
-            max_vol_change=opts.hyper_max_vol_change,
-            extra_dim_tol=opts.hyper_extra_dim_tol,
-            dynamic_alpha=opts.hyper_dynamic_alpha,
-            force_ratio=opts.hyper_force_ratio,
-        )
-        _relax_hyper_finalize!(metacalc, opts)
-    elseif calc isa MetaCalculator
-        _relax_hyper_from_nncalc!(calc.source, opts)
-    elseif calc isa NNCalc
-        _relax_hyper_from_nncalc!(calc, opts)
-    else
-        error("Hyperspace relaxation not supported for calculator type $(typeof(calc))")
+    if calc isa MetaCalculator
+        _relax_hyper!(calc.source, opts)
+        return
     end
-end
 
-function _relax_hyper_from_nncalc!(nncalc::NNCalc, opts::RelaxOption)
-    relax_fn = _method_to_native_fn(opts.method)
-    cell = get_cell(nncalc)
-
-    hcell = CellBase.add_dimensions(deepcopy(cell), opts.hyper_ndim)
-    source = EDDPCalculator(hcell, nncalc.cf, nncalc.nninterface;
-        nmax=nncalc.nl.nmax,
-        core_repulsion=nncalc.workspace.hardcore.core_repulsion,
-        elemental_energies=nncalc.elemental_energies,
+    calc isa EDDPCalculator || error(
+        "Hyperspace relaxation not supported for calculator type $(typeof(calc))"
     )
-
-    penalty = ExtraDimensionPenaltyModifier(opts.hyper_alpha_start; start_dim=4)
-    smat = external_stress_matrix(opts.external_pressure)
-    metacalc = MetaCalculator(source, [penalty])
-
+    cell = get_cell(calc)
+    hcell = CellBase.add_dimensions(deepcopy(cell), opts.hyper_ndim)
+    P = smat[1, 1]
+    metacalc = create_calculator(calc, hcell; modifiers=[
+        ExtraDimensionPenaltyModifier(opts.hyper_alpha_start; start_dim=4),
+    ])
     max_iter = _hyper_max_iterations(opts)
     scheduled_penalty_relax!(metacalc;
         schedule_every=opts.hyper_schedule_every,
         max_iterations=max_iter,
         alpha_start=opts.hyper_alpha_start,
         relax_fn,
-        relax_kwargs=(relax_cell=true, ext_pressure=smat, cell_damping=1.0),
+        relax_kwargs=(relax_cell=true, ext_pressure=smat),
         alpha_ramp_factor=opts.hyper_alpha_ramp_factor,
         max_alpha=opts.hyper_max_alpha,
         pos_tol=opts.hyper_pos_tol,
@@ -182,7 +148,6 @@ function _relax_hyper_from_nncalc!(nncalc::NNCalc, opts::RelaxOption)
         dynamic_alpha=opts.hyper_dynamic_alpha,
         force_ratio=opts.hyper_force_ratio,
     )
-
     _relax_hyper_finalize!(metacalc, opts)
 end
 

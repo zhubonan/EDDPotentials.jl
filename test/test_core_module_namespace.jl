@@ -6,7 +6,7 @@ using CellBase
     @test isdefined(EDDPotentials, :EDDPotentialsCore)
 
     core = EDDPotentials.EDDPotentialsCore
-    @test core.NNCalc === EDDPotentials.NNCalc
+    @test core.EDDPCalculator === EDDPotentials.EDDPCalculator
     @test core.CellFeature === EDDPotentials.CellFeature
 
     cell = Cell(Lattice(6.0, 6.0, 6.0), [:H, :H], [0.0 0.0; 0.0 2.0; 0.0 0.0])

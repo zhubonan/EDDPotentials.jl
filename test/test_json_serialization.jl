@@ -1,5 +1,5 @@
 using EDDPotentials
-using EDDPotentials: NNCalc, eddp_energy, feature_vector
+using EDDPotentials: EDDPCalculator, eddp_energy, feature_vector
 using EDDPotentials.EDDPotentialsCore:
     BodyEmbedding,
     CellEmbedding,
@@ -38,7 +38,7 @@ end
 function assert_model_roundtrip(path, model, feature_spec, cell; elemental_energies=Dict{Symbol,Float64}(), metadata=nothing)
     input_before = feature_vector(feature_spec, cell)
     output_before = forward!(model, input_before)
-    calc_before = NNCalc(deepcopy(cell), feature_spec, model; elemental_energies, core=nothing)
+    calc_before = EDDPCalculator(deepcopy(cell), feature_spec, model; elemental_energies, core=nothing)
     energy_before = eddp_energy(calc_before)
 
     save_model_artifact(path, model; feature_spec, elemental_energies, metadata)
@@ -51,7 +51,7 @@ function assert_model_roundtrip(path, model, feature_spec, cell; elemental_energ
     @test input_after == input_before
     @test forward!(artifact.model, input_after) == output_before
 
-    calc_after = NNCalc(
+    calc_after = EDDPCalculator(
         deepcopy(cell),
         artifact.feature_spec,
         artifact.model;

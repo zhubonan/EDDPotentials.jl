@@ -4,7 +4,7 @@ using EDDPotentials
 using EDDPotentials:
     CellFeature,
     FeatureContainer,
-    NNCalc,
+    EDDPCalculator,
     StructureContainer,
     TrainingResults,
     eddp_energy,
@@ -152,7 +152,7 @@ function _roundtrip_check(model, feature_spec, elemental_energies, cell, model_p
     input_before = feature_vector(feature_spec, cell)
     output_before = forward!(model, input_before)
     energy_before = eddp_energy(
-        NNCalc(deepcopy(cell), feature_spec, model; elemental_energies, core=nothing),
+        EDDPCalculator(deepcopy(cell), feature_spec, model; elemental_energies, core=nothing),
     )
 
     artifact = load_model_artifact(model_path)
@@ -162,7 +162,7 @@ function _roundtrip_check(model, feature_spec, elemental_energies, cell, model_p
     feature_input_after = feature_vector(feature_artifact.feature_spec, cell)
     output_after = forward!(artifact.model, input_after)
     energy_after = eddp_energy(
-        NNCalc(
+        EDDPCalculator(
             deepcopy(cell),
             artifact.feature_spec,
             artifact.model;
@@ -182,7 +182,7 @@ function _roundtrip_check(model, feature_spec, elemental_energies, cell, model_p
     output_after == output_before ||
         error("Model outputs differ before and after JSON round-trip.")
     energy_after == energy_before ||
-        error("NNCalc energies differ before and after JSON round-trip.")
+        error("EDDPCalculator energies differ before and after JSON round-trip.")
 
     (
         feature_rows=size(input_before, 1),

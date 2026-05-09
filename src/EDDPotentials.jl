@@ -79,11 +79,9 @@ import .EDDPotentialsCore:
     reinit,
     EDDPCalculator,
     load_calculator,
-    extract_nncalc,
     predict,
     reinit!,
-    clear_transient_gradients!,
-    NNCalc
+    clear_transient_gradients!
 
 # Functional layer (training/workflow/analysis)
 include("lmsolve.jl")
@@ -131,7 +129,6 @@ export get_cell,
     MultiRandomEmbeddedCellFeature,
     EDDPCalculator,
     load_calculator,
-    extract_nncalc,
     create_calculator,
     eddp_energy_std,
     eddp_energy_std_per_atom

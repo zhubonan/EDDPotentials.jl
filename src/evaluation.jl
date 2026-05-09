@@ -232,11 +232,10 @@ end
 # Returns (energy, forces_matrix, stress_matrix).
 function _predict_cell!(calc, cell)
     set_cell!(calc, cell)
-    nnc = extract_nncalc(calc)
-    calculate!(nnc; forces=true, rebuild_nl=true)
-    e = sum(nnc.eng) + get_elemental_energy(nnc.cell, nnc.elemental_energies)
-    f = copy(nnc.forces)
-    s = copy(nnc.stress)
+    calculate!(calc; forces=true, rebuild_nl=true)
+    e = sum(calc.eng) + get_elemental_energy(calc.cell, calc.elemental_energies)
+    f = copy(calc.forces)
+    s = copy(calc.stress)
     (Float64(e), Float64.(f), Float64.(s))
 end
 
@@ -354,8 +353,7 @@ since it has no saturation behavior.
 function detect_saturation(calc, cell; threshold=0.01)
     # Trigger a forward pass (energy-only)
     eddp_energy(calc, cell)
-    nnc = extract_nncalc(calc)
-    itf = nnc.nninterface
+    itf = calc.nninterface
     _detect_saturation_from_interface(itf; threshold)
 end
 
@@ -534,9 +532,8 @@ function evaluate(
 
         # Saturation (accumulated) — reuse the forward pass from _predict_cell!
         if compute_saturation
-            nnc = extract_nncalc(calc)
             sat = _detect_saturation_from_interface(
-                nnc.nninterface; threshold=config.saturation_threshold
+                calc.nninterface; threshold=config.saturation_threshold
             )
             if !isempty(sat)
                 if isempty(sat_fractions_by_layer)

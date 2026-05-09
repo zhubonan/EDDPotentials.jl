@@ -5,7 +5,7 @@ using EDDPotentials:
     FeatureStore,
     StructureContainer,
     MetaCalculator,
-    NNCalc,
+    EDDPCalculator,
     get_cell,
     nfeatures,
     feature_vector,
@@ -128,7 +128,7 @@ using CellBase: positions, species
 
         # Test with LinearInterface
         lin = LinearInterface(rand(nfeatures(mcf)))
-        calc = NNCalc(cell, mcf, lin; core=nothing)
+        calc = EDDPCalculator(cell, mcf, lin; core=nothing)
         @test isa(eddp_energy(calc), Float64)
         @test all(isapprox.(sum(eddp_forces(calc), dims=2), 0.0, atol=1e-10))
         @test size(eddp_stress(calc)) == (3, 3)
@@ -137,7 +137,7 @@ using CellBase: positions, species
 
         # Test with ManualFluxBackPropInterface
         mbp = ManualFluxBackPropInterface(mcf, 5)
-        calc2 = NNCalc(_h2_cell(), mcf, mbp; core=nothing)
+        calc2 = EDDPCalculator(_h2_cell(), mcf, mbp; core=nothing)
         @test isa(eddp_energy(calc2), Float64)
         @test all(isapprox.(sum(eddp_forces(calc2), dims=2), 0.0, atol=1e-10))
         _test_forces_fd(calc2)

@@ -24,9 +24,9 @@ using Test
         "nn/interface.jl",
         "nntools.jl",
         "calculator.jl",
+        "calculator/eddpcalculator.jl",
         "calculator/modifiers/modifiers.jl",
         "calculator/metacalculator.jl",
-        "calculator/eddpcalculator.jl",
         "pairpot.jl",
     ]
 
