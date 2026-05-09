@@ -7,7 +7,6 @@ using NLSolversBase
 using Printf
 using ProgressMeter: @showprogress
 import CellBase: write_res
-using StatsBase
 using Base.Threads
 using JLD2
 using Dates

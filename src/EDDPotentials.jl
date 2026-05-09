@@ -96,6 +96,7 @@ include("optimizer/abstract.jl")
 include("functional/functional.jl")
 
 include("optimizer/utils.jl")
+include("optimizer/constraints.jl")
 include("optimizer/tpsd.jl")
 include("optimizer/fire.jl")
 include("opt.jl")
@@ -143,6 +144,12 @@ export MetaCalculator,
     set_modifier_parameter!
 export opt_tpsd, opt_fire  # Explicit optimization functions
 export AbstractOptimizer, NativeTPSD, NativeFIRE
+export AbstractStepConstraint,
+    ZeroTranslationConstraint,
+    IonicConstraint,
+    FixCellConstraint,
+    FixVolumeConstraint,
+    apply_step_constraints!
 export initialize!, step!, converged, reset!, get_iteration, optimize!
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer,

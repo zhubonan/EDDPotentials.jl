@@ -11,7 +11,7 @@ using NLSolversBase
 using ProgressMeter: Progress
 using Parameters
 using Printf
-using StatsBase
+using StatsBase: mean, std
 using Flux: Dense, Chain
 using .EDDPotentialsCore: leaky_tanh
 import Flux

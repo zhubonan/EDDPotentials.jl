@@ -2,12 +2,52 @@ using Test
 using EDDPotentials
 using CellBase
 using LinearAlgebra
+using Unitful: ustrip
 
 # Import test utilities
 isdefined(Main, :_h2_cell) || include("utils.jl")
 const lj_like_calc = EDDPotentials.lj_like_calc
 
 @testset "Native Optimizers" begin
+
+    @testset "Step Constraints" begin
+        @testset "ZeroTranslationConstraint" begin
+            cell = _h2o_cell(10.0, 1.0)
+            calc = lj_like_calc(Cell(Lattice(10, 10, 10), [:H, :H], get_positions(cell)[:, 1:2]); α=0.5, a=2, rc=8.0)
+            opt = NativeTPSD(log_level=:minimal)
+            dx = [1.0, 2.0, 3.0, -2.0, 1.0, 0.5]
+
+            apply_step_constraints!([ZeroTranslationConstraint()], opt, calc, dx)
+            ionic = reshape(dx, 3, 2)
+            @test norm(sum(ionic; dims=2)) < 1e-12
+        end
+
+        @testset "IonicConstraint" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            pos0 = copy(get_positions(calc))
+            opt = NativeTPSD(f_tol=1e-3, maxstep=0.1, log_level=:minimal, step_constraints=[IonicConstraint([1])])
+
+            step!(opt, calc)
+            pos1 = get_positions(calc)
+            @test pos1[:, 1] ≈ pos0[:, 1]
+            @test norm(pos1[:, 2] - pos0[:, 2]) > 0
+        end
+
+        @testset "FixVolumeConstraint" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            opt = NativeTPSD(relax_cell=true, log_level=:minimal, step_constraints=[FixVolumeConstraint()])
+            dx = zeros(length(get_positions(calc)) + 9)
+            dx[(length(get_positions(calc)) + 1):end] .= vec(0.2 .* Matrix(I, 3, 3))
+            vol0 = ustrip(volume(get_cell(calc)))
+
+            apply_step_constraints!([FixVolumeConstraint()], opt, calc, dx)
+            cell_old = get_cellmat(calc)[1:3, 1:3]
+            cell_new = cell_old .+ reshape(dx[(length(get_positions(calc)) + 1):end], 3, 3)
+            @test det(cell_new) ≈ vol0 atol=1e-8
+        end
+    end
 
     @testset "NativeTPSD" begin
         @testset "Basic Functionality" begin
