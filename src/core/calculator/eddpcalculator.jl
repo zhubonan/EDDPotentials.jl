@@ -36,6 +36,8 @@ mutable struct EDDPCalculator{M<:AbstractCellFeatureSpec,X<:AbstractNNInterface}
     core_repulsion::Any  # Union{Nothing, CoreRepulsion}
     metadata::Dict{String,Any}
     _nncalc::Any
+    _max_nat::Int
+    _max_ndims::Int
 end
 
 function EDDPCalculator(
@@ -47,7 +49,26 @@ function EDDPCalculator(
     core_repulsion=CoreRepulsion(0.5),
     metadata::Dict{String,Any}=Dict{String,Any}(),
 ) where {M<:AbstractCellFeatureSpec,X<:AbstractNNInterface}
-    EDDPCalculator{M,X}(cf, nninterface, elemental_energies, shell_size, nmax, core_repulsion, metadata, nothing)
+    EDDPCalculator{M,X}(cf, nninterface, elemental_energies, shell_size, nmax, core_repulsion, metadata, nothing, 0, 0)
+end
+
+function EDDPCalculator(
+    cell::Cell{T},
+    cf::M,
+    nninterface::X;
+    shell_size::Float64=2.0,
+    nmax::Int=500,
+    core_repulsion=CoreRepulsion(0.5),
+    elemental_energies::Dict=Dict{Symbol,T}(),
+    metadata::Dict{String,Any}=Dict{String,Any}(),
+) where {T,M<:AbstractCellFeatureSpec,X<:AbstractNNInterface}
+    ee = Dict{Symbol,T}(Symbol(k) => T(v) for (k, v) in elemental_energies)
+    calc = EDDPCalculator(cf, nninterface, ee;
+        shell_size, nmax, core_repulsion, metadata)
+    calc._nncalc = _new_nncalc(calc, cell)
+    calc._max_nat = length(cell)
+    calc._max_ndims = CellBase._n_dimensions(cell)
+    calc
 end
 
 """
@@ -110,24 +131,27 @@ function set_cell!(calc::EDDPCalculator, cell::Cell)
     nnc = calc._nncalc
     if nnc === nothing
         calc._nncalc = _new_nncalc(calc, cell)
+        calc._max_nat = length(cell)
+        calc._max_ndims = CellBase._n_dimensions(cell)
         return calc
     end
 
-    # Reuse the existing workspace when dimensions and atom count match.
-    # This is the common case during geometry optimisation (same atoms,
-    # positions change) and avoids costly reallocation.
     ndims_new = CellBase._n_dimensions(cell)
+    nat_new = length(cell)
     ndims_old = CellBase._n_dimensions(get_cell(nnc))
     nat_old = length(get_cell(nnc))
-    nat_new = length(cell)
 
-    if ndims_new == ndims_old && nat_old == nat_new
+    if ndims_new == ndims_old && nat_new == nat_old
         # In-place update — copy cell data and reset dirty flags
         set_cellmat!(nnc.cell, cellmat(cell); scale_positions=false)
         set_positions!(nnc.cell, positions(cell))
         CellBase.species(nnc.cell) .= CellBase.species(cell)
         nnc.param.energy_calculated = false
         nnc.param.forces_calculated = false
+    elseif ndims_new > ndims_old || nat_new > nat_old
+        calc._nncalc = _new_nncalc(calc, cell)
+        calc._max_nat = max(calc._max_nat, nat_new)
+        calc._max_ndims = max(calc._max_ndims, ndims_new)
     else
         calc._nncalc = _new_nncalc(calc, cell)
     end
@@ -350,18 +374,15 @@ nnc = create_calculator(calc, cell)
 opt_tpsd(nnc)
 
 # Variable-cell relaxation
-vc = create_calculator(calc, cell; modifiers=[
-    CellRelaxationModifier(cell)
-])
-opt_tpsd(vc)
+nnc = create_calculator(calc, cell)
+opt_tpsd(nnc; relax_cell=true)
 
 # Hyperdimensional relaxation
 hcell = add_dimensions(cell, 3)
 hc = create_calculator(calc, hcell; modifiers=[
     ExtraDimensionPenaltyModifier(1e-4),
-    CellRelaxationModifier(hcell)
 ])
-scheduled_penalty_relax!(hc)
+scheduled_penalty_relax!(hc; relax_kwargs=(relax_cell=true,))
 ```
 """
 function create_calculator(calc::EDDPCalculator, cell::Cell; modifiers=[])

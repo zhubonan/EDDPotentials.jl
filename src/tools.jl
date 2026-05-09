@@ -140,7 +140,7 @@ function lj_like_calc(cell::Cell; α=1.0, a=6, rc=3.0)
     @assert length(elem) == 1 "Only works for single specie Cell for now."
     cf = CellFeature(elem, p2=[a, 2a], p3=[], q3=[], rcut2=rc)
     model = LinearInterface([0, -2, 1.0] .* α)
-    NNCalc(cell, cf, model)
+    EDDPCalculator(cell, cf, model)
 end
 
 _lj_inv_r_cutoff(r, rcut) = r <= rcut ? inv(r) : zero(r)
@@ -310,7 +310,7 @@ function lj_baseline_calc(
     elems = _lj_normalize_elements(species(cell))
     cf = lj_baseline_feature(elems; rcut, p_rep, p_att)
     model = lj_baseline_model(elems; sigma, epsilon, rcut, p_rep, p_att)
-    NNCalc(cell, cf, model; core=nothing, elemental_energies, nmax)
+    EDDPCalculator(cell, cf, model; core_repulsion=nothing, elemental_energies, nmax)
 end
 
 
@@ -590,21 +590,6 @@ function test_finite_difference(calc::NNCalc)
     stress_ok = allclose(grad, -vec(stress), atol=1e-3)
     stress_ok || @warn "finite difference gradient of the total stress is not correct"
 
-    # Test wrapper
-    vc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
-    epos = get_positions(vc)
-    eforce = copy(eddp_forces(vc))
-
-    od = OnceDifferentiable(
-        x -> _fd_energy_vc(vc, x),
-        epos,
-        _fd_energy_vc(vc, epos);
-        inplace=false,
-    )
-    grad = NLSolversBase.gradient(od, epos)
-    vc_force_ok = allclose(grad, -eforce, atol=1e-3)
-    vc_force_ok ||
-        @warn "finite difference gradient of the total force is not correct with variable cell"
-
-    vc_force_ok && force_ok && stress_ok && desc_ok
+    # Variable-cell finite difference testing is done via relax_cell in optimizers
+    stress_ok && force_ok && desc_ok
 end

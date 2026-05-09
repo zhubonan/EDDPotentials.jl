@@ -2,25 +2,51 @@
 
 using LinearAlgebra
 
-"""
-    check_convergence(opt::AbstractOptimizer, calc::AbstractCalc) -> Bool
+function _augmented_x(opt::AbstractOptimizer, calc::AbstractCalc)
+    pos = get_positions(calc)
+    x = vec(pos)
+    if opt.relax_cell
+        x = vcat(x, vec(get_cellmat(calc)[1:3, 1:3]))
+    end
+    x
+end
 
-Check convergence based on forces, stress, and energy criteria.
+function _atom_pos_size(calc::AbstractCalc)
+    pos = get_positions(calc)
+    (size(pos, 1), size(pos, 2))
+end
 
-Returns `true` if all applicable criteria are satisfied.
-"""
+function _writeback_positions!(opt::AbstractOptimizer, calc::AbstractCalc, x_new::Vector)
+    pos = get_positions(calc)
+    D, nat = size(pos, 1), size(pos, 2)
+    pos_new = reshape(x_new[1:D*nat], D, nat)
+    delta_pos = pos_new - pos    # TPSD position step in Cartesian
+
+    if opt.relax_cell
+        cellmat_old = get_cellmat(calc)
+        cellmat_step = reshape(x_new[D*nat+1:end], 3, 3)
+        cell_3d = cellmat_old[1:3, 1:3]
+        delta = cellmat_step - cell_3d
+        strain = delta / cell_3d
+        cellmat_new = (I + strain) * cell_3d
+        cellmat_old[1:3, 1:3] .= cellmat_new
+        # scale_positions=true keeps fractional coords constant during cell change
+        set_cellmat!(calc, cellmat_old; scale_positions=true)
+        # Re-read positions (now scaled to new cell), then apply TPSD delta
+        scaled_pos = get_positions(calc)
+        set_positions!(calc, scaled_pos + delta_pos)
+    else
+        set_positions!(calc, pos_new)
+    end
+end
+
 function check_convergence(opt::AbstractOptimizer, calc::AbstractCalc)
-    rebuild_nl = is_variable_cell(calc)
-    # Get forces
-    F = eddp_forces(calc; rebuild_nl=rebuild_nl)
+    F = eddp_forces(calc)
     fmax = maximum(norm.(eachcol(F)))
-
-    # Check force convergence
     force_converged = fmax < opt.f_tol
 
-    # For variable cell, also check stress
-    if is_variable_cell(calc)
-        S = optimizer_effective_stress(calc; rebuild_nl=true)
+    if opt.relax_cell
+        S = eddp_stress(calc) .- opt.ext_pressure
         smax = maximum(abs.(S))
         stress_converged = smax < opt.s_tol
         return force_converged && stress_converged
@@ -58,27 +84,22 @@ Log optimization step based on log_level.
 """
 function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
     keep_traj = hasproperty(opt, :keep_trajectory) && opt.keep_trajectory
-
-    # Skip the full metric computation only when absolutely nothing is requested.
     if opt.log_level == :minimal && !keep_traj
         return
     end
 
-    rebuild_nl = is_variable_cell(calc)
-    # Compute metrics
-    E = eddp_energy(calc; forces=false, rebuild_nl=rebuild_nl)
-    F = eddp_forces(calc; rebuild_nl=rebuild_nl)
+    E = eddp_energy(calc; forces=false, rebuild_nl=true)
+    F = eddp_forces(calc)
     fmax = maximum(norm.(eachcol(F)))
 
     smax = 0.0
     stress_mat = nothing
-    if is_variable_cell(calc)
-        S = optimizer_effective_stress(calc; rebuild_nl=true)
+    if opt.relax_cell
+        S = eddp_stress(calc) .- opt.ext_pressure
         smax = maximum(abs.(S))
         stress_mat = S
     end
 
-    # Standard logging
     if opt.log_level == :standard
         cell = get_cell(calc)
         pos = get_positions(cell)

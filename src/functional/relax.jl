@@ -7,8 +7,6 @@ Relaxation of a structure
 =#
 
 using Printf
-using Optim: optimize, LBFGS, BFGS
-using Optim.LineSearches: BackTracking
 using Configurations
 
 @option mutable struct RelaxOption <: EDDPotentialsOption
@@ -126,7 +124,6 @@ function _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
         P = smat[1, 1]
         metacalc = create_calculator(calc, hcell; modifiers=[
             ExtraDimensionPenaltyModifier(opts.hyper_alpha_start; start_dim=4),
-            CellRelaxationModifier(hcell; external_pressure=smat),
         ])
         max_iter = _hyper_max_iterations(opts)
         scheduled_penalty_relax!(metacalc;
@@ -134,6 +131,7 @@ function _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
             max_iterations=max_iter,
             alpha_start=opts.hyper_alpha_start,
             relax_fn,
+            relax_kwargs=(relax_cell=true, ext_pressure=smat),
             alpha_ramp_factor=opts.hyper_alpha_ramp_factor,
             max_alpha=opts.hyper_max_alpha,
             pos_tol=opts.hyper_pos_tol,
@@ -158,16 +156,15 @@ function _relax_hyper_from_nncalc!(nncalc::NNCalc, opts::RelaxOption)
     cell = get_cell(nncalc)
 
     hcell = CellBase.add_dimensions(deepcopy(cell), opts.hyper_ndim)
-    source = NNCalc(hcell, nncalc.cf, nncalc.nninterface;
+    source = EDDPCalculator(hcell, nncalc.cf, nncalc.nninterface;
         nmax=nncalc.nl.nmax,
-        core=nncalc.workspace.hardcore.core_repulsion,
+        core_repulsion=nncalc.workspace.hardcore.core_repulsion,
         elemental_energies=nncalc.elemental_energies,
     )
 
     penalty = ExtraDimensionPenaltyModifier(opts.hyper_alpha_start; start_dim=4)
     smat = external_stress_matrix(opts.external_pressure)
-    cell_relax = CellRelaxationModifier(hcell; external_pressure=smat)
-    metacalc = MetaCalculator(source, [penalty, cell_relax])
+    metacalc = MetaCalculator(source, [penalty])
 
     max_iter = _hyper_max_iterations(opts)
     scheduled_penalty_relax!(metacalc;
@@ -175,6 +172,7 @@ function _relax_hyper_from_nncalc!(nncalc::NNCalc, opts::RelaxOption)
         max_iterations=max_iter,
         alpha_start=opts.hyper_alpha_start,
         relax_fn,
+        relax_kwargs=(relax_cell=true, ext_pressure=smat, cell_damping=1.0),
         alpha_ramp_factor=opts.hyper_alpha_ramp_factor,
         max_alpha=opts.hyper_max_alpha,
         pos_tol=opts.hyper_pos_tol,
@@ -202,11 +200,14 @@ function _relax_hyper_finalize!(metacalc, opts)
     end
 
     source_calc = metacalc isa MetaCalculator ? metacalc.source : metacalc
-    calc_3d = NNCalc(cell_3d,
+    nmax_val = source_calc isa EDDPCalculator ? source_calc.nmax : source_calc.nl.nmax
+    core_val = source_calc isa EDDPCalculator ? source_calc.core_repulsion :
+        source_calc.workspace.hardcore.core_repulsion
+    calc_3d = EDDPCalculator(cell_3d,
         source_calc.cf,
         source_calc.nninterface;
-        nmax=source_calc.nl.nmax,
-        core=source_calc.workspace.hardcore.core_repulsion,
+        nmax=nmax_val,
+        core_repulsion=core_val,
         elemental_energies=source_calc.elemental_energies,
     )
 
@@ -279,147 +280,41 @@ Perform relaxation for a `Relax` object.
 """
 function relax!(re::Relax)
     (; method, energy_threshold, force_threshold, stress_threshold) = re.options
-    (; external_pressure, relax_cell, keep_trajectory, verbose, maxstep, trajectory_file) = re.options
+    (; external_pressure, relax_cell, keep_trajectory, verbose, maxstep) = re.options
     (; iterations) = re.options
-    trajectory = re.trajectory
     calc = re.calc
 
-    if method == "tpsd"
-        _method = TwoPointSteepestDescent(; maxstep)
-    elseif method == "lbfgs"
-        _method = LBFGS(; linesearch=BackTracking(; maxstep))
-    elseif method == "bfgs"
-        _method = BFGS(; linesearch=BackTracking(; maxstep))
-    elseif method == "cg"
-        _method = ConjugateGradient(; linesearch=BackTracking(maxstep=0.2))
-    elseif method == "fire"
-        _method = TwoPointSteepestDescent(; maxstep)
-    else
-        throw(KeyError("Unknown `method`: $(method)"))
-    end
-
     smat = external_stress_matrix(external_pressure)
+    relax_fn = _method_to_native_fn(method)
 
-    # Initial position vector
-
-    if relax_cell
-        if is_variable_cell(calc)
-            # MetaCalculator with CellRelaxationModifier — already handles
-            # variable-cell positions; apply external pressure via modifier.
-            mod = get_cell_relaxation_modifier(calc)
-            if !isnothing(mod)
-                mod.external_pressure .= smat
-            end
-            _calc = calc
-        else
-            # Wrap in MetaCalculator with CellRelaxationModifier
-            _calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc); external_pressure=smat)])
-        end
-    else
-        # Do nothing 
-        _calc = calc
-    end
-    # Initial position
-    p0 = get_positions(_calc)[:]
-
-    "Energy"
-    function fo(x, calc)
-        set_positions!(calc, reshape(x, CellBase.n_dimensions(get_cell(calc)), :))
-        eddp_energy(calc)
-    end
-
-    "Gradient"
-    function go(x, calc)
-        set_positions!(calc, reshape(x, CellBase.n_dimensions(get_cell(calc)), :))
-        if keep_trajectory
-            cell = deepcopy(get_cell(calc))
-            cell.metadata[:energy] = eddp_energy(calc)
-            cell.metadata[:force] = eddp_forces(calc)[:, 1:length(cell)]
-            push!(trajectory, cell)
-        end
-        forces = eddp_forces(calc)
-        # ∇E = -F
-        forces .* -1
-    end
-
-    start_time = time()
-    "Callback function to control the stopping of the optimisation"
-    last_energy = eddp_energy(_calc)
-
-    smax = 0.0
-    fmax = 0.0
-    de = 0.0
-    converged = false
-
-    """
-        callback(x)
-
-    Callback function to print relaxation information as well as checking the convergence
-    as specified.
-    """
-    function callback(x)
-        eng = eddp_energy(_calc)
-        de = abs((eng - last_energy) / length(get_cell(_calc)))
-        last_energy = eng
-        forces = eddp_forces(_calc)
-        fmax = maximum(norm.(eachcol(forces)))
-        stress = eVAngToGPa.(optimizer_effective_stress(_calc))
-        smax = maximum(abs.(stress))
-        elapsed = time() - start_time
-
-        if !isempty(trajectory_file)
-            # Write trajectory file 
-            xyzdict = ExtXYZ.write_dict(CellBase.remove_dimensions(get_cell(calc)))
-            #xyzdict[:arrays][:forces] = forces
-            ExtXYZ.write_frame(trajectory_file, xyzdict; append=true)
-        end
-
-        # Check for convergence criteria
-        fmax < force_threshold ? fok = "T" : fok = "F"
-        de < energy_threshold ? eok = "T" : eok = "F"
-        smax < stress_threshold ? sok = "T" : sok = "F"
-
-        # Print basic information
-        if verbose
-            if x.iteration == 0
-                @printf "* Iter                    E               dE         |F|        Smax       Time         Conv\n"
-                #        * Iter 0000: -7.85900821e+02  6.82121026e-14 6.63946e-03 4.20335e-02      0.222   |F|:T dE:T Smax:T
-            end
-            @printf "* Iter %04d: %15.8e %15.8e %10.5e %10.5e %10.3f   " x.iteration eng de fmax smax elapsed
-            @printf "dE:%s |F|:%s Smax:%s\n" eok fok sok
-        end
-
-
-        # Break if the convergence criteria is reached
-        if relax_cell
-            if (fok == "T") && (eok == "T") && (sok == "T")
-                converged = true
-                return true
-            end
-        else
-            if (fok == "T") && (eok == "T")
-                converged = true
-                return true
-            end
-        end
-        return false
-    end
-
-    res = optimize(
-        x -> fo(x, _calc),
-        x -> go(x, _calc),
-        p0,
-        _method,
-        Optim.Options(; callback, iterations);
-        inplace=false,
+    opt = relax_fn(calc;
+        f_tol=force_threshold,
+        s_tol=stress_threshold,
+        itermax=iterations,
+        maxstep=maxstep,
+        trace=verbose ? 1 : 0,
+        relax_cell=relax_cell,
+        ext_pressure=smat,
+        keep_trajectory=keep_trajectory,
+        trajectory=keep_trajectory ? re.trajectory : nothing,
     )
 
-    if !relax_cell
-        smax = -1.0
+    E = eddp_energy(calc)
+    F = eddp_forces(calc)
+    fmax = maximum(norm.(eachcol(F)))
+    de = 0.0
+    if isnan(de) || isinf(de)
+        de = 0.0
     end
 
+    smax = -1.0
+    if relax_cell
+        S = eddp_stress(calc) .- smat
+        smax = eVAngToGPa(maximum(abs.(S)))
+    end
 
-    RelaxResult(re, de, fmax, smax, res.iterations, converged)
+    converged(opt, calc) ? (opts = "Converged") : (opts = "Unconverged")
+    RelaxResult(re, de, fmax, smax, opt.iteration, converged(opt, calc))
 end
 
 function (re::Relax)(;kwargs...) 

@@ -70,7 +70,7 @@ for func in [:eddp_energy, :eddp_forces, :eddp_pressure, :eddp_energy_std, :eddp
             kwargs...,
         )
             ensemble = load_ensemble(builder, gen)
-            $func(NNCalc(cell, builder.cf, ensemble); kwargs...)
+            $func(EDDPCalculator(cell, builder.cf, ensemble); kwargs...)
         end
         @doc """
             $($func)(cell::Cell, builder::Builder, gen::Int=_latest_ensemble_iteration(builder);kwargs...)

@@ -81,8 +81,9 @@ import .EDDPotentialsCore:
     load_calculator,
     extract_nncalc,
     predict,
-    reinit!
-    clear_transient_gradients!
+    reinit!,
+    clear_transient_gradients!,
+    NNCalc
 
 # Functional layer (training/workflow/analysis)
 include("lmsolve.jl")
@@ -128,7 +129,6 @@ export get_cell,
     CellFeature,
     RandomEmbeddedCellFeature,
     MultiRandomEmbeddedCellFeature,
-    NNCalc,
     EDDPCalculator,
     load_calculator,
     extract_nncalc,
@@ -140,13 +140,10 @@ export MetaCalculator,
     AbstractModifier,
     ExtraDimensionPenaltyModifier,
     VolumeConstraintModifier,
-    CellRelaxationModifier,
     AdditiveCalculatorModifier,
     get_modifier,
     get_modifier_parameter,
-    set_modifier_parameter!,
-    get_augmented_positions,
-    set_augmented_positions!
+    set_modifier_parameter!
 export opt_tpsd, opt_fire  # Explicit optimization functions
 export AbstractOptimizer, NativeTPSD, NativeFIRE
 export initialize!, step!, converged, reset!, get_iteration, optimize!

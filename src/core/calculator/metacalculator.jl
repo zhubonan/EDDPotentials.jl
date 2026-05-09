@@ -7,7 +7,7 @@ The MetaCalculator delegates cell ownership to its source calculator and
 composes an ordered list of modifiers on top.
 
 # Fields
-- `source::S`: The source calculator (e.g., NNCalc, EDDPCalculator)
+- `source::S`: The source calculator (e.g., EDDPCalculator)
 - `modifiers::Vector`: Pipeline of modifiers (applied in order)
 - `energy::T`: Cached energy result after modifier pipeline
 - `forces::Matrix{T}`: Cached forces result after modifier pipeline
@@ -17,13 +17,9 @@ composes an ordered list of modifiers on top.
 
 # Example
 ```julia
-source = NNCalc(cell, cf, ensemble)
-calc = MetaCalculator(source, [
-    ExtraDimensionPenaltyModifier(1e-3),
-    CellRelaxationModifier(cell; external_pressure=pressure_mat)
-])
-energy = eddp_energy(calc)
-forces = eddp_forces(calc)
+source = EDDPCalculator(cell, cf, ensemble)
+calc = MetaCalculator(source, [ExtraDimensionPenaltyModifier(1e-3)])
+opt_tpsd(calc; relax_cell=true)
 ```
 """
 mutable struct MetaCalculator{T,S<:AbstractCalc} <: AbstractCalc
@@ -162,10 +158,8 @@ end
 """
     eddp_enthalpy(calc::MetaCalculator; kwargs...)
 
-Compute enthalpy through the modifier pipeline. When a `CellRelaxationModifier`
-is present the cached energy already includes the PV term, so this is
-equivalent to `eddp_energy`. Raw internal energy is available via
-`eddp_energy(calc.source)`.
+Return the enthalpy. Equivalent to `eddp_energy` for MetaCalculator.
+Raw internal energy is available via `eddp_energy(calc.source)`.
 """
 function eddp_enthalpy(calc::MetaCalculator; kwargs...)
     eddp_energy(calc; kwargs...)
@@ -199,33 +193,11 @@ Delegates to the first modifier with `modifies_positions == true`, or falls back
 to the source cell's positions.
 """
 function get_positions(calc::MetaCalculator)
-    src_cell = get_cell(calc.source)
-    for mod in calc.modifiers
-        if modifies_positions(mod)
-            return get_augmented_positions(mod, src_cell)
-        end
-    end
-    get_positions(src_cell)
+    get_positions(get_cell(calc.source))
 end
 
-"""
-    set_positions!(calc::MetaCalculator, new)
-
-Set positions, potentially delegating to modifiers that change position semantics.
-Delegates to the first modifier with `modifies_positions == true`, or falls back
-to setting the source cell's positions directly.
-"""
 function set_positions!(calc::MetaCalculator, new)
-    src_cell = get_cell(calc.source)
-    for mod in calc.modifiers
-        if modifies_positions(mod)
-            set_augmented_positions!(mod, src_cell, new)
-            calc.energy_dirty = true
-            calc.forces_dirty = true
-            return
-        end
-    end
-    set_positions!(src_cell, new)
+    set_positions!(get_cell(calc.source), new)
     calc.energy_dirty = true
     calc.forces_dirty = true
 end

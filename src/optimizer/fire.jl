@@ -48,7 +48,7 @@ FIRE combines MD-like dynamics with adaptive damping:
 
 # Example
 ```julia
-calc = NNCalc(cell, cf, nn)
+calc = EDDPCalculator(cell, cf, nn)
 opt = NativeFIRE(maxstep=0.2, f_tol=1e-3)
 
 while !converged(opt, calc) && opt.iteration < opt.itermax
@@ -83,6 +83,11 @@ Best for rough optimization far from minimum.
     fa::Float64 = 0.99
     downhill_check::Bool = false
 
+    # Cell relaxation
+    relax_cell::Bool = false
+    ext_pressure::Matrix{Float64} = zeros(3, 3)
+    cell_damping::Float64 = 0.1
+
     # Convergence criteria
     f_tol::Float64 = 1e-2
     s_tol::Float64 = 1e-1
@@ -113,20 +118,21 @@ end
 Initialize FIRE optimizer before first step.
 """
 function initialize!(opt::NativeFIRE, calc::AbstractCalc)
-    # Get initial positions
-    x = get_augmented_positions_internal(calc)
+    pos = get_positions(calc)
+    n_dof = length(pos)
+    if opt.relax_cell
+        n_dof += 9
+    end
 
-    # Initialize velocities to zero
-    opt.vel = zeros(Float64, length(x))
+    opt.vel = zeros(Float64, n_dof)
     opt.a = opt.astart
     opt.Nsteps = 0
     opt.iteration = 0
     opt.e_last = Inf
-    opt.x_last = zeros(Float64, length(x))
+    opt.x_last = zeros(Float64, n_dof)
     opt.converged_flag = false
     opt.trajectory = []
 
-    # Store initial dt for resets
     opt.dt_init = opt.dt
 
     nothing
@@ -138,30 +144,26 @@ end
 Perform one FIRE optimization step.
 """
 function step!(opt::NativeFIRE, calc::AbstractCalc)
-    # Initialize on first step
     if opt.iteration == 0
         initialize!(opt, calc)
-        # Get initial energy for downhill check
         if opt.downhill_check
             opt.e_last = eddp_energy(calc; forces=false, rebuild_nl=true)
         end
     end
 
-    # Get current positions
-    x = get_augmented_positions_internal(calc)
-    rebuild_nl = is_variable_cell(calc)
+    x = _augmented_x(opt, calc)
 
-    # Compute energy and forces
     E = eddp_energy(calc; forces=true, rebuild_nl=true)
-    F = eddp_forces(calc; rebuild_nl=rebuild_nl, make_copy=false)
+    F = eddp_forces(calc; rebuild_nl=opt.relax_cell, make_copy=false)
 
-    # Gradient (force, not negative)
-    gradient = F[:]
+    gradient = vec(F)  # FIRE: force = gradient direction
+    if opt.relax_cell
+        S_eff = eddp_stress(calc) .- opt.ext_pressure
+        g_cell = opt.cell_damping * 10 .* vec(S_eff)  # move in stress direction
+        gradient = vcat(gradient, g_cell)
+    end
     grad_norm = sqrt(dot(gradient, gradient))
 
-    # Preserve velocity when the force is numerically zero.
-    # This keeps optimizer state inspectable in debugging/tests while convergence
-    # is still governed by forces via `converged`.
     if grad_norm <= eps(Float64)
         opt.x_last = x
         opt.e_last = E
@@ -170,77 +172,59 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
         return nothing
     end
 
-    # Check if moving uphill (optional energy-based check)
     is_uphill = false
     if opt.downhill_check && opt.iteration > 0
         if E > opt.e_last
-            # Energy increased - revert to last position
-            set_augmented_positions_internal!(calc, opt.x_last)
+            _writeback_positions!(opt, calc, opt.x_last)
             x = opt.x_last
             is_uphill = true
-
-            # Recompute derivatives at the reverted state so subsequent updates
-            # are consistent with the active configuration.
             E = eddp_energy(calc; forces=true, rebuild_nl=true)
-            F = eddp_forces(calc; rebuild_nl=rebuild_nl, make_copy=false)
-            gradient = F[:]
+            F = eddp_forces(calc; rebuild_nl=opt.relax_cell, make_copy=false)
+            gradient = vec(F)
+            if opt.relax_cell
+                S_eff = eddp_stress(calc) .- opt.ext_pressure
+                gradient = vcat(gradient, opt.cell_damping * 10 .* vec(S_eff))
+            end
             grad_norm = sqrt(dot(gradient, gradient))
         end
     end
 
-    # Compute power P = v · F
     vf = dot(gradient, opt.vel)
 
-    # Determine if moving downhill
     if vf > 0.0 && !is_uphill
-        # Moving downhill - modify velocity
         vel_norm = sqrt(dot(opt.vel, opt.vel))
-
         if grad_norm > eps(Float64)
-            # Mix velocity with force direction: v = (1-α)v + α F̂|v|
             force_direction = gradient / grad_norm
             opt.vel = (1.0 - opt.a) * opt.vel + opt.a * force_direction * vel_norm
         end
-
-        # Increase dt and decrease alpha if enough steps
         if opt.Nsteps >= opt.Nmin
             opt.dt = min(opt.dt * opt.finc, opt.dtmax)
             opt.a *= opt.fa
         end
-
         opt.Nsteps += 1
     else
-        # Moving uphill or P ≤ 0 - reset
         opt.vel .= 0.0
         opt.a = opt.astart
         opt.dt *= opt.fdec
         opt.Nsteps = 0
     end
 
-    # Velocity Verlet: update velocity
     opt.vel += opt.dt * gradient
 
-    # Compute displacement
     dr = opt.dt * opt.vel
-
-    # Limit step size
     normdr = sqrt(dot(dr, dr))
     if normdr > opt.maxstep
         dr *= opt.maxstep / normdr
     end
 
-    # Update positions
     x_new = x + dr
-    set_augmented_positions_internal!(calc, x_new)
+    _writeback_positions!(opt, calc, x_new)
 
-    # Store state for next iteration
     opt.x_last = x
     opt.e_last = E
     opt.iteration += 1
 
-    # Log step
     log_step!(opt, calc)
-
     nothing
 end
 

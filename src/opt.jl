@@ -3,8 +3,6 @@ High-level optimization entry points.
 =#
 using LinearAlgebra
 
-include("tpsd.jl")
-
 """
     opt_tpsd(vc::AbstractCalc; kwargs...) -> NativeTPSD
 
@@ -20,12 +18,14 @@ function opt_tpsd(
     trace=0,
     α_tol=1e-10,
     maxstep=0.2,
+    relax_cell=false,
+    ext_pressure=zeros(3, 3),
+    cell_damping=0.1,
     callback=nothing,
     keep_trajectory=false,
     trajectory=nothing,
 )
-    # Match legacy behavior: stress is ignored for fixed-cell optimizations.
-    if !is_variable_cell(vc)
+    if !relax_cell
         s_tol = floatmax(Float64)
     end
 
@@ -39,6 +39,9 @@ function opt_tpsd(
         maxstep,
         log_level,
         keep_trajectory=keep_trajectory,
+        relax_cell,
+        ext_pressure,
+        cell_damping,
     )
 
     wrapped_callback = isnothing(callback) && isnothing(trajectory) ? nothing : () -> begin
@@ -71,14 +74,16 @@ function opt_fire(
     astart=0.1,
     fa=0.99,
     downhill_check=false,
+    relax_cell=false,
+    ext_pressure=zeros(3, 3),
+    cell_damping=0.1,
     trace=false,
     verbose=trace,
     callback=nothing,
     keep_trajectory=false,
     trajectory=nothing,
 )
-    # Match legacy behavior: stress is ignored for fixed-cell optimizations.
-    if !is_variable_cell(vc)
+    if !relax_cell
         s_tol = floatmax(Float64)
     end
 
@@ -99,6 +104,9 @@ function opt_fire(
         itermax,
         log_level,
         keep_trajectory=keep_trajectory,
+        relax_cell,
+        ext_pressure,
+        cell_damping,
     )
 
     wrapped_callback = isnothing(callback) && isnothing(trajectory) ? nothing : () -> begin

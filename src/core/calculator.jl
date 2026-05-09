@@ -1,7 +1,4 @@
-import Optim
 import Base
-using Optim: LBFGS, optimize
-using LineSearches: HagerZhang
 using LinearAlgebra
 import CellBase:
     set_cellmat!,
@@ -236,8 +233,8 @@ get_elemental_energy(cell::Cell, ref_energies::Dict) =
 """
     eddp_enthalpy(calc::AbstractCalc) -> Number
 
-Return the enthalpy `H = E + PV`. For calculators with a `CellRelaxationModifier`
-this includes the external pressure contribution. For plain calculators, returns the energy.
+Return the enthalpy `H = E + PV`. For calculators with cell relaxation active,
+the external pressure contribution is handled by the optimizer.
 """
 function eddp_enthalpy(calc::NNCalc; forces=false, rebuild_nl=true)
     eddp_energy(calc; forces, rebuild_nl)
@@ -351,9 +348,8 @@ end
 
 function get_committee_forces(calc)
     force_list = map(calc.nninterface.models) do model
-        # TODO - allow others to be customised
-        calc = NNCalc(calc.cell, calc.cf, model; elemental_energies=calc.elemental_energies)
-        eddp_forces(calc)
+        nc = EDDPCalculator(calc.cell, calc.cf, model; elemental_energies=calc.elemental_energies)
+        eddp_forces(nc)
     end
 end
 
@@ -488,7 +484,7 @@ end
 for func in [:eddp_energy, :eddp_forces, :eddp_pressure, :eddp_energy_std, :eddp_enthalpy]
     @eval begin
         function $func(cell::Cell, cf::CellFeature, itf::AbstractNNInterface; kwargs...)
-            $func(NNCalc(cell, cf, itf); kwargs...)
+            $func(EDDPCalculator(cell, cf, itf); kwargs...)
         end
         @doc """
             $($func)(cell::Cell, cf::CellFeature, itf::AbstractNNInterface;kwargs...)

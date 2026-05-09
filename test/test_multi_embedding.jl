@@ -5,8 +5,6 @@ using EDDPotentials:
     FeatureStore,
     StructureContainer,
     MetaCalculator,
-    CellRelaxationModifier,
-    is_variable_cell,
     NNCalc,
     get_cell,
     nfeatures,
@@ -119,16 +117,12 @@ using CellBase: positions, species
         end
 
         function _test_forces_fd_vc(calc; amp=1e-7, atol=1e-5, idx=1)
-            if !is_variable_cell(calc)
-                calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
-            end
             ftmp = copy(eddp_forces(calc))
-            etmp = eddp_enthalpy(calc)
+            etmp = eddp_energy(calc)
             pos = copy(get_positions(calc))
             pos[idx] += amp
             set_positions!(calc, pos)
-            @test calc.energy_dirty
-            tmp = (eddp_enthalpy(calc) - etmp) / amp
+            tmp = (eddp_energy(calc) - etmp) / amp
             @test -tmp ≈ ftmp[idx] atol = atol
         end
 

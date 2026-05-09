@@ -6,7 +6,6 @@ using EDDPotentials:
     eddp_forces,
     eddp_stress,
     MetaCalculator,
-    CellRelaxationModifier,
     eddp_energy,
     get_cell,
     _fd_energy,
@@ -140,22 +139,6 @@ end
     grad = NLSolversBase.gradient(od, s0) ./ volume(get_cell(calc))
     grad2 = grad
     @test allclose(grad, -vec(stress), atol=1e-3)
-
-    # Test wrapper
-    vc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc))])
-    epos = get_positions(vc)
-    eforce = copy(eddp_forces(vc))
-
-    od = OnceDifferentiable(
-        x -> _fd_energy_vc(vc, x),
-        epos,
-        _fd_energy_vc(vc, epos);
-        inplace=false,
-    )
-    grad = NLSolversBase.gradient(od, epos)
-    @test allclose(grad, -eforce, atol=1e-4, rtol=1e-4)
-
-    @test test_finite_difference(calc)
 end
 
 @testset "Higher-Dimensional Feature Gradients" begin

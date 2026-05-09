@@ -42,18 +42,6 @@ function post_calculate!(
 end
 
 """
-    modifies_positions(modifier::AbstractModifier) -> Bool
-
-Returns true if this modifier changes the semantics of positions
-(e.g., augmenting with lattice degrees of freedom).
-
-Default: false
-"""
-function modifies_positions(modifier::AbstractModifier)
-    return false
-end
-
-"""
     requires_forces(modifier::AbstractModifier) -> Bool
 
 Returns true if this modifier needs forces to be computed.

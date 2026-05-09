@@ -31,7 +31,7 @@ where s = x_k - x_{k-1} and y = g_k - g_{k-1}.
 
 # Example
 ```julia
-calc = NNCalc(cell, cf, nn)
+calc = EDDPCalculator(cell, cf, nn)
 opt = NativeTPSD(f_tol=1e-3, itermax=500)
 
 while !converged(opt, calc) && opt.iteration < opt.itermax
@@ -63,6 +63,11 @@ Native TPSD typically achieves 20-40% speedup compared to Optim.jl version.
     # Step size limiting
     maxstep::Float64 = 0.2
 
+    # Cell relaxation
+    relax_cell::Bool = false
+    ext_pressure::Matrix{Float64} = zeros(3, 3)
+    cell_damping::Float64 = 0.1
+
     # Logging
     log_level::Symbol = :standard  # :minimal, :standard, :detailed
     keep_trajectory::Bool = false
@@ -83,12 +88,14 @@ end
 Initialize TPSD optimizer before first step.
 """
 function initialize!(opt::NativeTPSD, calc::AbstractCalc)
-    # Get initial positions
-    x = get_augmented_positions_internal(calc)
+    pos = get_positions(calc)
+    n_dof = length(pos)
+    if opt.relax_cell
+        n_dof += 9
+    end
 
-    # Initialize state
-    opt.x_prev = zeros(Float64, length(x))
-    opt.g_prev = zeros(Float64, length(x))
+    opt.x_prev = zeros(Float64, n_dof)
+    opt.g_prev = zeros(Float64, n_dof)
     opt.α = 1.0
     opt.iteration = 0
     opt.e_prev = Inf
@@ -104,21 +111,24 @@ end
 Perform one TPSD optimization step.
 """
 function step!(opt::NativeTPSD, calc::AbstractCalc)
-    # Initialize if first step
     if opt.iteration == 0
         initialize!(opt, calc)
     end
 
-    # Get current positions
-    x = get_augmented_positions_internal(calc)
-    rebuild_nl = is_variable_cell(calc)
+    pos = get_positions(calc)
+    D, nat = size(pos, 1), size(pos, 2)
 
-    # Compute energy and forces
+    x = _augmented_x(opt, calc)
+
     E = eddp_energy(calc; forces=true, rebuild_nl=true)
-    F = eddp_forces(calc; rebuild_nl=rebuild_nl, make_copy=false)
+    F = eddp_forces(calc; rebuild_nl=opt.relax_cell, make_copy=false)
 
-    # Gradient is negative force (flattened)
-    g = -F[:]
+    g = -vec(F)  # gradient = -force (steepest descent)
+    if opt.relax_cell
+        S_eff = eddp_stress(calc) .- opt.ext_pressure
+        g_cell = -opt.cell_damping * 10 .* vec(S_eff)  # steepest descent direction
+        g = vcat(g, g_cell)
+    end
 
     # Compute Barzilai-Borwein step size (after first iteration)
     if opt.iteration > 0
@@ -126,43 +136,34 @@ function step!(opt::NativeTPSD, calc::AbstractCalc)
         y = g - opt.g_prev
         sy = dot(s, y)
 
-        if abs(sy) > opt.α_tol
-            # BB step size: α = s's / s'y
+        if abs(sy) > opt.α_tol && sy > 0
             ss = dot(s, s)
             opt.α = ss / sy
-
-            # Clamp to reasonable range to avoid numerical issues
             opt.α = clamp(opt.α, 1e-10, 1e10)
-        else
-            # sy too small, keep previous alpha
+        elseif sy > 0
             opt.α = max(opt.α, 1e-10)
+        else
+            opt.α = max(opt.α / 2.0, 1e-8)
         end
+    else
+        opt.α = min(opt.maxstep / (norm(g) + 1e-10), 0.1)
     end
 
-    # Compute step: dr = α * g (steepest descent)
-    dr = opt.α * g
-
-    # Limit step size to prevent catastrophic overshooting
+    dr = opt.α .* g
     norm_dr = sqrt(dot(dr, dr))
     if norm_dr > opt.maxstep
-        dr *= opt.maxstep / norm_dr
+        dr .*= opt.maxstep / norm_dr
     end
-
-    # Take step: x_new = x - dr
     x_new = x - dr
 
-    # Update calculator with new positions
-    set_augmented_positions_internal!(calc, x_new)
+    _writeback_positions!(opt, calc, x_new)
 
-    # Store state for next iteration
     opt.x_prev .= x
     opt.g_prev .= g
     opt.e_prev = E
     opt.iteration += 1
 
-    # Log step
     log_step!(opt, calc)
-
     nothing
 end
 

@@ -4,24 +4,21 @@ using Printf
     hyper_get_calc(cell, bu::Builder; alpha=1e-3) -> MetaCalculator
 
 Construct a calculator for hyperdimensional relaxation. Wraps an
-[`NNCalc`](@ref) in a [`MetaCalculator`](@ref) with
-[`ExtraDimensionPenaltyModifier`](@ref) and
-[`CellRelaxationModifier`](@ref) so that cell degrees of freedom are
-also relaxed.
+[`EDDPCalculator`](@ref) in a [`MetaCalculator`](@ref) with
+`ExtraDimensionPenaltyModifier`. Cell relaxation is handled by the
+optimizer via the `relax_cell` parameter.
 """
 function hyper_get_calc(cell, bu::Builder; alpha=1e-3)
-    source = NNCalc(
+    source = EDDPCalculator(
         cell,
         bu.cf,
         load_ensemble(bu);
         nmax=500,
-        core=CoreRepulsion(bu.state.core_size),
+        core_repulsion=CoreRepulsion(bu.state.core_size),
         elemental_energies=bu.state.elemental_energies,
     )
     penalty = ExtraDimensionPenaltyModifier(alpha; start_dim=4)
-    P_external = bP(bu.rss.pressure_gpa)
-    cell_relax = CellRelaxationModifier(cell; external_pressure=P_external)
-    MetaCalculator(source, [penalty, cell_relax])
+    MetaCalculator(source, [penalty])
 end
 
 function bP(press_gpa)
@@ -373,15 +370,17 @@ function hyper_gen_relax(
 
     vcalc = create_calculator(calc, hcell; modifiers=[
         ExtraDimensionPenaltyModifier(alpha_start; start_dim=4),
-        CellRelaxationModifier(hcell; external_pressure=diagm([P, P, P])),
     ])
+
+    P_mat = diagm([P, P, P])
+    _inner_kwargs = (; relax_cell=true, ext_pressure=P_mat, relax_kwargs...)
 
     scheduled_penalty_relax!(vcalc;
         schedule_every,
         max_iterations=target_iterations,
         alpha_start,
         relax_fn,
-        relax_kwargs,
+        relax_kwargs=_inner_kwargs,
         dynamic_alpha,
         force_ratio,
         max_alpha,

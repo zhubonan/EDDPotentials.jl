@@ -39,12 +39,11 @@ function build_and_relax(
         trace = relax_option.verbose
 
         cell = CellBase.add_dimensions(cell, ndim)
-        source = NNCalc(cell, cf, ensemble; nmax,
-            core=_make_core_repulsion(core_size), elemental_energies)
+        source = EDDPCalculator(cell, cf, ensemble; nmax,
+            core_repulsion=_make_core_repulsion(core_size), elemental_energies)
         penalty = ExtraDimensionPenaltyModifier(alpha_start; start_dim=4)
         p_clamped = GPaToeVAng(max(pressure_gpa, 0.1))
         P_ext = [p_clamped 0 0; 0 p_clamped 0; 0 0 p_clamped]
-        cell_relax = CellRelaxationModifier(cell; external_pressure=P_ext)
 
         phase1_iters = round(Int, target_iterations * phase1_frac)
         phase2_iters = target_iterations - phase1_iters
@@ -67,10 +66,11 @@ function build_and_relax(
         trace && @printf("\n╔══ Phase 2: Variable-cell relaxation  α=%.1e  iters=%d ══╗\n",
             alpha_start, phase2_iters)
 
-        metacalc_full = MetaCalculator(source, [penalty, cell_relax])
+        metacalc_full = MetaCalculator(source, [penalty])
         scheduled_penalty_relax!(metacalc_full;
             schedule_every, max_iterations=phase2_iters,
             alpha_start, relax_fn=opt_fire, trace,
+            relax_kwargs=(relax_cell=true, ext_pressure=P_ext),
             ramp_alpha=relax_option.hyper_ramp_alpha,
             alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,
             max_alpha=relax_option.hyper_max_alpha,
@@ -88,22 +88,22 @@ function build_and_relax(
         try
             re3d_opt = deepcopy(relax_option)
             re3d_opt.hyper_ndim = 0
-            calc3d = NNCalc(cell, cf, ensemble; nmax,
-                core=_make_core_repulsion(core_size), elemental_energies)
+            calc3d = EDDPCalculator(cell, cf, ensemble; nmax,
+                core_repulsion=_make_core_repulsion(core_size), elemental_energies)
             re3d = Relax(calc3d, re3d_opt)
             return relax!(re3d)
         catch
         end
-        calc = NNCalc(cell, cf, ensemble; nmax,
-            core=_make_core_repulsion(core_size), elemental_energies)
+        calc = EDDPCalculator(cell, cf, ensemble; nmax,
+            core_repulsion=_make_core_repulsion(core_size), elemental_energies)
         fallback_opt = deepcopy(relax_option)
         fallback_opt.hyper_ndim = 0
         re = Relax(calc, fallback_opt)
         return relax!(re)
 
     elseif relax_mode == "hot"
-        calc = NNCalc(cell, cf, ensemble; nmax,
-            core=_make_core_repulsion(core_size), elemental_energies)
+        calc = EDDPCalculator(cell, cf, ensemble; nmax,
+            core_repulsion=_make_core_repulsion(core_size), elemental_energies)
         re = Relax(calc, relax_option)
         result = relax!(re)
         cycles = get(hot_kwargs, :n_rounds, 10)
@@ -118,8 +118,8 @@ function build_and_relax(
         return result
 
     else  # standard
-        calc = NNCalc(cell, cf, ensemble; nmax,
-            core=_make_core_repulsion(core_size), elemental_energies)
+        calc = EDDPCalculator(cell, cf, ensemble; nmax,
+            core_repulsion=_make_core_repulsion(core_size), elemental_energies)
         re = Relax(calc, relax_option)
         return relax!(re)
     end

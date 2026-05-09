@@ -31,7 +31,7 @@ minimum.
 - `relax_s_tol::Float64` — stress convergence tolerance (default 1e-1)
 - `relax_e_tol::Float64` — energy convergence tolerance in eV (default 1e-5)
 - `relax_method::String` — "tpsd" or "fire" (default "tpsd")
-- `relax_cell::Bool` — allow cell relaxation via MetaCalculator + CellRelaxationModifier (default true)
+- `relax_cell::Bool` — enable cell relaxation via optimizer's relax_cell parameter (default true)
 - `external_pressure::Vector{Float64}` — external pressure (default [0.0]).
   Convention follows `RelaxOption.external_pressure`.
 
@@ -117,14 +117,8 @@ function _make_integrator(opts::HotAIRSSOption)
     end
 end
 
-"""Wrap calc in MetaCalculator with CellRelaxationModifier if relax_cell is enabled."""
 function _make_relax_calc(calc::AbstractCalc, opts::HotAIRSSOption)
-    if opts.relax_cell && !is_variable_cell(calc)
-        smat = external_stress_matrix(opts.external_pressure)
-        MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc); external_pressure=smat)])
-    else
-        calc
-    end
+    calc
 end
 
 """Extract the source calculator for MD (unwraps MetaCalculator if needed)."""
@@ -147,6 +141,8 @@ function _run_relax!(relax_calc::AbstractCalc, opts::HotAIRSSOption)
             itermax=opts.relax_itermax,
             trace=opts.verbose ? 1 : 0,
             callback=cb,
+            relax_cell=opts.relax_cell,
+            ext_pressure=external_stress_matrix(opts.external_pressure),
         )
         conv = converged(opt, relax_calc)
     elseif opts.relax_method == "fire"
@@ -158,6 +154,8 @@ function _run_relax!(relax_calc::AbstractCalc, opts::HotAIRSSOption)
             itermax=opts.relax_itermax,
             verbose=opts.verbose,
             callback=cb,
+            relax_cell=opts.relax_cell,
+            ext_pressure=external_stress_matrix(opts.external_pressure),
         )
         conv = converged(fire_opt, relax_calc)
     else
@@ -184,8 +182,8 @@ The energy history records potential energy after each phase:
   [relax₁, md₁, relax₂, md₂, ..., relax_final]
 
 # Arguments
-- `calc` — calculator (typically `NNCalc`). If `relax_cell=true`, it is wrapped
-  in a `MetaCalculator` with `CellRelaxationModifier` for relaxation phases.
+- `calc` — calculator (typically `EDDPCalculator`). Cell relaxation is handled
+  by passing `relax_cell=true` to the optimizer.
 
 # Keyword arguments
 See [`HotAIRSSOption`](@ref) for all options.

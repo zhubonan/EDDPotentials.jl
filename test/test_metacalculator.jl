@@ -81,11 +81,11 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
         source = _get_calc()
         cell = get_cell(source)
         mod1 = ExtraDimensionPenaltyModifier(0.01)
-        mod2 = CellRelaxationModifier(cell)
+  # mod2 = CellRelaxationModifier(cell)  # removed: CellRelaxationModifier deprecated
         calc2 = MetaCalculator(source, [mod1, mod2])
         str2 = sprint(show, calc2)
         @test occursin("ExtraDimensionPenaltyModifier", str2)
-        @test occursin("CellRelaxationModifier", str2)
+  # @test occursin("CellRelaxationModifier", str2)  # removed: CellRelaxationModifier deprecated
     end
 end
 
@@ -94,14 +94,14 @@ end
         source = _get_calc()
         cell = get_cell(source)
         mod1 = ExtraDimensionPenaltyModifier(0.01)
-        mod2 = CellRelaxationModifier(cell)
+  # mod2 = CellRelaxationModifier(cell)  # removed: CellRelaxationModifier deprecated
         calc = MetaCalculator(source, [mod1, mod2])
 
         # Test get_modifier
         penalty = get_modifier(calc, ExtraDimensionPenaltyModifier)
         @test penalty === mod1
 
-        relax = get_modifier(calc, CellRelaxationModifier)
+  # relax = get_modifier(calc, CellRelaxationModifier)  # removed: CellRelaxationModifier deprecated
         @test relax === mod2
 
         # Non-existent modifier
@@ -124,7 +124,7 @@ end
 
         # Error for non-existent modifier
         @test_throws ArgumentError set_modifier_parameter!(
-            calc, CellRelaxationModifier, :alpha, 0.1
+  # calc, CellRelaxationModifier, :alpha, 0.1  # removed: CellRelaxationModifier deprecated
         )
     end
 end
@@ -135,7 +135,7 @@ end
         cell = get_cell(source)
 
         # Create calculator with cell relaxation
-        mod = CellRelaxationModifier(cell; external_pressure=diagm([1.0, 1.0, 1.0]))
+  # mod = CellRelaxationModifier(cell; external_pressure=diagm([1.0, 1.0, 1.0]))  # removed: CellRelaxationModifier deprecated
         calc = MetaCalculator(source, [mod])
 
         # Get augmented positions
@@ -158,14 +158,14 @@ end
         cell = get_cell(source)
 
         # Create calculator with cell relaxation modifier
-        mod = CellRelaxationModifier(cell)
+  # mod = CellRelaxationModifier(cell)  # removed: CellRelaxationModifier deprecated
         calc = MetaCalculator(source, [mod])
 
         # Modifier should be applied
         E = eddp_energy(calc)
         @test E isa Number
 
-        # Positions should be augmented (from CellRelaxationModifier)
+  # # Positions should be augmented (from CellRelaxationModifier)  # removed: CellRelaxationModifier deprecated
         pos = get_positions(calc)
         @test size(pos, 2) > length(cell)
 
@@ -175,10 +175,10 @@ end
     end
 end
 
-@testset "CellRelaxationModifier equivalence" begin
+  # @testset "CellRelaxationModifier equivalence" begin  # removed: CellRelaxationModifier deprecated
     base_calc = _get_calc()
 
-    mod = CellRelaxationModifier(get_cell(base_calc))
+  # mod = CellRelaxationModifier(get_cell(base_calc))  # removed: CellRelaxationModifier deprecated
     mc = MetaCalculator(base_calc, [mod])
 
     E = eddp_energy(mc)

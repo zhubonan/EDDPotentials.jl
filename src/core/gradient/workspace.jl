@@ -159,6 +159,31 @@ function GradientWorkspace(
     )
 end
 
+function GradientWorkspace(old::GradientWorkspace{T,N}, new_fvec::Matrix{T}) where {T,N}
+    nf, nat_new = size(new_fvec)
+    ndims = size(old.gvec, 1)
+    @assert nf == size(old.gvec, 2) "Feature count mismatch"
+    @assert nat_new <= size(old.fvec, 2) "Resize only supports shrinking: $nat_new > $(size(old.fvec, 2))"
+    GradientWorkspace{T,N}(
+        new_fvec,
+        old.gvec,
+        old.gvec_index,
+        old.gvec_nn,
+        old.stotv,
+        zeros(T, ndims, nat_new),
+        zeros(T, 3, 3, nat_new),
+        zeros(T, nat_new),
+        zeros(T, ndims, nat_new),
+        zeros(T, 3, 3),
+        zeros(T, nat_new),
+        HardcoreWorkspace(T, old.hardcore.core_repulsion, nat_new, ndims),
+        old.do_grad,
+        old.one_body_offset,
+        old.feat_bufs,
+        old.feat_bufs_lock,
+    )
+end
+
 """
     reset!(fb::GradientWorkspace)
 

@@ -79,7 +79,6 @@ export ModelArtifact,
     load_feature_json,
     load_feature_artifact,
     save_feature_json
-export NNCalc
 export EDDPCalculator, load_calculator, extract_nncalc, predict, create_calculator
 export CoreRepulsion, leaky_tanh
 export calculate!
@@ -90,13 +89,10 @@ export MetaCalculator,
     AbstractModifier,
     ExtraDimensionPenaltyModifier,
     VolumeConstraintModifier,
-    CellRelaxationModifier,
     AdditiveCalculatorModifier,
     get_modifier,
     get_modifier_parameter,
-    set_modifier_parameter!,
-    get_augmented_positions,
-    set_augmented_positions!
+    set_modifier_parameter!
 
 # Timer controls
 export enable_eddp_timer!, disable_eddp_timer!, reset_eddp_timer!
