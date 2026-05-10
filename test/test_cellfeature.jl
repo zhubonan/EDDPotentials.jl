@@ -38,6 +38,71 @@ using Test
 
 end
 
+@testset "Analytic Feature Vector" begin
+    positions = Float64[
+        0.0 1.0 0.0
+        0.0 0.0 2.0
+        0.0 0.0 0.0
+    ]
+    cell = Cell(Lattice(10.0, 10.0, 10.0), [:O, :H, :H], positions)
+    cf = CellFeature([:H, :O]; p2=[2, 3], p3=[2, 3], q3=[1], rcut2=3.0, rcut3=3.0)
+    fvec = EDDPotentials.feature_vector(cf, cell)
+    expected = zeros(size(fvec))
+
+    rcut = 3.0
+    r_oh1 = 1.0
+    r_oh2 = 2.0
+    r_hh = sqrt(5.0)
+    f_oh1 = 2 * (1 - r_oh1 / rcut)
+    f_oh2 = 2 * (1 - r_oh2 / rcut)
+    f_hh = 2 * (1 - r_hh / rcut)
+
+    expected[1, :] = [0.0, 1.0, 1.0]
+    expected[2, :] = [1.0, 0.0, 0.0]
+
+    i_hh, j_hh = EDDPotentials.EDDPotentialsCore.lookup(cf, :H, :H)
+    expected[i_hh:j_hh, :] = [
+        0.0 f_hh^2 f_hh^2
+        0.0 f_hh^3 f_hh^3
+    ]
+
+    i_ho, j_ho = EDDPotentials.EDDPotentialsCore.lookup(cf, :H, :O)
+    expected[i_ho:j_ho, :] = [
+        0.0 f_oh1^2 f_oh2^2
+        0.0 f_oh1^3 f_oh2^3
+    ]
+
+    i_oh, j_oh = EDDPotentials.EDDPotentialsCore.lookup(cf, :O, :H)
+    expected[i_oh:j_oh, :] = [
+        f_oh1^2 + f_oh2^2 0.0 0.0
+        f_oh1^3 + f_oh2^3 0.0 0.0
+    ]
+
+    i_ohh, j_ohh = EDDPotentials.EDDPotentialsCore.lookup(cf, :O, :H, :H)
+    expected[i_ohh:j_ohh, :] = [
+        f_oh1^2 * f_oh2^2 * f_hh 0.0 0.0
+        f_oh1^3 * f_oh2^3 * f_hh 0.0 0.0
+    ]
+
+    i_hho, j_hho = EDDPotentials.EDDPotentialsCore.lookup(cf, :H, :H, :O)
+    expected[i_hho:j_hho, :] = [
+        0.0 f_hh^2 * f_oh1^2 * f_oh2 f_hh^2 * f_oh2^2 * f_oh1
+        0.0 f_hh^3 * f_oh1^3 * f_oh2 f_hh^3 * f_oh2^3 * f_oh1
+    ]
+
+    i_oho, j_oho = EDDPotentials.EDDPotentialsCore.lookup(cf, :O, :H, :O)
+    i_ooo, j_ooo = EDDPotentials.EDDPotentialsCore.lookup(cf, :O, :O, :O)
+    i_hhh, j_hhh = EDDPotentials.EDDPotentialsCore.lookup(cf, :H, :H, :H)
+    i_hoo, j_hoo = EDDPotentials.EDDPotentialsCore.lookup(cf, :H, :O, :O)
+
+    @test size(fvec) == (nfeatures(cf), 3)
+    @test fvec[i_oho:j_oho, :] == zeros(2, 3)
+    @test fvec[i_ooo:j_ooo, :] == zeros(2, 3)
+    @test fvec[i_hhh:j_hhh, :] == zeros(2, 3)
+    @test fvec[i_hoo:j_hoo, :] == zeros(2, 3)
+    @test fvec ≈ expected atol = 1e-12
+end
+
 
 # @testset "Features New" begin
 #     cell = _h2_cell()
