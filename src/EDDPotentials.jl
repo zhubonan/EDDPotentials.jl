@@ -1,6 +1,6 @@
 module EDDPotentials
 
-using CellBase: read_castep
+using CellBase: read_castep, read_res, write_res, read_cell, write_xyz, read_stru, write_stru
 import CellBase
 using StatsBase: mean
 export mean
@@ -143,6 +143,7 @@ export MetaCalculator,
     get_modifier_parameter,
     set_modifier_parameter!
 export opt_tpsd, opt_fire  # Explicit optimization functions
+export relax!
 export AbstractOptimizer, NativeTPSD, NativeFIRE
 export AbstractStepConstraint,
     ZeroTranslationConstraint,
@@ -192,6 +193,7 @@ export EnergyMetrics, ForceMetrics, StressMetrics, LayerSaturationReport
 export detect_saturation, load_evaluation_data, benchmark_prediction
 export compare_energy, compare_forces, compare_stress
 export PhaseDiagram, read_shelx_record, ShelxRecord, ComputedRecord
+export read_castep, read_res, write_res, read_cell, write_xyz, read_stru, write_stru
 export synthetic_force_data
 
 const USE_CUDA = Ref{Bool}(false)

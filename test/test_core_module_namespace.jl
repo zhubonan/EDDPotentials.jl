@@ -4,6 +4,14 @@ using CellBase
 
 @testset "Core Module Namespace" begin
     @test isdefined(EDDPotentials, :EDDPotentialsCore)
+    @test :relax! in names(EDDPotentials)
+    @test :read_castep in names(EDDPotentials)
+    @test :read_res in names(EDDPotentials)
+    @test :write_res in names(EDDPotentials)
+    @test :read_cell in names(EDDPotentials)
+    @test :write_xyz in names(EDDPotentials)
+    @test :read_stru in names(EDDPotentials)
+    @test :write_stru in names(EDDPotentials)
 
     core = EDDPotentials.EDDPotentialsCore
     @test core.EDDPCalculator === EDDPotentials.EDDPCalculator
