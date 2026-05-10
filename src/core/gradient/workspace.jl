@@ -64,19 +64,22 @@ struct FeatureBuffers{T}
     reverse_neighbour_map::Vector{Int}
     "Pre-allocated scratch for pij .* pik outer product input"
     ijkp_buf::Vector{T}
-    "Precomputed force factor on center atom i (3 × npmax3)"
+    "Precomputed force factor on center atom i (npmax3 × ndims)"
     ffact_center::Matrix{T}
-    "Precomputed force factor on neighbour j (3 × npmax3 × nqmax3)"
-    ffact_j::Array{T,3}
-    "Precomputed force factor on neighbour k (3 × npmax3 × nqmax3)"
-    ffact_k::Array{T,3}
+    "Precomputed force factor on neighbour j ((npmax3 * nqmax3) × ndims)"
+    ffact_j::Matrix{T}
+    "Precomputed force factor on neighbour k ((npmax3 * nqmax3) × ndims)"
+    ffact_k::Matrix{T}
+    gs1::Vector{T}
+    gs2::Vector{T}
+    gs3::Vector{T}
 end
 
 """
     GradientWorkspace{T,N}
 
 Storage for gradients and other intermediate results.
-Note that the intermediate gradients stored in gvec are in the shape of (ndims, nf, nn_max, nat).
+Note that the intermediate gradients stored in gvec are in the shape of (nf, ndims, nn_max, nat).
 Where nn_max is the maximum number of unique neighbour atoms.
 The gradient stored are changes of the feature vector of atom i with respect to the moment of each
 of its unique neighbours j and itself. 
@@ -85,7 +88,7 @@ This is NOT the same as the change of the feature vector j with respect to the m
 struct GradientWorkspace{T,N}
     "The array that stores the features"
     fvec::Matrix{T}
-    "Temp array for dFi/drj' with the shape (ndims, nf, nn_max, nat)"
+    "Temp array for dFi/drj' with the shape (nf, ndims, nn_max, nat)"
     gvec::Array{T,4}
     "Temp array to store the index of uunique neighbours for each atom"
     gvec_index::Array{Int,2}
@@ -141,10 +144,10 @@ function GradientWorkspace(
     stress_ndims = 3
     GradientWorkspace(
         fvec,
-        zeros(T, ndims, nf, nn_max, _nat), # gvec
+        zeros(T, nf, ndims, nn_max, _nat), # gvec
         zeros(Int, nn_max, _nat), # neigh_index
         zeros(Int, _nat), # number of unique neighbours (include self)
-        zeros(T, stress_ndims, stress_ndims, nf, _nat), # stotv
+        zeros(T, nf, stress_ndims, stress_ndims, _nat), # stotv
         zeros(T, ndims, _nat),  # forces
         zeros(T, stress_ndims, stress_ndims, _nat), # stress (per atom)
         zeros(T, _nat), # Per atom energy from features
@@ -217,13 +220,13 @@ See `GradientWorkspace` for details on how the gradients are stored.
 function get_gvec_fj_ri(fb::GradientWorkspace)
     # Recover the gradient in the dFj/dri format
     gvec = fb.gvec
-    gvec_fj_ri = zeros(size(gvec, 1), size(gvec, 2), size(gvec, 4), size(gvec, 4))
+    gvec_fj_ri = zeros(size(gvec, 2), size(gvec, 1), size(gvec, 4), size(gvec, 4))
     for iat in axes(gvec, 4)
         for j = 1:fb.gvec_nn[iat]
             # translate neighbour local index to atom index
             jat = fb.gvec_index[j, iat]  # index of the atoms that has moved
-            for a in axes(gvec, 1), b in axes(gvec, 2)
-                gvec_fj_ri[a, b, iat, jat] += gvec[a, b, j, iat]
+            for a in axes(gvec, 2), b in axes(gvec, 1)
+                gvec_fj_ri[a, b, iat, jat] += gvec[b, a, j, iat]
             end
         end
     end

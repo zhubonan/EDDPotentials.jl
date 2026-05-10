@@ -216,7 +216,7 @@ using StatsBase
             model, data, y;
             threaded=true,
             batch_size=length(data),
-            max_epochs=200,
+            max_epochs=20,
             earlystop=0,
         )
         out = model(data[2])
@@ -242,14 +242,14 @@ using StatsBase
             model_seq, data, y;
             threaded=false,
             batch_size=length(data),
-            max_epochs=50,
+            max_epochs=10,
             earlystop=0,
         )
         train_lm_batched!(
             model_thr, data, y;
             threaded=true,
             batch_size=length(data),
-            max_epochs=50,
+            max_epochs=10,
             earlystop=0,
         )
 

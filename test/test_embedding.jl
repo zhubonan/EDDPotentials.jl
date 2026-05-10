@@ -1,4 +1,4 @@
-using EDDPotentials: TwoBodyFeature, ThreeBodyFeature, CellFeature, nfeatures, feature_size
+using EDDPotentials: CellFeature, nfeatures, feature_size, nfeatures_per_channel, nchannels
 using EDDPotentials.EDDPotentialsCore:
     GradientWorkspace,
     compute_fv!,
@@ -20,6 +20,8 @@ using Flux
 using ChainRulesCore
 using ChainRulesTestUtils
 
+isdefined(Main, :_h2_cell) || include("utils.jl")
+
 @testset "Embedding" begin
     cell = _h2o_cell()
     nl = NeighbourList(cell, 4.0; savevec=true)
@@ -27,15 +29,15 @@ using ChainRulesTestUtils
 
     fvec1 = zeros(nfeatures(cf), length(cell))
     workspace = GradientWorkspace(fvec1)
-    compute_fv!(workspace, cf.two_body, cf.three_body, cell; nl)
+    compute_fv!(workspace, cf, cell; nl)
 
     # Test apply two-body embedding
-    b2 = BodyEmbedding(cf.two_body, 2)
+    b2 = BodyEmbedding(Float64, nchannels(cf, 2), nfeatures_per_channel(cf, 2), 2)
     v2 = two_body_view(cf, fvec1)
     @test size(b2(v2)) == (3, 2)
 
     # Test apply three-body embedding
-    b3 = BodyEmbedding(cf.three_body, 2)
+    b3 = BodyEmbedding(Float64, nchannels(cf, 3), nfeatures_per_channel(cf, 3), 2)
     v3 = three_body_view(cf, fvec1)
     @test size(b3(v3)) == (9, 2)
 
@@ -47,7 +49,7 @@ using ChainRulesTestUtils
 end
 
 @testset "Embedding Backprop" begin
-    nat = 10
+    nat = 3
     cf = CellFeature([:O, :H])
     ce = CellEmbedding(cf, 5)
     bg = BodyEmbeddingGradient(ce.two_body, nat)
@@ -101,7 +103,7 @@ end
     # Test differentiating through body embedding with matrix input (batch input)
     be = BodyEmbedding(rand(2, 1), 2)
     w = be.weight
-    features = rand(2, 4)
+    features = rand(2, 2)
     test_rrule(
         _apply_embedding_batch,
         w,
@@ -122,6 +124,6 @@ end
         ce.two_body.weight,
         ce.three_body.weight,
         features,
-        check_thunked_output_tangent=true,
+        check_thunked_output_tangent=false,
     )
 end

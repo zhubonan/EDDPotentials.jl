@@ -34,6 +34,11 @@ function BodyEmbedding(T, features::Union{Vector,Tuple}, n::Int)
     BodyEmbedding(weight, nfeatures(features[1]))
 end
 
+function BodyEmbedding(T::Type, nchannels::Int, feat_per_channel::Int, n_embed::Int)
+    weight = rand(T, nchannels, n_embed)
+    BodyEmbedding(weight, feat_per_channel)
+end
+
 function Base.show(io::IO, e::BodyEmbedding)
     print(io, "BodyEmbedding(", length_before(e), " => ", length_after(e))
     print(io, ")")
@@ -134,7 +139,16 @@ Flux.@layer CellEmbedding
 Flux.trainable(ce::CellEmbedding) = (two_body=ce.two_body, three_body=ce.three_body)
 
 CellEmbedding(T::Type{<:AbstractFloat}, cf::CellFeature, n::Int, m::Int=n) =
-    CellEmbedding(cf, BodyEmbedding(T, cf.two_body, n), BodyEmbedding(T, cf.three_body, m), n, m)
+    CellEmbedding(cf,
+        BodyEmbedding(T, nchannels(cf, 2), nfeatures_per_channel(cf, 2), n),
+        BodyEmbedding(T, nchannels(cf, 3), nfeatures_per_channel(cf, 3), m),
+        n, m)
+
+CellEmbedding(T::Type{<:AbstractFloat}, cf::AbstractCellFeatureSpec, n::Int, m::Int=n) =
+    CellEmbedding(cf,
+        BodyEmbedding(T, nchannels(cf, 2), nfeatures_per_channel(cf, 2), n),
+        BodyEmbedding(T, nchannels(cf, 3), nfeatures_per_channel(cf, 3), m),
+        n, m)
 
 CellEmbedding(cf::CellFeature, n::Int, m::Int=n) = CellEmbedding(Float64, cf, n, m)
 

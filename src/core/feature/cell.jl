@@ -6,51 +6,141 @@ Collection of Feature specifications and cell.
 """
 abstract type AbstractCellFeatureSpec end
 
-mutable struct CellFeature{T,G,V} <: AbstractCellFeatureSpec
-    elements::Vector{Symbol}
-    two_body::T
-    three_body::G
-    constructor_kwargs::V
+"""
+    CellFeature{T, F2, G2, F3, G3, NELEM, NP2, NP3, NQ3}
+
+Parametric feature specification for EDDP. Centralizes two-body and three-body
+feature parameters (p/q/rcut/f/g) which are identical across all species channels.
+
+# Type Parameters
+- `T`: Float type of p2/p3/q3
+- `F2`, `G2`: Type of f2/g2 basis functions  
+- `F3`, `G3`: Type of f3/g3 basis functions
+- `NELEM`: Number of elements
+- `NP2`: Number of two-body exponents
+- `NP3`: Number of three-body p exponents
+- `NQ3`: Number of three-body q exponents
+"""
+struct CellFeature{T, F2, G2, F3, G3, NELEM, NP2, NP3, NQ3} <: AbstractCellFeatureSpec
+    # ── Species ──
+    elements::NTuple{NELEM, Symbol}
+    spec_to_idx::Dict{Symbol, Int}
+
+    # ── Two-body channels (ordered pairs, row-major) ──
+    two_body_species::Vector{NTuple{2, Int}}
+    two_body_channel::Matrix{Int}
+
+    # ── Three-body channels (center-ordered, neighbor-unordered) ──
+    three_body_species::Vector{NTuple{3, Int}}
+    three_body_channel::Array{Int, 3}
+
+    # ── Parameters ──
+    rcut2::Float64
+    rcut3::Float64
+    p2::SVector{NP2, T}
+    p3::SVector{NP3, T}
+    q3::SVector{NQ3, T}
+    f2::F2
+    g2::G2
+    f3::F3
+    g3::G3
+
+    # ── Spline lookup tables (derived from p2/p3/q3, rcut, f) ──
+    p2_table::SplineTable{NP2}
+    p3_table::SplineTable{NP3}
+    q3_table::SplineTable{NQ3}
+end
+
+# ─── Lookup methods ───────────────────────────────────────────────────────────
+
+spec_index(cf::CellFeature, sym::Symbol) = cf.spec_to_idx[sym]
+
+spec_symbol(cf::CellFeature{<:Any, <:Any, <:Any, <:Any, <:Any, NELEM}, idx::Int) where {NELEM} =
+    cf.elements[idx]
+
+"""
+    two_body_channel(cf, ci::Int, cj::Int) -> Int
+
+Return the channel index (1-based) for the ordered two-body pair (ci, cj).
+"""
+function two_body_channel(cf::CellFeature, ci::Int, cj::Int)
+    cf.two_body_channel[ci, cj]
 end
 
 """
-    CellFeature(elements, two_body, three_body)
+    two_body_range(cf, ci::Int, cj::Int) -> UnitRange{Int}
 
-Construct a CellFeature object
+Return the feature vector range for the ordered two-body pair (ci, cj).
 """
-function CellFeature(elements, two_body, three_body)
-    CellFeature(elements, two_body, three_body, nothing)
+function two_body_range(cf::CellFeature{<:Any, <:Any, <:Any, <:Any, <:Any, NELEM, NP2},
+                        ci::Int, cj::Int) where {NELEM, NP2}
+    ch = two_body_channel(cf, ci, cj)
+    start = NELEM + (ch - 1) * NP2 + 1
+    start:(start + NP2 - 1)
 end
 
 """
-    +(a::CellFeature, b::CellFeature)
+    two_body_range(cf, si::Symbol, sj::Symbol) -> UnitRange{Int}
 
-Combine two `CellFeature` objects together. The features are simply concatenated in this case.
+Symbol-based variant of two_body_range.
 """
-function Base.:+(a::CellFeature, b::CellFeature)
-    elements = sort(unique(vcat(a.elements, b.elements)))
-    two_body = (a.two_body..., b.two_body...)
-    three_body = (a.three_body..., b.three_body...)
-    CellFeature(elements, two_body, three_body)
+function two_body_range(cf::CellFeature, si::Symbol, sj::Symbol)
+    ci = spec_index(cf, si)
+    cj = spec_index(cf, sj)
+    two_body_range(cf, ci, cj)
 end
 
 """
-    ==(A::T, B::T) where {T<:Union{AbstractNBodyFeature, CellFeature}}
+    three_body_channel(cf, ci::Int, cj::Int, ck::Int) -> Int
 
-Check equality between two `CellFeature` / `AbstractNBodyFeature` objects.
+Return the channel index (1-based) for the three-body triplet (ci, cj, ck).
+Symmetric in cj↔ck (unordered neighbors).
 """
-function Base.:(==)(A::T, B::T) where {T<:Union{AbstractNBodyFeature,CellFeature}}
-    for name in fieldnames(T)
-        # Compare array equivalence
-        if getproperty(A, name) != getproperty(B, name)
-            return false
-        end
-    end
-    return true
+function three_body_channel(cf::CellFeature, ci::Int, cj::Int, ck::Int)
+    cf.three_body_channel[ci, cj, ck]
 end
 
-Base.show(io::IO, x::CellFeature) = Base.show(io, MIME("text/plain"), x)
+"""
+    three_body_range(cf, ci::Int, cj::Int, ck::Int) -> UnitRange{Int}
 
+Return the feature vector range for the three-body triplet (ci, cj, ck).
+"""
+function three_body_range(cf::CellFeature{<:Any, <:Any, <:Any, <:Any, <:Any, NELEM, NP2, NP3, NQ3},
+                          ci::Int, cj::Int, ck::Int) where {NELEM, NP2, NP3, NQ3}
+    ch = three_body_channel(cf, ci, cj, ck)
+    total_fe2 = NELEM^2 * NP2
+    tbfe = NP3 * NQ3
+    start = NELEM + total_fe2 + (ch - 1) * tbfe + 1
+    start:(start + tbfe - 1)
+end
+
+"""
+    three_body_range(cf, si::Symbol, sj::Symbol, sk::Symbol) -> UnitRange{Int}
+
+Symbol-based variant of three_body_range.
+"""
+function three_body_range(cf::CellFeature, si::Symbol, sj::Symbol, sk::Symbol)
+    ci = spec_index(cf, si)
+    cj = spec_index(cf, sj)
+    ck = spec_index(cf, sk)
+    three_body_range(cf, ci, cj, ck)
+end
+
+# ─── Deprecated lookup aliases for backward compatibility ──────────────────────
+
+lookup(cf::CellFeature, i::Symbol) = spec_index(cf, i)
+
+function lookup(cf::CellFeature, i::Symbol, j::Symbol)
+    rng = two_body_range(cf, i, j)
+    (first(rng), last(rng))
+end
+
+function lookup(cf::CellFeature, i::Symbol, j::Symbol, k::Symbol)
+    rng = three_body_range(cf, i, j, k)
+    (first(rng), last(rng))
+end
+
+# ─── Constructor ───────────────────────────────────────────────────────────────
 
 """
     CellFeature(elements; kwargs...)
@@ -58,68 +148,21 @@ Base.show(io::IO, x::CellFeature) = Base.show(io, MIME("text/plain"), x)
 High-level specification for EDDP features combining two-body and three-body interactions.
 
 CellFeature is the main interface for defining features in EDDP. It automatically
-generates all necessary two-body and three-body feature specifications for the
-given elements, using ordered two-body channels and ordered-center / unordered-neighbor
-three-body channels.
-
-# Arguments
-- `elements`: Vector of element symbols (e.g., `[:C]`, `[:C, :H]`)
+generates all necessary two-body and three-body channel specifications for the
+given elements.
 
 # Keyword Arguments
-- `p2=2:8`: Exponents for two-body features (default: range 2 to 8)
-- `p3=p2`: Exponents for three-body p (default: same as p2)
-- `q3=p3`: Exponents for three-body q (default: same as p3)
-- `rcut2=4.0`: Cutoff radius for two-body features (Angstroms)
-- `rcut3=rcut2`: Cutoff radius for three-body features (default: same as rcut2)
+- `p2=2:8`: Exponents for two-body features
+- `p3=p2`: Exponents for three-body p
+- `q3=p3`: Exponents for three-body q
+- `rcut2=4.0`: Cutoff radius for two-body features
+- `rcut3=rcut2`: Cutoff radius for three-body features
 - `f2=fr`: Basis function for two-body interactions
 - `g2=gfr`: Gradient of f2
 - `f3=fr`: Basis function for three-body interactions
 - `g3=gfr`: Gradient of f3
 - `geometry_sequence=false`: Convert p/q ranges to geometric sequences
-
-# Fields
-- `elements::Vector{Symbol}`: List of element symbols
-- `two_body::Tuple`: Tuple of TwoBodyFeature objects
-- `three_body::Tuple`: Tuple of ThreeBodyFeature objects
-- `constructor_kwargs`: Kwargs used for construction (for serialization)
-
-# Examples
-```julia
-# Simple carbon features with defaults
-cf = CellFeature([:C])
-
-# Binary system with custom parameters
-cf = CellFeature([:C, :H];
-    p2=2:6,           # Two-body exponents 2,3,4,5,6
-    rcut2=4.5,        # 4.5 Å cutoff for two-body
-    rcut3=4.0,        # 4.0 Å cutoff for three-body
-    geometry_sequence=false  # Linear spacing
-)
-
-# Using geometric sequence for better scaling
-cf = CellFeature([:C];
-    p2=2:8,
-    geometry_sequence=true  # Convert to geometric series
-)
-
-# Check total number of features
-println("Two-body features: ", sum(nfeatures, cf.two_body))
-println("Three-body features: ", sum(nfeatures, cf.three_body))
-
-# Use for feature computation
-fc = FeatureStore(sc, cf)
-```
-
-# Notes
-- Automatically generates all ordered two-body combinations and all ordered-center /
-  unordered-neighbor three-body combinations
-- For n elements: generates n^2 two-body and n^2(n+1)/2 three-body types
-- Geometric sequences (`geometry_sequence=true`) recommended for better range coverage
-- Total features = sum of all two-body + three-body features
-- CellFeature objects can be combined with `+` operator
-
-# See also
-[`TwoBodyFeature`](@ref), [`ThreeBodyFeature`](@ref), [`FeatureStore`](@ref), [`genp`](@ref)
+- `spline_ngrid=3000`: Number of grid points for spline interpolation tables
 """
 function CellFeature(
     elements;
@@ -133,106 +176,262 @@ function CellFeature(
     f3=fr,
     g3=gfr,
     geometry_sequence=false,
+    spline_ngrid::Int=3000,
 )
-    cf_kwargs = (; p2, p3, q3, rcut2, rcut3, geometry_sequence)
-
-    # Apply geomtry sequence for the powers
+    # Apply geometry sequence for the powers
     if geometry_sequence
         p2 = genp(p2)
         p3 = genp(p3)
         q3 = genp(q3)
     end
 
+    p2t = Tuple(p2)
+    p3t = Tuple(p3)
+    q3t = Tuple(q3)
+
+    T = isempty(p2t) && isempty(p3t) && isempty(q3t) ? Float64 :
+        promote_type(
+            isempty(p2t) ? Float64 : eltype(p2t),
+            isempty(p3t) ? Float64 : eltype(p3t),
+            isempty(q3t) ? Float64 : eltype(q3t),
+        )
+
     # Sort the elements to ensure stability
-    elements = sort(unique(map(Symbol, elements)))
-    # Two-body terms are ordered in (i, j), so keep all n^2 channels.
-    two_body_features = TwoBodyFeature[]
-    for i in eachindex(elements)
-        e1 = elements[i]
-        for j in eachindex(elements)
-            e2 = elements[j]
-            push!(
-                two_body_features,
-                TwoBodyFeature(f2, g2, Tuple(collect(p2)), (e1, e2), rcut2),
-            )
+    elements_vec = sort(unique(map(Symbol, elements)))
+    isempty(elements_vec) && throw(ArgumentError("CellFeature requires at least one element."))
+
+    NELEM = length(elements_vec)
+    elements_nt = Tuple(elements_vec)
+
+    spec_to_idx = Dict{Symbol, Int}(s => i for (i, s) in enumerate(elements_vec))
+
+    # Two-body channels: all ordered pairs (ci, cj), row-major
+    n2 = NELEM * NELEM
+    two_body_species_vec = Vector{NTuple{2, Int}}(undef, n2)
+    idx = 1
+    for ci in 1:NELEM
+        for cj in 1:NELEM
+            two_body_species_vec[idx] = (ci, cj)
+            idx += 1
         end
     end
 
-    # Three-body terms are ordered in the center atom (first index) and
-    # unordered in the two neighbor indices.
-    three_body_features = ThreeBodyFeature[]
-    for i in eachindex(elements)
-        e1 = elements[i]
-        for j in eachindex(elements)
-            e2 = elements[j]
-            for k in j:length(elements)
-                e3 = elements[k]
-                push!(
-                    three_body_features,
-                    ThreeBodyFeature(
-                        f3,
-                        g3,
-                        Tuple(collect(p3)),
-                        Tuple(collect(q3)),
-                        (e1, e2, e3),
-                        rcut3,
-                    ),
-                )
+    two_body_channel = zeros(Int, NELEM, NELEM)
+    for (ch, (ci, cj)) in enumerate(two_body_species_vec)
+        two_body_channel[ci, cj] = ch
+    end
+
+    # Three-body channels: center-ordered, neighbor-unordered (ci, cj, ck) with cj ≤ ck
+    n3 = NELEM * NELEM * (NELEM + 1) ÷ 2
+    three_body_species_vec = Vector{NTuple{3, Int}}(undef, n3)
+    idx = 1
+    for ci in 1:NELEM
+        for cj in 1:NELEM
+            for ck in cj:NELEM
+                three_body_species_vec[idx] = (ci, cj, ck)
+                idx += 1
             end
         end
     end
-    CellFeature(elements, Tuple(two_body_features), Tuple(three_body_features), cf_kwargs)
+
+    three_body_channel = zeros(Int, NELEM, NELEM, NELEM)
+    for (ch, (ci, cj, ck)) in enumerate(three_body_species_vec)
+        three_body_channel[ci, cj, ck] = ch
+        three_body_channel[ci, ck, cj] = ch  # symmetry
+    end
+
+    _p2t_spline = build_spline_table(p2t, rcut2, spline_ngrid; f=f2)
+    _p3t_spline = build_spline_table(p3t, rcut3, spline_ngrid; f=f3)
+    _q3t_spline = build_spline_table(q3t, rcut3, spline_ngrid; f=f3)
+
+    return CellFeature(
+        elements_nt, spec_to_idx,
+        two_body_species_vec, two_body_channel,
+        three_body_species_vec, three_body_channel,
+        rcut2, rcut3,
+        SVector{length(p2t), T}(p2t),
+        SVector{length(p3t), T}(p3t),
+        SVector{length(q3t), T}(q3t),
+        f2, g2, f3, g3,
+        _p2t_spline, _p3t_spline, _q3t_spline,
+    )
 end
 
+# ─── Equality ──────────────────────────────────────────────────────────────────
+
+function Base.:(==)(A::CellFeature, B::CellFeature)
+    A.elements == B.elements || return false
+    A.spec_to_idx == B.spec_to_idx || return false
+    A.two_body_species == B.two_body_species || return false
+    A.two_body_channel == B.two_body_channel || return false
+    A.three_body_species == B.three_body_species || return false
+    A.three_body_channel == B.three_body_channel || return false
+    A.rcut2 == B.rcut2 || return false
+    A.rcut3 == B.rcut3 || return false
+    A.p2 == B.p2 || return false
+    A.p3 == B.p3 || return false
+    A.q3 == B.q3 || return false
+    A.f2 == B.f2 || return false
+    A.g2 == B.g2 || return false
+    A.f3 == B.f3 || return false
+    A.g3 == B.g3 || return false
+    return true
+end
+
+# ─── Addition ──────────────────────────────────────────────────────────────────
+
 """
-    feature_names(cf::CellFeature)
+    +(a::CellFeature, b::CellFeature)
+
+Combine two `CellFeature` objects. Requires matching p2/p3/q3/rcut2/rcut3.
+Merges elements and rebuilds species channels.
+"""
+function Base.:+(a::CellFeature, b::CellFeature)
+    a.p2 == b.p2 && a.p3 == b.p3 && a.q3 == b.q3 &&
+        a.rcut2 == b.rcut2 && a.rcut3 == b.rcut3 ||
+        throw(ArgumentError("Cannot combine CellFeatures with different p/q/rcut."))
+    merged = sort(unique([a.elements..., b.elements...]))
+    CellFeature(collect(merged);
+        p2=a.p2, p3=a.p3, q3=a.q3,
+        rcut2=a.rcut2, rcut3=a.rcut3,
+        f2=a.f2, g2=a.g2, f3=a.f3, g3=a.g3,
+        geometry_sequence=false)
+end
+
+# ─── Display ───────────────────────────────────────────────────────────────────
+
+Base.show(io::IO, x::CellFeature) = Base.show(io, MIME("text/plain"), x)
+
+function Base.show(io::IO, ::MIME"text/plain", cf::CellFeature)
+    println(io, "$(typeof(cf))")
+    println(io, "  Elements:  $(collect(cf.elements))")
+    println(io, "  Two-body channels: $(length(cf.two_body_species))  (p2=$(cf.p2))")
+    println(io, "  Three-body channels: $(length(cf.three_body_species))  (p3=$(cf.p3), q3=$(cf.q3))")
+    println(io, "  rcut2: $(cf.rcut2)  rcut3: $(cf.rcut3)")
+end
+
+# ─── Feature names ─────────────────────────────────────────────────────────────
+
+"""
+    feature_names(cf::CellFeature; show_value=true)
 
 Return the name for the features.
 """
-function feature_names(cf::CellFeature; kwargs...)
-    feature_names(cf.two_body..., cf.three_body...; kwargs...)
-end
+function feature_names(cf::CellFeature; show_value=true)
+    names = String[]
+    nelem = length(cf.elements)
 
-function Base.show(io::IO, z::MIME"text/plain", cf::CellFeature)
-    println(io, "$(typeof(cf))")
-    println(io, "  Elements:")
-    println(io, "    $(cf.elements)")
-    println(io, "  TwoBodyFeatures:")
-    for tb in cf.two_body
-        println(io, "    $(tb)")
+    for (ch, (ci, cj)) in enumerate(cf.two_body_species)
+        si = cf.elements[ci]
+        sj = cf.elements[cj]
+        pair = "$(si)-$(sj)"
+        for (m, p) in enumerate(cf.p2)
+            if show_value
+                push!(names, "2b-$pair-$p")
+            else
+                push!(names, "2b-$pair-$m")
+            end
+        end
     end
-    println(io, "  ThreeBodyFeatures:")
-    for tb in cf.three_body
-        println(io, "    $(tb)")
+
+    for (ch, (ci, cj, ck)) in enumerate(cf.three_body_species)
+        si = cf.elements[ci]
+        sj = cf.elements[cj]
+        sk = cf.elements[ck]
+        trip = "$(si)-$(sj)-$(sk)"
+        for (m, p) in enumerate(cf.p3)
+            for (o, q) in enumerate(cf.q3)
+                if show_value
+                    push!(names, "3b-$trip-$p-$q")
+                else
+                    push!(names, "3b-$trip-$m-$o")
+                end
+            end
+        end
     end
+
+    return names
 end
 
 """
-    features(c::CellFeature)
+    nfeatures_per_channel(cf, bodyorder)
 
-Return the total number of features elements in a `CellFeature` object.
+Return the number of features per species channel for the given body order (2 or 3).
 """
-function nfeatures(c::CellFeature)
-    n2 = isempty(c.two_body) ? 0 : sum(nfeatures, c.two_body)
-    n3 = isempty(c.three_body) ? 0 : sum(nfeatures, c.three_body)
-    length(c.elements) + n2 + n3
+nfeatures_per_channel(cf::CellFeature{<:Any, <:Any, <:Any, <:Any, <:Any, <:Any, NP2, NP3, NQ3}, body) where {NP2, NP3, NQ3} =
+    body == 2 ? Int(NP2) : body == 3 ? Int(NP3 * NQ3) : 0
+
+"""
+    nchannels(cf, bodyorder)
+
+Return the number of species channels for the given body order (2 or 3).
+"""
+nchannels(cf::CellFeature{<:Any, <:Any, <:Any, <:Any, <:Any, NELEM, NP2, NP3, NQ3}, body) where {NELEM, NP2, NP3, NQ3} =
+    body == 2 ? Int(NELEM^2) : body == 3 ? Int(NELEM * NELEM * (NELEM + 1) ÷ 2) : 0
+
+# ─── Feature counts ────────────────────────────────────────────────────────────
+
+"""
+    nfeatures(cf::CellFeature)
+
+Return the total number of features.
+"""
+function nfeatures(cf::CellFeature{<:Any, <:Any, <:Any, <:Any, <:Any, NELEM, NP2, NP3, NQ3}) where {NELEM, NP2, NP3, NQ3}
+    n2 = NELEM^2 * NP2
+    n3 = NELEM * NELEM * (NELEM + 1) ÷ 2 * NP3 * NQ3
+    NELEM + n2 + n3
 end
 
 """
-    nbodyfeatures(c::CellFeature, nbody)
+    nbodyfeatures(cf, nbody)
 
-Return the number of N-body features
+Return the number of N-body features.
 """
-function nbodyfeatures(c::CellFeature, nbody)
+function nbodyfeatures(cf::CellFeature{<:Any, <:Any, <:Any, <:Any, <:Any, NELEM, NP2, NP3, NQ3},
+                       nbody) where {NELEM, NP2, NP3, NQ3}
     if nbody == 1
-        return length(c.elements)
+        return NELEM
     elseif nbody == 2
-        return isempty(c.two_body) ? 0 : sum(nfeatures, c.two_body)
+        return NELEM^2 * NP2
     elseif nbody == 3
-        return isempty(c.three_body) ? 0 : sum(nfeatures, c.three_body)
+        return NELEM * NELEM * (NELEM + 1) ÷ 2 * NP3 * NQ3
     end
     return 0
 end
+
+"""
+    feature_size(cf)
+
+Return (n_onebody, n_twobody, n_threebody).
+"""
+function feature_size(cf::CellFeature{<:Any, <:Any, <:Any, <:Any, <:Any, NELEM, NP2, NP3, NQ3}) where {NELEM, NP2, NP3, NQ3}
+    n2 = NELEM^2 * NP2
+    n3 = NELEM * NELEM * (NELEM + 1) ÷ 2 * NP3 * NQ3
+    (NELEM, n2, n3)
+end
+
+one_body_offset(cf::CellFeature{<:Any, <:Any, <:Any, <:Any, <:Any, NELEM}) where {NELEM} = NELEM
+
+"""
+    total_two_body_features(cf)
+
+Return the total number of two-body features (excluding one-body).
+"""
+total_two_body_features(cf::CellFeature{<:Any, <:Any, <:Any, <:Any, <:Any, NELEM, NP2}) where {NELEM, NP2} =
+    NELEM^2 * NP2
+
+# ─── Cutoff ────────────────────────────────────────────────────────────────────
+
+"""
+    suggest_rcut(cf; shell=1.0)
+
+Get a suggested cut off radius for NN list.
+"""
+function suggest_rcut(cf::CellFeature; shell=1.0)
+    max(cf.rcut2, cf.rcut3) + shell
+end
+
+# ─── Feature vector computation ────────────────────────────────────────────────
 
 """
     feature_vector(cf::CellFeature, cell::Cell; nmax=500, skin=1.0)
@@ -240,69 +439,44 @@ end
 Return a matrix of vectors describing the environment of each atom.
 """
 function feature_vector(cf::CellFeature, cell::Cell; nmax=500, skin=1.0)
-    # Infer rmax
     rcut = suggest_rcut(cf; shell=skin)
     nl = NeighbourList(cell, rcut, nmax; savevec=true)
-    vecs = zeros(sum(feature_size(cf)), length(cell))
-    n1 = feature_size(cf)[1]
-    wk = get_workspace(cf.two_body, cf.three_body, nl, false; fvec=vecs)
-    compute_fv!(wk, cf.two_body, cf.three_body, cell; nl, offset=n1)
+    ntotal = nfeatures(cf)
+    vecs = zeros(ntotal, length(cell))
+    n1 = one_body_offset(cf)
+    wk = get_workspace(cf, nl, false; fvec=vecs)
+    compute_fv!(wk, cf, cell; nl, offset=n1)
     one_body_vectors!(vecs, cell, cf)
     vecs
 end
 
-"""
-    one_body_vectors(cell::Cell, cf::CellFeature)
+# ─── One-body vectors ──────────────────────────────────────────────────────────
 
-Construct one-body features for the structure.
-The one-body feature is essentially an one-hot encoding of the specie labels 
+"""
+    one_body_vectors(cell::Cell, cf::CellFeature; offset=0)
+
+Construct one-body features for the structure. One-hot encoding of species.
 """
 function one_body_vectors(cell::Cell, cf::CellFeature; offset=0)
     vecs = zeros(length(cf.elements), length(cell))
-    one_body_vectors!(vecs, cell, cf)
+    one_body_vectors!(vecs, cell, cf; offset)
 end
 
 """
-    one_body_vectors!(v, cell::Cell, cf::CellFeature)
+    one_body_vectors!(v, cell::Cell, cf::CellFeature; offset=0)
 
-Construct one-body features for the structure.
-The one-body feature is essentially an one-hot encoding of the specie labels 
+Fill in-place one-body features.
 """
 function one_body_vectors!(v::AbstractMatrix, cell::Cell, cf::CellFeature; offset=0)
     symbols = species(cell)
     for (iat, s) in enumerate(symbols)
-        for (ispec, sZ) in enumerate(cf.elements)
-            if s == sZ
-                v[ispec+offset, iat] = 1.0
-            end
-        end
+        idx = get(cf.spec_to_idx, s, nothing)
+        idx !== nothing && (v[idx + offset, iat] = 1.0)
     end
     v
 end
 
-"""
-    feature_size(cf::CellFeature)
-
-Return size of the feature vector for each body-order of a `CellFeature` object.
-"""
-function feature_size(cf::CellFeature)
-    n2 = isempty(cf.two_body) ? 0 : sum(nfeatures, cf.two_body)
-    n3 = isempty(cf.three_body) ? 0 : sum(nfeatures, cf.three_body)
-    (length(cf.elements), n2, n3)
-end
-
-one_body_offset(cf::CellFeature) = feature_size(cf)[1]
-
-"""
-    suggest_rcut(cf::CellFeature; shell=1.0)
-
-Get a suggested cut off radius for NN list for a CellFeature.
-"""
-function suggest_rcut(cf::CellFeature; shell=1.0)
-    r2 = isempty(cf.two_body) ? 0.0 : maximum(x.rcut for x in cf.two_body)
-    r3 = isempty(cf.three_body) ? 0.0 : maximum(x.rcut for x in cf.three_body)
-    max(r2, r3) + shell
-end
+# ─── Legacy compat: suggest_rcut for raw feature tuples ────────────────────────
 
 """
     suggest_rcut(features...; shell=1.0)
@@ -311,4 +485,44 @@ Get a suggested rcut for a collection of features.
 """
 function suggest_rcut(features...; shell=1.0)
     maximum(x.rcut for x in features) + shell
+end
+
+# ─── Spline-based power evaluation ─────────────────────────────────────────────
+# For Float64 exponents: use spline table (fast lookup vs expensive x^p)
+# For Int exponents: use direct evaluation (x^n is already fast via repeated multiplication)
+
+@inline function evaluate_p2(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,NP2}, r) where {T<:Integer, NP2}
+    fij2 = cf.f2(r, cf.rcut2)
+    fijp2 = fij2 .^ cf.p2
+    return fijp2, fij2
+end
+
+@inline function evaluate_p2(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,NP2}, r) where {T<:AbstractFloat, NP2}
+    fij2 = cf.f2(r, cf.rcut2)
+    fijp2 = evaluate_svector(cf.p2_table, r)
+    return fijp2, fij2
+end
+
+@inline function evaluate_p3(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,NP3}, r) where {T<:Integer, NP3}
+    ftmp = cf.f3(r, cf.rcut3)
+    pij = ftmp .^ cf.p3
+    return pij, ftmp
+end
+
+@inline function evaluate_p3(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,NP3}, r) where {T<:AbstractFloat, NP3}
+    ftmp = cf.f3(r, cf.rcut3)
+    pij = evaluate_svector(cf.p3_table, r)
+    return pij, ftmp
+end
+
+@inline function evaluate_q3(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,NQ3}, r) where {T<:Integer, NQ3}
+    ftmp = cf.f3(r, cf.rcut3)
+    qjk = ftmp .^ cf.q3
+    return qjk, ftmp
+end
+
+@inline function evaluate_q3(cf::CellFeature{T,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,<:Any,NQ3}, r) where {T<:AbstractFloat, NQ3}
+    ftmp = cf.f3(r, cf.rcut3)
+    qjk = evaluate_svector(cf.q3_table, r)
+    return qjk, ftmp
 end

@@ -112,15 +112,12 @@ _make_symbol_keys(x) = x
 function _make_symbol_keys(dict::Dict{T,K}) where {T,K}
     Dict{Symbol,K}(Symbol(key) => _make_symbol_keys(value) for (key, value) in pairs(dict))
 end
-
 get_elemental_energy(cell::Cell, ref_energies::Dict) =
     sum(x -> get(ref_energies, x, 0.0), species(cell))
 
 function eddp_enthalpy(calc::AbstractCalc; kwargs...)
     eddp_energy(calc; kwargs...)
 end
-
-"""
     eddp_pressure_gpa(vc::AbstractCalc) 
 
 Return pressure in unit of GPa.

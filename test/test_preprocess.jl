@@ -1,6 +1,7 @@
 using EDDPotentials
 using CellBase
 using Test
+isdefined(Main, :_h2_cell) || include("utils.jl")
 using StatsBase
 using Random
 using LinearAlgebra: norm

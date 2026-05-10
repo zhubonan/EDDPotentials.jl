@@ -48,10 +48,10 @@ function _embedded_prototypes(
     p2t, p3t, q3t = _normalize_embedded_sequences(p2, p3, q3; geometry_sequence)
     dummy = elements[1]
 
-    proto2 = isempty(p2t) ? nothing : TwoBodyFeature(f2, g2, p2t, (dummy, dummy), rcut2)
+    proto2 = isempty(p2t) ? nothing : FeatureProto(p2t, (), rcut2, length(p2t), 0, f2, g2)
     proto3 =
         isempty(p3t) || isempty(q3t) ? nothing :
-        ThreeBodyFeature(f3, g3, p3t, q3t, (dummy, dummy, dummy), rcut3)
+        FeatureProto(p3t, q3t, rcut3, length(p3t), length(q3t), f3, g3)
 
     kwargs = (; nembed=nothing, seed=nothing, T=Float64, p2=p2t, p3=p3t, q3=q3t, rcut2, rcut3, geometry_sequence)
     elements, proto2, proto3, kwargs
@@ -174,6 +174,14 @@ function Base.show(io::IO, ::MIME"text/plain", x::RandomEmbeddedCellFeature)
 end
 
 embedding_size(cf::RandomEmbeddedCellFeature) = size(cf.embedding, 2)
+
+nfeatures_per_channel(cf::RandomEmbeddedCellFeature, body) = 
+    body == 2 ? (isnothing(cf.two_body_proto) ? 0 : nfeatures(cf.two_body_proto)) :
+    body == 3 ? (isnothing(cf.three_body_proto) ? 0 : nfeatures(cf.three_body_proto)) : 0
+
+nchannels(cf::RandomEmbeddedCellFeature, body) =
+    body == 2 ? length(cf.pair_channels) :
+    body == 3 ? length(cf.triplet_channels) : 0
 
 """
     one_body_offset(cf)
@@ -306,8 +314,9 @@ function compute_embedded_fv_gv_one!(
         ineigh_j = findfirst(isequal(jat), neighbour_indices) + 1
         modvij = vij / rij
 
+        fijtmp = feat3.f(rij, feat3.rcut)
+        fijtmp == 0 && continue
         if !isnothing(feat3)
-            fijtmp = feat3.f(rij, feat3.rcut)
             inv_fij = 1.0 / fijtmp
             for m = 1:feat3.np
                 pij[m] = fast_pow(fijtmp, feat3.p[m])
@@ -331,12 +340,12 @@ function compute_embedded_fv_gv_one!(
 
                     if do_grad && raw != 0.0 && wpair != 0.0
                         gfij = feat2.p[m] * fast_pow(fij2, feat2.p[m] - 1) * gij * wpair
-                        for elm in axes(gvec, 1)
-                            gvec[elm, i, 1, iat] -= modvij[elm] * gfij
-                            gvec[elm, i, ineigh_j, iat] += modvij[elm] * gfij
+                        for elm in axes(gvec, 2)
+                            gvec[i, elm, 1, iat] -= modvij[elm] * gfij
+                            gvec[i, elm, ineigh_j, iat] += modvij[elm] * gfij
                         end
-                        for elm2 in axes(stotv, 2), elm1 in axes(stotv, 1)
-                            stotv[elm1, elm2, i, iat] += vij[elm1] * modvij[elm2] * gfij
+                        for elm2 in axes(stotv, 3), elm1 in axes(stotv, 2)
+                            stotv[i, elm1, elm2, iat] += vij[elm1] * modvij[elm2] * gfij
                         end
                     end
                     i += 1
@@ -363,6 +372,9 @@ function compute_embedded_fv_gv_one!(
 
             fiktmp = feat3.f(rik, feat3.rcut)
             fjktmp = feat3.f(rjk, feat3.rcut)
+            fiktmp == 0 && continue
+            fjktmp == 0 && continue
+
             inv_fik = 1.0 / fiktmp
             inv_fjk = 1.0 / fjktmp
             for m = 1:feat3.np
@@ -394,14 +406,14 @@ function compute_embedded_fv_gv_one!(
                             t2 = modvik * dlog_ik * val
                             t3 = modvjk * (feat3.q[o] * gjk) * val
 
-                            for elm in axes(gvec, 1)
-                                gvec[elm, i, 1, iat] -= t1[elm] + t2[elm]
-                                gvec[elm, i, ineigh_j, iat] += t1[elm] - t3[elm]
-                                gvec[elm, i, ineigh_k, iat] += t2[elm] + t3[elm]
+                            for elm in axes(gvec, 2)
+                                gvec[i, elm, 1, iat] -= t1[elm] + t2[elm]
+                                gvec[i, elm, ineigh_j, iat] += t1[elm] - t3[elm]
+                                gvec[i, elm, ineigh_k, iat] += t2[elm] + t3[elm]
                             end
 
-                            for elm2 in axes(stotv, 2), elm1 in axes(stotv, 1)
-                                stotv[elm1, elm2, i, iat] += (
+                            for elm2 in axes(stotv, 3), elm1 in axes(stotv, 2)
+                                stotv[i, elm1, elm2, iat] += (
                                     vij[elm1] * t1[elm2] +
                                     vik[elm1] * t2[elm2] +
                                     vjk[elm1] * t3[elm2]
@@ -446,6 +458,7 @@ function compute_fv!(
     cell::Cell;
     nl,
     offset=workspace.one_body_offset,
+    use_spline=true,
 )
     reset!(workspace)
     for iat = 1:natoms(cell)
@@ -460,6 +473,7 @@ function compute_fv_gv!(
     cell::Cell;
     nl=NeighbourList(cell, suggest_rcut(cf; shell=0.0); savevec=true),
     offset=workspace.one_body_offset,
+    use_spline=true,
 )
     reset!(workspace)
     for iat = 1:natoms(cell)

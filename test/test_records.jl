@@ -2,6 +2,9 @@ using EDDPotentials
 using EDDPotentials: ComputedRecord, get_e_above_hull, PhaseDiagram
 using CellBase
 using Test
+
+isdefined(Main, :allclose) || include("utils.jl")
+
 @testset "Records" begin
     records = ComputedRecord[
         ComputedRecord(:O, 0.0),

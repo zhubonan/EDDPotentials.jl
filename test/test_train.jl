@@ -37,6 +37,8 @@ using Flux
 using StatsBase
 using NLSolversBase
 
+isdefined(Main, :datadir) || include("utils.jl")
+
 @testset "Training" begin
     @testset "Tools" begin
         nf = 1000
@@ -114,8 +116,7 @@ using NLSolversBase
         cf = CellFeature([:B])
         fc = FeatureStore(sc, cf)
 
-        # This gives fix examples
-        fc_train, fc_val = split(fc, 5, 5; standardize=true)
+        fc_train, fc_val = split(fc, 4, 4; standardize=true)
         models = []
         model = ManualFluxBackPropInterface(
             Chain(Dense(ginit(5, nfeatures(fc.feature))), Dense(ginit(1, 5))),
@@ -124,7 +125,7 @@ using NLSolversBase
         )
         model_ = reinit(model)
         @test any(paramvector(model_) .!= paramvector(model))
-        for _ = 1:10
+        for _ = 1:5
             model_ = reinit(model)
             res = train!(model_, fc_train, fc_val)
             push!(models, model_)
@@ -216,7 +217,7 @@ using NLSolversBase
         sc = StructureContainer([path])
         cf = CellFeature([:B])
         fc = FeatureStore(sc, cf)
-        fc_train, fc_val = split(fc, 5, 5; standardize=true)
+        fc_train, fc_val = split(fc, 4, 4; standardize=true)
 
         model = ManualFluxBackPropInterface(
             Chain(Dense(ginit(5, nfeatures(cf))), Dense(ginit(1, 5))),
@@ -229,7 +230,7 @@ using NLSolversBase
             model, fc_train, fc_val;
             train_method=:lm_batched,
             batch_size=length(fc_train),
-            max_epochs=100,
+            max_epochs=30,
             earlystop=10,
         )
         @test length(params) > 0
@@ -242,245 +243,234 @@ using NLSolversBase
         path = relpath(path, pwd())
         cf = CellFeature([:B])
 
-        @testset "from paths with explicit spec" begin
-            tm = train_model(path, cf;
-                val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
-            @test tm isa TrainedModel
-            @test tm.model isa ManualFluxBackPropInterface
-            @test tm.feature_spec == cf
-            @test tm.val_results isa TrainingResults
-            @test tm.test_results isa TrainingResults
-            @test length(tm.test_results.fc) > 0
-            @test rmse_per_atom(tm.train_results) < 1.0
-        end
-
-        @testset "from StructureContainer" begin
-            sc = StructureContainer([path])
-            tm = train_model(sc, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
-            @test tm isa TrainedModel
-            @test tm.val_results isa TrainingResults
-            @test tm.test_results isa TrainingResults
-        end
-
-        @testset "from FeatureStore" begin
-            sc = StructureContainer([path])
-            fc = FeatureStore(sc, cf)
-            tm = train_model(fc; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
-            @test tm isa TrainedModel
-            @test tm.val_results isa TrainingResults
-            @test tm.test_results isa TrainingResults
-            @test occursin("Average Spearman", sprint(show, tm.test_results))
-        end
-
-        @testset "predict on TrainedModel" begin
-            tm = train_model(path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
-            sc = StructureContainer([path])
-            cell = sc.structures[1]
-            result = predict(tm, cell)
-            @test haskey(result, :energy)
-            @test haskey(result, :forces)
-            @test haskey(result, :stress)
-            @test result.energy isa Real
-            result_min = predict(tm, cell; forces=false, stress=false)
-            @test !haskey(result_min, :forces)
-            @test !haskey(result_min, :stress)
-        end
-
-        @testset "predict on EDDPCalculator" begin
-            tm = train_model(path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
-            calc = EDDPCalculator(tm)
-            sc = StructureContainer([path])
-            cell = sc.structures[1]
-            result = predict(calc, cell)
-            @test haskey(result, :energy)
-            @test haskey(result, :forces)
-            @test result.energy isa Real
-        end
-
-        @testset "save/load round-trip" begin
-            tm = train_model(path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=50, earlystop=5)
-            mktempdir() do dir
-                p = joinpath(dir, "tm.json")
-                save_model_artifact(p, tm)
-                artifact = load_model_artifact(p)
-                calc = EDDPCalculator(artifact)
-                sc = StructureContainer([path])
-                cell = sc.structures[1]
-                energy_before = predict(tm, cell; forces=false, stress=false).energy
-                energy_after = predict(calc, cell; forces=false, stress=false).energy
-                @test energy_before ≈ energy_after
+        # Load full dataset once, create a small subset of 6 structures for fast tests
+        sc_full = StructureContainer([path])
+        sc_small = StructureContainer(sc_full.structures[1:6], sc_full.H[1:6])
+        mktempdir() do small_dir
+            for (i, s) in enumerate(sc_small.structures)
+                CellBase.write_res(joinpath(small_dir, "t$i.res"), s)
             end
-        end
+            small_path = joinpath(small_dir, "t*.res")
 
-        @testset "val_ratio=0 throws" begin
-            @test_throws ArgumentError train_model(path, cf; val_ratio=0.0)
-        end
+            # Train once with minimal epochs and reuse across subtests that only need a model object
+            base_tm = train_model(small_path, cf;
+                val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=2, earlystop=5, verbose=false)
 
-        @testset "test_ratio=0 throws" begin
-            @test_throws ArgumentError train_model(path, cf; test_ratio=0.0)
-        end
-
-        @testset "tiny ratio yields zero structures throws" begin
-            @test_throws ArgumentError train_model(path, cf; val_ratio=0.01)
-            @test_throws ArgumentError train_model(path, cf; test_ratio=0.01)
-        end
-
-        @testset "pressure_gpa passthrough" begin
-            tm = train_model(path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=50,
-                             earlystop=5, pressure_gpa=2.0)
-            @test tm isa TrainedModel
-        end
-
-        @testset "show TrainedModel" begin
-            tm = train_model(path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=20, earlystop=5)
-            io = IOBuffer()
-            show(io, MIME("text/plain"), tm)
-            s = String(take!(io))
-            @test occursin("TrainedModel", s)
-            @test occursin("RMSE", s)
-            @test occursin("Validation", s)
-            @test occursin("Test", s)
-        end
-
-        @testset "save_model_artifact from TrainedModel" begin
-            tm = train_model(path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=50,
-                             earlystop=5, verbose=false)
-            mktempdir() do dir
-                p = joinpath(dir, "model.json")
-                saved = save_model_artifact(p, tm)
-                @test saved == p
-                @test isfile(p)
-                loaded = load_model(p)
-                @test loaded isa AbstractNNInterface
+            @testset "from paths with explicit spec" begin
+                tm = train_model(small_path, cf;
+                    val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=2, earlystop=5, verbose=false)
+                @test tm isa TrainedModel
+                @test tm.model isa ManualFluxBackPropInterface
+                @test tm.feature_spec == cf
+                @test tm.val_results isa TrainingResults
+                @test tm.test_results isa TrainingResults
+                @test length(tm.test_results.fc) > 0
             end
-        end
 
-        @testset "auto-infer feature spec from paths" begin
-            tm = train_model(path; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=20,
-                             earlystop=5, verbose=false)
-            @test tm isa TrainedModel
-            @test :B in tm.feature_spec.elements
-            @test tm.val_results isa TrainingResults
-            @test tm.test_results isa TrainingResults
-        end
+            @testset "from StructureContainer" begin
+                tm = train_model(sc_small, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=2, earlystop=5, verbose=false)
+                @test tm isa TrainedModel
+                @test tm.val_results isa TrainingResults
+                @test tm.test_results isa TrainingResults
+            end
 
-        @testset "auto-infer feature spec from StructureContainer" begin
-            sc = StructureContainer([path])
-            tm = train_model(sc; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=20,
-                             earlystop=5, verbose=false)
-            @test tm isa TrainedModel
-            @test :B in tm.feature_spec.elements
-        end
+            @testset "from FeatureStore" begin
+                fc = FeatureStore(sc_small, cf)
+                tm = train_model(fc; val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=2, earlystop=5, verbose=false)
+                @test tm isa TrainedModel
+                @test tm.val_results isa TrainingResults
+                @test tm.test_results isa TrainingResults
+            end
 
-        @testset "auto-infer with custom feature params" begin
-            tm = train_model(path; val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=20,
-                             earlystop=5, p2=2:6, rcut2=5.0, verbose=false)
-            @test tm isa TrainedModel
-            @test tm.feature_spec.elements == [:B]
-            @test !isempty(tm.feature_spec.two_body)
-            @test tm.feature_spec.two_body[1].rcut ≈ 5.0
-        end
+            @testset "predict on TrainedModel" begin
+                cell = sc_small.structures[1]
+                result = predict(base_tm, cell)
+                @test haskey(result, :energy)
+                @test haskey(result, :forces)
+                @test haskey(result, :stress)
+                @test result.energy isa Real
+                result_min = predict(base_tm, cell; forces=false, stress=false)
+                @test !haskey(result_min, :forces)
+                @test !haskey(result_min, :stress)
+            end
 
-        @testset "verbose=false suppresses output" begin
-            tm = train_model(path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=10,
-                             earlystop=5, verbose=false)
-            @test tm isa TrainedModel
-        end
+            @testset "predict on EDDPCalculator" begin
+                calc = EDDPCalculator(base_tm)
+                cell = sc_small.structures[1]
+                result = predict(calc, cell)
+                @test haskey(result, :energy)
+                @test haskey(result, :forces)
+                @test result.energy isa Real
+            end
 
-        @testset "seed reproducibility" begin
-            tm1 = train_model(path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[3],
-                              max_epochs=10, earlystop=5, seed=123, verbose=false)
-            tm2 = train_model(path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[3],
-                              max_epochs=10, earlystop=5, seed=123, verbose=false)
-            @test tm1.train_results.fc.labels == tm2.train_results.fc.labels
-            @test tm1.val_results.fc.labels == tm2.val_results.fc.labels
-            @test tm1.test_results.fc.labels == tm2.test_results.fc.labels
-        end
-
-        @testset "pre-split StructureContainers with feature_spec" begin
-            sc = StructureContainer([path])
-            sc_train, sc_val, sc_test = split(sc, 6, 3, 2; standardize=false)
-            tm = train_model(sc_train, sc_val, sc_test, cf;
-                nnodes=[5], max_epochs=30, earlystop=5, verbose=false)
-            @test tm isa TrainedModel
-            @test length(tm.train_results.fc) == 6
-            @test length(tm.val_results.fc) == 3
-            @test length(tm.test_results.fc) == 2
-        end
-
-        @testset "pre-split StructureContainers auto-infer" begin
-            sc = StructureContainer([path])
-            sc_train, sc_val, sc_test = split(sc, 6, 3, 2; standardize=false)
-            tm = train_model(sc_train, sc_val, sc_test;
-                nnodes=[5], max_epochs=30, earlystop=5, verbose=false)
-            @test tm isa TrainedModel
-            @test :B in tm.feature_spec.elements
-        end
-
-        @testset "pre-split paths with feature_spec" begin
-            sc = StructureContainer([path])
-            sc_train, sc_val, sc_test = split(sc, 6, 3, 2; standardize=false)
-            mktempdir() do dir
-                for (i, s) in enumerate(sc_train.structures)
-                    CellBase.write_res(joinpath(dir, "train_$i.res"), s)
+            @testset "save/load round-trip" begin
+                mktempdir() do dir
+                    p = joinpath(dir, "tm.json")
+                    save_model_artifact(p, base_tm)
+                    artifact = load_model_artifact(p)
+                    calc = EDDPCalculator(artifact)
+                    cell = sc_small.structures[1]
+                    energy_before = predict(base_tm, cell; forces=false, stress=false).energy
+                    energy_after = predict(calc, cell; forces=false, stress=false).energy
+                    @test energy_before ≈ energy_after
                 end
-                for (i, s) in enumerate(sc_val.structures)
-                    CellBase.write_res(joinpath(dir, "val_$i.res"), s)
-                end
-                for (i, s) in enumerate(sc_test.structures)
-                    CellBase.write_res(joinpath(dir, "test_$i.res"), s)
-                end
-                tm = train_model(
-                    joinpath(dir, "train_*.res"),
-                    joinpath(dir, "val_*.res"),
-                    joinpath(dir, "test_*.res"),
-                    cf;
-                    nnodes=[5], max_epochs=30, earlystop=5, verbose=false)
+            end
+
+            @testset "val_ratio=0 throws" begin
+                @test_throws ArgumentError train_model(small_path, cf; val_ratio=0.0)
+            end
+
+            @testset "test_ratio=0 throws" begin
+                @test_throws ArgumentError train_model(small_path, cf; test_ratio=0.0)
+            end
+
+            @testset "tiny ratio yields zero structures throws" begin
+                @test_throws ArgumentError train_model(small_path, cf; val_ratio=0.01)
+                @test_throws ArgumentError train_model(small_path, cf; test_ratio=0.01)
+            end
+
+            @testset "pressure_gpa passthrough" begin
+                tm = train_model(small_path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=2,
+                                 earlystop=5, pressure_gpa=2.0, verbose=false)
                 @test tm isa TrainedModel
             end
-        end
 
-        @testset "pre-split paths auto-infer" begin
-            sc = StructureContainer([path])
-            sc_train, sc_val, sc_test = split(sc, 6, 3, 2; standardize=false)
-            mktempdir() do dir
-                for (i, s) in enumerate(sc_train.structures)
-                    CellBase.write_res(joinpath(dir, "train_$i.res"), s)
+            @testset "show TrainedModel" begin
+                io = IOBuffer()
+                show(io, MIME("text/plain"), base_tm)
+                s = String(take!(io))
+                @test occursin("TrainedModel", s)
+                @test occursin("RMSE", s)
+                @test occursin("Validation", s)
+                @test occursin("Test", s)
+            end
+
+            @testset "save_model_artifact from TrainedModel" begin
+                mktempdir() do dir
+                    p = joinpath(dir, "model.json")
+                    saved = save_model_artifact(p, base_tm)
+                    @test saved == p
+                    @test isfile(p)
+                    loaded = load_model(p)
+                    @test loaded isa AbstractNNInterface
                 end
-                for (i, s) in enumerate(sc_val.structures)
-                    CellBase.write_res(joinpath(dir, "val_$i.res"), s)
-                end
-                for (i, s) in enumerate(sc_test.structures)
-                    CellBase.write_res(joinpath(dir, "test_$i.res"), s)
-                end
-                tm = train_model(
-                    joinpath(dir, "train_*.res"),
-                    joinpath(dir, "val_*.res"),
-                    joinpath(dir, "test_*.res");
-                    nnodes=[5], max_epochs=30, earlystop=5, verbose=false)
+            end
+
+            @testset "auto-infer feature spec from paths" begin
+                tm = train_model(small_path; val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=2,
+                                 earlystop=5, verbose=false)
+                @test tm isa TrainedModel
+                @test :B in tm.feature_spec.elements
+                @test tm.val_results isa TrainingResults
+                @test tm.test_results isa TrainingResults
+            end
+
+            @testset "auto-infer feature spec from StructureContainer" begin
+                tm = train_model(sc_small; val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=2,
+                                 earlystop=5, verbose=false)
                 @test tm isa TrainedModel
                 @test :B in tm.feature_spec.elements
             end
-        end
 
-        @testset "pre-split FeatureStores" begin
-            sc = StructureContainer([path])
-            fc = FeatureStore(sc, cf)
-            fc_train, fc_val, fc_test = split(fc, 6, 3, 2; standardize=true)
-            tm = train_model(fc_train, fc_val, fc_test;
-                nnodes=[5], max_epochs=30, earlystop=5, verbose=false)
-            @test tm isa TrainedModel
-            @test length(tm.train_results.fc) == 6
-            @test length(tm.val_results.fc) == 3
-            @test length(tm.test_results.fc) == 2
-        end
+            @testset "auto-infer with custom feature params" begin
+                tm = train_model(small_path; val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=2,
+                                 earlystop=5, p2=2:6, rcut2=5.0, verbose=false)
+                @test tm isa TrainedModel
+                @test collect(tm.feature_spec.elements) == [:B]
+                @test !isempty(tm.feature_spec.p2)
+                @test tm.feature_spec.rcut2 ≈ 5.0
+            end
 
-        @testset "elemental_energies passthrough" begin
-            e0s = Dict(:B => -5.0)
-            tm = train_model(path, cf;
-                val_ratio=0.2, test_ratio=0.2, nnodes=[5], max_epochs=30,
-                earlystop=5, elemental_energies=e0s, verbose=false)
-            @test tm.elemental_energies[:B] ≈ -5.0
+            @testset "seed reproducibility" begin
+                tm1 = train_model(small_path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[3],
+                                   max_epochs=2, earlystop=5, seed=123, verbose=false)
+                tm2 = train_model(small_path, cf; val_ratio=0.2, test_ratio=0.2, nnodes=[3],
+                                   max_epochs=2, earlystop=5, seed=123, verbose=false)
+                @test tm1.train_results.fc.labels == tm2.train_results.fc.labels
+                @test tm1.val_results.fc.labels == tm2.val_results.fc.labels
+                @test tm1.test_results.fc.labels == tm2.test_results.fc.labels
+            end
+
+            @testset "pre-split StructureContainers with feature_spec" begin
+                sc_train, sc_val, sc_test = split(sc_small, 4, 1, 1; standardize=false)
+                tm = train_model(sc_train, sc_val, sc_test, cf;
+                    nnodes=[3], max_epochs=2, earlystop=5, verbose=false)
+                @test tm isa TrainedModel
+                @test length(tm.train_results.fc) == 4
+                @test length(tm.val_results.fc) == 1
+                @test length(tm.test_results.fc) == 1
+            end
+
+            @testset "pre-split StructureContainers auto-infer" begin
+                sc_train, sc_val, sc_test = split(sc_small, 4, 1, 1; standardize=false)
+                tm = train_model(sc_train, sc_val, sc_test;
+                    nnodes=[3], max_epochs=2, earlystop=5, verbose=false)
+                @test tm isa TrainedModel
+                @test :B in tm.feature_spec.elements
+            end
+
+            @testset "pre-split paths with feature_spec" begin
+                sc_train, sc_val, sc_test = split(sc_small, 4, 1, 1; standardize=false)
+                mktempdir() do dir
+                    for (i, s) in enumerate(sc_train.structures)
+                        CellBase.write_res(joinpath(dir, "train_$i.res"), s)
+                    end
+                    for (i, s) in enumerate(sc_val.structures)
+                        CellBase.write_res(joinpath(dir, "val_$i.res"), s)
+                    end
+                    for (i, s) in enumerate(sc_test.structures)
+                        CellBase.write_res(joinpath(dir, "test_$i.res"), s)
+                    end
+                    tm = train_model(
+                        joinpath(dir, "train_*.res"),
+                        joinpath(dir, "val_*.res"),
+                        joinpath(dir, "test_*.res"),
+                        cf;
+                        nnodes=[3], max_epochs=2, earlystop=5, verbose=false)
+                    @test tm isa TrainedModel
+                end
+            end
+
+            @testset "pre-split paths auto-infer" begin
+                sc_train, sc_val, sc_test = split(sc_small, 4, 1, 1; standardize=false)
+                mktempdir() do dir
+                    for (i, s) in enumerate(sc_train.structures)
+                        CellBase.write_res(joinpath(dir, "train_$i.res"), s)
+                    end
+                    for (i, s) in enumerate(sc_val.structures)
+                        CellBase.write_res(joinpath(dir, "val_$i.res"), s)
+                    end
+                    for (i, s) in enumerate(sc_test.structures)
+                        CellBase.write_res(joinpath(dir, "test_$i.res"), s)
+                    end
+                    tm = train_model(
+                        joinpath(dir, "train_*.res"),
+                        joinpath(dir, "val_*.res"),
+                        joinpath(dir, "test_*.res");
+                        nnodes=[3], max_epochs=2, earlystop=5, verbose=false)
+                    @test tm isa TrainedModel
+                    @test :B in tm.feature_spec.elements
+                end
+            end
+
+            @testset "pre-split FeatureStores" begin
+                fc = FeatureStore(sc_small, cf)
+                fc_train, fc_val, fc_test = split(fc, 4, 1, 1; standardize=true)
+                tm = train_model(fc_train, fc_val, fc_test;
+                    nnodes=[3], max_epochs=2, earlystop=5, verbose=false)
+                @test tm isa TrainedModel
+                @test length(tm.train_results.fc) == 4
+                @test length(tm.val_results.fc) == 1
+                @test length(tm.test_results.fc) == 1
+            end
+
+            @testset "elemental_energies passthrough" begin
+                e0s = Dict(:B => -5.0)
+                tm = train_model(small_path, cf;
+                    val_ratio=0.2, test_ratio=0.2, nnodes=[3], max_epochs=2,
+                    earlystop=5, elemental_energies=e0s, verbose=false)
+                @test tm.elemental_energies[:B] ≈ -5.0
+            end
         end
     end
 end

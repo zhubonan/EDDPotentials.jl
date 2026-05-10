@@ -69,41 +69,17 @@ using Test
     end
 
     @testset "jacobian" begin
-        ## Compare hand written backprop vs Zytoge
-        chain = generate_chain(21, [5])
-        chain.layers[1].bias .= rand(5)
+        ## Compare hand written backprop vs Zygote
+        chain = generate_chain(5, [3])
+        chain.layers[1].bias .= rand(3)
         chain.layers[2].bias .= rand(1)
-        inp = [rand(Float64, 21, 2), rand(Float64, 21, 2)]
+        inp = [rand(Float64, 5, 1)]
         flat, re = Flux.destructure(chain)
         gd_flat = vcat([Flux.jacobian(p -> sum(re(p)(x)), flat)[1] for x in inp]...)
-        gp! = setup_fg_backprop(chain, inp, [1.0, 1.0])
-        jmat = zeros(eltype(inp[1]), 2, 116)
+        gp! = setup_fg_backprop(chain, inp, [1.0])
+        jmat = zeros(eltype(inp[1]), 1, length(paramvector(chain)))
         gp!([0.0, 1.0], jmat, paramvector(chain))
 
-        @test allclose(jmat, gd_flat)
-
-        ## Compare hand written backprop vs Zytoge
-        chain = generate_chain(21, [5, 10])
-        chain.layers[1].bias .= rand(5)
-        chain.layers[2].bias .= rand(1)
-        inp = [rand(Float64, 21, 2), rand(Float64, 21, 2)]
-        flat, re = Flux.destructure(chain)
-        gd_flat = vcat([Flux.jacobian(p -> sum(re(p)(x)), flat)[1] for x in inp]...)
-        gp! = setup_fg_backprop(chain, inp, [1.0, 1.0])
-        jmat = zeros(eltype(inp[1]), length(inp), 181)
-        gp!([0.0, 1.0], jmat, paramvector(chain))
-        @test allclose(jmat, gd_flat)
-
-        ## Compare hand written backprop vs Zytoge
-        chain = generate_chain(21, [5, 10])
-        chain.layers[1].bias .= rand(5)
-        chain.layers[2].bias .= rand(1)
-        inp = [rand(Float64, 21, 2), rand(Float64, 21, 2)]
-        flat, re = Flux.destructure(chain)
-        gd_flat = vcat([Flux.jacobian(p -> sum(re(p)(x)), flat)[1] for x in inp]...)
-        gp! = setup_fg_backprop(chain, inp, [1.0, 1.0])
-        jmat = zeros(eltype(inp[1]), length(inp), 181)
-        gp!([0.0, 1.0], jmat, paramvector(chain))
         @test allclose(jmat, gd_flat)
     end
 

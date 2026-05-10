@@ -176,3 +176,69 @@ Choose the feature set that gives the best validation RMSE without overfitting (
 - [Understanding Features](../concepts/features.md) — mathematical details of feature design
 - [AIRSS Workflow](../tutorials/airss_workflow.md) — applying features in automated potential building
 - [Batched LM Training](batched_lm_training.md) — training with large feature sets
+
+## Migration Guide: `CellFeature` Refactor
+
+The `CellFeature` type has been refactored to a parametric immutable struct. The `TwoBodyFeature` and `ThreeBodyFeature` types have been removed. The keyword constructor `CellFeature(elements; p2=..., ...)` is unchanged, so most user code works without modification.
+
+### Accessing Feature Parameters
+
+The old `cf.two_body` and `cf.three_body` fields no longer exist. Access parameters directly:
+
+```julia
+# Old
+cf.two_body[1].p          # first two-body p-vector
+cf.two_body[1].rcut       # two-body cutoff
+cf.three_body[1].q        # first three-body q-vector
+cf.three_body[1].np       # number of three-body p-exponents
+
+# New
+cf.p2                     # two-body p-vector (shared across all channels)
+cf.rcut2                  # two-body cutoff
+cf.q3                     # three-body q-vector (shared across all channels)
+length(cf.p3)             # number of three-body p-exponents
+```
+
+### Feature Index Lookups
+
+Instead of iterating `cf.two_body` / `cf.three_body` tuples and matching species with `permequal`, use the O(1) lookup methods:
+
+```julia
+# Old: iterate all two-body features
+for (ife2, f) in enumerate(cf.two_body)
+    if permequal(f.species, (si, sj))
+        # access f.p[m], f.f, f.g, f.rcut
+    end
+end
+
+# New: direct O(1) channel lookup
+ch = two_body_channel(cf, ci, cj)
+rng = two_body_range(cf, ci, cj)
+# Use cf.p2[m], cf.f2, cf.g2, cf.rcut2 directly
+```
+
+### Species Mapping
+
+```julia
+# Old: created separate FeatureSpeciesLookup
+lookup = FeatureSpeciesLookup(cf)
+
+# New: use CellFeature methods directly
+spec_index(cf, :C)        # Symbol → Int
+spec_symbol(cf, 1)        # Int → Symbol
+```
+
+### Feature Counts
+
+```julia
+# Old
+nfeatures(cf.two_body[1])   # features per two-body channel
+nfeatures(cf.three_body[1])  # features per three-body channel
+
+# New
+nfeatures_per_channel(cf, 2)  # features per two-body channel
+nfeatures_per_channel(cf, 3)  # features per three-body channel
+nchannels(cf, 2)              # number of two-body channels
+nchannels(cf, 3)              # number of three-body channels
+```
+
