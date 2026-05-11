@@ -23,8 +23,9 @@ function build_and_relax(
     elemental_energies=Dict{Symbol,Any}(),
     relax_mode="standard",
     hot_kwargs=NamedTuple(),
+    seed_text_transform=nothing,
 )
-    cell = build_one(seedfile; timeout, init_structure_transform)
+    cell = build_one(seedfile; timeout, init_structure_transform, seed_text_transform)
 
     _is_hyper = relax_option.hyper_ndim > 0 || relax_mode == "hyperspace"
 
@@ -158,6 +159,7 @@ function _run_rss(
     elemental_energies=Dict{Symbol,Any}(),
     relax_mode="standard",
     hot_kwargs=NamedTuple(),
+    seed_text_transform=nothing,
 )
     _relax_option = deepcopy(relax_option)
     i = 1
@@ -200,6 +202,7 @@ function _run_rss(
             elemental_energies,
             relax_mode,
             hot_kwargs,
+            seed_text_transform,
         )
 
         calc = res.relax.calc
@@ -270,6 +273,7 @@ function build_and_relax_one(
     elemental_energies=Dict{Symbol,Any}(),
     relax_mode="standard",
     hot_kwargs=NamedTuple(),
+    seed_text_transform=nothing,
 )
     nerr = 1
     local res
@@ -285,6 +289,7 @@ function build_and_relax_one(
                 elemental_energies,
                 relax_mode,
                 hot_kwargs,
+                seed_text_transform,
             )
         catch err
             isa(err, InterruptException) && throw(err)

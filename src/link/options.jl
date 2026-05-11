@@ -54,6 +54,17 @@ to perform various actions during the construction of the potentials.
 - `elemental_energies`: The energies of elements species. It is **very important** to specify them for multi-composition searches.
    The reference energies may be obtained via *atom-in-a-large-cell* calculations or total energies of the pseudo atom calculation.
    The latter is printed in the `.castep` file for the on-the-fly generated potentials of CASTEP.
+- `known_structure_dir`: Directory (relative to `workdir` if not absolute) containing known structures for generation 0.
+  Files with `.res` are copied directly; `.cell` files are converted to `.res`.
+- `formula_sampling_enabled`: Enable composition-space sampling by injecting `#FORMULA=...` into buildcell seed text.
+- `max_reduced_formula_coeff`: Maximum per-element coefficient in reduced-formula enumeration (e.g. `Li2TiO3` has max coeff `3`).
+- `formula_list`: Optional explicit formula list (reduced and deduplicated) to sample from.
+- `oxidation_states`: Optional allowed oxidation states map for formula filtering (e.g. `Li=[1], O=[-2]`).
+- `require_charge_neutral`: If true, keep only formulas that can be charge-neutral under `oxidation_states`.
+- `hyper_ndim`: Number of extra dimensions for hyperdimensional relaxation (default 3).
+- `hyper_alpha_start`: Starting penalty coefficient for extra dimensions (default 1e-4).
+- `hyper_schedule_every`: Iterations between penalty schedule updates (default 50).
+- `hyper_target_iterations`: Maximum iterations for hyperdimensional relaxation (default 500).
 """
 @option mutable struct BuilderState <: EDDPotentialsOption
     seedfile::Union{String,Vector{String}}
@@ -88,6 +99,23 @@ to perform various actions during the construction of the potentials.
     builder_file_path::String = ""
     relax::RelaxOption = RelaxOption()
     elemental_energies = Dict{String,Any}()
+    known_structure_dir::String = "known_structures"
+    formula_sampling_enabled::Bool = false
+    max_reduced_formula_coeff::Int = 6
+    formula_list::Vector{String} = String[]
+    oxidation_states::Dict{String,Vector{Int}} = Dict{String,Vector{Int}}()
+    require_charge_neutral::Bool = true
+    hyper_ndim::Int = 3
+    hyper_alpha_start::Float64 = 1e-4
+    hyper_schedule_every::Int = 25
+    hyper_target_iterations::Int = 200
+    hyper_dynamic_alpha::Bool = false
+    hyper_force_ratio::Float64 = 2.0
+    hyper_max_alpha::Float64 = 1.0
+    hyper_ramp_alpha::Bool = true
+    hyper_alpha_ramp_factor::Float64 = 5.0
+    hyper_phase1_alpha::Float64 = 1e-4
+    hyper_phase1_fraction::Float64 = 0.5
     "Relaxation mode: `standard` (3D), `hyperspace`, or `hot`"
     relax_mode::String = "standard"
     "Number of MD+relax rounds for hot-AIRSS mode"
