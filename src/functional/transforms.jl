@@ -5,15 +5,15 @@
 Shake the given structures and write new files with suffix `-shake-N.res`.
 
 """
-function shake_res(files::Vector, nshake::Int, amp::Real, cellamp::Real=0.02)
+function shake_res(files, nshake, amp, cellamp=amp)
     for f in files
         cell = read_res(f)
         pos_backup = get_positions(cell)
         cellmat_backup = get_cellmat(cell)
         label = cell.metadata[:label]
         for i = 1:nshake
-            rattle!(cell, amp)
             rattle_cell!(cell, cellamp)
+            rattle!(cell, amp)
             cell.metadata[:label] = label * "-shake-$i"
             write_res(splitext(f)[1] * "-shake-$i.res", cell)
             # Reset the original cellmatrix and positions
