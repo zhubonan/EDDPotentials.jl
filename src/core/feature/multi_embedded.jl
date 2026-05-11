@@ -176,14 +176,27 @@ function compute_fv!(
 )
     reset!(workspace)
     one_body_vectors!(workspace.fvec, cell, cf)
-    for (k, emb) in enumerate(cf.embeddings)
-        emb_offset = _nbody_offset(cf, k)
-        for iat = 1:natoms(cell)
-            compute_embedded_fv_gv_one!(
-                workspace, emb, iat, cell, nl;
-                do_grad=false, offset=emb_offset,
-                compute_hardcore=(k == 1),
-            )
+    atom_species_ints = [_atom_species_ints(emb, cell) for emb in cf.embeddings]
+    for emb in cf.embeddings
+        _populate_feat_bufs!(workspace, emb.cell_feature, nl)
+    end
+    nat = natoms(cell)
+    chunks = _atom_chunks(nat)
+    Threads.@threads for ci in eachindex(chunks)
+        bufs = workspace.feat_bufs[ci]
+        for iat in chunks[ci]
+            for (k, emb) in enumerate(cf.embeddings)
+                emb_offset = _nbody_offset(cf, k)
+                compute_embedded_fv_gv_one!(
+                    workspace, emb, iat, cell, nl;
+                    do_grad=false,
+                    offset=emb_offset,
+                    compute_hardcore=(k == 1),
+                    atom_species_ints=atom_species_ints[k],
+                    _bufs=bufs,
+                    use_spline=use_spline,
+                )
+            end
         end
     end
     workspace.fvec
@@ -201,20 +214,32 @@ function compute_fv_gv!(
 )
     reset!(workspace)
     one_body_vectors!(workspace.fvec, cell, cf)
-    for iat = 1:natoms(cell)
-        if workspace.do_grad
-            workspace.gvec[:, :, :, iat] .= 0.0
-            workspace.stotv[:, :, :, iat] .= 0.0
-        end
+    atom_species_ints = [_atom_species_ints(emb, cell) for emb in cf.embeddings]
+    for emb in cf.embeddings
+        _populate_feat_bufs!(workspace, emb.cell_feature, nl)
+    end
+    nat = natoms(cell)
+    chunks = _atom_chunks(nat)
+    Threads.@threads for ci in eachindex(chunks)
+        bufs = workspace.feat_bufs[ci]
+        for iat in chunks[ci]
+            if workspace.do_grad
+                workspace.gvec[:, :, :, iat] .= 0.0
+                workspace.stotv[:, :, :, iat] .= 0.0
+            end
 
-        for (k, emb) in enumerate(cf.embeddings)
-            emb_offset = _nbody_offset(cf, k)
-            compute_embedded_fv_gv_one!(
-                workspace, emb, iat, cell, nl;
-                offset=emb_offset,
-                zero_workspace=false,
-                compute_hardcore=(k == 1),
-            )
+            for (k, emb) in enumerate(cf.embeddings)
+                emb_offset = _nbody_offset(cf, k)
+                compute_embedded_fv_gv_one!(
+                    workspace, emb, iat, cell, nl;
+                    offset=emb_offset,
+                    zero_workspace=false,
+                    compute_hardcore=(k == 1),
+                    atom_species_ints=atom_species_ints[k],
+                    _bufs=bufs,
+                    use_spline=use_spline,
+                )
+            end
         end
     end
     workspace
@@ -223,7 +248,9 @@ end
 function compute_fv_gv(cf::MultiRandomEmbeddedCellFeature, cell::Cell; kwargs...)
     nl = get(kwargs, :nl, NeighbourList(cell, suggest_rcut(cf; shell=0.0); savevec=true))
     workspace = get_workspace(cf, nl, true)
-    return compute_fv_gv!(workspace, cf, cell; nl)
+    offset = get(kwargs, :offset, nothing)
+    use_spline = get(kwargs, :use_spline, true)
+    return compute_fv_gv!(workspace, cf, cell; nl, offset, use_spline)
 end
 
 # --- grad_embedding! ---

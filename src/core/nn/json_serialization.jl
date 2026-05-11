@@ -225,31 +225,27 @@ function _feature_to_data(cf::CellFeature)
 end
 
 function _feature_to_data(cf::RandomEmbeddedCellFeature)
-    Dict(
+    basis = cf.cell_feature
+    d = Dict(
         "feature_type" => "random_embedded_cell_feature",
         "dtype" => _dtype_name(eltype(cf.embedding)),
         "elements" => string.(cf.elements),
         "nembed" => embedding_size(cf),
         "seed" => get(cf.constructor_kwargs, :seed, 0),
         "embedding" => _typed_matrix_to_data(cf.embedding),
-        "two_body" => begin
-            isnothing(cf.two_body_proto) ? nothing : Dict(
-                "p" => _typed_vector_to_data(cf.two_body_proto.p),
-                "rcut" => cf.two_body_proto.rcut,
-                "f" => _basis_function_name(cf.two_body_proto.f),
-                "g" => _basis_function_name(cf.two_body_proto.g),
-            )
-        end,
-        "three_body" => begin
-            isnothing(cf.three_body_proto) ? nothing : Dict(
-                "p" => _typed_vector_to_data(cf.three_body_proto.p),
-                "q" => _typed_vector_to_data(cf.three_body_proto.q),
-                "rcut" => cf.three_body_proto.rcut,
-                "f" => _basis_function_name(cf.three_body_proto.f),
-                "g" => _basis_function_name(cf.three_body_proto.g),
-            )
-        end,
+        "p2" => _typed_vector_to_data(basis.p2),
+        "rcut2" => basis.rcut2,
+        "f2" => _basis_function_name(basis.f2),
+        "g2" => _basis_function_name(basis.g2),
     )
+    if !isempty(basis.p3)
+        d["p3"] = _typed_vector_to_data(basis.p3)
+        d["q3"] = _typed_vector_to_data(basis.q3)
+        d["rcut3"] = basis.rcut3
+        d["f3"] = _basis_function_name(basis.f3)
+        d["g3"] = _basis_function_name(basis.g3)
+    end
+    d
 end
 
 function _feature_to_data(cf::MultiRandomEmbeddedCellFeature)
@@ -269,8 +265,6 @@ function _feature_from_data(data)
     end
 
     elements = Symbol.(_require_key(data, "elements"))
-    two_body = get(data, "two_body", nothing)
-    three_body = get(data, "three_body", nothing)
     feature_dtype = haskey(data, "dtype") ? _dtype_from_name(data["dtype"]) : Float64
 
     if feature_type == "cell_feature"
@@ -301,16 +295,23 @@ function _feature_from_data(data)
     elseif feature_type == "random_embedded_cell_feature"
         nembed = Int(_require_key(data, "nembed"))
         seed = Int(get(data, "seed", 0))
-        p2 = two_body === nothing ? feature_dtype[] : _typed_vector_from_data(two_body["p"])
-        p3 = three_body === nothing ? feature_dtype[] : _typed_vector_from_data(three_body["p"])
-        q3 = three_body === nothing ? feature_dtype[] : _typed_vector_from_data(three_body["q"])
-        rcut2 = two_body === nothing ? (three_body === nothing ? 4.0 : Float64(three_body["rcut"])) :
-                Float64(two_body["rcut"])
-        rcut3 = three_body === nothing ? rcut2 : Float64(three_body["rcut"])
-        f2 = two_body === nothing ? fr : _basis_function_from_name(two_body["f"])
-        g2 = two_body === nothing ? gfr : _basis_function_from_name(two_body["g"])
-        f3 = three_body === nothing ? fr : _basis_function_from_name(three_body["f"])
-        g3 = three_body === nothing ? gfr : _basis_function_from_name(three_body["g"])
+        p2 = _typed_vector_from_data(_require_key(data, "p2"))
+        rcut2 = Float64(_require_key(data, "rcut2"))
+        f2 = _basis_function_from_name(_require_key(data, "f2"))
+        g2 = _basis_function_from_name(_require_key(data, "g2"))
+        if haskey(data, "p3") && !isempty(data["p3"])
+            p3 = _typed_vector_from_data(data["p3"])
+            q3 = _typed_vector_from_data(data["q3"])
+            rcut3 = Float64(data["rcut3"])
+            f3 = _basis_function_from_name(data["f3"])
+            g3 = _basis_function_from_name(data["g3"])
+        else
+            p3 = feature_dtype[]
+            q3 = feature_dtype[]
+            rcut3 = rcut2
+            f3 = fr
+            g3 = gfr
+        end
         cf = RandomEmbeddedCellFeature(
             elements;
             nembed,

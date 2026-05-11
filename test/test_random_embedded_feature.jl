@@ -44,6 +44,113 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
         @test embedded.embedding != embedded3.embedding
     end
 
+    @testset "One-Hot Embedding Matches CellFeature" begin
+        cell = _h2o_cell()
+        ref = CellFeature([:H, :O]; p2=2:4, p3=2:3, q3=2:3, rcut2=5.0, rcut3=5.0)
+        embedded = RandomEmbeddedCellFeature(
+            [:H, :O];
+            nembed=2,
+            seed=0,
+            p2=2:4,
+            p3=2:3,
+            q3=2:3,
+            rcut2=5.0,
+            rcut3=5.0,
+            optimize_embedding=false,
+        )
+        embedded.embedding .= [1.0 0.0; 0.0 1.0]
+
+        f_ref = feature_vector(ref, cell)
+        f_emb = feature_vector(embedded, cell)
+        @test size(f_emb) == size(f_ref)
+        @test maximum(abs.(f_emb .- f_ref)) < 1e-12
+
+        cell3 = _lco_cell()
+        ref3 = CellFeature([:Li, :Co, :O]; p2=[2], p3=[2], q3=[2], rcut2=4.0, rcut3=4.0)
+        embedded3 = RandomEmbeddedCellFeature(
+            [:Li, :Co, :O];
+            nembed=3,
+            seed=0,
+            p2=[2],
+            p3=[2],
+            q3=[2],
+            rcut2=4.0,
+            rcut3=4.0,
+            optimize_embedding=false,
+        )
+        embedded3.embedding .= [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
+
+        f_ref3 = feature_vector(ref3, cell3)
+        f_emb3 = feature_vector(embedded3, cell3)
+        @test size(f_emb3) == size(f_ref3)
+        @test maximum(abs.(f_emb3 .- f_ref3)) < 1e-12
+    end
+
+    @testset "Analytical Embedded Feature Vector (Two-Body)" begin
+        # Two atoms at fixed distance so features are analytically tractable.
+        cell = Cell(Lattice(12.0, 12.0, 12.0), [:H, :O], [0.0 1.0; 0.0 0.0; 0.0 0.0])
+        embedded = RandomEmbeddedCellFeature(
+            [:H, :O];
+            nembed=2,
+            seed=0,
+            p2=[1],
+            p3=Int[],
+            q3=Int[],
+            rcut2=3.0,
+            rcut3=3.0,
+            optimize_embedding=false,
+        )
+        embedded.embedding .= [1.0 2.0; 3.0 5.0]  # rows: H, O
+
+        fv = feature_vector(embedded, cell)
+        f = 2 * (1 - 1.0 / 3.0)  # fr(r=1, rcut=3)
+        expected = [
+            1.0 3.0;
+            2.0 5.0;
+            3f 3f;
+            5f 6f;
+            6f 5f;
+            10f 10f;
+        ]
+        @test size(fv) == size(expected)
+        @test maximum(abs.(fv .- expected)) < 1e-12
+    end
+
+    @testset "Analytical Embedded Feature Vector (Three-Body)" begin
+        # Equilateral H3 triangle with side length 1.0.
+        # With nembed=1 and explicit scalar embedding weight, all terms are closed-form.
+        pos = [0.0 1.0 0.5; 0.0 0.0 sqrt(3) / 2; 0.0 0.0 0.0]
+        cell = Cell(Lattice(20.0, 20.0, 20.0), [:H, :H, :H], pos)
+        embedded = RandomEmbeddedCellFeature(
+            [:H];
+            nembed=1,
+            seed=0,
+            p2=[1],
+            p3=[1],
+            q3=[1],
+            rcut2=3.0,
+            rcut3=3.0,
+            optimize_embedding=false,
+        )
+        embedded.embedding .= [2.0]
+
+        fv = feature_vector(embedded, cell)
+
+        f = 2 * (1 - 1.0 / 3.0)  # fr(1, 3) = 4/3
+        w = 2.0
+        expected_one_body = w
+        expected_two_body = 2 * (w * w * f)        # two neighbours per center
+        expected_three_body = (w * w * w) * f * f * f  # one triplet per center
+
+        expected = [
+            expected_one_body expected_one_body expected_one_body;
+            expected_two_body expected_two_body expected_two_body;
+            expected_three_body expected_three_body expected_three_body;
+        ]
+        @test size(fv) == size(expected)
+        @test maximum(abs.(fv .- expected)) < 1e-12
+    end
+
     @testset "Native Embedded Size Independence" begin
         cell = _lco_cell()
         embedded = RandomEmbeddedCellFeature([:Li, :Co, :O]; nembed=2, seed=3, p2=[2], p3=[2], q3=[2])
