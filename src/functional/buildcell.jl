@@ -5,30 +5,40 @@ Routines for building structures
 using StatsBase: Weights, sample
 
 """
-    build_one(seedfile;timeout=10, init_structure_transform=nothing)
+    build_one(seedfile;timeout=10, init_structure_transform=nothing, seed_text_transform=nothing)
 
 Build a single structure via `buildcell`.
 """
-function build_one(seedfile; timeout=10, init_structure_transform=nothing, max_attemp=100)
+function build_one(
+    seedfile;
+    timeout=10,
+    init_structure_transform=nothing,
+    max_attemp=100,
+    seed_text_transform=nothing,
+)
     local cell::Cell{Float64,3}
     i = 1
+    seed_text = read(seedfile, String)
     while true
         if i >= max_attemp
             throw(ErrorException("Maximum attempt for building structure exceeded!"))
         end
-        lines = open(seedfile, "r") do seed
-            try
-                cellout = read(
-                    pipeline(`timeout $(timeout) buildcell`, stdin=seed, stderr=devnull),
-                    String,
-                )
-                split(cellout, "\n")
-            catch err
-                if typeof(err) <: ProcessFailedException
-                    @warn " `buildcell` failed to make the structure"
-                else
-                    throw(err)
-                end
+        this_seed = isnothing(seed_text_transform) ? seed_text : seed_text_transform(seed_text)
+        lines = try
+            cellout = read(
+                pipeline(
+                    `timeout $(timeout) buildcell`,
+                    stdin=IOBuffer(this_seed),
+                    stderr=devnull,
+                ),
+                String,
+            )
+            split(cellout, "\n")
+        catch err
+            if typeof(err) <: ProcessFailedException
+                @warn " `buildcell` failed to make the structure"
+            else
+                throw(err)
             end
         end
         isnothing(lines) && continue
@@ -105,6 +115,7 @@ function build_random_structures(
     timeout=60,
     outfmt="res",
     seedfile_weights=[1.0],
+    seed_text_transform=nothing,
 )
     i = 0
     if show_progress
@@ -112,7 +123,7 @@ function build_random_structures(
     end
     while i < n
         this_seed = _select_seed(seedfile, seedfile_weights)[1]
-        cell = build_one(this_seed; timeout)
+        cell = build_one(this_seed; timeout, seed_text_transform)
         label = EDDPotentials.get_label(EDDPotentials.stem(this_seed))
         cell.metadata[:label] = label
         if outfmt == "res"

@@ -55,6 +55,7 @@ using Random
 # Include submodules in dependency order
 include("options.jl")   # Configuration types
 include("utils.jl")     # Shared utilities
+include("formula_sampling.jl") # Formula-space sampling utilities
 include("workflow.jl")  # Builder struct (needed by trainer.jl)
 include("trainer.jl")   # Training functions (uses Builder)
 include("external.jl")  # External calculators (uses Builder, utils)

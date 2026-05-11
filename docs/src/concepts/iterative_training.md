@@ -512,6 +512,41 @@ Control which compositions to sample:
 
 For Li-Ti-O: use `#FOCUS=2,3` to sample LiₓTiᵧOᵤ, LiₓTiᵧ, TiᵧOᵤ, LiₓOᵤ.
 
+**Formula-space sampling in `Builder` (explicit `#FORMULA` injection):**
+
+Use this when you want to sample from a pre-generated pool of reduced formulas, optionally filtered by oxidation states and charge neutrality.
+
+```toml
+[state]
+# Import known structures into gen0 before random generation
+known_structure_dir = "known_structures"
+
+# Enable formula-space sampling
+formula_sampling_enabled = true
+
+# Maximum coefficient allowed in reduced formulas (e.g. Li2TaO3 -> max coeff is 3)
+max_reduced_formula_coeff = 6
+
+# Optional explicit list (if empty, formulas are enumerated automatically)
+# formula_list = ["LiTaO3", "Li2TaO3", "LiTaO2Cl"]
+
+# Keep only charge-neutral formulas under allowed oxidation states
+require_charge_neutral = true
+
+[state.oxidation_states]
+Li = [1]
+Ta = [5]
+O = [-2]
+Cl = [-1]
+```
+
+Behavior notes:
+- Formula sampling requires exactly one resolved seed file (no multi-seed / glob-expanded multi-file setup).
+- `#FORMULA=...` is injected per build attempt.
+- Existing `#SPECIES`, `#NATOM`, and `#FORMULA` lines are removed from the runtime seed text to avoid conflicts.
+- `#NFORM` and other buildcell controls are kept.
+- Enumerated formulas are constrained by `#NFORM` and numeric `#NATOM` ranges.
+
 ### Custom Calculators
 
 **Testing with Mock Calculator:**

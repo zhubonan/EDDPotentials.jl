@@ -157,6 +157,26 @@ cat unique_structures.res | resplit
 - `#FOCUS=2,3`: Binary and ternary
 - `#FOCUS={1,2,2,2,3,3}`: Weighted random (1:3:2 ratio)
 
+### Formula-Space Sampling via `link.toml`
+
+Instead of relying on `#FOCUS`, you can let `Builder` sample explicit reduced formulas by injecting `#FORMULA=...` at runtime:
+
+```toml
+[state]
+formula_sampling_enabled = true
+max_reduced_formula_coeff = 6
+require_charge_neutral = true
+
+[state.oxidation_states]
+Li = [1]
+Ta = [5]
+O = [-2]
+Cl = [-1]
+```
+
+`max_reduced_formula_coeff` is the largest stoichiometric coefficient allowed in reduced formulas.
+For example, `Li2TaO3` has max coefficient `3`.
+
 ### Fixed Composition
 
 ```

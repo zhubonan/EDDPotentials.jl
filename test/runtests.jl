@@ -58,6 +58,7 @@ include("test_evaluation.jl")
 include("test_threading.jl")
 include("test_sgd_training.jl")
 include("test_builder.jl")
+include("test_formula_sampling.jl")
 #include("test_link.jl")
 
 # New MetaCalculator and Modifier tests

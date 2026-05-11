@@ -394,6 +394,46 @@ _input_structure_dir(bu::Builder) = input_structure_dir(bu.state.workdir, bu.sta
 """Directory for output structures after external calculations"""
 _output_structure_dir(bu::Builder) = output_structure_dir(bu.state.workdir, bu.state.iteration)
 
+function _resolve_known_structure_dir(state::BuilderState)
+    d = strip(state.known_structure_dir)
+    isempty(d) && return nothing
+    isabspath(d) ? d : joinpath(state.workdir, d)
+end
+
+"""
+    _import_known_structures!(state, outdir) -> Vector{String}
+
+Import known structures for generation 0 as `.res` files.
+"""
+function _import_known_structures!(state::BuilderState, outdir::AbstractString)
+    kdir = _resolve_known_structure_dir(state)
+    isnothing(kdir) && return String[]
+    isdir(kdir) || return String[]
+
+    copied = String[]
+    files = vcat(
+        glob_allow_abs(joinpath(kdir, "*.res")),
+        glob_allow_abs(joinpath(kdir, "*.cell")),
+    )
+    for f in sort(files)
+        outname = joinpath(outdir, "$(stem(f)).res")
+        isfile(outname) && continue
+        try
+            if endswith(f, ".res")
+                cp(f, outname; force=false)
+            else
+                cell = CellBase.read_cell(f)
+                cell.metadata[:label] = stem(f)
+                write_res(outname, cell)
+            end
+            push!(copied, outname)
+        catch err
+            @warn "Failed to import known structure `$f` with error: $err"
+        end
+    end
+    copied
+end
+
 
 """
     _run_external(bu::Builder)
@@ -418,8 +458,23 @@ function _generate_random_structures(bu::Builder, iter)
     ensure_dir(outdir)
     ndata = length(glob_allow_abs(joinpath(outdir, "*.res")))
     (; seedfile, seedfile_weights, workdir) = bu.state
+    formula_ctx = _formula_sampling_context(bu.state, bu.cfopt.elements)
+    seed_text_transform = _make_seed_text_transform(formula_ctx)
 
     if iter == 0
+        known_files = _import_known_structures!(bu.state, outdir)
+        if !isempty(known_files) && bu.state.shake_per_minima > 0
+            @info "Shaking imported known structures."
+            shake_res(
+                known_files,
+                bu.state.shake_per_minima,
+                bu.state.shake_amp,
+                bu.state.shake_cell_amp,
+            )
+        end
+
+        ndata = length(glob_allow_abs(joinpath(outdir, "*.res")))
+
         # First cycle generate from the seed without relaxation
         # Sanity check - are we definitely overfitting?
         if nfeatures(bu.cf) > bu.state.n_initial
@@ -434,6 +489,7 @@ function _generate_random_structures(bu::Builder, iter)
                 outdir;
                 seedfile_weights,
                 n=nstruct,
+                seed_text_transform,
             )
         end
     else
@@ -581,6 +637,8 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
 
     (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max, relax_mode) = state
     _relax_option = _populate_hyper_option(state)
+    formula_ctx = _formula_sampling_context(state, bu.cfopt.elements)
+    seed_text_transform = _make_seed_text_transform(formula_ctx)
     hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
         md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
         relax_cell=state.hot_relax_cell)
@@ -605,6 +663,7 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
         elemental_energies=make_symbol_keys(state.elemental_energies),
         relax_mode,
         hot_kwargs,
+        seed_text_transform,
     )
 end
 
@@ -631,6 +690,8 @@ function run_rss(builder::Builder)
     _relax_option = deepcopy(rs.relax)
     _relax_option.verbose = state.rss_nprocs > 0
     _relax_mode = _relax_option.hyper_ndim > 0 ? "hyperspace" : state.relax_mode
+    formula_ctx = _formula_sampling_context(state, builder.cfopt.elements; seedfile=seedfile)
+    seed_text_transform = _make_seed_text_transform(formula_ctx)
     hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
         md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
         relax_cell=state.hot_relax_cell)
@@ -653,6 +714,7 @@ function run_rss(builder::Builder)
         elemental_energies=make_symbol_keys(state.elemental_energies),
         relax_mode=_relax_mode,
         hot_kwargs,
+        seed_text_transform,
     )
 end
 
@@ -732,6 +794,8 @@ function _run_rss_link()
     if _relax_option.hyper_ndim > 0
         relax_mode = "hyperspace"
     end
+    formula_ctx = _formula_sampling_context(state, bu.cfopt.elements)
+    seed_text_transform = _make_seed_text_transform(formula_ctx)
     hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
         md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
         relax_cell=state.hot_relax_cell)
@@ -754,6 +818,7 @@ function _run_rss_link()
         elemental_energies=make_symbol_keys(state.elemental_energies),
         relax_mode,
         hot_kwargs,
+        seed_text_transform,
     )
 end
 
