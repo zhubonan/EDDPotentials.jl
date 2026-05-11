@@ -14,6 +14,7 @@ using EDDPotentials.EDDPotentialsCore:
     fr,
     reset!
 using CellBase
+using Random
 using Test
 
 isdefined(Main, :_h2_cell) || include("utils.jl")
@@ -71,7 +72,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
     end
 
     @testset "feature vectors: spline vs direct (multi-species)" begin
-        cell = _lco_cell()
+        cell = _lco_cell(rng=Random.MersenneTwister(5))
         geom_powers = EDDPotentials.EDDPotentialsCore.genp(2, 8, 6)
         cf = CellFeature([:Li, :Co, :O]; p2=geom_powers, p3=geom_powers, q3=geom_powers, rcut2=4.0, rcut3=4.0)
 

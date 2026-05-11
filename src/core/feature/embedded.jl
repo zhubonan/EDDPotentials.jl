@@ -790,10 +790,17 @@ function compute_fv_gv!(
     return workspace
 end
 
-function compute_fv_gv(cf::RandomEmbeddedCellFeature, cell::Cell; kwargs...)
-    nl = get(kwargs, :nl, NeighbourList(cell, suggest_rcut(cf; shell=0.0); savevec=true))
-    workspace = get_workspace(cf, nl, true)
-    return compute_fv_gv!(workspace, cf, cell; kwargs...)
+function compute_fv_gv(
+    cf::RandomEmbeddedCellFeature,
+    cell::Cell;
+    nl=NeighbourList(cell, suggest_rcut(cf; shell=0.0); savevec=true),
+    core=nothing,
+    offset=nothing,
+    use_spline=true,
+)
+    _offset = isnothing(offset) ? one_body_offset(cf) : offset
+    workspace = get_workspace(cf, nl, true; core)
+    return compute_fv_gv!(workspace, cf, cell; nl, offset=_offset, use_spline)
 end
 
 #=

@@ -245,11 +245,15 @@ function compute_fv_gv!(
     workspace
 end
 
-function compute_fv_gv(cf::MultiRandomEmbeddedCellFeature, cell::Cell; kwargs...)
-    nl = get(kwargs, :nl, NeighbourList(cell, suggest_rcut(cf; shell=0.0); savevec=true))
-    workspace = get_workspace(cf, nl, true)
-    offset = get(kwargs, :offset, nothing)
-    use_spline = get(kwargs, :use_spline, true)
+function compute_fv_gv(
+    cf::MultiRandomEmbeddedCellFeature,
+    cell::Cell;
+    nl=NeighbourList(cell, suggest_rcut(cf; shell=0.0); savevec=true),
+    core=nothing,
+    offset=nothing,
+    use_spline=true,
+)
+    workspace = get_workspace(cf, nl, true; core)
     return compute_fv_gv!(workspace, cf, cell; nl, offset, use_spline)
 end
 

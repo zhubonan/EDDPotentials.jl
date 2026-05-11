@@ -5,6 +5,7 @@ using EDDPotentials
 using EDDPotentials: CellFeature, nfeatures, EDDPCalculator
 using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
 using CellBase
+using Random
 
 function _h2_cell(l=4.0, factor=1.0)
     tmp = Float64[
@@ -24,7 +25,7 @@ function _h2o_cell(l=4.0, factor=1.0)
     Cell(Lattice(l, l, l), [:H, :H, :O], tmp)
 end
 
-function _lco_cell()
+function _lco_cell(; rng=Random.default_rng())
     scaled_pos = Float64[
         0.0000000000000000 0.0000000000000000 0.0000000000000000
         0.6666666666666666 0.3333333333333333 0.3333333333333333
@@ -46,7 +47,7 @@ function _lco_cell()
     ]
     cell = collect(transpose(cell))
     pos = cell * transpose(scaled_pos)
-    pos .+= rand(size(pos)...) * 0.1
+    pos .+= rand(rng, size(pos)...) * 0.1
 
     Cell(Lattice(cell), [:Li, :Li, :Li, :Co, :Co, :Co, :O, :O, :O, :O, :O, :O], pos)
 end
