@@ -125,7 +125,17 @@ end
 Return pressure in unit of GPa.
 """
 function eddp_pressure_gpa(vc::AbstractCalc)
-    eVAngToGPa(tr(eddp_stress(vc)) / 3.0)
+    eVAngToGPa(eddp_pressure(vc))
+end
+
+"""
+    eddp_pressure_GPa(vc::AbstractCalc)
+
+Return pressure in unit of GPa.
+Alias of [`eddp_pressure_gpa`](@ref).
+"""
+function eddp_pressure_GPa(vc::AbstractCalc)
+    eddp_pressure_gpa(vc)
 end
 
 """
@@ -156,7 +166,15 @@ end
 
 
 ## Add Convenience methods
-for func in [:eddp_energy, :eddp_forces, :eddp_pressure, :eddp_energy_std, :eddp_enthalpy]
+for func in [
+    :eddp_energy,
+    :eddp_forces,
+    :eddp_pressure,
+    :eddp_pressure_gpa,
+    :eddp_pressure_GPa,
+    :eddp_energy_std,
+    :eddp_enthalpy,
+]
     @eval begin
         function $func(cell::Cell, cf::CellFeature, itf::AbstractNNInterface; kwargs...)
             $func(EDDPCalculator(cell, cf, itf); kwargs...)

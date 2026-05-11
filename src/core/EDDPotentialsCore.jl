@@ -64,6 +64,7 @@ export eddp_energy,
     eddp_stress,
     eddp_pressure,
     eddp_pressure_gpa,
+    eddp_pressure_GPa,
     eddp_enthalpy,
     eddp_energy_std,
     eddp_energy_std_per_atom

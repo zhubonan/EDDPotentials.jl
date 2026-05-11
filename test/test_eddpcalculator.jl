@@ -1,5 +1,18 @@
 using EDDPotentials
-using EDDPotentials: EDDPCalculator, eddp_energy, eddp_forces, eddp_stress, nfeatures, CoreRepulsion, create_calculator, predict, eddp_energy_per_atom, eddp_energy_std
+using EDDPotentials:
+    EDDPCalculator,
+    eddp_energy,
+    eddp_forces,
+    eddp_stress,
+    eddp_pressure,
+    eddp_pressure_gpa,
+    eddp_pressure_GPa,
+    nfeatures,
+    CoreRepulsion,
+    create_calculator,
+    predict,
+    eddp_energy_per_atom,
+    eddp_energy_std
 using EDDPotentials.EDDPotentialsCore:
     LinearInterface,
     ManualFluxBackPropInterface,
@@ -50,6 +63,15 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
 
             s = eddp_stress(calc, deepcopy(cell))
             @test s ≈ ref_stress
+
+            p = eddp_pressure(calc, deepcopy(cell))
+            @test p ≈ (ref_stress[1, 1] + ref_stress[2, 2] + ref_stress[3, 3]) / 3
+
+            p_gpa = eddp_pressure_gpa(calc, deepcopy(cell))
+            @test p_gpa ≈ eddp_pressure_gpa(ref_calc)
+
+            p_GPa = eddp_pressure_GPa(calc, deepcopy(cell))
+            @test p_GPa ≈ p_gpa
 
             e_per = eddp_energy_per_atom(calc, deepcopy(cell))
             @test e_per ≈ ref_energy / length(cell)

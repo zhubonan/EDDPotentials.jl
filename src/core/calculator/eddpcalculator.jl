@@ -409,6 +409,37 @@ function eddp_stress(calc::EDDPCalculator, cell::Cell; kwargs...)
 end
 
 """
+    eddp_pressure(calc::EDDPCalculator, cell::Cell) -> Number
+
+Compute hydrostatic pressure (eV/Å³) using the model in `calc` for the given `cell`.
+"""
+function eddp_pressure(calc::EDDPCalculator, cell::Cell)
+    set_cell!(calc, cell)
+    eddp_pressure(calc)
+end
+
+"""
+    eddp_pressure_gpa(calc::EDDPCalculator, cell::Cell) -> Number
+
+Compute hydrostatic pressure (GPa) using the model in `calc` for the given `cell`.
+"""
+function eddp_pressure_gpa(calc::EDDPCalculator, cell::Cell)
+    set_cell!(calc, cell)
+    eddp_pressure_gpa(calc)
+end
+
+"""
+    eddp_pressure_GPa(calc::EDDPCalculator, cell::Cell) -> Number
+
+Compute hydrostatic pressure (GPa) using the model in `calc` for the given `cell`.
+Alias of [`eddp_pressure_gpa`](@ref).
+"""
+function eddp_pressure_GPa(calc::EDDPCalculator, cell::Cell)
+    set_cell!(calc, cell)
+    eddp_pressure_GPa(calc)
+end
+
+"""
     eddp_energy_per_atom(calc::EDDPCalculator, cell::Cell; kwargs...) -> Number
 """
 eddp_energy_per_atom(calc::EDDPCalculator, cell::Cell; kwargs...) =
