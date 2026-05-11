@@ -192,7 +192,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
         _test_forces_fd_vc(calc)
 
         mbp = ManualFluxBackPropInterface(embedded, 5)
-        calc2 = EDDPCalculator(_lco_cell(), embedded, mbp; core=nothing)
+        calc2 = EDDPCalculator(_h2o_cell(), embedded, mbp; core=nothing)
         _test_forces_fd(calc2)
     end
 

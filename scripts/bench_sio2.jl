@@ -227,7 +227,7 @@ if !julia_only
                 try
                     errfile = joinpath(BENCH_DIR, "stderr_$(n_omp)_$(irun).txt")
                     wrapper = joinpath(BENCH_DIR, "run_$(n_omp)_$(irun).sh")
-                    write(wrapper, "#!/bin/sh\ncd \"$(BENCH_DIR)\"\n\"$(repose_bin)\" -n -q -ompnp $(n_omp) -m $(n_ft_steps) SiO2 2>\"$(errfile)\"\n")
+                    write(wrapper, "#!/bin/sh\ncd \"$(BENCH_DIR)\"\n\"$(repose_bin)\" -q -ompnp $(n_omp) -m $(n_ft_steps) SiO2 2>\"$(errfile)\"\n")
                     chmod(wrapper, 0o755)
                     run(`sh $wrapper`)
 

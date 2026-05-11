@@ -120,7 +120,7 @@ end
     itf = ManualFluxBackPropInterface(
         Chain(Dense(rand(5, nfeatures(cf))), Dense(rand(1, 5))),
     )
-    calc = NNCalc(cell, cf, itf; core=nothing)
+    calc = EDDPCalculator(cell, cf, itf; core=nothing)
 
     forces = copy(eddp_forces(calc))
     stress = copy(eddp_stress(calc))

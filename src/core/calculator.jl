@@ -118,6 +118,8 @@ get_elemental_energy(cell::Cell, ref_energies::Dict) =
 function eddp_enthalpy(calc::AbstractCalc; kwargs...)
     eddp_energy(calc; kwargs...)
 end
+
+"""
     eddp_pressure_gpa(vc::AbstractCalc) 
 
 Return pressure in unit of GPa.

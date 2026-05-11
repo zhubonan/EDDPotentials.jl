@@ -127,7 +127,7 @@ function _precompute_3b_factors!(
             im = (m - 1) * nq
             ftmp = -(modvij[axis]*gtmp1[m] + modvik[axis]*gtmp2[m])
             @turbo for o in 1:nq
-                ffact_center[im + o, axis] = ftmp
+                ffact_center[im + o, axis] = ftmp 
             end
         end
     end
@@ -533,7 +533,7 @@ function _force_update!(workspace, gv; offset=workspace.one_body_offset)
         for ia = 1:workspace.gvec_nn[iv]
             iat = workspace.gvec_index[ia, iv]
             for elm in axes(workspace.forces, 1)
-                @turbo for i = 1+offset:size(gvec, 1)
+                @fastmath @inbounds for i = 1+offset:lastindex(gvec, 1)
                     workspace.forces[elm, iat] -= gvec[i, elm, ia, iv] * gv[i, iv]
                 end
             end
@@ -546,12 +546,12 @@ function _force_update!(workspace, gv; offset=workspace.one_body_offset)
     _substract_force_drift(workspace.tot_forces)
 end
 
-function _stress_update!(workspace::GradientWorkspace, gv; offset=workspace.one_body_offset)
+function _stress_update!(workspace, gv; offset=workspace.one_body_offset)
     stotv = workspace.stotv
     fill!(workspace.stress, 0)
     for iat in axes(stotv, 4)
         for a in axes(workspace.stress, 1), b in axes(workspace.stress, 2)
-            @turbo for i = 1+offset:size(stotv, 1)
+            @fastmath @inbounds for i = 1+offset:lastindex(stotv, 1)
                 workspace.stress[a, b, iat] -= stotv[i, a, b, iat] * gv[i, iat]
             end
         end

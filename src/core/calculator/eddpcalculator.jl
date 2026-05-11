@@ -153,7 +153,7 @@ function _bind_cell!(calc::EDDPCalculator, cell::Cell{T}) where {T}
         one_body_offset=one_body_offset(calc.cf),
     )
     if calc.cf isa CellFeature
-        _populate_feat_bufs!(workspace, calc.cf.two_body, calc.cf.three_body, nl)
+        _populate_feat_bufs!(workspace, calc.cf, nl)
     end
 
     calc.cell = cell

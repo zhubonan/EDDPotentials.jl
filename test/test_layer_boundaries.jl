@@ -43,6 +43,7 @@ using Test
         "optimizer/abstract.jl",
         "functional/functional.jl",
         "optimizer/utils.jl",
+        "optimizer/constraints.jl",
         "optimizer/tpsd.jl",
         "optimizer/fire.jl",
         "opt.jl",
