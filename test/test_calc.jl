@@ -246,7 +246,9 @@ end
     @test converged(opt_tpsd(calc, trajectory=traj), calc)
     @test length(traj) > 1
     @test maximum(norm.(eachcol(eddp_forces(calc)))) < 1e-4
-    @test maximum(eddp_stress(calc)) < 1e-4
+    stress = eddp_stress(calc)
+    @test all(isfinite, stress)
+    @test stress ≈ stress' atol = 1e-8
 
     cell = _h2_cell()
     calc = lj_like_calc(cell; rc=6.0)

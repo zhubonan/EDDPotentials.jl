@@ -466,7 +466,7 @@ function stress_gradient(cf, cell, core_size=0, step=1e-6)
     else
         core = nothing
     end
-    fb = compute_fv_gv(cf, cell)
+    fb = compute_fv_gv(cf, cell, core=core)
     # coefficients such that param * fvec = energies
     param = rand(1, size(fb.gvec, 1))
     gv = repeat(transpose(param), 1, natoms(cell))
@@ -487,7 +487,7 @@ function stress_gradient(cf, cell, core_size=0, step=1e-6)
             smat = copy(smat_orig)
             smat[i, j] += step
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
-            fb = compute_fv_gv(cf, dcell)
+            fb = compute_fv_gv(cf, dcell, core=core)
             # Compute the energy
             e1 = sum(param * fb.fvec)
             if core !== nothing
@@ -498,7 +498,7 @@ function stress_gradient(cf, cell, core_size=0, step=1e-6)
             smat = copy(smat_orig)
             smat[i, j] -= step
             set_cellmat!(dcell, smat * cellmat(dcell); scale_positions=true)
-            fb = compute_fv_gv(cf, dcell)
+            fb = compute_fv_gv(cf, dcell, core=core)
             e2 = sum(param * fb.fvec)
             if core !== nothing
                 e2 += sum(fb.hardcore.ecore)
