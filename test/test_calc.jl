@@ -97,7 +97,7 @@ end
         nnitf.chain(calc.v)
 
         eng = eddp_energy(calc)
-        @test isa(eng, Float64)
+        @test isfinite(eng)
 
         forces = eddp_forces(calc)
         # Newton's second law
@@ -118,7 +118,7 @@ end
         nnitf.chain(calc.v)
 
         eng = eddp_energy(calc)
-        @test isa(eng, Float64)
+        @test isfinite(eng)
 
         forces = eddp_forces(calc)
         # Newton's second law
@@ -140,7 +140,7 @@ end
         nnitf.model(calc.v)
 
         eng = eddp_energy(calc)
-        @test isa(eng, Float64)
+        @test isfinite(eng)
 
         forces = eddp_forces(calc)
         # Newton's second law
@@ -165,8 +165,9 @@ end
         calc = EDDPCalculator(cell, cf, nnitf; core=nothing)
         eng = eddp_energy(calc)
         std_tot = eddp_energy_std(calc)
-        @test eng != 0.0
-        @test std_tot != 0.0
+        @test isfinite(eng)
+        @test isfinite(std_tot)
+        @test std_tot > 0
 
         _test_forces_fd(calc)
     end
@@ -178,7 +179,7 @@ end
         forces = eddp_forces(calc)
         stress = eddp_stress(calc)
 
-        @test isa(eng, Float64)
+        @test isfinite(eng)
 
         @test all(isapprox.(sum(forces, dims=2), 0, atol=1e-10))
         @test size(stress) == (3, 3)
@@ -237,6 +238,7 @@ end
 
     # Also test multirelax! on Relax object
     output = multirelax!(relax)
+    @test output isa EDDPotentials.RelaxResult
 end
 
 @testset "Opt" begin

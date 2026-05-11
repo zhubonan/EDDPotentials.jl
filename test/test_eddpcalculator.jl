@@ -19,7 +19,9 @@ using EDDPotentials.EDDPotentialsCore:
     EnsembleNNInterface,
     save_model_artifact,
     forward!,
-    feature_vector
+    feature_vector,
+    get_committee_forces,
+    get_committee_ferror
 using Flux: Chain, Dense, tanh
 using CellBase
 using Test
@@ -179,10 +181,10 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
 
             calc = load_calculator(path; core_repulsion=nothing)
             e = eddp_energy(calc, deepcopy(cell))
-            @test e isa Float64
+            @test isfinite(e)
 
             e_std = eddp_energy_std(calc, deepcopy(cell))
-            @test e_std >= 0
+            @test e_std > 0
         end
     end
 
@@ -272,13 +274,31 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
         @test eddp_energy(fresh) ≈ e_model
     end
 
+    @testset "Committee forces" begin
+        m1 = LinearInterface(collect(range(0.1, length=nfeatures(cf), step=0.1)))
+        m2 = LinearInterface(collect(range(0.2, length=nfeatures(cf), step=0.1)))
+        m3 = LinearInterface(collect(range(-0.1, length=nfeatures(cf), step=0.1)))
+        ens = EnsembleNNInterface((m1, m2, m3), [0.25, 0.5, 0.25])
+        calc_ens = EDDPCalculator(deepcopy(cell), cf, ens; elemental_energies, core_repulsion=nothing)
+
+        flist = get_committee_forces(calc_ens)
+        @test length(flist) == 3
+        @test all(f -> size(f) == (3, 2), flist)
+        fmean = (flist[1] .+ flist[2] .+ flist[3]) ./ 3
+        @test eddp_forces(calc_ens) ≈ 0.25*flist[1] + 0.5*flist[2] + 0.25*flist[3]
+
+        ferror = get_committee_ferror(calc_ens)
+        @test ferror >= 0
+        @test isfinite(ferror)
+    end
+
     @testset "predict function" begin
         calc = EDDPCalculator(deepcopy(cell), cf, model; elemental_energies, core_repulsion=nothing)
 
         result = predict(calc, cell)
-        @test result.energy isa Float64
-        @test result.forces isa Matrix
-        @test result.stress isa Matrix
+        @test result.energy ≈ ref_energy
+        @test result.forces ≈ ref_forces
+        @test result.stress ≈ ref_stress
 
         result_min = predict(calc, cell; forces=false, stress=false)
         @test !haskey(result_min, :forces)

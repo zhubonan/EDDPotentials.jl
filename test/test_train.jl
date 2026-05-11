@@ -288,7 +288,9 @@ isdefined(Main, :datadir) || include("utils.jl")
                 @test haskey(result, :energy)
                 @test haskey(result, :forces)
                 @test haskey(result, :stress)
-                @test result.energy isa Real
+                @test isfinite(result.energy)
+                @test all(isfinite, result.forces)
+                @test all(isfinite, result.stress)
                 result_min = predict(base_tm, cell; forces=false, stress=false)
                 @test !haskey(result_min, :forces)
                 @test !haskey(result_min, :stress)
@@ -300,7 +302,7 @@ isdefined(Main, :datadir) || include("utils.jl")
                 result = predict(calc, cell)
                 @test haskey(result, :energy)
                 @test haskey(result, :forces)
-                @test result.energy isa Real
+                @test isfinite(result.energy)
             end
 
             @testset "save/load round-trip" begin

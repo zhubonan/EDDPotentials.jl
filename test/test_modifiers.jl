@@ -89,6 +89,41 @@ end
 # removed @testset "CellRelaxationModifier"
   # end removed
 
+@testset "VolumeConstraintModifier.post_calculate!" begin
+        cell = Cell(Lattice(4,4,4), [:H,:H], [0 1.0; 0 0.0; 0 0])
+        V0 = CellBase.volume(cell)
+        mod = VolumeConstraintModifier(cell; k=2.0)
+
+        e, f, s = post_calculate!(mod, cell, 0.0, zeros(3,2), zeros(3,3))
+        @test e ≈ 0.0 atol=1e-12
+        @test s ≈ zeros(3,3) atol=1e-12
+
+        cell2 = Cell(Lattice(5,4,4), [:H,:H], [0 1.0; 0 0.0; 0 0])
+        V1 = CellBase.volume(cell2)
+        e2, f2, s2 = post_calculate!(mod, cell2, 0.0, zeros(3,2), zeros(3,3))
+        @test e2 ≈ 0.5 * 2.0 * (V1 - V0)^2 / V0
+        @test f2 ≈ zeros(3,2)
+        p_expected = 2.0 * (V1 - V0) / V0
+        @test s2 ≈ diagm([p_expected, p_expected, p_expected])
+    end
+
+    @testset "AdditiveCalculatorModifier.post_calculate!" begin
+        using EDDPotentials.EDDPotentialsCore: PairpotCalc, PairpotWorkspace, build_lj_spec
+        cell = Cell(Lattice(15,15,15), [:Ar,:Ar], [0 4.0; 0 0.0; 0 0])
+        spec = build_lj_spec(((:Ar,:Ar), 3.4); epsilon=0.01, cutoff=12.0)
+        pair_calc = PairpotCalc(cell, PairpotWorkspace(cell, spec); nl=NeighbourList(cell, 12.0; savevec=true))
+        add_mod = AdditiveCalculatorModifier(pair_calc)
+
+        add_e = eddp_energy(pair_calc)
+        add_f = copy(eddp_forces(pair_calc))
+        add_s = copy(eddp_stress(pair_calc))
+
+        e, f, s = post_calculate!(add_mod, cell, 1.0, ones(3,2), zeros(3,3))
+        @test e ≈ 1.0 + add_e
+        @test f ≈ ones(3,2) .+ add_f
+        @test s ≈ add_s
+    end
+
 @testset "Modifier parameter access" begin
     mod_penalty = ExtraDimensionPenaltyModifier(0.01)
     mod_vol = VolumeConstraintModifier(100.0, 10.0)

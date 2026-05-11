@@ -69,6 +69,8 @@ end
         @test isfinite(result.final_energy)
         @test isfinite(result.final_fmax)
         @test isfinite(result.final_smax)
+        @test result.final_fmax >= 0
+        @test result.final_smax >= 0
     end
 
     @testset "Energy history pattern" begin
@@ -106,6 +108,7 @@ end
         @test result isa HotAIRSSResult
         @test isfinite(result.final_energy)
         @test result.final_smax >= 0.0  # smax computed when relax_cell=true
+        @test result.final_fmax >= 0.0
     end
 
     @testset "Fixed cell" begin

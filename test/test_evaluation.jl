@@ -176,7 +176,8 @@ end
     @test m.natoms == 2
     @test m.e_ref == -10.0
     @test isa(m.e_pred, Float64)
-    @test energy_ae_per_atom(m) >= 0
+        @test isfinite(m.e_pred)
+        @test energy_ae_per_atom(m) ≈ abs(m.e_pred - m.e_ref) / m.natoms
 end
 
 @testset "compare_forces" begin
@@ -191,6 +192,7 @@ end
     cell = _cell_with_refs(f_ref=rand(3, 2) .* 0.1)
     m = compare_forces(calc, cell, config)
     @test m !== nothing
+    @test m isa ForceMetrics
     @test m.natoms == 2
     @test m.ndims == 3
     @test m.component_rmse >= 0
@@ -198,6 +200,7 @@ end
     @test m.max_error >= 0
     @test m.component_rmse >= m.component_mae
     @test m.max_error >= m.component_mae
+    @test isfinite(m.component_rmse)
 end
 
 @testset "compare_stress" begin
@@ -212,8 +215,10 @@ end
     cell = _cell_with_refs(s_ref=rand(6) .* 0.01)
     m = compare_stress(calc, cell, config)
     @test m !== nothing
+    @test m isa StressMetrics
     @test m.component_rmse >= 0
     @test m.pressure_error >= 0
+    @test isfinite(m.component_rmse)
 end
 
 @testset "detect_saturation" begin
