@@ -12,6 +12,60 @@ Precomputed context for formula-space sampling and runtime seed-file rewriting.
 struct FormulaSamplingContext
     formulas::Vector{String}
     remove_directives::Vector{String}
+    varvol_by_formula::Dict{String,Float64}
+end
+
+function _sample_formula_seed(ctx::FormulaSamplingContext, seed_text::AbstractString)
+    sampled = rand(ctx.formulas)
+    varvol = get(ctx.varvol_by_formula, sampled, nothing)
+    rewritten = _inject_formula_directive(
+        seed_text,
+        sampled;
+        remove_directives=ctx.remove_directives,
+        varvol,
+    )
+    return (; formula=sampled, varvol, seed_text=rewritten)
+end
+
+function _print_formula_sampling_sample(
+    io::IO,
+    idx::Int,
+    sample,
+    seedfile_path::AbstractString,
+)
+    println(io, "Sample $idx")
+    println(io, "----------------------------------------")
+    println(io, "User settings")
+    println(io, "formula = $(sample.formula)")
+    if !isnothing(sample.varvol)
+        println(io, "varvol = $(sample.varvol)")
+    end
+    println(io, "seedfile = $(seedfile_path)")
+    println(io, "----------------------------------------")
+    println(io, "buildcell input")
+    println(io, sample.seed_text)
+    println(io, "----------------------------------------")
+end
+
+function _run_buildcell_diagnostic(seed_text::AbstractString; timeout::Real=10)
+    return read(
+        pipeline(
+            `timeout $(timeout) buildcell`,
+            stdin=IOBuffer(seed_text),
+            stderr=devnull,
+        ),
+        String,
+    )
+end
+
+function _resolve_formula_diagnostic_save_dir(
+    save,
+    state::BuilderState,
+)
+    save === false && return nothing
+    save === true && return joinpath(state.workdir, "formula_sampling_diagnostics")
+    save isa AbstractString && return String(save)
+    throw(ArgumentError("`save` must be `false`, `true`, or a directory path string"))
 end
 
 _seedfiles(seedfile::AbstractString) = [seedfile]
@@ -92,35 +146,6 @@ function _extract_seed_directive(seed_text::AbstractString, key::AbstractString)
     return nothing
 end
 
-"""
-    _parse_natom_value(val) -> Union{Nothing,Tuple{Int,Int}}
-
-Parse `#NATOM=...`. Supports simple integer/range only.
-Exact per-species directives are intentionally ignored in formula-sampling mode
-because composition is controlled by `#FORMULA`.
-"""
-function _parse_natom_value(val::AbstractString)
-    range = _parse_int_range(val)
-    range !== nothing && return range
-    nothing
-end
-
-"""
-    _load_seed_constraints(path) -> NamedTuple
-
-Extract NATOM/NFORM constraints from one seed file.
-"""
-function _load_seed_constraints(path::AbstractString)
-    text = read(path, String)
-    natom = let x = _extract_seed_directive(text, "NATOM")
-        x === nothing ? nothing : _parse_natom_value(x)
-    end
-    nform = let x = _extract_seed_directive(text, "NFORM")
-        x === nothing ? (1, typemax(Int)) : _parse_int_range(x)
-    end
-    nform === nothing && (nform = (1, typemax(Int)))
-    (; natom_range=natom, nform_range=nform)
-end
 
 """
     _formula_atom_count(comp::Composition) -> Int
@@ -183,7 +208,7 @@ end
 Enumerate unique reduced formulas over integer coefficients `0:max_coeff`.
 """
 function _enumerate_reduced_formulas(elements::Vector{Symbol}, max_coeff::Int)
-    max_coeff >= 1 || throw(ArgumentError("`max_reduced_formula_coeff` must be >= 1"))
+    max_coeff >= 1 || throw(ArgumentError("`formula_max_reduced_formula_coeff` must be >= 1"))
     ranges = ntuple(_ -> 0:max_coeff, length(elements))
     uniq = Dict{String,Composition}()
     for coeffs in Iterators.product(ranges...)
@@ -224,7 +249,7 @@ function _build_formula_pool(state::BuilderState, elements::Vector{Symbol}; seed
     end
 
     comps = if isempty(state.formula_list)
-        _enumerate_reduced_formulas(elements, state.max_reduced_formula_coeff)
+        _enumerate_reduced_formulas(elements, state.formula_max_reduced_formula_coeff)
     else
         _canonical_formula_list(state.formula_list)
     end
@@ -233,18 +258,10 @@ function _build_formula_pool(state::BuilderState, elements::Vector{Symbol}; seed
     allowed = Set(elements)
     comps = [c for c in comps if all(in(allowed), keys(c))]
 
-    # Filter by NATOM/NFORM of at least one seed.
-    seed_selector = isnothing(seedfile) ? state.seedfile : seedfile
-    seed_path = _resolve_single_seedfile(state.workdir, seed_selector)
-    seed_constraints = [_load_seed_constraints(seed_path)]
-    comps = [
-        c for c in comps if any(_fits_seed_constraints(c, cs) for cs in seed_constraints)
-    ]
-
     # Optional oxidation-state neutrality filter.
-    if state.require_charge_neutral && !isempty(state.oxidation_states)
+    if state.formula_require_charge_neutral && !isempty(state.formula_oxidation_states)
         ox = Dict{Symbol,Vector{Int}}(
-            Symbol(k) => Int[v for v in vals] for (k, vals) in pairs(state.oxidation_states)
+            Symbol(k) => Int[v for v in vals] for (k, vals) in pairs(state.formula_oxidation_states)
         )
         comps = [c for c in comps if _has_neutral_oxidation_state(c, ox)]
     end
@@ -257,14 +274,16 @@ function _build_formula_pool(state::BuilderState, elements::Vector{Symbol}; seed
 end
 
 """
-    _inject_formula_directive(seed_text, formula_name; remove_directives=["NATOM","SPECIES","FORMULA"])
+    _inject_formula_directive(seed_text, formula_name; remove_directives=["NATOM","SPECIES","FORMULA"], varvol=nothing)
 
 Inject a `#FORMULA=...` directive while removing conflicting directives.
+When `varvol` is provided, also inject `#VARVOL=...`.
 """
 function _inject_formula_directive(
     seed_text::AbstractString,
     formula_name::AbstractString;
     remove_directives::Vector{String}=String["NATOM", "SPECIES", "FORMULA"],
+    varvol=nothing,
 )
     lines = split(seed_text, "\n")
     filtered = String[]
@@ -279,8 +298,48 @@ function _inject_formula_directive(
         keep && push!(filtered, line)
     end
     out = String["#FORMULA=$(formula_name)"]
+    if !isnothing(varvol)
+        push!(out, "#VARVOL=$(_format_seed_value(Float64(varvol)))")
+    end
     append!(out, filtered)
     join(out, "\n")
+end
+
+function _format_seed_value(x::Float64)
+    xi = round(Int, x)
+    isapprox(x, xi; atol=0.0, rtol=sqrt(eps(Float64))) && return string(xi)
+    return string(x)
+end
+
+function _formula_varvol(
+    formula_name::AbstractString,
+    target_atom_volumes::Dict{Symbol,Float64},
+)
+    comp = reduce_composition(Composition(strip(formula_name)))
+    vol = 0.0
+    missing = Symbol[]
+    for el in sort!(collect(keys(comp)))
+        if haskey(target_atom_volumes, el)
+            vol += target_atom_volumes[el]
+        else
+            push!(missing, el)
+        end
+    end
+    isempty(missing) || error(
+        "Missing `formula_target_atom_volumes` entries for formula `$(formula_name)`: $(join(string.(missing), ", "))",
+    )
+    return vol
+end
+
+function _formula_varvol_map(
+    formulas::Vector{String},
+    target_atom_volumes::Dict{Symbol,Float64},
+)
+    out = Dict{String,Float64}()
+    for f in formulas
+        out[f] = _formula_varvol(f, target_atom_volumes)
+    end
+    return out
 end
 
 """
@@ -294,9 +353,20 @@ function _formula_sampling_context(
     seedfile=nothing,
 )
     state.formula_sampling_enabled || return nothing
+    _resolve_single_seedfile(state.workdir, isnothing(seedfile) ? state.seedfile : seedfile)
     elements = Symbol.(cf_elements)
     formulas = _build_formula_pool(state, elements; seedfile)
-    FormulaSamplingContext(formulas, String["NATOM", "SPECIES", "FORMULA"])
+    target_atom_volumes = Dict{Symbol,Float64}(
+        Symbol(k) => Float64(v) for (k, v) in pairs(state.formula_target_atom_volumes)
+    )
+    varvol_by_formula = isempty(target_atom_volumes) ?
+                        Dict{String,Float64}() :
+                        _formula_varvol_map(formulas, target_atom_volumes)
+    FormulaSamplingContext(
+        formulas,
+        String["NATOM", "SPECIES", "FORMULA", "VARVOL", "TARGVOL"],
+        varvol_by_formula,
+    )
 end
 
 """
@@ -307,7 +377,66 @@ Return a function that rewrites seed text with one sampled formula per build cal
 function _make_seed_text_transform(ctx::Union{Nothing,FormulaSamplingContext})
     ctx === nothing && return nothing
     function _transform(seed_text::AbstractString)
-        sampled = rand(ctx.formulas)
-        _inject_formula_directive(seed_text, sampled; remove_directives=ctx.remove_directives)
+        _sample_formula_seed(ctx, seed_text).seed_text
     end
+end
+
+"""
+    diagnose_formula_sampling(state, cf_elements; seedfile=nothing, nsamples=3, io=stdout, save=false)
+
+Print sampled formulas and rewritten seed text using the same formula-sampling code
+path as RSS/buildcell generation. Returns a vector of named tuples
+`(formula, varvol, seed_text, seedfile_path, saved_seed_path, saved_buildcell_output_path)`.
+"""
+function diagnose_formula_sampling(
+    state::BuilderState,
+    cf_elements::Vector{String};
+    seedfile=nothing,
+    nsamples::Int=3,
+    io::IO=stdout,
+    save=false,
+)
+    nsamples >= 1 || throw(ArgumentError("`nsamples` must be >= 1"))
+    ctx = _formula_sampling_context(state, cf_elements; seedfile)
+    ctx === nothing && error("Formula sampling is disabled for this BuilderState.")
+
+    seedfile_cfg = isnothing(seedfile) ? state.seedfile : seedfile
+    seedfile_path = _resolve_single_seedfile(state.workdir, seedfile_cfg)
+    seed_text = read(seedfile_path, String)
+    save_dir = _resolve_formula_diagnostic_save_dir(save, state)
+    if !isnothing(save_dir)
+        mkpath(save_dir)
+    end
+    results = NamedTuple[]
+    for i in 1:nsamples
+        sample = _sample_formula_seed(ctx, seed_text)
+        saved_seed_path = nothing
+        saved_buildcell_output_path = nothing
+        if !isnothing(save_dir)
+            stem = lpad(string(i), 3, '0')
+            saved_seed_path = joinpath(save_dir, "sample-$(stem)-seed.cell")
+            write(saved_seed_path, sample.seed_text)
+            buildcell_output = _run_buildcell_diagnostic(
+                sample.seed_text;
+                timeout=state.build_timeout,
+            )
+            saved_buildcell_output_path = joinpath(save_dir, "sample-$(stem)-buildcell.cell")
+            write(saved_buildcell_output_path, buildcell_output)
+        end
+        result = (;
+            sample...,
+            original_seed_text=seed_text,
+            seedfile_path,
+            saved_seed_path,
+            saved_buildcell_output_path,
+        )
+        push!(results, result)
+        _print_formula_sampling_sample(io, i, result, seedfile_path)
+        if !isnothing(saved_seed_path)
+            println(io, "saved_seed = $(saved_seed_path)")
+            println(io, "saved_buildcell_output = $(saved_buildcell_output_path)")
+            println(io, "----------------------------------------")
+        end
+    end
+    return results
 end

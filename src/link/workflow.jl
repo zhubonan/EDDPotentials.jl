@@ -84,6 +84,21 @@ Convenience wrapper to get short UUID for a Builder object.
 """
 builder_short_uuid(bu::Builder) = builder_short_uuid(bu.state.workdir)
 
+function diagnose_formula_sampling(
+    builder::Builder;
+    seedfile=nothing,
+    nsamples::Int=3,
+    io::IO=stdout,
+)
+    diagnose_formula_sampling(
+        builder.state,
+        builder.cfopt.elements;
+        seedfile,
+        nsamples,
+        io,
+    )
+end
+
 
 """
     Builder(str::AbstractString="link.toml")
