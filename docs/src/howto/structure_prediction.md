@@ -19,19 +19,19 @@ using EDDPotentials
 
 # Load converged potential
 builder = Builder("link.toml")
-ensemble = load_ensemble(builder, builder.state.iteration)
+ensemble = load_ensemble(builder, max(builder.state.iteration - 1, 0))
 
 # Or load directly
-using JLD2
-ensemble = load("workdir/ensemble-gen5.jld2", "model")
-cf = load("workdir/ensemble-gen5.jld2", "cf")
+artifact = load_model_artifact("workdir/ensemble-gen5.json")
+ensemble = artifact.model
+cf = artifact.feature_spec
 ```
 
 ### Run Production Search
 
 ```julia
 # Configure RSS for production
-builder.rss.max_structures = 10000       # Large number of searches
+builder.rss.max = 10000                  # Number of written structures
 builder.rss.subfolder_name = "production"  # Separate from training
 builder.rss.ensemble_id = 5                # Use final generation
 
@@ -46,7 +46,7 @@ workdir/
 ├── production/                 # Production search results
 │   ├── CN-*.res               # Relaxed structures
 │   └── rss.log                # Search log
-└── ensemble-gen5.jld2          # Final model
+└── ensemble-gen5.json          # Final model
 ```
 
 ### Parallel Searches
@@ -58,7 +58,8 @@ For maximum throughput, run multiple RSS processes in parallel:
 parallel -j 64 julia -e "using EDDPotentials; run_rss(\"link.toml\")" ::: {1..1000}
 ```
 
-Each process generates structures until `max_structures` total is reached.
+Each process uses the `[rss]` settings from `link.toml`; `rss.max` is the
+number of written structures per process.
 
 ## Analyzing Search Results
 
@@ -195,17 +196,17 @@ Instead of relying on `#FOCUS`, you can let `Builder` sample explicit reduced fo
 ```toml
 [state]
 formula_sampling_enabled = true
-max_reduced_formula_coeff = 6
-require_charge_neutral = true
+formula_max_reduced_formula_coeff = 6
+formula_require_charge_neutral = true
 
-[state.oxidation_states]
+[state.formula_oxidation_states]
 Li = [1]
 Ta = [5]
 O = [-2]
 Cl = [-1]
 ```
 
-`max_reduced_formula_coeff` is the largest stoichiometric coefficient allowed in reduced formulas.
+`formula_max_reduced_formula_coeff` is the largest stoichiometric coefficient allowed in reduced formulas.
 For example, `Li2TaO3` has max coefficient `3`.
 
 ### Fixed Composition
@@ -376,7 +377,7 @@ fc = FeatureContainer(cf, StructureContainer(all_structures))
 # For 64-core node
 builder.state.buildcell_nprocs = 64  # 64 parallel buildcell processes for generation 0
 builder.state.build_timeout = 60.0   # Per-build timeout in seconds
-builder.state.max_structures = 50000  # Large batch
+builder.rss.max = 50000              # Large production RSS batch
 ```
 
 **Expected throughput:**

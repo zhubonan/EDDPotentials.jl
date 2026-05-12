@@ -62,9 +62,9 @@ workdir/
 ├── gen0-dft/          # After DFT (with energies)
 ├── training/
 │   ├── gen-0-dataset.jld2
-│   ├── gen-0-model-xxxx.jld2  (256 files)
+│   ├── gen-0-model-xxxx.json  (256 files)
 │   └── gen-0-dataset.yaml
-└── ensemble-gen0.jld2
+└── ensemble-gen0.json
 ```
 
 ### Generation N: Model-Guided Exploration (N ≥ 1)
@@ -110,8 +110,8 @@ workdir/
 ├── genN/, genN-dft/
 ├── training/
 │   ├── gen-N-dataset.jld2     # ALL data (Gen 0→N)
-│   ├── gen-N-model-*.jld2     (256 files)
-└── ensemble-genN.jld2
+│   ├── gen-N-model-*.json     (256 files)
+└── ensemble-genN.json
 ```
 
 ### Generation 0 vs Generation N
@@ -143,7 +143,8 @@ A potential has converged when adding more iterations does not significantly imp
 readdir("workdir")  # Lists: gen0/, gen1/, ..., genN/
 
 # Load latest ensemble
-ensemble = load("workdir/ensemble-gen4.jld2", "model")
+artifact = load_model_artifact("workdir/ensemble-gen4.json")
+ensemble = artifact.model
 
 # Training output shows:
 # Iter: 300  RMSE Train 0.00234 eV | Test 0.00456 eV
@@ -307,8 +308,8 @@ readdir("workdir")
 # Output: ["gen0", "gen0-dft", "gen1", "gen1-dft", ...]
 
 # Method 2: Ensemble files
-glob("workdir/ensemble-gen*.jld2")
-# Output: ["ensemble-gen0.jld2", "ensemble-gen1.jld2", "ensemble-gen2.jld2"]
+glob("workdir/ensemble-gen*.json")
+# Output: ["ensemble-gen0.json", "ensemble-gen1.json", "ensemble-gen2.json"]
 ```
 
 **Monitor Training Output:**
@@ -323,7 +324,7 @@ DFT complete: 1100/1100 structures
 Training ensemble...
 Iter: 50  RMSE Train 0.00345 eV | Test 0.00523 eV
 Iter: 100  RMSE Train 0.00234 eV | Test 0.00456 eV
-Ensemble saved: ensemble-gen4.jld2
+Ensemble saved: ensemble-gen4.json
 ```
 
 ### Common Issues
@@ -481,14 +482,14 @@ actual jobs launching `crud.pl`. The number of core each job should use must be 
 ### Data Management
 
 **Keep after project completes:**
-- `ensemble-genN.jld2` (final model)
+- `ensemble-genN.json` (final model)
 - `link.toml` (configuration)
 - `C-SEARCH.cell`, `C.cell`, `C.param` (inputs)
 - `gen*-dft/*.res` (DFT-calculated structures)
 - `.eddp_builder` (UUID for provenance)
 
 **Can delete to save space:**
-- `training/gen-N-model-*.jld2` (individual models)
+- `training/gen-N-model-*.json` (individual models)
 - `training/gen-N-dataset.jld2` (can recreate from gen*-dft/)
 - `hopper/`, `good_castep/` (temporary)
 
@@ -537,15 +538,15 @@ known_structure_dir = "known_structures"
 formula_sampling_enabled = true
 
 # Maximum coefficient allowed in reduced formulas (e.g. Li2TaO3 -> max coeff is 3)
-max_reduced_formula_coeff = 6
+formula_max_reduced_formula_coeff = 6
 
 # Optional explicit list (if empty, formulas are enumerated automatically)
 # formula_list = ["LiTaO3", "Li2TaO3", "LiTaO2Cl"]
 
 # Keep only charge-neutral formulas under allowed oxidation states
-require_charge_neutral = true
+formula_require_charge_neutral = true
 
-[state.oxidation_states]
+[state.formula_oxidation_states]
 Li = [1]
 Ta = [5]
 O = [-2]

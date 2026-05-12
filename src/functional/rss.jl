@@ -543,7 +543,7 @@ function check_energy_threshold!(composition_engmin, calc, threshold)
         end
 
         # Reject the structure if the energy is too high
-        if eng_threshold > 0 && epa > (composition_engmin[reduced_comp] + threshold)
+        if threshold > 0 && epa > (composition_engmin[reduced_comp] + threshold)
             return false
         end
     else

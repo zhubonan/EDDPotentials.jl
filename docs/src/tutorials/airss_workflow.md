@@ -113,39 +113,39 @@ For potential building, use `task : singlepoint`. For final validation, use `tas
 EDDPotentials workflow configuration:
 
 ```toml
-# Cell feature configuration
-[feature]
-atoms = ["C", "N"]
-p2 = [2, 3, 4, 5, 6]
-p3 = [2, 3, 4, 5]
-q3 = [1, 2, 3]
+[state]
+workdir = "CN-link"
+seedfile = "CN-SEARCH.cell"
+seedfile_calc = "CN.cell"
+max_iterations = 5
+n_initial = 500
+per_generation = 100
+shake_per_minima = 5
+buildcell_nprocs = 8
+dft_mode = "crud"
+
+[state.dft_kwargs]
+mpinp = 8
+nparallel = 8
+
+[cf]
+elements = ["C", "N"]
+p2 = [2, 6, 5]
+p3 = [2, 5, 4]
+q3 = [1, 3, 3]
 rcut2 = 4.0
 rcut3 = 3.5
 
-# Workflow parameters
-[search]
-prefix = "CN"
-airss_path = "/path/to/airss"
-buildcell_args = "--extra-options"
+[trainer]
+n_nodes = [20]
+nmodels = 10
+max_iter = 300
+earlystop = 30
+num_workers = 8
 
-[training]
-hidden_layers = [20]
-activation = "tanh"
-ensemble_size = 10
-max_iterations = 300
-early_stopping = 30
-
-# Parallelization
-[parallel]
-num_dft_jobs = 8
-cores_per_job = 8
-
-# Generation parameters
-[generation]
-L = 500           # Initial structures (gen 0)
-K = 100           # Structures per generation
-M = 5             # Shaken structures per relaxed structure
-target_spearman = 0.98
+[rss]
+max = 1000
+subfolder_name = "search"
 ```
 
 Adjust parallelization based on available resources.
@@ -163,9 +163,10 @@ builder = Builder("link.toml")
 This creates the directory structure:
 ```
 CN-link/
-├── gen000/          # Generation 0 data
-├── models/          # Trained ensembles
-├── searches/        # Structure search results
+├── gen0/            # Generation 0 inputs
+├── gen0-dft/        # Generation 0 DFT outputs
+├── training/        # Datasets and individual models
+├── ensemble-gen0.json
 └── link.toml        # Configuration
 ```
 
@@ -176,7 +177,7 @@ CN-link/
 link!(builder)
 
 # Or run single generation
-link!(builder, single_generation=true)
+step!(builder)
 ```
 
 ### Monitor Progress
@@ -184,11 +185,9 @@ link!(builder, single_generation=true)
 ```julia
 # Check current status
 println("Iteration: ", builder.state.iteration)
-println("Spearman: ", builder.state.spearman)
-println("RMSE: ", builder.state.rmse, " eV/atom")
 
 # Load current ensemble
-ensemble = load_ensemble(builder)
+ensemble = load_ensemble(builder, max(builder.state.iteration - 1, 0))
 ```
 
 ## Understanding the Process
@@ -222,7 +221,7 @@ After building the potential:
 # Configure and run large-scale search
 builder.rss.max = 10_000
 builder.rss.subfolder_name = "production"
-builder.rss.ensemble_id = builder.state.iteration
+builder.rss.ensemble_id = max(builder.state.iteration - 1, 0)
 run_rss(builder)
 ```
 

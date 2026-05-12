@@ -119,8 +119,7 @@ function _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
     smat = external_stress_matrix(opts.external_pressure)
 
     if calc isa MetaCalculator
-        _relax_hyper!(calc.source, opts)
-        return
+        return _relax_hyper!(calc.source, opts)
     end
 
     calc isa EDDPCalculator || error(
@@ -138,7 +137,7 @@ function _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
         max_iterations=max_iter,
         alpha_start=opts.hyper_alpha_start,
         relax_fn,
-        relax_kwargs=(relax_cell=true, ext_pressure=smat),
+        relax_kwargs=(relax_cell=opts.relax_cell, ext_pressure=smat),
         alpha_ramp_factor=opts.hyper_alpha_ramp_factor,
         max_alpha=opts.hyper_max_alpha,
         pos_tol=opts.hyper_pos_tol,
@@ -311,4 +310,3 @@ function relax!(calc::AbstractCalc; multi=true, relax_cell=true, method="tpsd", 
         relax!(relax)
     end
 end
-

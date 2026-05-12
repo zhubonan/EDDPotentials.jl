@@ -30,6 +30,9 @@ mutable struct MetaCalculator{T,S<:AbstractCalc} <: AbstractCalc
     stress::Matrix{T}
     energy_dirty::Bool
     forces_dirty::Bool
+    last_cellmat::Matrix{T}
+    last_positions::Matrix{T}
+    last_species::Vector
 end
 
 """
@@ -55,8 +58,19 @@ function MetaCalculator(
         zeros(T, D, length(cell)),
         zeros(T, 3, 3),
         true,
-        true
+        true,
+        copy(cellmat(cell)),
+        copy(positions(cell)),
+        copy(species(cell))
     )
+end
+
+function _source_cell_changed(calc::MetaCalculator)
+    cell = get_cell(calc.source)
+    size(cellmat(cell)) == size(calc.last_cellmat) || return true
+    size(positions(cell)) == size(calc.last_positions) || return true
+    length(species(cell)) == length(calc.last_species) || return true
+    return !_cell_unchanged(cell, calc.last_cellmat, calc.last_positions, calc.last_species)
 end
 
 """
@@ -73,6 +87,11 @@ Caching relies on the dirty flags set by `set_positions!`/`set_cellmat!`.
 The source calculator's own caching is transparent to MetaCalculator.
 """
 function calculate!(calc::MetaCalculator; forces=true, rebuild_nl=true, kwargs...)
+    if _source_cell_changed(calc)
+        calc.energy_dirty = true
+        calc.forces_dirty = true
+    end
+
     if !calc.energy_dirty && !(forces && calc.forces_dirty)
         return calc
     end
@@ -112,6 +131,9 @@ function calculate!(calc::MetaCalculator; forces=true, rebuild_nl=true, kwargs..
         calc.forces_dirty = false
     end
     calc.energy_dirty = false
+    calc.last_cellmat = copy(cellmat(src_cell))
+    calc.last_positions = copy(positions(src_cell))
+    calc.last_species = copy(species(src_cell))
 
     calc
 end

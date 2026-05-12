@@ -111,7 +111,9 @@ function scheduled_penalty_relax!(
     force_ratio=2.0,
 )
     cell = get_cell(calc)
-    nrounds = div(max_iterations, schedule_every)
+    schedule_every > 0 || throw(ArgumentError("schedule_every must be positive"))
+    max_iterations >= 0 || throw(ArgumentError("max_iterations must be non-negative"))
+    nrounds = cld(max_iterations, schedule_every)
     D = size(positions(cell), 1)
     nat = size(positions(cell), 2)
 
@@ -123,7 +125,11 @@ function scheduled_penalty_relax!(
     prev_stationary = false
     vol_init = CellBase.volume(cell)
 
+    used_iterations = 0
     for i in 1:nrounds
+        round_itermax = min(schedule_every, max_iterations - used_iterations)
+        round_itermax <= 0 && break
+
         pos_before = copy(positions(cell))
         cmat_before = copy(cellmat(cell))
         pos_3d_round_start = copy(positions(cell)[1:3, :])
@@ -154,11 +160,12 @@ function scheduled_penalty_relax!(
         end
         push!(extra_d, extra_norm)
 
-        res = relax_fn(calc; itermax=schedule_every, relax_kwargs..., trace=trace)
+        res = relax_fn(calc; itermax=round_itermax, relax_kwargs..., trace=trace)
         push!(results, res)
 
         iterations_used = res.iteration
-        converged_early = iterations_used < schedule_every
+        used_iterations += iterations_used
+        converged_early = iterations_used < round_itermax
 
         F = eddp_forces(calc)
         pos = positions(cell)

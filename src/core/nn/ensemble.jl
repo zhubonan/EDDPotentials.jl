@@ -59,17 +59,17 @@ function gradparam!(gvec, itf::EnsembleNNInterface;)
         gradparam!(gview, model)
         i += np
     end
+    gvec[i:i+length(itf.weights)-1] .= 0
+    gvec
 end
 
 function paramvector(itf::EnsembleNNInterface)
-    vecs = paramvector(itf.models[1])
-    length(itf.models) == 1 && return out
-
-    for im = 2:length(itf.models)
-        model = itf.models[im]
-        append!(vecs, paramvector(model))
+    out = Vector{Float64}()
+    for model in itf.models
+        append!(out, paramvector(model))
     end
-    vecs
+    append!(out, itf.weights)
+    out
 end
 
 function paramvector!(v, itf::EnsembleNNInterface)
@@ -79,6 +79,8 @@ function paramvector!(v, itf::EnsembleNNInterface)
         paramvector!(@view(v[i:i+np-1]), model)
         i += np
     end
+    v[i:i+length(itf.weights)-1] .= itf.weights
+    v
 end
 
 function setparamvector!(itf::EnsembleNNInterface, val)
@@ -88,6 +90,8 @@ function setparamvector!(itf::EnsembleNNInterface, val)
         setparamvector!(model, val[i:np+i-1])
         i += np
     end
+    itf.weights .= val[i:i+length(itf.weights)-1]
+    itf
 end
 
 nparams(itf::EnsembleNNInterface) = sum(nparams, itf.models) + length(itf.weights)

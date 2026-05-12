@@ -15,6 +15,8 @@ using EDDPotentials.EDDPotentialsCore:
 using Flux
 using Test
 
+isdefined(Main, :allclose) || include("utils.jl")
+
 @testset "NN Interface" begin
 
     @testset "Linear" begin
@@ -103,7 +105,15 @@ using Test
         backward!(itf)
         grad = copy(paramvector(itf))
         gradparam!(grad, itf)
-        @test grad == repeat(sum(x, dims=2)[:], 2)
+        @test grad == [repeat(sum(x, dims=2)[:], 2); 0.0; 0.0]
+        @test length(paramvector(itf)) == nparams(itf)
+        pvec = paramvector(itf)
+        pvec[end-1:end] .= [0.25, 0.75]
+        setparamvector!(itf, pvec)
+        @test itf.weights ≈ [0.25, 0.75]
+
+        single = EnsembleNNInterface((linearitf(),), [1.0])
+        @test length(paramvector(single)) == nparams(single)
 
         # test combining two manual back prop interfaces
         function _get_chainitf()
@@ -132,5 +142,6 @@ using Test
         gp = zeros(nparams(itf))
         paramvector!(gp, itf)
         @test gp[1:nparams(itf.models[1])] == paramvector(itf.models[1])
+        @test gp[end-1:end] == itf.weights
     end
 end

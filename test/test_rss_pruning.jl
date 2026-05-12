@@ -2,6 +2,14 @@ using EDDPotentials
 using CellBase
 using Test
 
+struct _RssEnergyCalc{T} <: EDDPotentials.AbstractCalc
+    cell::Cell{T}
+    energy::Float64
+end
+
+EDDPotentials.get_cell(calc::_RssEnergyCalc) = calc.cell
+EDDPotentials.eddp_energy(calc::_RssEnergyCalc; kwargs...) = calc.energy
+
 function _rss_prune_test_cell(label, distance, enthalpy; symbols=[:H, :H])
     cell = Cell(
         Lattice(10.0, 10.0, 10.0),
@@ -81,5 +89,14 @@ end
         @test_throws ArgumentError EDDPotentials._validate_rss_prune_option(RssPruneOption(enabled=true, fingerprint_lim=Inf))
         @test_throws ArgumentError EDDPotentials._validate_rss_prune_option(RssPruneOption(enabled=true, stable_window=-1))
         @test_throws ArgumentError EDDPotentials._validate_rss_prune_option(RssPruneOption(enabled=true, mean_abs_tol=-1.0))
+    end
+
+    @testset "energy threshold" begin
+        composition_minima = Dict{Composition,Float64}()
+        low = _RssEnergyCalc(_rss_prune_test_cell("low", 1.0, -2.0), -2.0)
+        high = _RssEnergyCalc(_rss_prune_test_cell("high", 2.0, 1.0), 1.0)
+
+        @test EDDPotentials.check_energy_threshold!(composition_minima, low, 0.5)
+        @test !EDDPotentials.check_energy_threshold!(composition_minima, high, 0.5)
     end
 end

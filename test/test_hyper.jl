@@ -48,4 +48,51 @@ using CellBase, Test, LinearAlgebra, Flux
         end
     end
 
+    @testset "scheduled_penalty_relax! uses remainder iterations" begin
+        noop_relax(calc; itermax, kwargs...) = (; iteration=itermax)
+
+        short = scheduled_penalty_relax!(
+            _make_hyper_calc();
+            schedule_every=10,
+            max_iterations=5,
+            alpha_start=0.01,
+            relax_fn=noop_relax,
+            ramp_alpha=false,
+            pos_tol=-1.0,
+            extra_dim_tol=0.0,
+        )
+        @test [r.iteration for r in short.results] == [5]
+
+        remainder = scheduled_penalty_relax!(
+            _make_hyper_calc();
+            schedule_every=3,
+            max_iterations=7,
+            alpha_start=0.01,
+            relax_fn=noop_relax,
+            ramp_alpha=false,
+            pos_tol=-1.0,
+            extra_dim_tol=0.0,
+        )
+        @test [r.iteration for r in remainder.results] == [3, 3, 1]
+    end
+
+    @testset "relax! hyperspace MetaCalculator returns result" begin
+        cell = Cell(Lattice(5,5,5), [:H,:H], [0 1.5; 0 0.0; 0 0])
+        cf = CellFeature([:H]; p2=[2.0], p3=Float64[], q3=Float64[])
+        model = LinearInterface(rand(nfeatures(cf)))
+        base = EDDPCalculator(cf, model, Dict{Symbol,Float64}(); core_repulsion=nothing)
+        calc = MetaCalculator(create_calculator(base, cell))
+
+        result = relax!(
+            calc;
+            hyper_ndim=1,
+            iterations=1,
+            hyper_schedule_every=1,
+            hyper_target_iterations=1,
+            relax_cell=false,
+            multi=false,
+        )
+        @test result isa EDDPotentials.RelaxResult
+    end
+
 end

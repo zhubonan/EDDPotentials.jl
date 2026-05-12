@@ -72,6 +72,19 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
         @test calc.energy_dirty == false
     end
 
+    @testset "Direct source cell mutation invalidates cache" begin
+        calc = MetaCalculator(_get_calc())
+        cell = get_cell(calc)
+        E1 = eddp_energy(calc)
+
+        pos = positions(cell)
+        pos[1, 1] += 0.25
+        set_positions!(cell, pos)
+
+        E2 = eddp_energy(calc)
+        @test E2 ≉ E1
+    end
+
     @testset "Display" begin
         calc = MetaCalculator(_get_calc())
         str = sprint(show, calc)
