@@ -3,6 +3,152 @@ Routines for performing random structure searching using models
 =#
 
 using Printf
+using Configurations
+
+"""
+    RssPruneOption
+
+Options for pruning random-structure-search output before writing structures.
+Pruning is disabled by default.
+"""
+@option mutable struct RssPruneOption <: EDDPotentialsOption
+    enabled::Bool = false
+    pool_size::Int = 100
+    keep_fraction::Float64 = 0.10
+    dedup_tol::Float64 = 0.10
+    fingerprint_lim::Float64 = 5.0
+    min_stable_pool_size::Int = 50
+    stable_window::Int = 20
+    mean_abs_tol::Float64 = 1e-3
+    median_abs_tol::Float64 = 1e-3
+end
+
+function _rss_candidate(cell)
+    epa = Float64(cell.metadata[:enthalpy]) / length(cell)
+    comp = reduce_composition(Composition(cell))
+    (; cell, epa, comp)
+end
+
+function _rss_median(values)
+    sorted = sort(collect(values))
+    n = length(sorted)
+    mid = n ÷ 2
+    isodd(n) ? sorted[mid+1] : (sorted[mid] + sorted[mid+1]) / 2
+end
+
+_rss_pool_mean(pool) = sum(c -> c.epa, pool) / length(pool)
+_rss_pool_median(pool) = _rss_median(c.epa for c in pool)
+
+function _rss_should_flush(pool, stats_history, prune::RssPruneOption)
+    length(pool) >= max(prune.pool_size, 1) && return (:pool_size, true)
+    prune.stable_window > 0 || return (:none, false)
+    length(pool) >= prune.min_stable_pool_size || return (:none, false)
+    length(stats_history) > prune.stable_window || return (:none, false)
+
+    current = stats_history[end]
+    previous = stats_history[end-prune.stable_window]
+    mean_stable = abs(current.mean - previous.mean) <= prune.mean_abs_tol
+    median_stable = abs(current.median - previous.median) <= prune.median_abs_tol
+    return (:stable_statistics, mean_stable && median_stable)
+end
+
+function _validate_rss_prune_option(prune::RssPruneOption)
+    prune.pool_size >= 1 ||
+        throw(ArgumentError("`rss_prune.pool_size` must be >= 1"))
+    isfinite(prune.keep_fraction) && 0.0 < prune.keep_fraction <= 1.0 ||
+        throw(ArgumentError("`rss_prune.keep_fraction` must be in (0, 1]"))
+    isfinite(prune.dedup_tol) && prune.dedup_tol >= 0.0 ||
+        throw(ArgumentError("`rss_prune.dedup_tol` must be finite and >= 0"))
+    isfinite(prune.fingerprint_lim) && prune.fingerprint_lim > 0.0 ||
+        throw(ArgumentError("`rss_prune.fingerprint_lim` must be finite and > 0"))
+    prune.min_stable_pool_size >= 1 ||
+        throw(ArgumentError("`rss_prune.min_stable_pool_size` must be >= 1"))
+    prune.stable_window >= 0 ||
+        throw(ArgumentError("`rss_prune.stable_window` must be >= 0"))
+    isfinite(prune.mean_abs_tol) && prune.mean_abs_tol >= 0.0 ||
+        throw(ArgumentError("`rss_prune.mean_abs_tol` must be finite and >= 0"))
+    isfinite(prune.median_abs_tol) && prune.median_abs_tol >= 0.0 ||
+        throw(ArgumentError("`rss_prune.median_abs_tol` must be finite and >= 0"))
+    return prune
+end
+
+function _rss_is_unique_fingerprint(fingerprints, fp, prune::RssPruneOption)
+    for ref in fingerprints
+        if CellBase.fingerprint_distance(ref, fp; lim=prune.fingerprint_lim) < prune.dedup_tol
+            return false
+        end
+    end
+    return true
+end
+
+function _rss_select_pruned(pool, prune::RssPruneOption, remaining::Int)
+    isempty(pool) && return (eltype(pool)[], 0)
+    target = max(1, ceil(Int, prune.keep_fraction * length(pool)))
+    quota = min(remaining, target, length(pool))
+    quota <= 0 && return (eltype(pool)[], 0)
+
+    ranked = sort(pool; by=c -> c.epa)
+    selected = eltype(pool)[]
+    fingerprints = Any[]
+    duplicates = 0
+    for cand in ranked
+        fp = try
+            CellBase.fingerprint(cand.cell)
+        catch err
+            @warn "Cannot fingerprint RSS candidate; keeping it as unique." exception=(err, catch_backtrace())
+            push!(selected, cand)
+            length(selected) >= quota && break
+            continue
+        end
+
+        if _rss_is_unique_fingerprint(fingerprints, fp, prune)
+            push!(selected, cand)
+            push!(fingerprints, fp)
+            length(selected) >= quota && break
+        else
+            duplicates += 1
+        end
+    end
+    return selected, duplicates
+end
+
+function _rss_write_candidate(
+    cand,
+    outdir::AbstractString,
+    packed::Bool,
+    packed_outfile::Union{Nothing,String},
+    mode::AbstractString,
+)
+    cell = cand.cell
+    if packed
+        write_res(packed_outfile, cell, mode)
+    else
+        label = string(get(cell.metadata, :label, get_label("rss")))
+        write_res(joinpath(outdir, "$(label).res"), cell, "w")
+    end
+    return 1
+end
+
+function _rss_write_candidates!(
+    candidates,
+    outdir,
+    packed,
+    packed_outfile,
+    mode,
+    remaining,
+)
+    written = 0
+    for cand in candidates
+        written >= remaining && break
+        written += _rss_write_candidate(cand, outdir, packed, packed_outfile, mode)
+    end
+    return written
+end
+
+function _rss_log_flush(pool, selected, duplicates, written, total_kept, reason)
+    epas = [c.epa for c in pool]
+    @info "RSS prune flush" reason=reason raw_candidates=length(pool) mean_epa=sum(epas) / length(epas) median_epa=_rss_median(epas) min_epa=minimum(epas) max_epa=maximum(epas) duplicates selected=length(selected) written=written total_kept=total_kept
+end
 
 """
     build_and_relax(seedfile::AbstractString, ensemble, cf;timeout=10, nmax=500, pressure_gpa=0., 
@@ -160,17 +306,20 @@ function _run_rss(
     relax_mode="standard",
     hot_kwargs=NamedTuple(),
     seed_text_transform=nothing,
+    prune_option=RssPruneOption(),
+    prune_random_composition=false,
 )
     _relax_option = deepcopy(relax_option)
-    i = 1
+    nkept = 0
 
     isdir(outdir) || mkdir(outdir)
+    packed_outfile = nothing
     if packed
         # Select the first resolved seed file and use it as the name
         name = _select_seed(seedfile, seedfile_weights)[2][1]
         label = EDDPotentials.get_label(EDDPotentials.stem(name))
         # Name of the packed out file
-        outfile = joinpath(outdir, "$(label).packed.res")
+        packed_outfile = joinpath(outdir, "$(label).packed.res")
         mode = "a"
     else
         mode = "w"
@@ -178,8 +327,19 @@ function _run_rss(
     if show_progress
         pmeter = Progress(max)
     end
+    pruning_enabled = prune_option.enabled
+    pruning_enabled && _validate_rss_prune_option(prune_option)
+    prune_disabled_warned = false
+    if pruning_enabled && prune_random_composition
+        @warn "RSS pruning disabled because formula sampling/random-composition generation is active."
+        pruning_enabled = false
+        prune_disabled_warned = true
+    end
+    pool = []
+    stats_history = NamedTuple[]
+    pool_comp = nothing
     _pressure_gpa = pressure_gpa
-    while i <= max
+    while nkept < max
         # Use randomly chosen pressure
         if pressure_gpa_range !== nothing
             _pressure_gpa =
@@ -234,10 +394,6 @@ function _run_rss(
         label = get_label(stem(this_seed))
         EDDPotentials.update_metadata!(calc, label)
 
-        if !packed
-            outfile = joinpath(outdir, "$(label).res")
-        end
-
         # Write output file
         cell = get_cell(calc)
         # Run niggli reduction - skip the loop if failed.
@@ -248,10 +404,69 @@ function _run_rss(
                 continue
             end
         end
-        write_res(outfile, cell, mode)
-        i += 1
-        if show_progress
-            ProgressMeter.next!(pmeter)
+
+        cand = _rss_candidate(cell)
+        if pruning_enabled
+            if pool_comp === nothing
+                pool_comp = cand.comp
+            elseif cand.comp != pool_comp
+                if !prune_disabled_warned
+                    @warn "RSS pruning disabled because multiple reduced compositions were detected in the candidate pool."
+                    prune_disabled_warned = true
+                end
+                written = _rss_write_candidates!(
+                    pool,
+                    outdir,
+                    packed,
+                    packed_outfile,
+                    mode,
+                    max - nkept,
+                )
+                nkept += written
+                if show_progress
+                    for _ = 1:written
+                        ProgressMeter.next!(pmeter)
+                    end
+                end
+                empty!(pool)
+                empty!(stats_history)
+                pool_comp = nothing
+                pruning_enabled = false
+            end
+        end
+
+        if pruning_enabled
+            push!(pool, cand)
+            push!(stats_history, (; mean=_rss_pool_mean(pool), median=_rss_pool_median(pool)))
+            reason, should_flush = _rss_should_flush(pool, stats_history, prune_option)
+            if should_flush
+                remaining = max - nkept
+                selected, duplicates = _rss_select_pruned(pool, prune_option, remaining)
+                written = _rss_write_candidates!(
+                    selected,
+                    outdir,
+                    packed,
+                    packed_outfile,
+                    mode,
+                    remaining,
+                )
+                nkept += written
+                _rss_log_flush(pool, selected, duplicates, written, nkept, reason)
+                if show_progress
+                    for _ = 1:written
+                        ProgressMeter.next!(pmeter)
+                    end
+                end
+                empty!(pool)
+                empty!(stats_history)
+                pool_comp = nothing
+            end
+        elseif nkept < max
+            written = _rss_write_candidate(cand, outdir, packed, packed_outfile, mode)
+            nkept += written
+            if show_progress
+                ProgressMeter.next!(pmeter)
+            end
         end
     end
 end

@@ -50,10 +50,18 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
 
 
         state = EDDPotentials.BuilderState(seedfile="seed.cell", seedfile_calc="calc.cell")
+        state.rss_prune.enabled = true
+        state.rss_prune.pool_size = 25
+        state.rss_prune.keep_fraction = 0.2
 
         cf = EDDPotentials.CellFeatureConfig(elements=["H"])
 
-        opt = EDDPotentials.BuilderOption(state, cf, nothing, EDDPotentials.RssSetting(), EDDPotentials.TrainingOption(), nothing)
+        rss = EDDPotentials.RssSetting()
+        rss.prune.enabled = true
+        rss.prune.pool_size = 50
+        rss.prune.keep_fraction = 0.3
+
+        opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, EDDPotentials.TrainingOption(), nothing)
         test_to_from_toml(opt)
 
         builder = Builder(opt)

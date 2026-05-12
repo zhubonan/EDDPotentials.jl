@@ -109,6 +109,37 @@ cat unique_structures.res | resplit
 - **0.05:** Standard (removes clear duplicates)
 - **0.1:** Relaxed (removes similar structures)
 
+### In-Process Low-Energy Pruning
+
+For large single-composition searches, RSS can prune structures before writing
+them. The search buffers relaxed candidates, computes pool energy statistics,
+ranks by predicted enthalpy per atom, removes fingerprint duplicates, and writes
+only the lowest-energy unique fraction.
+
+```julia
+builder = Builder("link.toml")
+builder.rss.max = 10_000                 # Number of written structures
+builder.rss.prune.enabled = true
+builder.rss.prune.pool_size = 100
+builder.rss.prune.keep_fraction = 0.10
+builder.rss.prune.dedup_tol = 0.10
+run_rss(builder)
+```
+
+In `link.toml`, configure standalone production RSS under `[rss.prune]`:
+
+```toml
+[rss.prune]
+enabled = true
+pool_size = 100
+keep_fraction = 0.10
+dedup_tol = 0.10
+```
+
+`rss.max` remains the number of structures written after pruning. Pruning is
+disabled automatically for formula-sampling/random-composition searches because
+short pools do not give reliable per-composition statistics.
+
 ## Composition-Specific Searches
 
 ### Binary Systems (C-N)

@@ -681,6 +681,8 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
         relax_mode,
         hot_kwargs,
         seed_text_transform,
+        prune_option=state.rss_prune,
+        prune_random_composition=formula_ctx !== nothing,
     )
 end
 
@@ -732,6 +734,8 @@ function run_rss(builder::Builder)
         relax_mode=_relax_mode,
         hot_kwargs,
         seed_text_transform,
+        prune_option=rs.prune,
+        prune_random_composition=formula_ctx !== nothing,
     )
 end
 
@@ -835,6 +839,8 @@ function _run_rss_link()
         relax_mode,
         hot_kwargs,
         seed_text_transform,
+        prune_option=state.rss_prune,
+        prune_random_composition=formula_ctx !== nothing,
     )
 end
 

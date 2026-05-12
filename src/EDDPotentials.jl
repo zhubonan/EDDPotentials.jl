@@ -172,7 +172,7 @@ export StructureContainer,
     load_feature_artifact,
     save_feature_json
 export split_and_featurize
-export BuilderState, TrainingOption, link!
+export BuilderState, TrainingOption, RssPruneOption, link!
 export Builder,
     walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss,
     split_then_featurize, diagnose_formula_sampling

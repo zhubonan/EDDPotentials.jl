@@ -24,7 +24,8 @@ to perform various actions during the construction of the potentials.
   the trained models.
 - `workdir`: Path to the working directory.
 - `max_iterations`: The maximum number of iteration to be performed for building the potential.
-- `per_generation`: Number of structure to be generated (and relaxed) for each generation.
+- `per_generation`: Number of structures to write for each generation. When RSS pruning is enabled,
+  more raw structures may be generated/relaxed internally to reach this kept-output count.
 - `shake_per_generation`: The number of shaken structure for **each** relaxed structure to be generated.
 - `buildcell_nprocs`: Number of concurrent `buildcell` processes to use during generation 0 bulk structure generation.
 - `build_timeout`: Timeout in seconds for each `buildcell` process during generation 0 bulk structure generation.
@@ -41,6 +42,7 @@ to perform various actions during the construction of the potentials.
 - `rss_nprocs`: The number of processes to use for generating/relaxing random structures.
 - `rss_external`: Whether to run the random structure searching in separate Julia processes.
 - `rss_num_threads`: The number of threads to used for launched Julia processes.
+- `rss_prune`: Optional pruning for generated relaxed structures before writing training inputs.
 - `core_size`: Size of the soft sphere core. Note that the repulsion kick-in at about 3/4 of the core size.
 - `ensemble_std_min`: The minimum ensemble standard deviation for valid structures during random structure searching.
   Can be used to exclude structures that are already well-described by the potential.
@@ -93,6 +95,7 @@ to perform various actions during the construction of the potentials.
     rss_nprocs::Int = 2
     rss_external::Bool = true
     rss_num_threads::Int = 1
+    rss_prune::RssPruneOption = RssPruneOption()
     core_size::Union{Float64,Dict{String,Float64}} = 0.5
     ensemble_std_min::Float64 = 0.0
     ensemble_std_max::Float64 = -1.0
@@ -226,7 +229,8 @@ end
 - `seedfile`: Name of the seed file used for random structure generation. May be specified by passing a sequence. Its content is passed to the `buildcell` program.
 - `seedfile_weights`: Weights for randomly selecting each `seedfile` when multiple seed files are used. Can be useful for setting the ratio of binary/ternary structures for a multi-composition search.
 - `ensemble_id`: The ID of the ensemble to be used for random structure searching, default is to use the last ensemble.
-- `max`: The maximum number of structures to be generated for random structure searching.
+- `max`: The maximum number of structures to write for random structure searching. When pruning is
+  enabled, more raw structures may be generated/relaxed internally to reach this kept-output count.
 - `subfolder_name`: The name of the subfolder to store the generated structures.
 - `show_progress`: Whether to show the progress of the random structure searching.
 - `ensemble_std_max`: The maximum ensemble standard deviation for valid structures during random structure searching. Can be used to exclude pathological structures.
@@ -236,6 +240,7 @@ end
 - `max_err`: The maximum number of errors to be tolerated during random structure searching.
 - `pressure_gpa`: The external pressure used (GPa) when running random structure searching.
 - `relax`: Options for performing relaxations of the generated structures.
+- `prune`: Optional pruning for generated relaxed structures before writing search output.
 """
 @option mutable struct RssSetting <: EDDPotentialsOption
     packed::Bool = true
@@ -252,6 +257,7 @@ end
     max_err::Int = 10
     pressure_gpa::Float64 = 0.01
     relax::RelaxOption = RelaxOption()
+    prune::RssPruneOption = RssPruneOption()
 end
 
 

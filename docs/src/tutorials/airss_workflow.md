@@ -316,6 +316,24 @@ cat selected/*.res | cryan -u 0.1 -r > unique.res
 
 Threshold (0.01-0.1) defines similarity by comparing sorted bond lengths.
 
+For single-composition EDDP searches, the same idea can be applied during RSS
+instead of only as a post-processing step. Enable `[rss.prune]` for production
+`run_rss`, or `[state.rss_prune]` for structures generated during `link!`:
+
+```toml
+[rss.prune]
+enabled = true
+pool_size = 100
+keep_fraction = 0.10
+dedup_tol = 0.10
+```
+
+Each pruning pool is ranked by predicted enthalpy per atom and deduplicated with
+the in-process CellBase fingerprint distance. In multi-process `link!` runs,
+each worker emits pruning diagnostics to its own `rss-process-*` stderr log.
+Pruning is automatically disabled for formula-sampling/random-composition
+searches.
+
 ### Running High-Accuracy Calculations
 
 Use `crud.pl` (**C**ASTEP **ru**n **d**aemon) for batch processing:
