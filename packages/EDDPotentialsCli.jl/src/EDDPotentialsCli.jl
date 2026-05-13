@@ -3,11 +3,11 @@ module EDDPotentialsCli
 using Comonicon
 using EDDPotentials: link!, Builder, BuilderOption, to_toml, from_dict
 using EDDPotentials: run_rss as run_rss_eddp
-using EDDPotentials: load_model_artifact, EDDPCalculator, MetaCalculator, CellRelaxationModifier
+using EDDPotentials: load_model_artifact, EDDPCalculator
 using EDDPotentials: Relax, RelaxOption, multirelax!
 using EDDPotentials: update_metadata!, eddp_energy, eddp_forces, eddp_stress
 using EDDPotentials: eddp_pressure_gpa, eddp_enthalpy
-using EDDPotentials: get_cell, stem, ensure_dir, external_stress_matrix
+using EDDPotentials: get_cell, stem, ensure_dir
 using EDDPotentials: _load_structures_from_path, write_res
 using EDDPotentials: eVAngToGPa
 using CellBase: volume, remove_dimensions
@@ -125,7 +125,7 @@ function _get_builder_opt_template(seedfile, elements...)
             "shake_per_minima" => 10,
             "dft_mode" => "disp-castep",
         ),
-        "trainer" => Dict{String,Any}("type" => "locallm", "log_file" => "train-log"),
+        "trainer" => Dict{String,Any}("train_method" => "lm", "log_file" => "train-log"),
         "rss" => Dict{String,Any}("packed" => true),
     )
     from_dict(BuilderOption, template)
@@ -169,21 +169,16 @@ function _relax_single(
     f_tol=1e-2,
     s_tol=1e-1,
     pressure=0.0,
-)
+    )
     cell = deepcopy(cell)
     calc = EDDPCalculator(cell, feature_spec, model; elemental_energies)
-
-    if relax_cell
-        smat = external_stress_matrix([pressure])
-        calc = MetaCalculator(calc, [CellRelaxationModifier(get_cell(calc); external_pressure=smat)])
-    end
-
     options = RelaxOption(;
         method,
-        force_threshold=f_tol,
-        stress_threshold=s_tol,
         relax_cell,
         iterations=max_steps,
+        force_threshold=f_tol,
+        stress_threshold=s_tol,
+        external_pressure=[pressure],
     )
     re = Relax(calc, options)
     result = multirelax!(re; max_iter=max_steps)

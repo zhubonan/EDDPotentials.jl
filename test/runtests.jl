@@ -39,6 +39,7 @@ include("utils.jl")
 include("test_layer_boundaries.jl")
 include("test_source_topology.jl")
 include("test_core_module_namespace.jl")
+include("test_namespace_modules.jl")
 include("test_nnls.jl")
 
 include("test_records.jl")

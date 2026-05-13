@@ -83,36 +83,85 @@ import .EDDPotentialsCore:
     reinit!,
     clear_transient_gradients!
 
-# Functional layer (training/workflow/analysis)
-include("lmsolve.jl")
-include("lmsolve_batched.jl")
-include("preprocessing.jl")
+# Functional layer (data/training/simulation/search/workflow/analysis)
+include("training/lmsolve.jl")
+include("training/lmsolve_batched.jl")
+include("data/preprocessing.jl")
+using .Data
+using .Data: _load_structures_from_path, _parse_path_slice, _count_extxyz_frames, _python_slice_to_range
 include("tools.jl")
 # include("eddpf90.jl")  -- removed (Fortran interface, unused in production)
-include("sgd_training.jl")
-include("training.jl")
-include("evaluation.jl")
-include("optimizer/abstract.jl")
-include("functional/functional.jl")
+include("training/sgd_training.jl")
+include("training/training.jl")
 
-include("optimizer/utils.jl")
-include("optimizer/constraints.jl")
-include("optimizer/tpsd.jl")
-include("optimizer/fire.jl")
-include("opt.jl")
-include("md.jl")
-include("hot.jl")
-include("records.jl")
+include("simulation/Simulation.jl")
+import .Simulation: step!
+using .Simulation:
+    AbstractOptimizer,
+    NativeTPSD,
+    NativeFIRE,
+    AbstractStepConstraint,
+    ZeroTranslationConstraint,
+    IonicConstraint,
+    FixCellConstraint,
+    FixVolumeConstraint,
+    TrajectoryFrame,
+    RelaxOption,
+    Relax,
+    RelaxResult,
+    MDIntegrator,
+    MDRunner,
+    MDState,
+    VelocityVerlet,
+    Langevin,
+    BerendsenNVT,
+    apply_step_constraints!,
+    initialize!,
+    converged,
+    reset!,
+    get_iteration,
+    optimize!,
+    opt_tpsd,
+    opt_fire,
+    relax!,
+    multirelax!,
+    external_stress_matrix,
+    external_pressure_matrix,
+    run!,
+    kinetic_energy,
+    temperature,
+    maxwell_boltzmann_velocities,
+    compute_kinetic_energy,
+    compute_temperature,
+    rescale_velocities!,
+    zero_com_velocity!,
+    KB,
+    total_energy,
+    instantaneous_pressure,
+    save_trajectory,
+    save_frame,
+    time_fs,
+    time_ps
+
+include("search/buildcell.jl")
+include("search/transforms.jl")
+include("search/hot.jl")
+include("search/rss.jl")
+include("search/minsep.jl")
+include("search/model_structures.jl")
+
+include("analysis/evaluation.jl")
+include("analysis/records.jl")
 include("link/link.jl")
-include("hyper.jl")
+include("workflow/hyper.jl")
 
-include("minsep.jl")
-include("plotting/recipes.jl")
-include("lazy_res.jl")
-include("model_structures.jl")
-include("plotting.jl")
+include("analysis/plotting/recipes.jl")
+include("analysis/lazy_res.jl")
+include("analysis/plotting.jl")
+include("namespaces.jl")
 
 export EDDPotentialsCore
+export Potential, Model, Data, Training, Simulation, Search, Workflow, Analysis, Tools
 export enable_eddp_timer!, disable_eddp_timer!, reset_eddp_timer!
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
 export displace!, clip, Cell, supercell
@@ -183,6 +232,8 @@ export nfeatures
 export MDRunner, MDState, VelocityVerlet, Langevin, BerendsenNVT
 export run!, step!, kinetic_energy, temperature, maxwell_boltzmann_velocities
 export total_energy, instantaneous_pressure, save_trajectory, save_frame
+export compute_kinetic_energy, compute_temperature
+export rescale_velocities!, zero_com_velocity!, KB
 export time_fs, time_ps
 # Hot-AIRSS exports
 export HotAIRSSOption, hot_airss!, HotAIRSSResult

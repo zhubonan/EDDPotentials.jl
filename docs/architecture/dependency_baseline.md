@@ -1,325 +1,57 @@
-# Source Dependency Report
+# Source Dependency Baseline
 
-- Generated: 2026-02-23 20:17:36
-- Entrypoint: `src/EDDPotentials.jl`
-- Included source files: 60
-- Total source files: 64
-- Non-experimental orphans: 0
+This baseline records the current logical source layout. It is intentionally
+compact; the live guardrails are `test/test_source_topology.jl`,
+`test/test_layer_boundaries.jl`, and `test/test_namespace_modules.jl`.
 
-## Include Graph
+## Entrypoint
+
 - `src/EDDPotentials.jl`
-  - includes `src/core/EDDPotentialsCore.jl`
-  - includes `src/lmsolve.jl`
-  - includes `src/preprocessing.jl`
-  - includes `src/eddpf90.jl`
-  - includes `src/training.jl`
-  - includes `src/tools.jl`
-  - includes `src/functional/functional.jl`
-  - includes `src/optimizer/abstract.jl`
-  - includes `src/optimizer/utils.jl`
-  - includes `src/optimizer/tpsd.jl`
-  - includes `src/optimizer/fire.jl`
-  - includes `src/opt.jl`
-  - includes `src/records.jl`
-  - includes `src/quickbuild.jl`
-  - includes `src/link/link.jl`
-  - includes `src/hyper.jl`
-  - includes `src/minsep.jl`
-  - includes `src/plotting/recipes.jl`
-  - includes `src/lazy_res.jl`
-  - includes `src/model_structures.jl`
-  - includes `src/plotting.jl`
-- `src/core/EDDPotentialsCore.jl`
-  - includes `src/core/constants.jl`
-  - includes `src/core/nnls/nnls.jl`
-  - includes `src/core/utils/utils.jl`
-  - includes `src/core/feature/feature.jl`
-  - includes `src/core/embedding.jl`
-  - includes `src/core/embedding_rules.jl`
-  - includes `src/core/gradient/gradient.jl`
-  - includes `src/core/nn/interface.jl`
-  - includes `src/core/nntools.jl`
-  - includes `src/core/calculator.jl`
-  - includes `src/core/calculator/modifiers/modifiers.jl`
-  - includes `src/core/calculator/metacalculator.jl`
-  - includes `src/core/pairpot.jl`
-- `src/core/calculator.jl`
-- `src/core/calculator/metacalculator.jl`
-- `src/core/calculator/modifiers/abstract.jl`
-- `src/core/calculator/modifiers/additive_calc.jl`
-- `src/core/calculator/modifiers/cell_relaxation.jl`
-- `src/core/calculator/modifiers/dimension_penalty.jl`
-- `src/core/calculator/modifiers/modifiers.jl`
-  - includes `src/core/calculator/modifiers/abstract.jl`
-  - includes `src/core/calculator/modifiers/dimension_penalty.jl`
-  - includes `src/core/calculator/modifiers/cell_relaxation.jl`
-  - includes `src/core/calculator/modifiers/additive_calc.jl`
-- `src/core/constants.jl`
-- `src/core/embedding.jl`
-- `src/core/embedding_rules.jl`
-- `src/core/feature/cell.jl`
-- `src/core/feature/compute.jl`
-- `src/core/feature/feature.jl`
-  - includes `src/core/feature/cell.jl`
-  - includes `src/core/feature/lookup.jl`
-  - includes `src/core/feature/compute.jl`
-- `src/core/feature/lookup.jl`
-- `src/core/gradient/gradient.jl`
-  - includes `src/core/gradient/repulsive_core.jl`
-  - includes `src/core/gradient/workspace.jl`
-- `src/core/gradient/repulsive_core.jl`
-- `src/core/gradient/workspace.jl`
-- `src/core/nn/ensemble.jl`
-- `src/core/nn/flux.jl`
-- `src/core/nn/interface.jl`
-  - includes `src/core/nn/manual_backprop.jl`
-  - includes `src/core/nn/linear.jl`
-  - includes `src/core/nn/ensemble.jl`
-  - includes `src/core/nn/flux.jl`
-- `src/core/nn/linear.jl`
-- `src/core/nn/manual_backprop.jl`
-- `src/core/nnls/nnls.jl`
-- `src/core/nntools.jl`
-- `src/core/pairpot.jl`
-- `src/core/utils/utils.jl`
-- `src/eddpf90.jl`
-- `src/functional/buildcell.jl`
-- `src/functional/functional.jl`
-  - includes `src/functional/transforms.jl`
-  - includes `src/functional/buildcell.jl`
-  - includes `src/functional/relax.jl`
-  - includes `src/functional/rss.jl`
-- `src/functional/relax.jl`
-- `src/functional/rss.jl`
-- `src/functional/transforms.jl`
-- `src/hyper.jl`
-- `src/lazy_res.jl`
-- `src/link/analysis.jl`
-- `src/link/data.jl`
-- `src/link/external.jl`
-- `src/link/link.jl`
-  - includes `src/link/options.jl`
-  - includes `src/link/utils.jl`
-  - includes `src/link/workflow.jl`
-  - includes `src/link/trainer.jl`
-  - includes `src/link/external.jl`
-  - includes `src/link/data.jl`
-  - includes `src/link/analysis.jl`
-- `src/link/options.jl`
-- `src/link/trainer.jl`
-- `src/link/utils.jl`
-- `src/link/workflow.jl`
-- `src/lmsolve.jl`
-- `src/minsep.jl`
-- `src/model_structures.jl`
-- `src/opt.jl`
-  - includes `src/tpsd.jl`
-- `src/optimizer/abstract.jl`
-- `src/optimizer/fire.jl`
-- `src/optimizer/tpsd.jl`
-- `src/optimizer/utils.jl`
-- `src/plotting.jl`
-- `src/plotting/recipes.jl`
-- `src/preprocessing.jl`
-- `src/quickbuild.jl`
-- `src/records.jl`
-- `src/tools.jl`
-- `src/tpsd.jl`
-- `src/training.jl`
 
-## Imports By File
-- `src/EDDPotentials.jl`
-  - `CellBase: read_castep`
-  - `CellBase`
-  - `StatsBase: mean`
-  - `TimerOutputs`
-  - `Glob`
-  - `.EDDPotentialsCore`
-  - `.EDDPotentialsCore:`
-- `src/core/EDDPotentialsCore.jl`
-  - `TimerOutputs`
-  - `StatsBase: mean, std`
-  - `Glob: glob`
-- `src/core/calculator.jl`
-  - `Optim`
-  - `Base`
-  - `Optim: LBFGS, optimize`
-  - `LineSearches: HagerZhang`
-  - `LinearAlgebra`
-  - `CellBase:`
-  - `StatsBase: ZScoreTransform, transform!`
-- `src/core/embedding.jl`
-  - `Flux`
-- `src/core/embedding_rules.jl`
-  - `ChainRulesCore: rrule, NoTangent, unthunk`
-- `src/core/feature/feature.jl`
-  - `Base`
-  - `CellBase`
-  - `StaticArrays`
-  - `Parameters`
-- `src/core/gradient/gradient.jl`
-  - `StaticArrays`
-  - `Base.Threads`
-- `src/core/nn/ensemble.jl`
-  - `Base`
-- `src/core/nn/flux.jl`
-  - `Flux`
-- `src/core/nn/interface.jl`
-  - `JLD2`
-  - `StatsBase: ZScoreTransform, fit, transform!, reconstruct!`
-- `src/core/nn/manual_backprop.jl`
-  - `Base`
-  - `JLD2`
-  - `LinearAlgebra`
-  - `Flux`
-  - `Zygote`
-  - `JLD2`
-- `src/core/nnls/nnls.jl`
-  - `LinearAlgebra`
-  - `StatsBase: mean`
-- `src/core/nntools.jl`
-  - `Random`
-  - `Flux`
-- `src/eddpf90.jl`
-  - `CellBase`
-  - `Printf`
-- `src/functional/relax.jl`
-  - `LinearAlgebra`
-  - `GarishPrint`
-  - `ExtXYZ`
-  - `Printf`
-  - `Optim: optimize, LBFGS, BFGS`
-  - `Optim.LineSearches: BackTracking`
-  - `Configurations`
-- `src/lazy_res.jl`
-  - `CellBase`
-  - `CellBase`
-  - `StatsBase`
-- `src/link/external.jl`
-  - `Random`
-  - `JSON`
-- `src/link/link.jl`
-  - `Base`
-  - `Parameters`
-  - `JSON`
-  - `YAML`
-  - `TOML`
-  - `ArgParse`
-  - `Random`
-- `src/link/options.jl`
-  - `Configurations`
-  - `GarishPrint`
-  - `.EDDPotentialsCore: CellFeature, Embedding, fr, gfr`
-- `src/link/trainer.jl`
-  - `ArgParse`
-- `src/link/workflow.jl`
-  - `Parameters`
-  - `JSON`
-  - `YAML`
-  - `TOML`
-  - `ArgParse`
-  - `Random`
-  - `.EDDPotentialsCore: CellEmbedding`
-- `src/lmsolve.jl`
-  - `Base.Threads`
-  - `Distributions`
-  - `OptimBase`
-  - `LinearAlgebra`
-  - `NLSolversBase: value, jacobian`
-  - `StatsBase`
-  - `StatsBase: coef, dof, nobs, rss, stderror, weights, residuals`
-  - `LsqFit`
-  - `Base.summary`
-- `src/minsep.jl`
-  - `CellBase`
-- `src/model_structures.jl`
-  - `Combinatorics: with_replacement_combinations`
-- `src/opt.jl`
-  - `LinearAlgebra`
-- `src/optimizer/fire.jl`
-  - `LinearAlgebra`
-  - `Parameters`
-  - `Printf`
-- `src/optimizer/tpsd.jl`
-  - `LinearAlgebra`
-  - `Parameters`
-  - `Printf`
-- `src/optimizer/utils.jl`
-  - `LinearAlgebra`
-- `src/plotting/recipes.jl`
-  - `RecipesBase`
-  - `LaTeXStrings`
-- `src/preprocessing.jl`
-  - `JLD2`
-  - `StatsBase`
-  - `StatsBase: transform!, reconstruct!, ZScoreTransform`
-  - `Random`
-  - `Glob`
-  - `CellBase`
-  - `ProgressMeter`
-  - `CellBase: natoms, reduce, Composition`
-  - `Base`
-  - `Base.Threads`
-  - `EDDPotentials`
-- `src/quickbuild.jl`
-  - `CellBase`
-- `src/records.jl`
-  - `Base`
-  - `CellBase`
-  - `DirectQhull`
-  - `CellBase`
-  - `LinearAlgebra`
-- `src/tools.jl`
-  - `CellBase: rattle!, reduce, Composition`
-  - `NLSolversBase`
-  - `ProgressMeter: @showprogress`
-  - `CellBase: write_res`
-  - `StatsBase`
-  - `Base.Threads`
-  - `JLD2`
-  - `Dates`
-  - `UUIDs`
-- `src/tpsd.jl`
-  - `Optim`
-- `src/training.jl`
-  - `Base.Threads`
-  - `Dates`
-  - `JLD2`
-  - `Glob`
-  - `Printf`
-  - `.EDDPotentialsCore.NNLS: nnls`
-  - `NLSolversBase`
-  - `ProgressMeter: Progress`
-  - `Parameters`
-  - `Printf`
-  - `StatsBase`
-  - `Flux: Dense, Chain, tanh`
-  - `Flux`
-  - `Base`
-  - `CellBase`
-  - `Logging`
-  - `NonNegLeastSquares`
-  - `.EDDPotentialsCore: paramvector`
-  - `.EDDPotentialsCore: EnsembleNNInterface`
-  - `ExtXYZ`
-  - `the full dataset containing different compositions.`
+## Logical Groups
 
-## Largest Included Files
-- `src/link/external.jl`: 925 LOC
-- `src/core/nnls/nnls.jl`: 918 LOC
-- `src/training.jl`: 858 LOC
-- `src/link/workflow.jl`: 789 LOC
-- `src/preprocessing.jl`: 748 LOC
-- `src/core/calculator.jl`: 661 LOC
-- `src/core/gradient/gradient.jl`: 658 LOC
-- `src/core/feature/feature.jl`: 541 LOC
-- `src/records.jl`: 471 LOC
-- `src/core/nn/manual_backprop.jl`: 451 LOC
-- `src/lmsolve.jl`: 414 LOC
-- `src/core/embedding.jl`: 408 LOC
-- `src/tools.jl`: 393 LOC
-- `src/plotting/recipes.jl`: 338 LOC
-- `src/core/nntools.jl`: 325 LOC
+- `src/core/`: potential runtime internals: features, gradients, NN interfaces,
+  calculators, modifiers, model artifacts, and pair potentials.
+- `src/data/`: structure loading, `StructureContainer`, `FeatureStore`,
+  batching, splitting, and streaming feature-store IO.
+- `src/training/`: LM, batched LM, SGD, high-level training, ensembles, and
+  training result helpers.
+- `src/simulation/`: native optimizers, relaxation, hyperspace support used by
+  relaxation, and molecular dynamics.
+- `src/search/`: buildcell integration, standalone RSS, Hot-AIRSS, minimum
+  separation utilities, and model-structure generation.
+- `src/link/`: active-learning Builder workflow, external DFT runners, workflow
+  config, workflow data/training adapters, and formula sampling.
+- `src/workflow/`: workflow-specific high-level helpers that depend on Builder
+  state, currently including Builder-based hyperspace entry points.
+- `src/analysis/`: evaluation metrics, phase diagrams/records, plotting hooks,
+  and lazy SHELX result inspection.
+- `src/tools.jl`: shared diagnostics and small utilities that have not yet been
+  moved into a narrower logical group.
+- `src/namespaces.jl`: compatibility-preserving namespace facades:
+  `Potential`, `Model`, `Data`, `Training`, `Simulation`, `Search`, `Workflow`,
+  `Analysis`, and `Tools`.
 
-## Orphans (Non-Experimental)
-- None
+## Dependency Direction
+
+The intended dependency direction is:
+
+```text
+core
+  -> data
+  -> training
+  -> simulation
+  -> search
+  -> analysis
+  -> link/workflow
+```
+
+The top-level module is a compatibility facade and may re-export symbols from
+all groups. No lower-level group should depend on `link/` or `workflow/`.
+
+## Notes
+
+- `src/experimental/` remains intentionally outside the runtime include graph.
+- `EDDPotentialsCore` is retained for compatibility.
+- New code should prefer the logical namespace facades instead of adding more
+  unqualified top-level coupling.

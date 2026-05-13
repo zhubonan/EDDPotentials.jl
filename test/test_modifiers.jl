@@ -10,7 +10,6 @@ using EDDPotentials.EDDPotentialsCore: set_parameter!, get_parameter, post_calcu
 
     # Test that concrete modifiers are subtypes
     @test ExtraDimensionPenaltyModifier <: AbstractModifier
-    # CellRelaxationModifier removed
     @test AdditiveCalculatorModifier <: AbstractModifier
 end
 
@@ -85,9 +84,6 @@ end
         @test occursin("4", str)
     end
 end
-
-# removed @testset "CellRelaxationModifier"
-  # end removed
 
 @testset "VolumeConstraintModifier.post_calculate!" begin
         cell = Cell(Lattice(4,4,4), [:H,:H], [0 1.0; 0 0.0; 0 0])
