@@ -1,3 +1,5 @@
+module Data
+
 using JLD2
 using StatsBase: fit, transform!, reconstruct!, ZScoreTransform
 using Random
@@ -6,10 +8,44 @@ using CellBase
 using ExtXYZ
 using LinearAlgebra: norm
 import ProgressMeter
-import CellBase: natoms, reduce, Composition
-import Base
-
+import CellBase: natoms
+using CellBase:
+    Cell,
+    Composition,
+    formula_and_factor,
+    reduce,
+    reduce_composition,
+    species,
+    volume
+using ..EDDPotentialsCore:
+    AbstractCellFeatureSpec,
+    CellFeature,
+    GPaToeVAng,
+    feature_size,
+    feature_vector,
+    get_elemental_energy,
+    glob_allow_abs
 using Base.Threads
+
+export StructureContainer,
+    FeatureStore,
+    FeatureBatch,
+    FeatureBatchIterator,
+    each_batch,
+    get_data,
+    get_fit_data,
+    load_batch,
+    load_batch_H,
+    save_feature_store,
+    load_feature_store,
+    save_feature_store_streaming,
+    split_and_featurize,
+    train_val_split,
+    enthalpy_per_atom,
+    standardize!,
+    synthetic_force_data
+
+_local_stem(path::AbstractString) = splitext(basename(path))[1]
 
 """
     StructureContainer{T,N,D}
@@ -251,14 +287,14 @@ function _load_structures_from_path(path::AbstractString)
             raw_dicts = ExtXYZ.read_frames(filepath, contiguous)
             indices = frame_range .- first(frame_range) .+ 1
             for (i, idx) in enumerate(indices)
-                push!(cells, _normalize_extxyz_cell!(_extxyz_dict_to_cell(raw_dicts[idx]), "$(stem(filepath))-$i"))
+                push!(cells, _normalize_extxyz_cell!(_extxyz_dict_to_cell(raw_dicts[idx]), "$(_local_stem(filepath))-$i"))
             end
             return cells
         end
         loaded = ExtXYZ.load(filepath)
         systems = loaded isa AbstractVector ? loaded : [loaded]
         for (i, system) in enumerate(systems)
-            push!(cells, _normalize_extxyz_cell!(Cell(system), "$(stem(filepath))-$i"))
+            push!(cells, _normalize_extxyz_cell!(Cell(system), "$(_local_stem(filepath))-$i"))
         end
         return cells
     end
@@ -646,7 +682,7 @@ function FeatureStore(
     labels = collect(String, sc.paths)
     metadata = [cell.metadata for cell in sc.structures]
     if show_progress
-        p = Progress(length(sc))
+        p = ProgressMeter.Progress(length(sc))
     end
     jj = Atomic{Int}(0)
     l = ReentrantLock()
@@ -1645,3 +1681,5 @@ function save_feature_store_streaming(
 
     return store, fs_val
 end
+
+end # module Data

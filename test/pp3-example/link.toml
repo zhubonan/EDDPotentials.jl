@@ -22,7 +22,7 @@ packed = false
 
 [trainer]
 log_file = "train-log"
-type = "locallm"
+train_method = "lm"
 energy_threshold = 100
 nmodels = 16
 n_nodes = [4]

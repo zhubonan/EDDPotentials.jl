@@ -109,9 +109,8 @@ _hyper_max_iterations(opts::RelaxOption) = opts.hyper_target_iterations > 0 ? op
 Perform hyperspace relaxation on a calculator with a bound cell.
 
 Extracts model components from the calculator, adds extra dimensions,
-builds a `MetaCalculator` with `ExtraDimensionPenaltyModifier` and
-`CellRelaxationModifier`, runs `scheduled_penalty_relax!`, then does a
-3D cleanup relaxation.
+builds a `MetaCalculator` with `ExtraDimensionPenaltyModifier`, runs
+`scheduled_penalty_relax!`, then does a 3D cleanup relaxation.
 
 Supports `EDDPCalculator` and `MetaCalculator` (extracts source).
 """
@@ -133,7 +132,8 @@ function _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
         ExtraDimensionPenaltyModifier(opts.hyper_alpha_start; start_dim=4),
     ])
     max_iter = _hyper_max_iterations(opts)
-    scheduled_penalty_relax!(metacalc;
+    parentmod = parentmodule(@__MODULE__)
+    parentmod.scheduled_penalty_relax!(metacalc;
         schedule_every=opts.hyper_schedule_every,
         max_iterations=max_iter,
         alpha_start=opts.hyper_alpha_start,

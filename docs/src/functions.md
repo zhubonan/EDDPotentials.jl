@@ -23,10 +23,10 @@ Functions for training models from feature vectors, evaluating accuracy, and bui
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "preprocessing.jl",
-    "training.jl",
-    "lmsolve.jl",
-    "lmsolve_batched.jl",
+    "data/preprocessing.jl",
+    "training/training.jl",
+    "training/lmsolve.jl",
+    "training/lmsolve_batched.jl",
 ]
 ```
 
@@ -78,11 +78,11 @@ Structure optimization algorithms and high-level entry points. Use [`opt_fire`](
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "opt.jl",
-    "optimizer/abstract.jl",
-    "optimizer/constraints.jl",
-    "optimizer/tpsd.jl",
-    "optimizer/fire.jl",
+    "simulation/opt.jl",
+    "simulation/optimizer/abstract.jl",
+    "simulation/optimizer/constraints.jl",
+    "simulation/optimizer/tpsd.jl",
+    "simulation/optimizer/fire.jl",
 ]
 ```
 
@@ -93,7 +93,7 @@ Run molecular dynamics simulations with trained potentials. Supports NVE (Veloci
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "md.jl",
+    "simulation/md.jl",
 ]
 ```
 
@@ -140,7 +140,7 @@ calc = EDDPotentials.lj_baseline_calc(cell; sigma, epsilon, rcut=4.0)
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "functional/relax.jl",
+    "simulation/relax.jl",
 ]
 ```
 
@@ -151,7 +151,7 @@ Functions for structure relaxation in extended (hyperdimensional) configuration 
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "hyper.jl",
+    "workflow/hyper.jl",
 ]
 ```
 
@@ -178,9 +178,8 @@ Support utilities including serialization, plotting recipes, and file I/O helper
 Modules = [EDDPotentials]
 Pages = [
     "tools.jl",
-    "records.jl",
-    "plotting/recipes.jl",
-    "eddpf90.jl",
-    "lazy_res.jl",
+    "analysis/records.jl",
+    "analysis/plotting/recipes.jl",
+    "analysis/lazy_res.jl",
 ]
 ```

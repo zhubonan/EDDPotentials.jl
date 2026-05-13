@@ -48,14 +48,18 @@ function _print_formula_sampling_sample(
 end
 
 function _run_buildcell_diagnostic(seed_text::AbstractString; timeout::Real=10)
-    return read(
-        pipeline(
-            `timeout $(timeout) buildcell`,
-            stdin=IOBuffer(seed_text),
-            stderr=devnull,
-        ),
-        String,
-    )
+    mktemp() do _, io
+        write(io, seed_text)
+        seekstart(io)
+        return read(
+            pipeline(
+                `timeout $(timeout) buildcell`,
+                stdin=io,
+                stderr=devnull,
+            ),
+            String,
+        )
+    end
 end
 
 function _resolve_formula_diagnostic_save_dir(

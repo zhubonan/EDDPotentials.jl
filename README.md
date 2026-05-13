@@ -26,18 +26,15 @@ A recent pre-print explaining more applications of the model can found here: htt
 
 ## Internal architecture
 
-The source tree is separated into two internal layers:
+The source tree is grouped by logical responsibility:
 
-- `src/core/EDDPotentialsCore.jl`: standalone core submodule (`EDDPotentials.EDDPotentialsCore`) with feature generation, gradients, and calculator energy/force/stress evaluation.
-- `src/EDDPotentials.jl`: top-level module that imports `EDDPotentialsCore` and directly includes higher-level workflows (training, relaxations, builder workflows, analysis and plotting).
+- `src/core/`: potential runtime internals, exposed compatibly as `EDDPotentials.EDDPotentialsCore`.
+- `src/data/`, `src/training/`, `src/simulation/`, `src/search/`, `src/link/`, `src/workflow/`, and `src/analysis/`: higher-level data, training, simulation, search, active-learning, and analysis layers.
+- `src/namespaces.jl`: compatibility-preserving facades such as `EDDPotentials.Potential`, `EDDPotentials.Data`, and `EDDPotentials.Workflow`.
 - `src/experimental/`: archived prototypes that are intentionally not part of the runtime include graph.
 
 This separation is internal only; the public API remains available through `EDDPotentials`.
-You can regenerate the source dependency baseline with:
-
-```bash
-julia --project=. scripts/dependency_report.jl docs/architecture/dependency_baseline.md
-```
+See `docs/architecture/dependency_baseline.md` for the current layout summary.
 
 ## Related packages
 

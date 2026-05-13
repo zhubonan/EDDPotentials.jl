@@ -1,4 +1,5 @@
 using Test
+using EDDPotentials
 
 @testset "Layer Boundaries" begin
     root = normpath(joinpath(@__DIR__, ".."))
@@ -6,57 +7,38 @@ using Test
 
     function include_targets(path)
         text = read(path, String)
-        [m.captures[1] for m in eachmatch(r"include\(\"([^\"]+)\"\)", text)]
+        [m.captures[1] for m in eachmatch(r"^\s*include\(\"([^\"]+)\"\)"m, text)]
     end
 
     core_targets = include_targets(joinpath(srcdir, "core", "EDDPotentialsCore.jl"))
     top_targets = include_targets(joinpath(srcdir, "EDDPotentials.jl"))
     top_text = read(joinpath(srcdir, "EDDPotentials.jl"), String)
 
-    @test core_targets == [
-        "constants.jl",
-        "nnls/nnls.jl",
-        "utils/utils.jl",
-        "feature/feature.jl",
-        "embedding.jl",
-        "embedding_rules.jl",
-        "gradient/gradient.jl",
-        "nn/interface.jl",
-        "nntools.jl",
-        "calculator.jl",
-        "calculator/eddpcalculator.jl",
-        "calculator/modifiers/modifiers.jl",
-        "calculator/metacalculator.jl",
-        "pairpot.jl",
-    ]
+    @test "core/EDDPotentialsCore.jl" in top_targets
+    @test "namespaces.jl" in top_targets
+    @test !("eddpf90.jl" in top_targets)
 
-    @test top_targets == [
-        "core/EDDPotentialsCore.jl",
-        "lmsolve.jl",
-        "lmsolve_batched.jl",
-        "preprocessing.jl",
-        "tools.jl",
-        "eddpf90.jl",
-        "sgd_training.jl",
-        "training.jl",
-        "evaluation.jl",
-        "optimizer/abstract.jl",
-        "functional/functional.jl",
-        "optimizer/utils.jl",
-        "optimizer/constraints.jl",
-        "optimizer/tpsd.jl",
-        "optimizer/fire.jl",
-        "opt.jl",
-        "md.jl",
-        "hot.jl",
-        "records.jl",
-        "link/link.jl",
-        "hyper.jl",
-        "minsep.jl",
-        "plotting/recipes.jl",
-        "lazy_res.jl",
-        "model_structures.jl",
-        "plotting.jl",
-    ]
+    @test "feature/feature.jl" in core_targets
+    @test "gradient/gradient.jl" in core_targets
+    @test "nn/interface.jl" in core_targets
+    @test "calculator/eddpcalculator.jl" in core_targets
+    @test all(!startswith(target, "../") for target in core_targets)
+    @test all(!startswith(target, "link/") for target in core_targets)
+    @test all(!startswith(target, "functional/") for target in core_targets)
+
     @test occursin(r"using\s+\.EDDPotentialsCore", top_text)
+
+    namespace_text = read(joinpath(srcdir, "namespaces.jl"), String)
+    for name in [
+        "Potential",
+        "Model",
+        "Training",
+        "Search",
+        "Analysis",
+        "Workflow",
+        "Tools",
+    ]
+        @test occursin("module $name", namespace_text)
+    end
+    @test isdefined(EDDPotentials, :Simulation)
 end

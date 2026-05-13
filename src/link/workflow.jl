@@ -111,7 +111,7 @@ state:
     seedfile : "test.cell"
 
 trainer:
-    type : "locallm"
+    train_method : "lm"
     nmodels : 128
 cf:
     elements : ["H", "O"]
