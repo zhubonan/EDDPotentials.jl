@@ -3,8 +3,41 @@ using Test
 using TOML
 using Configurations
 
+isdefined(Main, :_h2_cell) || include("utils.jl")
+
 check_equal(a, b) = a == b
 check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
+
+function _builder_rattled_family_store()
+    base = _h2o_cell()
+    labels = [
+        "builder-parent-a",
+        "builder-parent-a-shake-1",
+        "builder-parent-a-force-shake-1",
+        "builder-parent-b",
+        "builder-parent-b-shake-1",
+        "builder-parent-b-shake-2",
+        "builder-parent-c",
+        "builder-parent-c-shake-1",
+        "builder-parent-c-force-shake-1",
+    ]
+    cells = typeof(base)[deepcopy(base) for _ in labels]
+    for (i, cell) in enumerate(cells)
+        cell.metadata[:label] = labels[i]
+        set_positions!(cell, get_positions(cell) .+ 0.01 * i)
+    end
+    sc = EDDPotentials.StructureContainer(cells, -12.5 .+ 0.01 .* collect(eachindex(cells)), labels)
+    cf = EDDPotentials.CellFeature(unique(species(base)); p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
+    EDDPotentials.FeatureStore(sc, cf; show_progress=false)
+end
+
+function _builder_parent_sets(train, val, test)
+    parent(label) = begin
+        result = match(r"^(.+?)(?:-force)?-shake-\d+$", label)
+        isnothing(result) ? label : result.captures[1]
+    end
+    map(fc -> Set(parent.(fc.labels)), (train, val, test))
+end
 
 @testset "Builder" begin
 
@@ -130,6 +163,34 @@ check_equal(a::AbstractArray, b::AbstractArray) = all(a .== b)
                 bad_scheduler,
                 workdir,
             )
+        end
+    end
+
+    @testset "Training dataset respects rattled groups when configured" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            cf = EDDPotentials.CellFeatureConfig(elements=["H", "O"])
+            rss = EDDPotentials.RssSetting()
+            trainer = EDDPotentials.TrainingOption()
+            trainer.train_split = [1.0, 1.0, 1.0]
+            trainer.respect_shakes = true
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing)
+            builder = Builder(opt)
+
+            fs = _builder_rattled_family_store()
+            dataset_path = joinpath(temp, "training", "grouped-dataset.jld2")
+            EDDPotentials.write_dataset(builder, fs; name=dataset_path)
+            train, val, test = EDDPotentials.load_training_data(dataset_path)
+            train_parents, val_parents, test_parents = _builder_parent_sets(train, val, test)
+
+            @test isempty(intersect(train_parents, val_parents))
+            @test isempty(intersect(train_parents, test_parents))
+            @test isempty(intersect(val_parents, test_parents))
+            @test isfile(splitext(dataset_path)[1] * ".yaml")
         end
     end
 end

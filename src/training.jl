@@ -1097,22 +1097,23 @@ end
 function _prepare_split(sc::StructureContainer, feature_spec;
                         val_ratio::Float64, test_ratio::Float64, seed::Int,
                         elemental_energies, show_progress, nmax,
-                        use_force_data=false, nsynthetic=1, max_disp=0.05, force_key=:REF_forces)
+                        use_force_data=false, nsynthetic=1, max_disp=0.05, force_key=:REF_forces,
+                        respect_shakes=false)
     val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
     test_ratio > 0 || throw(ArgumentError("test_ratio must be > 0"))
-    N = length(sc)
+    N = respect_shakes ? length(unique(_split_group_labels(sc))) : length(sc)
     nval = Int(floor(N * val_ratio))
     ntest = Int(floor(N * test_ratio))
     nval > 0 || throw(ArgumentError(
-        "val_ratio=$val_ratio yields 0 validation structures from $N total"))
+        "val_ratio=$val_ratio yields 0 validation $(respect_shakes ? "structure groups" : "structures") from $N total"))
     ntest > 0 || throw(ArgumentError(
-        "test_ratio=$test_ratio yields 0 test structures from $N total"))
+        "test_ratio=$test_ratio yields 0 test $(respect_shakes ? "structure groups" : "structures") from $N total"))
     ntrain = N - nval - ntest
     ntrain > 0 || throw(ArgumentError(
-        "Not enough structures ($N) for val_ratio=$val_ratio + test_ratio=$test_ratio"))
+        "Not enough $(respect_shakes ? "structure groups" : "structures") ($N) for val_ratio=$val_ratio + test_ratio=$test_ratio"))
     split_and_featurize(sc, feature_spec, ntrain, nval, ntest;
         seed, elemental_energies, show_progress, nmax,
-        use_force_data, nsynthetic, max_disp, force_key)
+        use_force_data, nsynthetic, max_disp, force_key, respect_shakes)
 end
 
 function _prepare_presplit(scs, feature_spec;
@@ -1147,7 +1148,7 @@ function _prepare_presplit(scs, feature_spec;
     Tuple(fcs)
 end
 
-function _prepare_fc_split(fs::FeatureStore; val_ratio::Float64, test_ratio::Float64, seed::Int)
+function _prepare_fc_split(fs::FeatureStore; val_ratio::Float64, test_ratio::Float64, seed::Int, respect_shakes=false)
     if fs.data === nothing
         error(
             "Cannot split a disk-backed FeatureStore for training. " *
@@ -1157,18 +1158,18 @@ function _prepare_fc_split(fs::FeatureStore; val_ratio::Float64, test_ratio::Flo
     end
     val_ratio > 0 || throw(ArgumentError("val_ratio must be > 0"))
     test_ratio > 0 || throw(ArgumentError("test_ratio must be > 0"))
-    N = length(fs)
+    N = respect_shakes ? length(unique(_split_group_labels(fs))) : length(fs)
     nval = Int(floor(N * val_ratio))
     ntest = Int(floor(N * test_ratio))
     nval > 0 || throw(ArgumentError(
-        "val_ratio=$val_ratio yields 0 validation structures from $N total"))
+        "val_ratio=$val_ratio yields 0 validation $(respect_shakes ? "structure groups" : "structures") from $N total"))
     ntest > 0 || throw(ArgumentError(
-        "test_ratio=$test_ratio yields 0 test structures from $N total"))
+        "test_ratio=$test_ratio yields 0 test $(respect_shakes ? "structure groups" : "structures") from $N total"))
     ntrain = N - nval - ntest
     ntrain > 0 || throw(ArgumentError(
-        "Not enough structures ($N) for val_ratio=$val_ratio + test_ratio=$test_ratio"))
+        "Not enough $(respect_shakes ? "structure groups" : "structures") ($N) for val_ratio=$val_ratio + test_ratio=$test_ratio"))
     fs_clean = _reset_transforms(fs)
-    split(fs_clean, ntrain, nval, ntest; standardize=true, seed)
+    split(fs_clean, ntrain, nval, ntest; standardize=true, seed, respect_shakes)
 end
 
 function _reset_transforms(fs::FeatureStore)
@@ -1409,6 +1410,7 @@ during the training loop.
 - `nsynthetic=1`: number of synthetic structures per parent with forces.
 - `max_disp=0.05`: maximum per-atom displacement for synthetic structures (Å).
 - `force_key=:REF_forces`: `cell.arrays` key for the force matrix.
+- `respect_shakes=false`: keep `label-shake-N` and `label-force-shake-N` families together when splitting.
 - All training keyword arguments (e.g. `max_epochs`, `earlystop`, `batch_size`, `lr`) are forwarded to
   [`train_model(::FeatureStore, ::FeatureStore, ::FeatureStore)`](@ref).
   See that method's docstring for the full list and defaults of training-related parameters.
@@ -1467,13 +1469,14 @@ function train_model(
     nsynthetic=1,
     max_disp=0.05,
     force_key=:REF_forces,
+    respect_shakes=false,
     kwargs...,
 )
     sc = _sc_from_paths(data; threshold, pressure_gpa)
     verbose && println("Loaded $(length(sc)) structures after filtering.")
     fc_train, fc_val, fc_test = _prepare_split(
         sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax,
-        use_force_data, nsynthetic, max_disp, force_key)
+        use_force_data, nsynthetic, max_disp, force_key, respect_shakes)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1501,6 +1504,7 @@ function train_model(
     nsynthetic=1,
     max_disp=0.05,
     force_key=:REF_forces,
+    respect_shakes=false,
     kwargs...,
 )
     sc = _sc_from_paths(data; threshold, pressure_gpa)
@@ -1508,7 +1512,7 @@ function train_model(
     feature_spec = _infer_feature_spec(sc, (; p2, p3, q3, rcut2, rcut3))
     fc_train, fc_val, fc_test = _prepare_split(
         sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax,
-        use_force_data, nsynthetic, max_disp, force_key)
+        use_force_data, nsynthetic, max_disp, force_key, respect_shakes)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1530,11 +1534,12 @@ function train_model(
     nsynthetic=1,
     max_disp=0.05,
     force_key=:REF_forces,
+    respect_shakes=false,
     kwargs...,
 )
     fc_train, fc_val, fc_test = _prepare_split(
         sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax,
-        use_force_data, nsynthetic, max_disp, force_key)
+        use_force_data, nsynthetic, max_disp, force_key, respect_shakes)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1560,12 +1565,13 @@ function train_model(
     nsynthetic=1,
     max_disp=0.05,
     force_key=:REF_forces,
+    respect_shakes=false,
     kwargs...,
 )
     feature_spec = _infer_feature_spec(sc, (; p2, p3, q3, rcut2, rcut3))
     fc_train, fc_val, fc_test = _prepare_split(
         sc, feature_spec; val_ratio, test_ratio, seed, elemental_energies, show_progress, nmax,
-        use_force_data, nsynthetic, max_disp, force_key)
+        use_force_data, nsynthetic, max_disp, force_key, respect_shakes)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
 end
@@ -1580,6 +1586,7 @@ function train_model(
     train_method::Symbol=:lm_batched,
     verbose::Bool=true,
     show_progress::Bool=true,
+    respect_shakes=false,
     kwargs...,
 )
     if haskey(Dict(kwargs), :use_force_data) && get(Dict(kwargs), :use_force_data, false) === true
@@ -1590,7 +1597,7 @@ function train_model(
             "`train_model` instead.",
         ))
     end
-    fc_train, fc_val, fc_test = _prepare_fc_split(fs; val_ratio, test_ratio, seed)
+    fc_train, fc_val, fc_test = _prepare_fc_split(fs; val_ratio, test_ratio, seed, respect_shakes)
     return train_model(fc_train, fc_val, fc_test;
         nnodes, train_method, verbose, show_progress, kwargs...)
 end

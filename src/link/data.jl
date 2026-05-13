@@ -143,6 +143,7 @@ function split_then_featurize(bu::Builder, nsplit::Vararg; kwargs...)
         use_force_data=bu.state.use_synthetic_force_data,
         nsynthetic=bu.state.synthetic_force_n,
         max_disp=bu.state.synthetic_force_max_disp,
+        respect_shakes=bu.trainer.respect_shakes,
         kwargs...,
     )
 end

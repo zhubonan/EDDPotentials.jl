@@ -158,6 +158,7 @@ abstract type AbstractTrainer end
 - `training_mode`: The mode of training. Currently, only `manual_backprop` and `linear` are supported.
 - `training_kwargs`: The key word arguments to be used for the training function.
 - `train_split`: The split ratios for the training set, in the order [train, validation, test].
+- `respect_shakes`: Keep rattled/unrattled `-shake-N` families in the same split when preparing datasets.
 - `use_validation_for_ensemble`: Whether to use the validation set for ensemble building.
 - `save_each_model`: Whether to save each trained model during the training (deprecated, only used for multi-thread training which is not efficient).
 - `p`: The power for computing the loss function for the Levernberg-Marquardt algorithm.
@@ -194,6 +195,7 @@ abstract type AbstractTrainer end
     training_mode::String = "manual_backprop"
     training_kwargs::Dict{String,Any} = Dict{String,Any}()
     train_split::Vector{Float64} = [0.8, 0.1, 0.1]
+    respect_shakes::Bool = false
     use_validation_for_ensemble::Bool = true
     save_each_model::Bool = true
     p::Float64 = 1.25

@@ -87,7 +87,11 @@ end
 
 function write_dataset(bu::Builder, fs::FeatureStore; name=dataset_name(bu))
     ensure_dir(splitdir(name)[1])
-    train, val, test = split(fs, bu.trainer.train_split...)
+    train, val, test = split(
+        fs,
+        bu.trainer.train_split...;
+        respect_shakes=bu.trainer.respect_shakes,
+    )
     _save_split_dataset(name, train, val, test)
 end
 

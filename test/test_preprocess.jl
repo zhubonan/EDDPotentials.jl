@@ -6,6 +6,43 @@ using StatsBase
 using Random
 using LinearAlgebra: norm
 
+function _rattled_family_sc()
+    base = _h2o_cell()
+    labels = [
+        "parent-a",
+        "parent-b",
+        "parent-a-shake-1",
+        "parent-a-shake-2",
+        "parent-a-force-shake-1",
+        "parent-b-shake-1",
+    ]
+    cells = typeof(base)[deepcopy(base) for _ in labels]
+    for (i, cell) in enumerate(cells)
+        cell.metadata[:label] = labels[i]
+        set_positions!(cell, get_positions(cell) .+ 0.01 * i)
+    end
+    StructureContainer(cells, -12.5 .+ 0.01 .* collect(eachindex(cells)), labels)
+end
+
+_test_parent_label(label) = begin
+    result = match(r"^(.+?)(?:-force)?-shake-\d+$", label)
+    isnothing(result) ? label : result.captures[1]
+end
+
+function _assert_group_clean(splits...)
+    owners = Dict{String,Int}()
+    for (isplit, labels) in enumerate(splits)
+        for label in labels
+            parent = _test_parent_label(label)
+            if haskey(owners, parent)
+                @test owners[parent] == isplit
+            else
+                owners[parent] = isplit
+            end
+        end
+    end
+end
+
 @testset "Preprocess" begin
     fpath = joinpath(datadir, "training/*.res")
     fpath = relpath(fpath, pwd())
@@ -66,6 +103,40 @@ using LinearAlgebra: norm
     # fvecs remain untransformed (standardize! only stores transforms, does not touch data)
     @test get_data(fc1)[1] ≈ get_data(fc)[1]
 
+end
+
+@testset "Respect rattled structure groups" begin
+    sc = _rattled_family_sc()
+
+    # Old default: per-structure splitting can separate parents from shakes.
+    default_a, default_b = split(sc, 3, 3; shuffle=false, standardize=false)
+    @test "parent-a" in default_a.paths
+    @test any(label -> startswith(label, "parent-a") && occursin("-shake-", label), default_b.paths)
+
+    grouped_a, grouped_b = split(sc, 1, 1; shuffle=false, respect_shakes=true, standardize=false)
+    @test Set(grouped_a.paths) == Set([
+        "parent-a",
+        "parent-a-shake-1",
+        "parent-a-shake-2",
+        "parent-a-force-shake-1",
+    ])
+    @test Set(grouped_b.paths) == Set(["parent-b", "parent-b-shake-1"])
+    _assert_group_clean(grouped_a.paths, grouped_b.paths)
+
+    cf = CellFeature(unique(species(sc.structures[1])); p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
+    fc_a, fc_b = split_and_featurize(
+        sc,
+        cf,
+        1,
+        1;
+        shuffle=false,
+        respect_shakes=true,
+        standardize=false,
+        show_progress=false,
+    )
+    @test Set(fc_a.labels) == Set(grouped_a.paths)
+    @test Set(fc_b.labels) == Set(grouped_b.paths)
+    _assert_group_clean(fc_a.labels, fc_b.labels)
 end
 
 @testset "split_and_featurize" begin

@@ -10,16 +10,16 @@ EDDPotentials.jl implements Ephemeral Data Derived Potentials (EDDP) — physica
 
 ```bash
 # Run full test suite
-julia --project=test/ test/runtests.jl
+julia --project=. test/runtests.jl
 
 # Run a single test file
-julia --project=test/ -e 'include("test/test_calc.jl")'
+julia --project=. -e 'include("test/test_calc.jl")'
 
 # Run native optimizer tests (opt-in)
-EDDP_RUN_NATIVE_OPT_TESTS=1 julia --project=test/ test/runtests.jl
+EDDP_RUN_NATIVE_OPT_TESTS=1 julia --project=. test/runtests.jl
 
 # Run all tests that are relevant to code changes (recommended after any change)
-julia --project=test/ -e '
+julia --project=. -e '
   using Test
   test_files = [  # ordered as in runtests.jl
     "test_layer_boundaries.jl", "test_source_topology.jl",
@@ -34,11 +34,11 @@ julia --project=test/ -e '
     "test_modifiers.jl", "test_metacalculator.jl",
     "test_md.jl", "test_hot.jl",
   ]
-  for f in test_files; include(f); end
+  for f in test_files; include(joinpath("test", f)); end
 '
 
 # Run native optimizers individually
-EDDP_RUN_NATIVE_OPT_TESTS=1 julia --project=test/ -e 'include("test/test_native_optimizers.jl")'
+EDDP_RUN_NATIVE_OPT_TESTS=1 julia --project=. -e 'include("test/test_native_optimizers.jl")'
 
 # Ensure any code change passes at minimum:
 #   test_calc.jl, test_modifiers.jl, test_metacalculator.jl, test_builder.jl
@@ -46,7 +46,6 @@ EDDP_RUN_NATIVE_OPT_TESTS=1 julia --project=test/ -e 'include("test/test_native_
 
 # Instantiate dependencies
 julia --project=. -e "using Pkg; Pkg.instantiate()"
-julia --project=test/ -e "using Pkg; Pkg.instantiate()"
 
 # Format code (excludes scripts/ per .JuliaFormatter.toml)
 julia -e "using Pkg; Pkg.add(\"JuliaFormatter\"); using JuliaFormatter; format(\".\")"

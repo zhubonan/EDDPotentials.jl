@@ -39,6 +39,38 @@ using NLSolversBase
 
 isdefined(Main, :datadir) || include("utils.jl")
 
+function _train_rattled_family_sc()
+    base = _h2o_cell()
+    labels = [
+        "train-parent-a",
+        "train-parent-a-shake-1",
+        "train-parent-a-force-shake-1",
+        "train-parent-b",
+        "train-parent-b-shake-1",
+        "train-parent-b-shake-2",
+        "train-parent-c",
+        "train-parent-c-shake-1",
+        "train-parent-c-force-shake-1",
+    ]
+    cells = typeof(base)[deepcopy(base) for _ in labels]
+    for (i, cell) in enumerate(cells)
+        cell.metadata[:label] = labels[i]
+        set_positions!(cell, get_positions(cell) .+ 0.01 * i)
+    end
+    StructureContainer(cells, -12.5 .+ 0.01 .* collect(eachindex(cells)), labels)
+end
+
+function _train_parent_sets(tm)
+    parent(label) = begin
+        result = match(r"^(.+?)(?:-force)?-shake-\d+$", label)
+        isnothing(result) ? label : result.captures[1]
+    end
+    map(
+        fc -> Set(parent.(fc.labels)),
+        (tm.train_results.fc, tm.val_results.fc, tm.test_results.fc),
+    )
+end
+
 @testset "Training" begin
     @testset "Tools" begin
         nf = 1000
@@ -391,6 +423,50 @@ isdefined(Main, :datadir) || include("utils.jl")
                 @test tm1.train_results.fc.labels == tm2.train_results.fc.labels
                 @test tm1.val_results.fc.labels == tm2.val_results.fc.labels
                 @test tm1.test_results.fc.labels == tm2.test_results.fc.labels
+            end
+
+            @testset "respect_shakes for train_model StructureContainer" begin
+                rattled = _train_rattled_family_sc()
+                cf_rattle = CellFeature(unique(species(rattled.structures[1]));
+                    p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
+                tm = train_model(
+                    rattled,
+                    cf_rattle;
+                    val_ratio=0.34,
+                    test_ratio=0.34,
+                    respect_shakes=true,
+                    nnodes=[3],
+                    max_epochs=1,
+                    earlystop=2,
+                    verbose=false,
+                    show_progress=false,
+                )
+                train_parents, val_parents, test_parents = _train_parent_sets(tm)
+                @test isempty(intersect(train_parents, val_parents))
+                @test isempty(intersect(train_parents, test_parents))
+                @test isempty(intersect(val_parents, test_parents))
+            end
+
+            @testset "respect_shakes for train_model FeatureStore" begin
+                rattled = _train_rattled_family_sc()
+                cf_rattle = CellFeature(unique(species(rattled.structures[1]));
+                    p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
+                fs = FeatureStore(rattled, cf_rattle; show_progress=false)
+                tm = train_model(
+                    fs;
+                    val_ratio=0.34,
+                    test_ratio=0.34,
+                    respect_shakes=true,
+                    nnodes=[3],
+                    max_epochs=1,
+                    earlystop=2,
+                    verbose=false,
+                    show_progress=false,
+                )
+                train_parents, val_parents, test_parents = _train_parent_sets(tm)
+                @test isempty(intersect(train_parents, val_parents))
+                @test isempty(intersect(train_parents, test_parents))
+                @test isempty(intersect(val_parents, test_parents))
             end
 
             @testset "pre-split StructureContainers with feature_spec" begin

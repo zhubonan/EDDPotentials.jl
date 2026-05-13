@@ -523,6 +523,21 @@ function _split_vector(c, nsplit::Vararg{Real}; shuffle=true, seed=42)
     _split_vector(c, counts...; shuffle, seed)
 end
 
+function _shake_parent_label(label::AbstractString, metadata=nothing)
+    if metadata !== nothing && haskey(metadata, :synthetic_parent_label)
+        return string(metadata[:synthetic_parent_label])
+    end
+    result = match(r"^(.+?)(?:-force)?-shake-\d+$", label)
+    return isnothing(result) ? String(label) : result.captures[1]
+end
+
+function _split_group_labels(c::StructureContainer)
+    [
+        _shake_parent_label(c.paths[i], c.structures[i].metadata)
+        for i in eachindex(c.paths)
+    ]
+end
+
 """
     FeatureStore
 
@@ -577,6 +592,13 @@ mutable struct FeatureStore
     cached_batch_id::Int
     cached_batch::Vector{Matrix{Float64}}
     _cache_lock::ReentrantLock
+end
+
+function _split_group_labels(c::FeatureStore)
+    [
+        _shake_parent_label(c.labels[i], c.metadata[i])
+        for i in eachindex(c.labels)
+    ]
 end
 
 
@@ -826,21 +848,12 @@ function Base.split(
         )
     end
     if respect_shakes
-        isa(c, StructureContainer) ? (labels = c.paths) : (labels = c.labels)
-        valid_labels = []
-        for i = 1:length(c)
-            result = match(r"^(.+?)(?:-force)?-shake.*$", labels[i])
-            if isnothing(result)
-                push!(valid_labels, labels[i])
-            else
-                push!(valid_labels, result[1])
-            end
-        end
-        unique_labels = unique(valid_labels)
+        group_labels = _split_group_labels(c)
+        unique_labels = unique(group_labels)
         out_labels = _split_vector(unique_labels, nsplit...; shuffle, seed)
         is_fc = isa(c, FeatureStore)
         out = map(out_labels) do selected
-            c[findall(x -> x in selected, valid_labels)]
+            c[findall(x -> x in selected, group_labels)]
         end
     else
         is_fc = isa(c, FeatureStore)
