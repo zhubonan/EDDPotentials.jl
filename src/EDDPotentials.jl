@@ -161,11 +161,8 @@ include("analysis/plotting.jl")
 include("namespaces.jl")
 
 export EDDPotentialsCore
-export Potential, Model, Data, Training, Simulation, Search, Workflow, Analysis, Tools
-export enable_eddp_timer!, disable_eddp_timer!, reset_eddp_timer!
-export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
-export displace!, clip, Cell, supercell
-export distance_matrix, laplacian_matrix, nmodules, find_modules
+export cellmat, cellpar
+export Cell
 export get_cell,
     eddp_energy,
     eddp_forces,
@@ -173,7 +170,6 @@ export get_cell,
     eddp_stress,
     eddp_pressure,
     eddp_pressure_gpa,
-    eddp_pressure_GPa,
     eddp_enthalpy,
     CellFeature,
     RandomEmbeddedCellFeature,
@@ -231,10 +227,9 @@ export nfeatures
 # MD exports
 export MDRunner, MDState, VelocityVerlet, Langevin, BerendsenNVT
 export run!, step!, kinetic_energy, temperature, maxwell_boltzmann_velocities
-export total_energy, instantaneous_pressure, save_trajectory, save_frame
+export total_energy, save_frame
 export compute_kinetic_energy, compute_temperature
 export rescale_velocities!, zero_com_velocity!, KB
-export time_fs, time_ps
 # Hot-AIRSS exports
 export HotAIRSSOption, hot_airss!, HotAIRSSResult
 # Hyperspace relaxation exports
