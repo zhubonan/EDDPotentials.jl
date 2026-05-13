@@ -61,7 +61,7 @@ EDDPotentialsPlotlyExt = ["PlotlyJS"]
 [compat]
 ArgParse = "1"
 BenchmarkTools = "1.8.0"
-CellBase = "0.5"
+CellBase = "0.6"
 ChainRulesCore = "1"
 Configurations = "0.17"
 DirectQhull = "0.2"

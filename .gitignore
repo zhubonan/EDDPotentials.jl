@@ -19,10 +19,12 @@ events.out*
 .eddp_builder
 .*.swp
 *.so
+/eddpdev.so
 test/pp3-example/gen*
 
 scripts/*
-!scripts/sysimg.jl
+!scripts/dev_sysimg.jl
 !scripts/bench_feature_gen.jl
+!scripts/bench_spline_interpolation.jl
 !scripts/bench_sio2.jl
 **/deps/build.log

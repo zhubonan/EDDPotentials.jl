@@ -1,26 +1,23 @@
 #=
 Benchmark: Direct Evaluation vs Spline Interpolation for EDDP Feature Computation
 
-This script compares four approaches for evaluating f(r)^p (the core operation
+This script compares three approaches for evaluating f(r)^p (the core operation
 in EDDP feature generation):
   A. Direct evaluation (baseline) — fast_pow for Int exponents, ^ for Float64
-  B. Interpolations.jl cubic splines
-  C. Custom uniform-grid cubic interpolation (Horner's method)
-  D. SoA cubic interpolation (SIMD-friendly layout + @turbo + direct-write pij)
+  B. Custom uniform-grid cubic interpolation (Horner's method)
+  C. SoA cubic interpolation (SIMD-friendly layout + @turbo + direct-write pij)
 
 The workload mimics the inner loops of compute_fv_gv_one! in gradient.jl,
 particularly the _update_pij! function which is called O(N_neighbors²) per atom.
 
 Usage:
-  julia --project=. test/bench_spline_interpolation.jl    (LoopVectorization available)
-  julia --project=test/ test/bench_spline_interpolation.jl (Method D falls back to @inbounds)
+  julia --project=. scripts/bench_spline_interpolation.jl
 =#
 
 using Pkg
 let deps = keys(Pkg.project().dependencies)
     missing_pkgs = String[]
     "BenchmarkTools" in deps || push!(missing_pkgs, "BenchmarkTools")
-    "Interpolations" in deps || push!(missing_pkgs, "Interpolations")
     if !isempty(missing_pkgs)
         @info "Installing missing packages: $missing_pkgs"
         Pkg.add(missing_pkgs)
@@ -28,7 +25,6 @@ let deps = keys(Pkg.project().dependencies)
 end
 
 using BenchmarkTools
-using Interpolations
 using Printf
 using Statistics
 using Random
@@ -78,46 +74,7 @@ end
 # Section 2: Interpolation Implementations
 # ============================================================================
 
-# --- Method B: Interpolations.jl splines ---
-
-"""
-Build Interpolations.jl-based spline lookup for f(r)^p.
-
-Returns (val_itp, grad_itp) where:
-  val_itp(r, k) → fr(r, rcut)^exponents[k]
-  grad_itp(r, k) → d/dr [fr(r, rcut)^exponents[k]]
-"""
-function build_interp_jl(exponents, rcut, ngrid)
-    rgrid = range(0.0, stop=rcut, length=ngrid)
-    nexp = length(exponents)
-
-    # Build value table: A[i, k] = fr(rgrid[i], rcut)^exponents[k]
-    A_val = zeros(ngrid, nexp)
-    A_grad = zeros(ngrid, nexp)
-    for k in 1:nexp
-        for i in 1:ngrid
-            r = rgrid[i]
-            fval = fr(r, rcut)
-            A_val[i, k] = fval^exponents[k]
-            # Gradient: d/dr [f(r)^p] = p * f(r)^(p-1) * f'(r)
-            if fval > 0 && r < rcut
-                A_grad[i, k] = exponents[k] * fval^(exponents[k] - 1) * gfr(r, rcut)
-            else
-                A_grad[i, k] = 0.0
-            end
-        end
-    end
-
-    val_raw = interpolate(A_val, (BSpline(Cubic(Natural(OnGrid()))), NoInterp()))
-    val_itp = scale(val_raw, rgrid, 1:nexp)
-
-    grad_raw = interpolate(A_grad, (BSpline(Cubic(Natural(OnGrid()))), NoInterp()))
-    grad_itp = scale(grad_raw, rgrid, 1:nexp)
-
-    return val_itp, grad_itp
-end
-
-# --- Method C: Custom uniform-grid cubic interpolation ---
+# --- Method B: Custom uniform-grid cubic interpolation ---
 
 """
 Cubic spline coefficient table for uniform grid.
@@ -307,14 +264,6 @@ function kernel_twobody_direct!(fvec, distances, exponents::Vector{Float64}, rcu
     end
 end
 
-function kernel_twobody_interp!(fvec, distances, val_itp, nexp)
-    for r in distances
-        for k in 1:nexp
-            fvec[k] += val_itp(r, k)
-        end
-    end
-end
-
 function kernel_twobody_custom!(fvec, distances, tbl::CubicLookupTable)
     buf = zeros(tbl.nexp)
     for r in distances
@@ -343,14 +292,6 @@ function kernel_update_pij_direct!(pij, distances, exponents::Vector{Float64}, r
         fval = fr(r, rcut)
         for (k, p) in enumerate(exponents)
             pij[k, j] = fval^p
-        end
-    end
-end
-
-function kernel_update_pij_interp!(pij, distances, val_itp, nexp)
-    for (j, r) in enumerate(distances)
-        for k in 1:nexp
-            pij[k, j] = val_itp(r, k)
         end
     end
 end
@@ -397,15 +338,6 @@ function kernel_with_grad_direct!(fvec, gvec, distances, exponents::Vector{Float
     end
 end
 
-function kernel_with_grad_interp!(fvec, gvec, distances, val_itp, grad_itp, nexp)
-    for r in distances
-        for k in 1:nexp
-            fvec[k] += val_itp(r, k)
-            gvec[k] += grad_itp(r, k)
-        end
-    end
-end
-
 function kernel_with_grad_custom!(fvec, gvec, distances, val_tbl, grad_tbl)
     vbuf = zeros(val_tbl.nexp)
     gbuf = zeros(grad_tbl.nexp)
@@ -424,7 +356,6 @@ end
 # ============================================================================
 
 function measure_accuracy(exponents, rcut, ngrid; ntest=10000)
-    val_itp, grad_itp = build_interp_jl(exponents, rcut, ngrid)
     val_tbl = build_cubic_table(exponents, rcut, ngrid)
 
     # Build gradient table
@@ -446,9 +377,7 @@ function measure_accuracy(exponents, rcut, ngrid; ntest=10000)
     rng = MersenneTwister(42)
     test_r = rand(rng, ntest) .* (rcut - 0.01) .+ 0.005
 
-    max_err_interp = 0.0
     max_err_custom = 0.0
-    sum_sq_interp = 0.0
     sum_sq_custom = 0.0
     count = 0
 
@@ -456,25 +385,19 @@ function measure_accuracy(exponents, rcut, ngrid; ntest=10000)
         fval = fr(r, rcut)
         for (k, p) in enumerate(exponents)
             exact = fval^p
-            interp_val = val_itp(r, k)
             custom_val = evaluate(val_tbl, r, k)
 
-            err_i = abs(interp_val - exact)
             err_c = abs(custom_val - exact)
 
-            max_err_interp = max(max_err_interp, err_i)
             max_err_custom = max(max_err_custom, err_c)
-            sum_sq_interp += err_i^2
             sum_sq_custom += err_c^2
             count += 1
         end
     end
 
-    rmse_interp = sqrt(sum_sq_interp / count)
     rmse_custom = sqrt(sum_sq_custom / count)
 
     return (;
-        max_err_interp, rmse_interp,
         max_err_custom, rmse_custom,
     )
 end
@@ -527,7 +450,7 @@ function build_cubic_table_from_values(values::Matrix{Float64}, rcut)
     return CubicLookupTable(coeffs, 0.0, 1.0 / dr, nintervals, nexp)
 end
 
-# --- Method D: SoA cubic lookup (SIMD-friendly layout + @turbo) ---
+# --- Method C: SoA cubic lookup (SIMD-friendly layout + @turbo) ---
 
 struct CubicLookupTableSoA{NE}
     coeffs::Array{Float64,3}
@@ -885,7 +808,7 @@ end
 
 function run_benchmarks()
     println("=" ^ 80)
-    println("EDDP Feature Computation: Direct vs Spline Interpolation Benchmark")
+    println("EDDP Feature Computation: Direct vs Custom Spline Benchmark")
     println("=" ^ 80)
     println("  LoopVectorization: $(_HAS_LOOPVEC)")
 
@@ -951,8 +874,7 @@ function run_benchmarks()
         println("Exponents: $label ($nexp exponents), Grid: $ngrid_perf points")
         println("-" ^ 60)
 
-        # Build interpolation objects
-        val_itp, grad_itp = build_interp_jl(exponents, rcut, ngrid_perf)
+        # Build custom spline lookup objects
         val_tbl = build_cubic_table(exponents, rcut, ngrid_perf)
         val_tbl_soa = build_cubic_table_soa(exponents, rcut, ngrid_perf)
 
@@ -983,14 +905,6 @@ function run_benchmarks()
             end
         end
 
-        fvec_i = zeros(nexp)
-        t_interp = @benchmark begin
-            fill!($fvec_i, 0.0)
-            for dists in $all_distances
-                kernel_twobody_interp!($fvec_i, dists, $val_itp, $nexp)
-            end
-        end
-
         fvec_c = zeros(nexp)
         t_custom = @benchmark begin
             fill!($fvec_c, 0.0)
@@ -1008,11 +922,9 @@ function run_benchmarks()
         end
 
         med_d = median(t_direct).time / 1e6
-        med_i = median(t_interp).time / 1e6
         med_c = median(t_custom).time / 1e6
         med_s = median(t_soa).time / 1e6
         @printf("    Direct:            %8.3f ms\n", med_d)
-        @printf("    Interp.jl:         %8.3f ms  (%.2f× vs direct)\n", med_i, med_d / med_i)
         @printf("    Custom cubic:      %8.3f ms  (%.2f× vs direct)\n", med_c, med_d / med_c)
         @printf("    Custom SoA(@turbo):%8.3f ms  (%.2f× vs direct)\n", med_s, med_d / med_s)
 
@@ -1027,11 +939,6 @@ function run_benchmarks()
                 kernel_update_pij_direct!($pij, dists, $exponents, $rcut)
             end
         end setup=(fill!($pij, 0.0))
-        t_interp2 = @benchmark begin
-            for dists in $all_distances
-                kernel_update_pij_interp!($pij, dists, $val_itp, $nexp)
-            end
-        end setup=(fill!($pij, 0.0))
         t_custom2 = @benchmark begin
             for dists in $all_distances
                 kernel_update_pij_custom!($pij, dists, $val_tbl)
@@ -1044,11 +951,9 @@ function run_benchmarks()
         end setup=(fill!($pij, 0.0))
 
         med_d2 = median(t_direct2).time / 1e6
-        med_i2 = median(t_interp2).time / 1e6
         med_c2 = median(t_custom2).time / 1e6
         med_s2 = median(t_soa2).time / 1e6
         @printf("    Direct:            %8.3f ms\n", med_d2)
-        @printf("    Interp.jl:         %8.3f ms  (%.2f× vs direct)\n", med_i2, med_d2 / med_i2)
         @printf("    Custom cubic:      %8.3f ms  (%.2f× vs direct)\n", med_c2, med_d2 / med_c2)
         @printf("    Custom SoA(@turbo):%8.3f ms  (%.2f× vs direct)\n", med_s2, med_d2 / med_s2)
 
@@ -1061,15 +966,6 @@ function run_benchmarks()
             fill!($gvec, 0.0)
             for dists in $all_distances
                 kernel_with_grad_direct!($fvec, $gvec, dists, $exponents, $rcut)
-            end
-        end
-
-        gvec_i = zeros(nexp)
-        t_interp3 = @benchmark begin
-            fill!($fvec_i, 0.0)
-            fill!($gvec_i, 0.0)
-            for dists in $all_distances
-                kernel_with_grad_interp!($fvec_i, $gvec_i, dists, $val_itp, $grad_itp, $nexp)
             end
         end
 
@@ -1093,11 +989,9 @@ function run_benchmarks()
         end
 
         med_d3 = median(t_direct3).time / 1e6
-        med_i3 = median(t_interp3).time / 1e6
         med_c3 = median(t_custom3).time / 1e6
         med_s3 = median(t_soa3).time / 1e6
         @printf("    Direct:            %8.3f ms\n", med_d3)
-        @printf("    Interp.jl:         %8.3f ms  (%.2f× vs direct)\n", med_i3, med_d3 / med_i3)
         @printf("    Custom cubic:      %8.3f ms  (%.2f× vs direct)\n", med_c3, med_d3 / med_c3)
         @printf("    Custom SoA(@turbo):%8.3f ms  (%.2f× vs direct)\n", med_s3, med_d3 / med_s3)
     end

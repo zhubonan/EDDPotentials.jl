@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Compiler system image for environment @eddp
-#julia -e 'using Pkg;Pkg.activate(;temp=true);Pkg.add("PackageCompiler");include("scripts/sysimg.jl");build()'
+#julia scripts/dev_sysimg.jl
 
 # Build the CLI interface through Comonicon.jl
 julia -e 'using Pkg;Pkg.activate("packages/EDDPotentialsCLI.jl");Pkg.resolve();Pkg.build()'
