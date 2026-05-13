@@ -124,11 +124,11 @@ function step!(opt::NativeTPSD, calc::AbstractCalc)
     x = _augmented_x(opt, calc)
 
     E = eddp_energy(calc; forces=true, rebuild_nl=true)
-    F = eddp_forces(calc; rebuild_nl=opt.relax_cell, make_copy=false)
+    F = _projected_forces(opt, calc; rebuild_nl=opt.relax_cell, make_copy=false)
 
     g = -vec(F)  # gradient = -force (steepest descent)
     if opt.relax_cell
-        S_eff = eddp_stress(calc) .- opt.ext_pressure
+        S_eff = _projected_stress(opt, calc)
         g_cell = -opt.cell_damping * 10 .* vec(S_eff)  # steepest descent direction
         g = vcat(g, g_cell)
     end

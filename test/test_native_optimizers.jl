@@ -8,6 +8,17 @@ using Unitful: ustrip
 isdefined(Main, :_h2_cell) || include("utils.jl")
 const lj_like_calc = EDDPotentials.lj_like_calc
 
+mutable struct StressOnlyCalc <: EDDPotentials.AbstractCalc
+    cell::Cell
+    stress::Matrix{Float64}
+end
+
+EDDPotentials.get_cell(calc::StressOnlyCalc) = calc.cell
+EDDPotentials.eddp_energy(calc::StressOnlyCalc; kwargs...) = 0.0
+EDDPotentials.eddp_forces(calc::StressOnlyCalc; kwargs...) = zeros(3, length(calc.cell))
+EDDPotentials.eddp_stress(calc::StressOnlyCalc; kwargs...) = copy(calc.stress)
+EDDPotentials.calculate!(calc::StressOnlyCalc; kwargs...) = calc
+
 @testset "Native Optimizers" begin
 
     @testset "Step Constraints" begin
@@ -34,6 +45,76 @@ const lj_like_calc = EDDPotentials.lj_like_calc
             @test norm(pos1[:, 2] - pos0[:, 2]) > 0
         end
 
+        @testset "FixCartesian" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            opt = NativeTPSD(log_level=:minimal)
+            dx = [1.0, 2.0, 3.0, -2.0, 1.0, 0.5]
+
+            apply_step_constraints!([FixCartesian([1]; mask=(true, false, true))], opt, calc, dx)
+            ionic = reshape(dx, 3, 2)
+            @test ionic[1, 1] == 0.0
+            @test ionic[2, 1] == 2.0
+            @test ionic[3, 1] == 0.0
+            @test ionic[:, 2] ≈ [-2.0, 1.0, 0.5]
+        end
+
+        @testset "FixScaled nonorthogonal step and force projection" begin
+            cmat = [3.0 0.4 0.1; 0.0 2.5 0.3; 0.0 0.0 4.0]
+            cell = Cell(Lattice(cmat), [:H, :H], cmat * [0.1 0.7; 0.2 0.3; 0.3 0.4])
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            opt = NativeTPSD(log_level=:minimal)
+            scaled_step = [0.2, -0.1, 0.3]
+            dxmat = zeros(3, 2)
+            dxmat[:, 1] .= cmat * scaled_step
+            dxmat[:, 2] .= [0.4, -0.2, 0.1]
+            dx = vec(dxmat)
+
+            apply_step_constraints!([FixScaled(1; mask=(true, false, true))], opt, calc, dx)
+            projected_step = cmat \ reshape(dx, 3, 2)[:, 1]
+            @test projected_step[1] ≈ 0.0 atol=1e-12
+            @test projected_step[2] ≈ scaled_step[2] atol=1e-12
+            @test projected_step[3] ≈ 0.0 atol=1e-12
+
+            F = [1.0 0.2; -0.3 0.7; 0.5 -0.4]
+            apply_force_constraints!([FixScaled(1; mask=(true, false, true))], opt, calc, F)
+            scaled_force = transpose(cmat) * F[:, 1]
+            @test scaled_force[1] ≈ 0.0 atol=1e-12
+            @test scaled_force[3] ≈ 0.0 atol=1e-12
+        end
+
+        @testset "FixRelative and FixRigidGroup" begin
+            cell = Cell(Lattice(10.0, 10.0, 10.0), [:H, :H, :H],
+                [0.0 0.2 1.0; 0.0 1.0 1.2; 0.0 0.0 0.4])
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            opt = NativeTPSD(log_level=:minimal)
+
+            dx = collect(1.0:9.0)
+            apply_step_constraints!([FixRelative([(1, 2)]; mask=(true, false, true))], opt, calc, dx)
+            ionic = reshape(dx, 3, 3)
+            @test ionic[1, 1] - ionic[1, 2] ≈ 0.0 atol=1e-12
+            @test ionic[3, 1] - ionic[3, 2] ≈ 0.0 atol=1e-12
+            @test !(ionic[2, 1] - ionic[2, 2] ≈ 0.0)
+
+            dx2 = collect(1.0:9.0)
+            apply_step_constraints!([FixRigidGroup([1, 2, 3])], opt, calc, dx2)
+            ionic2 = reshape(dx2, 3, 3)
+            @test ionic2[:, 1] ≈ ionic2[:, 2] atol=1e-12
+            @test ionic2[:, 1] ≈ ionic2[:, 3] atol=1e-12
+        end
+
+        @testset "FixLinearIonic redundant rows" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            opt = NativeTPSD(log_level=:minimal)
+            A = zeros(2, length(get_positions(calc)))
+            A[:, 1] .= 1.0
+            dx = ones(length(get_positions(calc)))
+
+            apply_step_constraints!([FixLinearIonic(A)], opt, calc, dx)
+            @test dx[1] ≈ 0.0 atol=1e-12
+        end
+
         @testset "FixVolumeConstraint" begin
             cell = _h2_cell(10.0, 1.0)
             calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
@@ -46,6 +127,56 @@ const lj_like_calc = EDDPotentials.lj_like_calc
             cell_old = get_cellmat(calc)[1:3, 1:3]
             cell_new = cell_old .+ reshape(dx[(length(get_positions(calc)) + 1):end], 3, 3)
             @test det(cell_new) ≈ vol0 atol=1e-8
+        end
+
+        @testset "FixCellConstraint Voigt mask" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            H = get_cellmat(calc)[1:3, 1:3]
+            D, nat = size(get_positions(calc))
+            opt = NativeTPSD(relax_cell=true, log_level=:minimal)
+
+            strain = [
+                0.10 0.06 0.05
+                0.06 0.20 0.04
+                0.05 0.04 0.30
+            ]
+            dx = zeros(D * nat + 9)
+            reshape(view(dx, D * nat + 1:length(dx)), 3, 3) .= strain * H
+            apply_step_constraints!([FixCellConstraint()], opt, calc, dx)
+            @test norm(dx[D * nat + 1:end]) < 1e-12
+
+            dx = zeros(D * nat + 9)
+            reshape(view(dx, D * nat + 1:length(dx)), 3, 3) .= strain * H
+            apply_step_constraints!([FixCellConstraint(mask=(false, false, true, false, false, false))], opt, calc, dx)
+            projected = reshape(dx[D * nat + 1:end], 3, 3) / H
+            @test projected[1, 1] ≈ strain[1, 1] atol=1e-12
+            @test projected[2, 2] ≈ strain[2, 2] atol=1e-12
+            @test projected[3, 3] ≈ 0.0 atol=1e-12
+            @test projected[2, 3] ≈ strain[2, 3] atol=1e-12
+
+            dx = zeros(D * nat + 9)
+            reshape(view(dx, D * nat + 1:length(dx)), 3, 3) .= strain * H
+            apply_step_constraints!([FixCellConstraint(mask=(false, false, false, true, true, true))], opt, calc, dx)
+            projected = reshape(dx[D * nat + 1:end], 3, 3) / H
+            @test projected[1, 1] ≈ strain[1, 1] atol=1e-12
+            @test projected[2, 2] ≈ strain[2, 2] atol=1e-12
+            @test projected[3, 3] ≈ strain[3, 3] atol=1e-12
+            @test projected[2, 3] ≈ 0.0 atol=1e-12
+            @test projected[1, 3] ≈ 0.0 atol=1e-12
+            @test projected[1, 2] ≈ 0.0 atol=1e-12
+        end
+
+        @testset "FixCellConstraint and FixVolumeConstraint ordering" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            D, nat = size(get_positions(calc))
+            opt = NativeTPSD(relax_cell=true, log_level=:minimal)
+            dx = zeros(D * nat + 9)
+            dx[D * nat + 1:end] .= vec(0.2 .* Matrix(I, 3, 3))
+
+            apply_step_constraints!([FixCellConstraint(), FixVolumeConstraint()], opt, calc, dx)
+            @test norm(dx[D * nat + 1:end]) < 1e-12
         end
     end
 
@@ -123,6 +254,17 @@ const lj_like_calc = EDDPotentials.lj_like_calc
             reset!(opt)
             @test opt.iteration == 0
             @test opt.α == 1.0
+        end
+
+        @testset "Converges with fully fixed raw forces" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            raw_fmax = maximum(norm.(eachcol(eddp_forces(calc))))
+            opt = NativeTPSD(f_tol=1e-12, itermax=5, log_level=:minimal, step_constraints=[FixAtoms([1, 2])])
+
+            step!(opt, calc)
+            @test raw_fmax > 1e-8
+            @test converged(opt, calc)
         end
     end
 
@@ -244,6 +386,18 @@ const lj_like_calc = EDDPotentials.lj_like_calc
             @test all(opt.vel .== 0)
             @test opt.Nsteps == 0
         end
+
+        @testset "FixAtoms" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            pos0 = copy(get_positions(calc))
+            opt = NativeFIRE(f_tol=1e-3, maxstep=0.1, log_level=:minimal, step_constraints=[FixAtoms([1])])
+
+            step!(opt, calc)
+            pos1 = get_positions(calc)
+            @test pos1[:, 1] ≈ pos0[:, 1]
+            @test norm(pos1[:, 2] - pos0[:, 2]) > 0
+        end
     end
 
     @testset "Comparison TPSD vs FIRE" begin
@@ -319,6 +473,22 @@ const lj_like_calc = EDDPotentials.lj_like_calc
         end
     end
 
+    @testset "relax! step_constraints passthrough" begin
+        cell = _h2_cell(10.0, 1.0)
+        calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+        pos0 = copy(get_positions(calc))
+        result = relax!(calc;
+            multi=false,
+            relax_cell=false,
+            method="tpsd",
+            iterations=3,
+            maxstep=0.1,
+            step_constraints=[FixAtoms([1])],
+        )
+        @test result.relax.options.step_constraints[1] isa FixAtoms
+        @test get_positions(calc)[:, 1] ≈ pos0[:, 1]
+    end
+
     @testset "Variable Cell" begin
         @testset "TPSD with relax_cell" begin
             cell = _h2_cell(10.0, 1.0)
@@ -334,6 +504,20 @@ const lj_like_calc = EDDPotentials.lj_like_calc
             @test opt.iteration == 20
         end
 
+        @testset "TPSD with selective cell constraint" begin
+            cell = _h2_cell(10.0, 1.0)
+            base_calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            H0 = get_cellmat(base_calc)[1:3, 1:3]
+            opt = NativeTPSD(f_tol=1e-3, s_tol=1e-2, log_level=:minimal,
+                relax_cell=true, cell_damping=0.01,
+                step_constraints=[FixCellConstraint(mask=(false, false, true, false, false, false))])
+
+            step!(opt, base_calc)
+            H1 = get_cellmat(base_calc)[1:3, 1:3]
+            strain = (H1 - H0) / H0
+            @test strain[3, 3] ≈ 0.0 atol=1e-12
+        end
+
         @testset "FIRE with relax_cell" begin
             cell = _h2_cell(10.0, 1.0)
             base_calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
@@ -346,6 +530,33 @@ const lj_like_calc = EDDPotentials.lj_like_calc
             end
 
             @test opt.iteration == 20
+        end
+
+        @testset "FIRE with selective cell constraint" begin
+            cell = _h2_cell(10.0, 1.0)
+            base_calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            H0 = get_cellmat(base_calc)[1:3, 1:3]
+            opt = NativeFIRE(f_tol=1e-3, s_tol=1e-2, maxstep=0.5, log_level=:minimal,
+                relax_cell=true, cell_damping=0.01,
+                step_constraints=[FixCellConstraint(mask=(false, false, true, false, false, false))])
+
+            step!(opt, base_calc)
+            H1 = get_cellmat(base_calc)[1:3, 1:3]
+            strain = (H1 - H0) / H0
+            @test strain[3, 3] ≈ 0.0 atol=1e-12
+        end
+
+        @testset "Projected stress convergence leaves raw stress unchanged" begin
+            cell = _h2_cell(10.0, 1.0)
+            raw_stress = diagm([0.0, 0.0, 10.0])
+            calc = StressOnlyCalc(cell, raw_stress)
+            opt = NativeTPSD(f_tol=1e-12, s_tol=1e-6, log_level=:minimal,
+                relax_cell=true,
+                step_constraints=[FixCellConstraint(mask=(false, false, true, false, false, false))])
+
+            step!(opt, calc)
+            @test eddp_stress(calc) ≈ raw_stress
+            @test converged(opt, calc)
         end
     end
 end

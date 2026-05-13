@@ -148,10 +148,19 @@ export relax!
 export AbstractOptimizer, NativeTPSD, NativeFIRE
 export AbstractStepConstraint,
     ZeroTranslationConstraint,
+    FixAtoms,
+    FixCartesian,
+    FixScaled,
+    FixRelative,
+    FixRigidGroup,
+    FixLinearIonic,
     IonicConstraint,
+    FixCell,
     FixCellConstraint,
     FixVolumeConstraint,
-    apply_step_constraints!
+    apply_step_constraints!,
+    apply_force_constraints!,
+    apply_stress_constraints!
 export initialize!, step!, converged, reset!, get_iteration, optimize!
 export get_positions, set_positions!, set_cell!, set_cellmat!
 export StructureContainer,

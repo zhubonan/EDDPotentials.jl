@@ -20,6 +20,7 @@ using Configurations
     verbose::Bool = false
     iterations::Int = 1000
     maxstep::Float64 = 0.2
+    step_constraints::Vector{Any} = Any[]
     trajectory_file::String = ""
     hyper_ndim::Int = 0
     hyper_alpha_start::Float64 = 1e-4
@@ -137,7 +138,7 @@ function _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
         max_iterations=max_iter,
         alpha_start=opts.hyper_alpha_start,
         relax_fn,
-        relax_kwargs=(relax_cell=opts.relax_cell, ext_pressure=smat),
+        relax_kwargs=(relax_cell=opts.relax_cell, ext_pressure=smat, step_constraints=opts.step_constraints),
         alpha_ramp_factor=opts.hyper_alpha_ramp_factor,
         max_alpha=opts.hyper_max_alpha,
         pos_tol=opts.hyper_pos_tol,
@@ -244,7 +245,7 @@ Perform relaxation for a `Relax` object.
 """
 function relax!(re::Relax)
     (; method, energy_threshold, force_threshold, stress_threshold) = re.options
-    (; external_pressure, relax_cell, keep_trajectory, verbose, maxstep) = re.options
+    (; external_pressure, relax_cell, keep_trajectory, verbose, maxstep, step_constraints) = re.options
     (; iterations) = re.options
     calc = re.calc
 
@@ -261,10 +262,11 @@ function relax!(re::Relax)
         ext_pressure=smat,
         keep_trajectory=keep_trajectory,
         trajectory=keep_trajectory ? re.trajectory : nothing,
+        step_constraints=step_constraints,
     )
 
     E = eddp_energy(calc)
-    F = eddp_forces(calc)
+    F = _projected_forces(opt, calc)
     fmax = maximum(norm.(eachcol(F)))
     de = 0.0
     if isnan(de) || isinf(de)
@@ -273,7 +275,7 @@ function relax!(re::Relax)
 
     smax = -1.0
     if relax_cell
-        S = eddp_stress(calc) .- smat
+        S = _projected_stress(opt, calc)
         smax = eVAngToGPa(maximum(abs.(S)))
     end
 

@@ -80,6 +80,7 @@ Modules = [EDDPotentials]
 Pages = [
     "opt.jl",
     "optimizer/abstract.jl",
+    "optimizer/constraints.jl",
     "optimizer/tpsd.jl",
     "optimizer/fire.jl",
 ]

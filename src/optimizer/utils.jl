@@ -34,19 +34,39 @@ function _writeback_positions!(opt::AbstractOptimizer, calc::AbstractCalc, x_new
         set_cellmat!(calc, cellmat_old; scale_positions=true)
         # Re-read positions (now scaled to new cell), then apply TPSD delta
         scaled_pos = get_positions(calc)
-        set_positions!(calc, scaled_pos + delta_pos)
+        proposed_pos = scaled_pos + delta_pos
+        if hasproperty(opt, :step_constraints)
+            apply_cartesian_position_constraints!(opt.step_constraints, opt, calc, pos, proposed_pos)
+        end
+        set_positions!(calc, proposed_pos)
     else
         set_positions!(calc, pos_new)
     end
 end
 
+function _projected_forces(opt::AbstractOptimizer, calc::AbstractCalc; kwargs...)
+    F = copy(eddp_forces(calc; kwargs...))
+    if hasproperty(opt, :step_constraints)
+        apply_force_constraints!(opt.step_constraints, opt, calc, F)
+    end
+    F
+end
+
+function _projected_stress(opt::AbstractOptimizer, calc::AbstractCalc)
+    S = eddp_stress(calc) .- opt.ext_pressure
+    if hasproperty(opt, :step_constraints)
+        apply_stress_constraints!(opt.step_constraints, opt, calc, S)
+    end
+    S
+end
+
 function check_convergence(opt::AbstractOptimizer, calc::AbstractCalc)
-    F = eddp_forces(calc)
+    F = _projected_forces(opt, calc)
     fmax = maximum(norm.(eachcol(F)))
     force_converged = fmax < opt.f_tol
 
     if opt.relax_cell
-        S = eddp_stress(calc) .- opt.ext_pressure
+        S = _projected_stress(opt, calc)
         smax = maximum(abs.(S))
         stress_converged = smax < opt.s_tol
         return force_converged && stress_converged
@@ -89,13 +109,13 @@ function log_step!(opt::AbstractOptimizer, calc::AbstractCalc)
     end
 
     E = eddp_energy(calc; forces=false, rebuild_nl=true)
-    F = eddp_forces(calc)
+    F = _projected_forces(opt, calc)
     fmax = maximum(norm.(eachcol(F)))
 
     smax = 0.0
     stress_mat = nothing
     if opt.relax_cell
-        S = eddp_stress(calc) .- opt.ext_pressure
+        S = _projected_stress(opt, calc)
         smax = maximum(abs.(S))
         stress_mat = S
     end

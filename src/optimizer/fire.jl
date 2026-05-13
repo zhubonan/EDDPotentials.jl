@@ -157,11 +157,11 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
     x = _augmented_x(opt, calc)
 
     E = eddp_energy(calc; forces=true, rebuild_nl=true)
-    F = eddp_forces(calc; rebuild_nl=opt.relax_cell, make_copy=false)
+    F = _projected_forces(opt, calc; rebuild_nl=opt.relax_cell, make_copy=false)
 
     gradient = vec(F)  # FIRE: force = gradient direction
     if opt.relax_cell
-        S_eff = eddp_stress(calc) .- opt.ext_pressure
+        S_eff = _projected_stress(opt, calc)
         g_cell = opt.cell_damping * 10 .* vec(S_eff)  # move in stress direction
         gradient = vcat(gradient, g_cell)
     end
@@ -182,10 +182,10 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
             x = opt.x_last
             is_uphill = true
             E = eddp_energy(calc; forces=true, rebuild_nl=true)
-            F = eddp_forces(calc; rebuild_nl=opt.relax_cell, make_copy=false)
+            F = _projected_forces(opt, calc; rebuild_nl=opt.relax_cell, make_copy=false)
             gradient = vec(F)
             if opt.relax_cell
-                S_eff = eddp_stress(calc) .- opt.ext_pressure
+                S_eff = _projected_stress(opt, calc)
                 gradient = vcat(gradient, opt.cell_damping * 10 .* vec(S_eff))
             end
             grad_norm = sqrt(dot(gradient, gradient))
@@ -211,8 +211,10 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
         opt.dt *= opt.fdec
         opt.Nsteps = 0
     end
+    apply_step_constraints!(opt.step_constraints, opt, calc, opt.vel)
 
     opt.vel += opt.dt * gradient
+    apply_step_constraints!(opt.step_constraints, opt, calc, opt.vel)
 
     dr = opt.dt * opt.vel
     apply_step_constraints!(opt.step_constraints, opt, calc, dr)
