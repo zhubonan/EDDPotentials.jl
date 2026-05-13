@@ -478,6 +478,7 @@ function _generate_random_structures(bu::Builder, iter)
 
     if iter == 0
         known_files = _import_known_structures!(bu.state, outdir)
+        num_known = 0
         if !isempty(known_files) && bu.state.shake_per_minima > 0
             @info "Shaking imported known structures."
             shake_res(
@@ -486,6 +487,7 @@ function _generate_random_structures(bu::Builder, iter)
                 bu.state.shake_amp,
                 bu.state.shake_cell_amp,
             )
+            num_known = length(known_files) * (bu.state.shake_per_minima + 1)
         end
 
         ndata = length(glob_allow_abs(joinpath(outdir, "*.res")))
@@ -496,7 +498,7 @@ function _generate_random_structures(bu::Builder, iter)
             @warn "The number of features $(nfeatures(bu.cf)) is larger than the initial training size!"
         end
         # Generate random structures
-        nstruct = bu.state.n_initial - ndata
+        nstruct = bu.state.n_initial - ndata + num_known
         if nstruct > 0
             @info "Generating $(nstruct) initial training structures with $(buildcell_nprocs) buildcell process(es)."
             build_random_structures(
