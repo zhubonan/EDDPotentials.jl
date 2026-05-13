@@ -28,3 +28,16 @@ scripts/*
 !scripts/bench_spline_interpolation.jl
 !scripts/bench_sio2.jl
 **/deps/build.log
+
+# Local agent/tooling state and scratch artifacts
+.codex/
+.opencode/
+Pickard_2022_Ephemeral data derived potentials for random structure search.pdf
+REFACTORING.md
+foundation_train/e0s.json
+foundation_train/matpes-r2scan-replay-data-first.extxyz
+foundation_train/mp_finetuning-MACE_matpes_ft_run-42_combined.xyz
+test/Manifest.toml-old
+test/Project.toml-old
+traj.xyz
+worktress/

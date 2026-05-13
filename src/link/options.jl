@@ -168,6 +168,13 @@ abstract type AbstractTrainer end
 - `num_threads_per_worker`: The number of threads to use for each worker.
 - `type`: The type of potential to be trained. Currently, only `nn` and `nn_multi` are supported.
 - `external`: Whether to launch external Julia processes for training.
+- `external_mode`: External training backend. `local` launches local Julia worker processes;
+  `submit` renders `scheduler.script` with `{{EDDP_TRAIN_CMD}}` and submits it as a
+  scheduler array job.
+- `external_wait`: Whether to poll for trained model artifacts after command submission.
+- `external_poll_interval`: Seconds between model-artifact polling checks.
+- `external_timeout`: Maximum seconds to wait for external model artifacts. `0` means no timeout.
+- `external_completion_ratio`: Fraction of `nmodels` required before external polling stops.
 - `boltermann_kt`: The parameter for Boltzmann weighting for the loss function, set to positive to activate.
 - `use_cuda`: Use GPU (CUDA) to accelerate the training.
 - `cuda_visible_devices`: The CUDA visible devices to use.
@@ -196,6 +203,16 @@ abstract type AbstractTrainer end
     num_workers::Int = 1
     num_threads_per_worker::Int = 1
     external = true
+    "External training backend: `local` or `submit`."
+    external_mode::String = "local"
+    "Poll for trained model artifacts after submitting external commands."
+    external_wait::Bool = true
+    "Seconds between model-artifact polling checks."
+    external_poll_interval::Float64 = 30.0
+    "Maximum seconds to wait for external model artifacts. 0 means no timeout."
+    external_timeout::Float64 = 0.0
+    "Fraction of requested models required before external polling stops."
+    external_completion_ratio::Float64 = 0.9
     boltzmann_kt::Float64 = -1.0
     clean_models::Bool = true
     use_cuda::Bool = false

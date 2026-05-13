@@ -888,57 +888,279 @@ end
 """
     _perform_training_external(bu::Builder)
 
-Launch external Julia processes for parallel training.
+Launch external training workers.
 """
 function _perform_training_external(bu::Builder)
     tra = bu.trainer
+    mode = lowercase(strip(tra.external_mode))
 
-    # Call multiple sub processes
+    if mode == "local"
+        _perform_training_external_local(bu)
+    elseif mode == "submit" || mode == "command"
+        _perform_training_external_submit(bu)
+    else
+        throw(ArgumentError("Unknown trainer.external_mode `$mode`; expected `local` or `submit`."))
+    end
+end
+
+function _training_julia_code(tra::TrainingOption)
+    if tra.use_cuda == true
+        return "using EDDPotentials;using CUDA;EDDPotentials.USE_CUDA[]=true;EDDPotentials.run_trainer()"
+    end
+    return "using EDDPotentials;EDDPotentials.run_trainer()"
+end
+
+function _training_base_cmd(bu::Builder)
+    tra = bu.trainer
     project_path = dirname(Base.active_project())
     builder_file = bu.state.builder_file_path
     @assert builder_file != ""
 
-    julia_cmd = "using EDDPotentials;EDDPotentials.run_trainer()"
-    if tra.use_cuda == true
-        julia_cmd = "using EDDPotentials;using CUDA;EDDPotentials.USE_CUDA[]=true;EDDPotentials.run_trainer()"
-    end
-
-    cmd = Cmd([
+    Cmd([
         Base.julia_cmd()...,
         "--project=$(project_path)",
         "-e",
-        julia_cmd,
+        _training_julia_code(tra),
         "$(builder_file)",
         "--iteration",
         "$(bu.state.iteration)",
     ])
+end
+
+function _training_worker_cmd(bu::Builder, worker_id::Int)
+    tra = bu.trainer
+    cmd = add_threads_env(
+        Cmd([_training_base_cmd(bu)..., "--id", "$worker_id"]);
+        julia_threads=tra.num_threads_per_worker,
+    )
+    if tra.cuda_visible_devices != ""
+        devices = split(tra.cuda_visible_devices, ",")
+        cmd = addenv(cmd, "EDDP_CUDA_DEVICE" => devices[(worker_id - 1) % length(devices) + 1])
+    end
+    cmd
+end
+
+function _shell_escape(s::AbstractString)
+    "'" * replace(s, "'" => "'\\''") * "'"
+end
+
+_command_string(cmd::Cmd) = join(_shell_escape.(string.(collect(cmd))), " ")
+
+const TRAIN_CMD_PLACEHOLDER = "{{EDDP_TRAIN_CMD}}"
+
+function _external_required_models(tra::TrainingOption)
+    max(1, ceil(Int, tra.nmodels * tra.external_completion_ratio))
+end
+
+function _wait_for_training_models(
+    bu::Builder;
+    tasks=Task[],
+    processes=[],
+    poll_after_tasks::Bool=true,
+    cancel_callback=nothing,
+)
+    tra = bu.trainer
+    required = _external_required_models(tra)
+    started = time()
+    last_nm = num_existing_models(bu)
+    last_nm > 0 && @info "Number of trained models: $last_nm"
+
+    while true
+        nm = num_existing_models(bu)
+        if nm >= required
+            if cancel_callback !== nothing
+                cancel_callback()
+            end
+            return
+        end
+
+        if should_stop(bu)
+            @warn "STOP file detected while waiting for training models."
+            if cancel_callback !== nothing
+                cancel_callback()
+            end
+            return
+        end
+
+        if !isempty(tasks) && all(istaskdone.(tasks))
+            for task in tasks
+                fetch(task)
+            end
+            for proc in processes
+                if !success(proc)
+                    throw(ErrorException("Training worker process failed: $proc"))
+                end
+            end
+            if !poll_after_tasks
+                throw(
+                    ErrorException(
+                        "Training workers finished with $nm models, need $required.",
+                    ),
+                )
+            end
+        end
+
+        if tra.external_timeout > 0 && time() - started > tra.external_timeout
+            throw(
+                ErrorException(
+                    "Timed out waiting for external training models: found $nm, need $required.",
+                ),
+            )
+        end
+
+        if nm != last_nm
+            @info "Number of trained models: $nm/$required"
+            last_nm = nm
+        end
+        sleep(tra.external_poll_interval)
+    end
+end
+
+function _cancel_training_processes(processes)
+    for proc in processes
+        try
+            if process_running(proc)
+                @info "Stopping surplus training worker: $proc"
+                kill(proc)
+            end
+        catch err
+            @warn "Failed to stop surplus training worker `$proc`: $err"
+        end
+    end
+end
+
+function _perform_training_external_local(bu::Builder)
+    tra = bu.trainer
+    cmd = _training_base_cmd(bu)
 
     # Call multiple trainer processes
     @info "Subprocess launch command: $cmd"
     tasks = Task[]
+    processes = []
     for i = 1:tra.num_workers
         # Run with ids
-        _cmd = add_threads_env(Cmd([cmd..., "--id", "$i"]); julia_threads=tra.num_threads_per_worker)
-        if tra.cuda_visible_devices != ""
-            devices = split(tra.cuda_visible_devices, ",")
-            _cmd = addenv(_cmd, "EDDP_CUDA_DEVICE" => devices[(i-1)%length(devices)+1])
-        end
-        this_task = @async begin
-            run(pipeline(_cmd, stdout="lm-process-$i-stdout", stderr="lm-process-$i-stderr"))
-        end
+        _cmd = _training_worker_cmd(bu, i)
+        proc = run(
+            pipeline(_cmd, stdout="lm-process-$i-stdout", stderr="lm-process-$i-stderr");
+            wait=false,
+        )
+        push!(processes, proc)
+        this_task = @async wait(proc)
         push!(tasks, this_task)
     end
 
     @info "Training processes launched, waiting..."
+    _wait_for_training_models(
+        bu;
+        tasks,
+        processes,
+        poll_after_tasks=false,
+        cancel_callback=() -> _cancel_training_processes(processes),
+    )
+end
 
-    last_nm = num_existing_models(bu)
-    while !all(istaskdone.(tasks))
-        nm = num_existing_models(bu)
-        # Print progress if the number of models have changed
-        if nm != last_nm
-            @info "Number of trained models: $nm"
-            last_nm = nm
+function _training_submit_payload(bu::Builder)
+    worker_id_line = "WORKER_ID=\"\${SLURM_ARRAY_TASK_ID:-\${SGE_TASK_ID:-1}}\""
+    train_cmd = _command_string(_training_base_cmd(bu)) * " --id \"\$WORKER_ID\""
+    worker_id_line * "\n" * train_cmd
+end
+
+function _render_training_job_script(bu::Builder, scheduler::SchedulerConfig, workdir)
+    mkpath(workdir)
+    template = get_job_script_content(scheduler)
+    if !contains(template, TRAIN_CMD_PLACEHOLDER)
+        throw(
+            ArgumentError(
+                "Training scheduler script `$(scheduler.script)` must contain the placeholder `$TRAIN_CMD_PLACEHOLDER`.",
+            ),
+        )
+    end
+    rendered = replace(template, TRAIN_CMD_PLACEHOLDER => _training_submit_payload(bu))
+    script_path = joinpath(workdir, "job.sh")
+    open(script_path, "w") do handle
+        write(handle, rendered)
+    end
+    script_path
+end
+
+function _training_submit_cmd(sch::SchedulerConfig, workdir)
+    if sch.type == "SGE"
+        prog = "qsub"
+    elseif sch.type == "SLURM"
+        prog = "sbatch"
+    else
+        throw(ArgumentError("Unknown scheduler.type `$(sch.type)`; expected `SGE` or `SLURM`."))
+    end
+
+    args = String[]
+    if sch.njobs > 1
+        sch.type == "SGE" && append!(args, String["-t", "1-$(sch.njobs)"])
+        sch.type == "SLURM" && append!(args, String["--array=1-$(sch.njobs)"])
+    end
+    sch.type == "SGE" && push!(args, "-cwd")
+    push!(args, "job.sh")
+    Cmd(Cmd([prog, args...]), dir=workdir)
+end
+
+function _parse_scheduler_job_id(sch::SchedulerConfig, output::AbstractString)
+    if sch.type == "SLURM"
+        match_result = match(r"Submitted batch job\s+(\d+)", output)
+        return match_result === nothing ? "" : match_result.captures[1]
+    elseif sch.type == "SGE"
+        match_result = match(r"Your job(?:-array)?\s+(\d+)", output)
+        return match_result === nothing ? "" : match_result.captures[1]
+    end
+    return ""
+end
+
+function _cancel_scheduler_job(sch::SchedulerConfig, job_id::AbstractString, workdir)
+    isempty(job_id) && return
+    if sch.type == "SLURM"
+        cmd = Cmd(Cmd(["scancel", job_id]), dir=workdir)
+    elseif sch.type == "SGE"
+        cmd = Cmd(Cmd(["qdel", job_id]), dir=workdir)
+    else
+        return
+    end
+    try
+        @info "Cancelling surplus training scheduler job: $cmd"
+        run(cmd)
+    catch err
+        @warn "Failed to cancel scheduler job `$job_id`: $err"
+    end
+end
+
+function _perform_training_external_submit(bu::Builder)
+    tra = bu.trainer
+    scheduler = bu.options.scheduler
+    isnothing(scheduler) &&
+        throw(ArgumentError("A top-level `[scheduler]` config is required when trainer.external_mode = \"submit\"."))
+
+    workdir = joinpath(bu.state.workdir, "training-work", "gen$(bu.state.iteration)")
+    script_path = _render_training_job_script(bu, scheduler, workdir)
+    @info "Rendered training job script: $script_path"
+
+    job_id = ""
+    if scheduler.submit_jobs
+        cmd = _training_submit_cmd(scheduler, workdir)
+        @info "Training job submission command: $cmd"
+        submit_output = readchomp(cmd)
+        !isempty(submit_output) && @info "Training job submission output: $submit_output"
+        job_id = _parse_scheduler_job_id(scheduler, submit_output)
+        if isempty(job_id)
+            @warn "Could not parse scheduler job id from submission output; surplus cluster jobs cannot be cancelled automatically."
         end
-        sleep(30)
+    else
+        @info "scheduler.submit_jobs=false; monitoring existing training artifacts without submitting jobs."
+    end
+
+    if tra.external_wait
+        @info "Cluster training jobs submitted, waiting for model artifacts..."
+        _wait_for_training_models(
+            bu;
+            cancel_callback=() -> _cancel_scheduler_job(scheduler, job_id, workdir),
+        )
+    else
+        @info "Cluster training jobs submitted without waiting for model artifacts."
     end
 end
