@@ -30,6 +30,7 @@ scripts/*
 **/deps/build.log
 
 # Local agent/tooling state and scratch artifacts
+.codex
 .codex/
 .opencode/
 Pickard_2022_Ephemeral data derived potentials for random structure search.pdf
