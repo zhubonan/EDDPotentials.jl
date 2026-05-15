@@ -365,15 +365,16 @@ Options for the file-backed HPC master/client workflow.
 """
 @option mutable struct HPCWorkflowOption <: EDDPotentialsOption
     enabled::Bool = false
-    root::String = ".eddp-hpc"
-    poll_interval::Float64 = 10.0
-    heartbeat_interval::Float64 = 30.0
-    child_grace_seconds::Float64 = 60.0
-    child_kill_seconds::Float64 = 30.0
-    crud_workdir::String = "crud-work"
-    dft_workers::Int = 1
-    train_workers::Int = 1
-    stale_claim_seconds::Float64 = 86400.0
+    coordination_dir::String = ".eddp-hpc"
+    control_poll_interval_seconds::Float64 = 10.0
+    client_heartbeat_interval_seconds::Float64 = 30.0
+    client_child_grace_seconds::Float64 = 60.0
+    client_child_kill_seconds::Float64 = 30.0
+    dft_crud_workdir::String = "crud-work"
+    dft_client_jobs::Int = 1
+    training_client_jobs::Int = 1
+    training_slot_stale_seconds::Float64 = 86400.0
+    submit_client_jobs::Bool = true
 end
 
 """

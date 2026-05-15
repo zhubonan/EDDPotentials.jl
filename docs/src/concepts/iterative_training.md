@@ -294,6 +294,111 @@ dft_mode = "crud"
 
 4. **"disp-castep"**: Distributed CASTEP via DISP package
 
+### File-Backed HPC Server-Client Mode
+
+Use this mode when DFT calculations and model training should run as separate
+cluster client jobs coordinated through files on a shared filesystem. The master
+publishes the active phase in `.eddp-hpc/control.json`; clients read that file
+and run either `crud.pl` or a one-model training subprocess.
+
+Minimal `link.toml` settings:
+
+```toml
+[state]
+mpinp = 8                         # MPI ranks used by each crud.pl child
+
+[trainer]
+external = true
+nmodels = 128
+external_completion_ratio = 0.9
+
+[hpc]
+enabled = true
+coordination_dir = ".eddp-hpc"
+submit_client_jobs = true
+dft_client_jobs = 16
+training_client_jobs = 8
+dft_crud_workdir = "crud-work"
+control_poll_interval_seconds = 10.0
+client_heartbeat_interval_seconds = 30.0
+client_child_grace_seconds = 300.0
+client_child_kill_seconds = 30.0
+training_slot_stale_seconds = 86400.0
+
+[scheduler]
+script = "hpc_client_job.sh"
+type = "SLURM"                    # or "SGE"
+```
+
+When `[hpc] enabled = true`, the normal DFT and external-training backends are
+overridden by the file-backed HPC workflow. You do not need to set
+`state.dft_mode = "crud-hpc"` or `trainer.external_mode = "hpc"` in this mode.
+
+The scheduler script launches EDDP client jobs. It must contain the placeholder
+`{{EDDP_HPC_CLIENT_CMD}}`, which the master replaces with the correct Julia
+client command:
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=eddp-hpc-client
+#SBATCH --cpus-per-task=8
+#SBATCH --time=24:00:00
+
+{{EDDP_HPC_CLIENT_CMD}}
+```
+
+Start the master with:
+
+```bash
+julia --project=. -e 'using EDDPotentials; hpc_master("link.toml")'
+```
+
+The master then:
+
+1. Generates structures into `genN/`.
+2. Prepares `crud-work/genN/hopper/`, `good_castep/`, and `bad_castep/`.
+3. Submits DFT client jobs when `submit_client_jobs = true`.
+4. Stops DFT clients after enough calculations reach `good_castep/` or `bad_castep/`.
+5. Publishes successful results into `genN-dft/`.
+6. Writes `training/gen-N-dataset.jld2`.
+7. Submits training clients, each claiming one deterministic model slot.
+8. Creates `ensemble-genN.json` after enough model artifacts are available.
+
+If you prefer to submit client jobs yourself, set:
+
+```toml
+[hpc]
+submit_client_jobs = false
+```
+
+Then run clients manually or through your own job script:
+
+```bash
+julia --project=. -e 'using EDDPotentials; EDDPotentials.hpc_client()' -- --file link.toml --worker-id 1
+```
+
+Client status is written to:
+
+```
+.eddp-hpc/workers/<worker-id>.json
+```
+
+Training claims and completion markers are stored under:
+
+```
+.eddp-hpc/phases/genN-train/slots/
+```
+
+To stop the workflow gracefully:
+
+```bash
+touch <workdir>/STOP
+```
+
+Clients first ask their current child process to exit, wait
+`client_child_grace_seconds`, and then force-kill after
+`client_child_kill_seconds` if needed.
+
 ## Monitoring and Troubleshooting
 
 ### Progress Monitoring
@@ -475,8 +580,10 @@ Inside the `crud-work` folder, there three folders.
 
 Multiple crud.pl instances run simultaneously, each taking structures from hopper (atomic `mv` guarantees unique selection).
 
-On HPC you should use `crud-queue` mode for running the `crud.pl` jobs. In this case, a submission script `job.sh` is needed to submit the
-actual jobs launching `crud.pl`. The number of core each job should use must be configured inside the submission script.
+On HPC, use either `crud-queue` for the legacy scheduler-backed DFT runner or
+enable `[hpc]` for the file-backed server-client workflow. In HPC mode the
+master prepares the shared `crud-work/genN/hopper/` directory, and client jobs
+launch `crud.pl` when the master publishes the DFT phase.
 
 
 ### Data Management

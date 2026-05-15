@@ -456,7 +456,7 @@ end
 Run external DFT calculator for generating training data.
 """
 function _run_external(bu::Builder)
-    if bu.options.hpc.enabled && bu.state.dft_mode == "crud-hpc"
+    if bu.options.hpc.enabled
         hpc_run_dft_phase!(bu)
         return true
     end
@@ -898,7 +898,9 @@ function _perform_training_external(bu::Builder)
     tra = bu.trainer
     mode = lowercase(strip(tra.external_mode))
 
-    if mode == "local"
+    if bu.options.hpc.enabled
+        hpc_run_training_phase!(bu; create_ensemble_model=false)
+    elseif mode == "local"
         _perform_training_external_local(bu)
     elseif mode == "submit" || mode == "command"
         _perform_training_external_submit(bu)

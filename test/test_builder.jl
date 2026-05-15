@@ -102,7 +102,7 @@ end
 
         hpc = EDDPotentials.HPCWorkflowOption()
         hpc.enabled = true
-        hpc.root = ".custom-hpc"
+        hpc.coordination_dir = ".custom-hpc"
         opt_hpc = EDDPotentials.BuilderOption(
             state,
             cf,
@@ -195,7 +195,7 @@ end
             trainer.nmodels = 3
             hpc = EDDPotentials.HPCWorkflowOption()
             hpc.enabled = true
-            hpc.heartbeat_interval = 0.01
+            hpc.client_heartbeat_interval_seconds = 0.01
             opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, hpc)
             builder = Builder(opt)
             builder.state.builder_file_path = joinpath(temp, "link.toml")
@@ -263,7 +263,7 @@ end
             trainer.nmodels = 1
             hpc = EDDPotentials.HPCWorkflowOption()
             hpc.enabled = true
-            hpc.poll_interval = 0.01
+            hpc.control_poll_interval_seconds = 0.01
             opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, hpc)
             builder = Builder(opt)
 
@@ -301,6 +301,49 @@ end
         end
     end
 
+    @testset "HPC enabled overrides backend selectors" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.dft_mode = "mock"
+            cf = EDDPotentials.CellFeatureConfig(elements=["H"])
+            rss = EDDPotentials.RssSetting()
+            trainer = EDDPotentials.TrainingOption()
+            trainer.external = true
+            trainer.external_mode = "local"
+            hpc = EDDPotentials.HPCWorkflowOption()
+            hpc.enabled = true
+            hpc.submit_client_jobs = false
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, hpc)
+            builder = Builder(opt)
+
+            open(joinpath(temp, "calc.cell"), "w") do io
+                println(io, "%BLOCK LATTICE_CART")
+                println(io, "1 0 0")
+                println(io, "0 1 0")
+                println(io, "0 0 1")
+                println(io, "%ENDBLOCK LATTICE_CART")
+            end
+            write(joinpath(temp, "calc.param"), "task : SinglePoint\n")
+            gen0 = EDDPotentials.input_structure_dir(temp, 0)
+            mkpath(gen0)
+            write(joinpath(gen0, "calc-001.res"), "TITL test\nEND\n")
+
+            EDDPotentials.hpc_prepare_crud_workdir!(builder, 0)
+            phase_dir = joinpath(temp, ".eddp-hpc", "phases", "gen0-dft")
+            cp(
+                joinpath(gen0, "calc-001.res"),
+                joinpath(temp, "crud-work", "gen0", "good_castep", "calc-001.res"),
+            )
+            @test EDDPotentials._run_external(builder) == true
+            @test isfile(joinpath(EDDPotentials.output_structure_dir(temp, 0), "calc-001.res"))
+            @test isfile(joinpath(phase_dir, "DONE"))
+        end
+    end
+
     @testset "HPC scheduler script rendering" begin
         mktempdir() do temp
             script = joinpath(temp, "hpc_job.sh")
@@ -318,11 +361,12 @@ end
             rss = EDDPotentials.RssSetting()
             trainer = EDDPotentials.TrainingOption()
             hpc = EDDPotentials.HPCWorkflowOption()
+            hpc.submit_client_jobs = false
             scheduler = EDDPotentials.SchedulerConfig(
                 script=script,
                 njobs=2,
                 type="SLURM",
-                submit_jobs=false,
+                submit_jobs=true,
             )
             opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, scheduler, hpc)
             builder = Builder(opt)
@@ -338,6 +382,7 @@ end
             @test contains(text, "EDDPotentials.hpc_client()")
             @test contains(text, "--worker-id \"\$WORKER_ID\"")
             @test contains(text, "SLURM_ARRAY_TASK_ID")
+            @test EDDPotentials._hpc_submit_clients(builder, "dft", 0) == ""
         end
     end
 

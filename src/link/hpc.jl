@@ -10,7 +10,7 @@ using Dates
 
 const HPC_CLIENT_CMD_PLACEHOLDER = "{{EDDP_HPC_CLIENT_CMD}}"
 
-_hpc_root(bu::Builder) = joinpath(bu.state.workdir, bu.options.hpc.root)
+_hpc_root(bu::Builder) = joinpath(bu.state.workdir, bu.options.hpc.coordination_dir)
 _hpc_control_path(bu::Builder) = joinpath(_hpc_root(bu), "control.json")
 _hpc_workers_dir(bu::Builder) = joinpath(_hpc_root(bu), "workers")
 _hpc_phase_dir(bu::Builder, iter::Int, phase::AbstractString) =
@@ -148,7 +148,7 @@ end
 function hpc_prepare_crud_workdir!(bu::Builder, iter::Int=bu.state.iteration)
     state = bu.state
     phase_dir = _hpc_phase_dir(bu, iter, "dft")
-    crud_workdir = joinpath(state.workdir, bu.options.hpc.crud_workdir, "gen$(iter)")
+    crud_workdir = joinpath(state.workdir, bu.options.hpc.dft_crud_workdir, "gen$(iter)")
     input_dir = input_structure_dir(state.workdir, iter)
     output_dir = output_structure_dir(state.workdir, iter)
 
@@ -245,10 +245,10 @@ end
 
 function _hpc_wait_for_phase_workers_stopped!(bu::Builder, control)
     timeout =
-        bu.options.hpc.child_grace_seconds +
-        bu.options.hpc.child_kill_seconds +
-        bu.options.hpc.heartbeat_interval +
-        2 * bu.options.hpc.poll_interval
+        bu.options.hpc.client_child_grace_seconds +
+        bu.options.hpc.client_child_kill_seconds +
+        bu.options.hpc.client_heartbeat_interval_seconds +
+        2 * bu.options.hpc.control_poll_interval_seconds
     started = time()
     while true
         active = filter(state -> _hpc_phase_worker_is_active(state, control), hpc_worker_states(bu))
@@ -257,7 +257,7 @@ function _hpc_wait_for_phase_workers_stopped!(bu::Builder, control)
             @warn "Timed out waiting for HPC clients to stop" active_workers = length(active)
             return false
         end
-        sleep(max(1.0, bu.options.hpc.poll_interval))
+        sleep(max(1.0, bu.options.hpc.control_poll_interval_seconds))
     end
 end
 
@@ -284,7 +284,7 @@ function _hpc_wait_for_dft!(bu::Builder, phase_dir)
             _hpc_abort_phase!(bu, phase_dir, "STOP requested while waiting for DFT.")
             throw(ErrorException("STOP requested while waiting for DFT phase."))
         end
-        sleep(bu.options.hpc.poll_interval)
+        sleep(bu.options.hpc.control_poll_interval_seconds)
     end
 end
 
@@ -365,7 +365,7 @@ function hpc_claim_training_slot!(bu::Builder, iter::Int, worker_id::AbstractStr
         isfile(done_path) && continue
         if isdir(lock_path)
             age = now - stat(lock_path).mtime
-            if age > bu.options.hpc.stale_claim_seconds
+            if age > bu.options.hpc.training_slot_stale_seconds
                 rm(lock_path; recursive=true, force=true)
             else
                 continue
@@ -430,7 +430,7 @@ function _hpc_wait_for_training!(bu::Builder, phase_dir)
             _hpc_abort_phase!(bu, phase_dir, "STOP requested while waiting for training.")
             throw(ErrorException("STOP requested while waiting for training phase."))
         end
-        sleep(bu.options.hpc.poll_interval)
+        sleep(bu.options.hpc.control_poll_interval_seconds)
     end
 end
 
@@ -519,8 +519,22 @@ function _hpc_submit_clients(bu::Builder, phase::AbstractString, iter::Int)
     scheduler === nothing && return ""
     workdir = joinpath(_hpc_root(bu), "submit", "gen$(iter)-$(phase)")
     _render_hpc_client_job_script(bu, scheduler, workdir)
-    scheduler.submit_jobs || return ""
-    cmd = _training_submit_cmd(scheduler, workdir)
+    bu.options.hpc.submit_client_jobs || return ""
+    nclients = if phase == "dft"
+        bu.options.hpc.dft_client_jobs
+    elseif phase == "training"
+        bu.options.hpc.training_client_jobs
+    else
+        scheduler.njobs
+    end
+    hpc_scheduler = SchedulerConfig(
+        scheduler.script,
+        max(1, nclients),
+        scheduler.type,
+        scheduler.clean_workdir,
+        scheduler.submit_jobs,
+    )
+    cmd = _training_submit_cmd(hpc_scheduler, workdir)
     @info "HPC client submission command: $cmd"
     output = readchomp(cmd)
     !isempty(output) && @info "HPC client submission output: $output"
@@ -563,13 +577,13 @@ function _hpc_stop_child!(proc, hpc::HPCWorkflowOption)
     process_running(proc) || return
     _hpc_signal_process(proc, Base.SIGTERM)
     started = time()
-    while process_running(proc) && time() - started < hpc.child_grace_seconds
+    while process_running(proc) && time() - started < hpc.client_child_grace_seconds
         sleep(1)
     end
     process_running(proc) || return
     _hpc_signal_process(proc, Base.SIGKILL)
     started = time()
-    while process_running(proc) && time() - started < hpc.child_kill_seconds
+    while process_running(proc) && time() - started < hpc.client_child_kill_seconds
         sleep(1)
     end
 end
@@ -588,7 +602,7 @@ function _hpc_supervise_child!(
     child_pid = _hpc_process_pid(proc)
     last_heartbeat = 0.0
     while process_running(proc)
-        if time() - last_heartbeat >= bu.options.hpc.heartbeat_interval
+        if time() - last_heartbeat >= bu.options.hpc.client_heartbeat_interval_seconds
             hpc_write_heartbeat(
                 bu,
                 worker_id;
@@ -621,7 +635,7 @@ function _hpc_supervise_child!(
             _hpc_stop_child!(proc, bu.options.hpc)
             return false
         end
-        sleep(max(1.0, bu.options.hpc.poll_interval))
+        sleep(max(1.0, bu.options.hpc.control_poll_interval_seconds))
     end
     wait(proc)
     return success(proc)
