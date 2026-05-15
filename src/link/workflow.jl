@@ -456,6 +456,10 @@ end
 Run external DFT calculator for generating training data.
 """
 function _run_external(bu::Builder)
+    if bu.options.hpc.enabled && bu.state.dft_mode == "crud-hpc"
+        hpc_run_dft_phase!(bu)
+        return true
+    end
     ensure_dir(_output_structure_dir(bu))
     calculator = get_external_calculator(bu)
     return calculator(_input_structure_dir(bu), _output_structure_dir(bu))
@@ -898,8 +902,10 @@ function _perform_training_external(bu::Builder)
         _perform_training_external_local(bu)
     elseif mode == "submit" || mode == "command"
         _perform_training_external_submit(bu)
+    elseif mode == "hpc"
+        hpc_run_training_phase!(bu; create_ensemble_model=false)
     else
-        throw(ArgumentError("Unknown trainer.external_mode `$mode`; expected `local` or `submit`."))
+        throw(ArgumentError("Unknown trainer.external_mode `$mode`; expected `local`, `submit`, or `hpc`."))
     end
 end
 

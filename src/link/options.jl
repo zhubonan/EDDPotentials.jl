@@ -359,6 +359,24 @@ end
 get_job_script_content(sch::SchedulerConfig) = read(sch.script, String)
 
 """
+    HPCWorkflowOption
+
+Options for the file-backed HPC master/client workflow.
+"""
+@option mutable struct HPCWorkflowOption <: EDDPotentialsOption
+    enabled::Bool = false
+    root::String = ".eddp-hpc"
+    poll_interval::Float64 = 10.0
+    heartbeat_interval::Float64 = 30.0
+    child_grace_seconds::Float64 = 60.0
+    child_kill_seconds::Float64 = 30.0
+    crud_workdir::String = "crud-work"
+    dft_workers::Int = 1
+    train_workers::Int = 1
+    stale_claim_seconds::Float64 = 86400.0
+end
+
+"""
     BuilderOption
 
 The container for all options used for building the EDDP potentials used by the `link!` function.
@@ -370,7 +388,11 @@ The container for all options used for building the EDDP potentials used by the 
     rss::RssSetting
     trainer::TrainingOption
     scheduler::Maybe{SchedulerConfig}
+    hpc::HPCWorkflowOption = HPCWorkflowOption()
 end
+
+BuilderOption(state, cf, cf_embedding, rss, trainer, scheduler) =
+    BuilderOption(state, cf, cf_embedding, rss, trainer, scheduler, HPCWorkflowOption())
 
 
 Base.show(io::IO, mime::MIME"text/plain", x::EDDPotentialsOption) = pprint_struct(io, x)

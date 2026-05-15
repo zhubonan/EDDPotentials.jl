@@ -137,8 +137,7 @@ end
 
 Train the model and write the result to the disk as a JSON archive.
 """
-function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
-
+function _train_one_model!(bu::Builder, tra::TrainingOption=bu.trainer; model_path=nothing)
     training_dir = joinpath(bu.state.workdir, "training")
     (; training_mode) = tra
     ensure_dir(training_dir)
@@ -157,131 +156,149 @@ function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
         weights = nothing
     end
 
-    i_trained = 0
-    while num_existing_models(bu) < tra.nmodels
+    @info "Model initialized"
+    if training_mode == "manual_backprop"
+        model = ManualFluxBackPropInterface(
+            bu.cf,
+            tra.n_nodes...;
+            xt=train.xt,
+            yt=train.yt,
+            embedding=bu.cf_embedding,
+        )
+    elseif training_mode == "linear"
+        model = LinearInterface(zeros(size(x_train[1], 1)))
+    else
+        throw(ErrorException("Unknown `training_mode`: $(training_mode)"))
+    end
 
-        @info "Model initialized"
-        # Initialise the model
-        if training_mode == "manual_backprop"
-            model = ManualFluxBackPropInterface(
-                bu.cf,
-                tra.n_nodes...;
-                xt=train.xt,
-                yt=train.yt,
-                embedding=bu.cf_embedding,
-            )
-        elseif training_mode == "linear"
-            # Linear model
-            model = LinearInterface(zeros(size(x_train[1], 1)))
-        else
-            throw(ErrorException("Unknown `training_mode`: $(training_mode)"))
-        end
-
-        @info "Starting training ($(tra.train_method))"
-        # Train one model and save it...
-        if tra.train_method == "sgd"
-            train_sgd!(
-                model,
-                x_train,
-                y_train;
-                x_val,
-                y_val,
-                max_epochs=tra.max_iter,
-                earlystop=tra.earlystop,
-                show_progress=tra.show_progress,
-                keep_best=tra.keep_best,
-                log_file=tra.log_file,
-                weights,
-                optimizer=Symbol(tra.optimizer),
-                lr=tra.lr,
-                momentum=tra.momentum,
-                batch_size=max(1, tra.batch_size),
-                weight_decay=tra.weight_decay,
-                grad_clip=tra.grad_clip,
-                feature_spec=bu.cf,
-                elemental_energies=make_symbol_keys(bu.state.elemental_energies),
-                _symbolize_kwargs(tra.training_kwargs)...,
-            )
-        elseif tra.batch_size > 0
-            @info "Using batched LM with batch_size=$(tra.batch_size)"
-            train_lm_batched!(
-                model,
-                x_train,
-                y_train;
-                x_val,
-                y_val,
-                max_epochs=tra.max_iter,
-                earlystop=tra.earlystop,
-                show_progress=tra.show_progress,
-                p=tra.p,
-                keep_best=tra.keep_best,
-                log_file=tra.log_file,
-                weights,
-                batch_size=tra.batch_size,
-                _symbolize_kwargs(tra.training_kwargs)...,
-            )
-        else
-            train_lm!(
-                model,
-                x_train,
-                y_train;
-                x_val,
-                y_val,
-                max_epochs=tra.max_iter,
-                earlystop=tra.earlystop,
-                show_progress=tra.show_progress,
-                p=tra.p,
-                keep_best=tra.keep_best,
-                log_file=tra.log_file,
-                weights,
-                _symbolize_kwargs(tra.training_kwargs)...,
-            )
-        end
-
-        # Display training results
-        if tra.log_file != "" || tra.show_progress
-            rtrain = TrainingResults(model, train)
-            rval = TrainingResults(model, val)
-            rtest = TrainingResults(model, test)
-            if tra.log_file != ""
-                open(tra.log_file, "a") do file
-                    println(file, "==== Training ====")
-                    show(file, rtrain)
-                    print(file, "\n")
-                    println(file, "=== Validation ===")
-                    show(file, rval)
-                    print(file, "\n")
-                    println(file, "====== Test ======")
-                    show(file, rtest)
-                    print(file, "\n")
-                end
-            end
-            if tra.show_progress
-                println("==== Training ====")
-                show(rtrain)
-                print("\n")
-                println("=== Validation ===")
-                show(rval)
-                print("\n")
-                println("====== Test ======")
-                show(rtest)
-                print("\n")
-            end
-        end
-
-        # Save the model
-        clear_transient_gradients!(model)
-        model_name =
-            tra.prefix * "gen-$(bu.state.iteration)-model-" * string(uuid4())[1:8] * ".json"
-        save_model_artifact(
-            joinpath(training_dir, model_name),
-            model;
+    @info "Starting training ($(tra.train_method))"
+    if tra.train_method == "sgd"
+        train_sgd!(
+            model,
+            x_train,
+            y_train;
+            x_val,
+            y_val,
+            max_epochs=tra.max_iter,
+            earlystop=tra.earlystop,
+            show_progress=tra.show_progress,
+            keep_best=tra.keep_best,
+            log_file=tra.log_file,
+            weights,
+            optimizer=Symbol(tra.optimizer),
+            lr=tra.lr,
+            momentum=tra.momentum,
+            batch_size=max(1, tra.batch_size),
+            weight_decay=tra.weight_decay,
+            grad_clip=tra.grad_clip,
             feature_spec=bu.cf,
             elemental_energies=make_symbol_keys(bu.state.elemental_energies),
+            _symbolize_kwargs(tra.training_kwargs)...,
         )
-        @info "Model save $model_name"
+    elseif tra.batch_size > 0
+        @info "Using batched LM with batch_size=$(tra.batch_size)"
+        train_lm_batched!(
+            model,
+            x_train,
+            y_train;
+            x_val,
+            y_val,
+            max_epochs=tra.max_iter,
+            earlystop=tra.earlystop,
+            show_progress=tra.show_progress,
+            p=tra.p,
+            keep_best=tra.keep_best,
+            log_file=tra.log_file,
+            weights,
+            batch_size=tra.batch_size,
+            _symbolize_kwargs(tra.training_kwargs)...,
+        )
+    else
+        train_lm!(
+            model,
+            x_train,
+            y_train;
+            x_val,
+            y_val,
+            max_epochs=tra.max_iter,
+            earlystop=tra.earlystop,
+            show_progress=tra.show_progress,
+            p=tra.p,
+            keep_best=tra.keep_best,
+            log_file=tra.log_file,
+            weights,
+            _symbolize_kwargs(tra.training_kwargs)...,
+        )
+    end
+
+    if tra.log_file != "" || tra.show_progress
+        rtrain = TrainingResults(model, train)
+        rval = TrainingResults(model, val)
+        rtest = TrainingResults(model, test)
+        if tra.log_file != ""
+            open(tra.log_file, "a") do file
+                println(file, "==== Training ====")
+                show(file, rtrain)
+                print(file, "\n")
+                println(file, "=== Validation ===")
+                show(file, rval)
+                print(file, "\n")
+                println(file, "====== Test ======")
+                show(file, rtest)
+                print(file, "\n")
+            end
+        end
+        if tra.show_progress
+            println("==== Training ====")
+            show(rtrain)
+            print("\n")
+            println("=== Validation ===")
+            show(rval)
+            print("\n")
+            println("====== Test ======")
+            show(rtest)
+            print("\n")
+        end
+    end
+
+    clear_transient_gradients!(model)
+    savepath = if model_path === nothing
+        model_name =
+            tra.prefix * "gen-$(bu.state.iteration)-model-" * string(uuid4())[1:8] * ".json"
+        joinpath(training_dir, model_name)
+    else
+        ensure_dir(splitdir(model_path)[1])
+        model_path
+    end
+    save_model_artifact(
+        savepath,
+        model;
+        feature_spec=bu.cf,
+        elemental_energies=make_symbol_keys(bu.state.elemental_energies),
+    )
+    @info "Model saved $(basename(savepath))"
+    return savepath
+end
+
+function run_trainer_slot!(
+    bu::Builder,
+    tra::TrainingOption=bu.trainer;
+    slot_id::Int,
+    model_path::AbstractString,
+)
+    tmp_path = model_path * ".tmp-$(getpid())"
+    isfile(tmp_path) && rm(tmp_path)
+    result = _train_one_model!(bu, tra; model_path=tmp_path)
+    mv(result, model_path; force=true)
+    return model_path
+end
+
+function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
+    i_trained = 0
+    while num_existing_models(bu) < tra.nmodels
+        _train_one_model!(bu, tra)
         i_trained += 1
-    end # End the while loop
+    end
     @info "Trainer completed - total number of trained models: $(i_trained)"
 end
 

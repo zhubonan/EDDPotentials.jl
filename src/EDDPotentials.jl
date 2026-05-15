@@ -235,10 +235,24 @@ export StructureContainer,
     load_feature_artifact,
     save_feature_json
 export split_and_featurize
-export BuilderState, TrainingOption, RssPruneOption, link!
+export BuilderState, TrainingOption, RssPruneOption, HPCWorkflowOption, link!
 export Builder,
     walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss,
     split_then_featurize, diagnose_formula_sampling
+export hpc_master,
+    link_hpc,
+    hpc_client,
+    link_worker,
+    hpc_train_slot,
+    hpc_write_heartbeat,
+    hpc_worker_states,
+    hpc_prepare_crud_workdir!,
+    hpc_collect_crud_results!,
+    hpc_prepare_training_phase!,
+    hpc_claim_training_slot!,
+    hpc_mark_training_slot_done!,
+    hpc_mark_training_slot_failed!,
+    hpc_training_model_path
 export rmse_per_atom, mae_per_atom, max_ae_per_atom
 export TrainedModel, train_model, predict
 export nfeatures
