@@ -41,4 +41,5 @@ foundation_train/mp_finetuning-MACE_matpes_ft_run-42_combined.xyz
 test/Manifest.toml-old
 test/Project.toml-old
 traj.xyz
+train-log
 worktress/

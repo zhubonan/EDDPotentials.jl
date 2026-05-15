@@ -192,6 +192,12 @@ function create_ensemble(
     weights = nnls_weights(models, x, y; alg, error_threshold)[:]
     tmp_models = collect(models)
     mask = weights .> threshold
+    if !any(mask)
+        imax = argmax(weights)
+        mask[imax] = true
+        weights[imax] = weights[imax] > 0 ? weights[imax] : one(eltype(weights))
+        @warn "NNLS ensemble weights were all below threshold; keeping the strongest model."
+    end
     EnsembleNNInterface(Tuple(tmp_models[mask]), weights[mask])
 end
 

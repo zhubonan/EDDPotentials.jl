@@ -294,12 +294,14 @@ dft_mode = "crud"
 
 4. **"disp-castep"**: Distributed CASTEP via DISP package
 
-### File-Backed HPC Server-Client Mode
+### File-Backed Client-Server Mode
 
 Use this mode when DFT calculations and model training should run as separate
-cluster client jobs coordinated through files on a shared filesystem. The master
-publishes the active phase in `.eddp-hpc/control.json`; clients read that file
-and run either `crud.pl` or a one-model training subprocess.
+client processes coordinated through files on a shared filesystem. The master
+publishes the active phase in `.eddp-client-server/control.json`; clients read that file
+and run either `crud.pl` or a one-model training subprocess. A scheduler can
+launch the clients, but it is not required; clients may also be started manually
+and left running as daemons.
 
 Minimal `link.toml` settings:
 
@@ -312,9 +314,9 @@ external = true
 nmodels = 128
 external_completion_ratio = 0.9
 
-[hpc]
+[client_server]
 enabled = true
-coordination_dir = ".eddp-hpc"
+coordination_dir = ".eddp-client-server"
 submit_client_jobs = true
 dft_client_jobs = 16
 training_client_jobs = 8
@@ -326,31 +328,31 @@ client_child_kill_seconds = 30.0
 training_slot_stale_seconds = 86400.0
 
 [scheduler]
-script = "hpc_client_job.sh"
+script = "client_server_client_job.sh"
 type = "SLURM"                    # or "SGE"
 ```
 
-When `[hpc] enabled = true`, the normal DFT and external-training backends are
-overridden by the file-backed HPC workflow. You do not need to set
-`state.dft_mode = "crud-hpc"` or `trainer.external_mode = "hpc"` in this mode.
+When `[client_server] enabled = true`, the normal DFT and external-training backends are
+overridden by the file-backed client-server workflow. You do not need to set
+`trainer.external_mode = "client_server"` in this mode.
 
 The scheduler script launches EDDP client jobs. It must contain the placeholder
-`{{EDDP_HPC_CLIENT_CMD}}`, which the master replaces with the correct Julia
+`{{EDDP_CLIENT_SERVER_CMD}}`, which the master replaces with the correct Julia
 client command:
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=eddp-hpc-client
+#SBATCH --job-name=eddp-client-server
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
 
-{{EDDP_HPC_CLIENT_CMD}}
+{{EDDP_CLIENT_SERVER_CMD}}
 ```
 
 Start the master with:
 
 ```bash
-julia --project=. -e 'using EDDPotentials; hpc_master("link.toml")'
+julia --project=. -e 'using EDDPotentials; client_server_master("link.toml")'
 ```
 
 The master then:
@@ -367,26 +369,26 @@ The master then:
 If you prefer to submit client jobs yourself, set:
 
 ```toml
-[hpc]
+[client_server]
 submit_client_jobs = false
 ```
 
-Then run clients manually or through your own job script:
+Then run long-lived clients manually or through your own job script:
 
 ```bash
-julia --project=. -e 'using EDDPotentials; EDDPotentials.hpc_client()' -- --file link.toml --worker-id 1
+julia --project=. -e 'using EDDPotentials; EDDPotentials.client_server_client()' -- --file link.toml --worker-id 1
 ```
 
 Client status is written to:
 
 ```
-.eddp-hpc/workers/<worker-id>.json
+.eddp-client-server/workers/<worker-id>.json
 ```
 
 Training claims and completion markers are stored under:
 
 ```
-.eddp-hpc/phases/genN-train/slots/
+.eddp-client-server/phases/genN-train/slots/
 ```
 
 To stop the workflow gracefully:
@@ -580,8 +582,8 @@ Inside the `crud-work` folder, there three folders.
 
 Multiple crud.pl instances run simultaneously, each taking structures from hopper (atomic `mv` guarantees unique selection).
 
-On HPC, use either `crud-queue` for the legacy scheduler-backed DFT runner or
-enable `[hpc]` for the file-backed server-client workflow. In HPC mode the
+On a cluster, use either `crud-queue` for the legacy scheduler-backed DFT runner or
+enable `[client_server]` for the file-backed client-server workflow. In client-server mode the
 master prepares the shared `crud-work/genN/hopper/` directory, and client jobs
 launch `crud.pl` when the master publishes the DFT phase.
 

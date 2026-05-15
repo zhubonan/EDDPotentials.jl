@@ -64,7 +64,8 @@ function ensure_dir(path::AbstractString)
     if isempty(parent) || parent == "."
         isdir(path) || mkdir(path)
     else
-        target = contains(basename(path), ".") ? parent : path
+        base = basename(path)
+        target = contains(base, ".") && !startswith(base, ".") ? parent : path
         isdir(target) || mkpath(target)
     end
     return path

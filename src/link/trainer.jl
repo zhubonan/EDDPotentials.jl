@@ -44,6 +44,20 @@ function dataset_name(bu::Builder, i=bu.state.iteration)
     joinpath(bu.state.workdir, TRAINING_DIR, "gen-$i-dataset.jld2")
 end
 
+function is_training_dataset_ready(bu::Builder, iter=bu.state.iteration)
+    dataset_path = dataset_name(bu, iter)
+    isfile(dataset_path) || return false
+
+    dft_outputs = sort(vcat([
+        glob_allow_abs(joinpath(bu.state.workdir, "gen$i-dft/*.res")) for i = 0:iter
+    ]...))
+    isempty(dft_outputs) && return false
+
+    dataset_mtime = mtime(dataset_path)
+    latest_dft_mtime = maximum(mtime, dft_outputs)
+    return dataset_mtime >= latest_dft_mtime
+end
+
 function _is_saved_model_name(name::AbstractString, prefix::AbstractString)
     startswith(name, prefix) && (endswith(name, ".json") || endswith(name, ".jld2"))
 end
@@ -53,6 +67,7 @@ function _saved_model_paths(bu::Builder, tra::TrainingOption=bu.trainer; pattern
         return sort(glob_allow_abs(pattern))
     end
     training_dir = joinpath(bu.state.workdir, TRAINING_DIR)
+    isdir(training_dir) || return String[]
     prefix = tra.prefix * "gen-$(bu.state.iteration)-model-"
     sort([
         joinpath(training_dir, name) for

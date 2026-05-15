@@ -14,7 +14,7 @@ This module contains common utilities used across the link package:
 
 Create directory if it doesn't exist. Joins path components and creates the directory.
 """
-ensure_dir(args...) = isdir(joinpath(args...)) || mkdir(joinpath(args...))
+ensure_dir(args...) = isdir(joinpath(args...)) || mkpath(joinpath(args...))
 
 """
     input_structure_dir(workdir, iteration)

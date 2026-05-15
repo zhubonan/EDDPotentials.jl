@@ -17,10 +17,6 @@ hot_relax_cell = true
 
     [state.relax]
     force_threshold = 1e-3
-    hyper_ndim = 3
-    hyper_alpha_start = 1e-4
-    hyper_schedule_every = 25
-    hyper_target_iterations = 200
 
 [cf]
 elements = ["Al"]

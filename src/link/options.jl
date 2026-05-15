@@ -65,10 +65,6 @@ to perform various actions during the construction of the potentials.
   automatically from the reduced formula by summing one entry per species present.
 - `formula_oxidation_states`: Optional allowed oxidation states map for formula filtering (e.g. `Li=[1], O=[-2]`).
 - `formula_require_charge_neutral`: If true, keep only formulas that can be charge-neutral under `formula_oxidation_states`.
-- `hyper_ndim`: Number of extra dimensions for hyperdimensional relaxation (default 3).
-- `hyper_alpha_start`: Starting penalty coefficient for extra dimensions (default 1e-4).
-- `hyper_schedule_every`: Iterations between penalty schedule updates (default 50).
-- `hyper_target_iterations`: Maximum iterations for hyperdimensional relaxation (default 500).
 """
 @option mutable struct BuilderState <: EDDPotentialsOption
     seedfile::Union{String,Vector{String}}
@@ -78,7 +74,7 @@ to perform various actions during the construction of the potentials.
     workdir::String = "."
     max_iterations::Int = 5
     per_generation::Int = 100
-    per_generation_threshold::Float64 = 0.98
+    per_generation_threshold::Float64 = 0.7
     shake_per_minima::Int = 10
     buildcell_nprocs::Int = 1
     build_timeout::Float64 = 60.0
@@ -111,17 +107,6 @@ to perform various actions during the construction of the potentials.
     formula_target_atom_volumes::Dict{String,Float64} = Dict{String,Float64}()
     formula_oxidation_states::Dict{String,Vector{Int}} = Dict{String,Vector{Int}}()
     formula_require_charge_neutral::Bool = true
-    hyper_ndim::Int = 3
-    hyper_alpha_start::Float64 = 1e-4
-    hyper_schedule_every::Int = 25
-    hyper_target_iterations::Int = 200
-    hyper_dynamic_alpha::Bool = false
-    hyper_force_ratio::Float64 = 2.0
-    hyper_max_alpha::Float64 = 1.0
-    hyper_ramp_alpha::Bool = true
-    hyper_alpha_ramp_factor::Float64 = 5.0
-    hyper_phase1_alpha::Float64 = 1e-4
-    hyper_phase1_fraction::Float64 = 0.5
     "Relaxation mode: `standard` (3D), `hyperspace`, or `hot`"
     relax_mode::String = "standard"
     "Number of MD+relax rounds for hot-AIRSS mode"
@@ -359,14 +344,15 @@ end
 get_job_script_content(sch::SchedulerConfig) = read(sch.script, String)
 
 """
-    HPCWorkflowOption
+    ClientServerOption
 
-Options for the file-backed HPC master/client workflow.
+Options for the file-backed Client-server master/client workflow.
 """
-@option mutable struct HPCWorkflowOption <: EDDPotentialsOption
+@option mutable struct ClientServerOption <: EDDPotentialsOption
     enabled::Bool = false
-    coordination_dir::String = ".eddp-hpc"
+    coordination_dir::String = ".eddp-client-server"
     control_poll_interval_seconds::Float64 = 10.0
+    client_poll_interval_seconds::Float64 = 10.0
     client_heartbeat_interval_seconds::Float64 = 30.0
     client_child_grace_seconds::Float64 = 60.0
     client_child_kill_seconds::Float64 = 30.0
@@ -389,11 +375,11 @@ The container for all options used for building the EDDP potentials used by the 
     rss::RssSetting
     trainer::TrainingOption
     scheduler::Maybe{SchedulerConfig}
-    hpc::HPCWorkflowOption = HPCWorkflowOption()
+    client_server::ClientServerOption = ClientServerOption()
 end
 
 BuilderOption(state, cf, cf_embedding, rss, trainer, scheduler) =
-    BuilderOption(state, cf, cf_embedding, rss, trainer, scheduler, HPCWorkflowOption())
+    BuilderOption(state, cf, cf_embedding, rss, trainer, scheduler, ClientServerOption())
 
 
 Base.show(io::IO, mime::MIME"text/plain", x::EDDPotentialsOption) = pprint_struct(io, x)

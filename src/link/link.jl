@@ -61,4 +61,4 @@ include("trainer.jl")   # Training functions (uses Builder)
 include("external.jl")  # External calculators (uses Builder, utils)
 include("data.jl")      # Data loading (uses Builder)
 include("analysis.jl")  # Analysis tools (uses Builder, data functions)
-include("hpc.jl")       # File-backed HPC master/client workflow
+include("client_server.jl") # File-backed client-server workflow

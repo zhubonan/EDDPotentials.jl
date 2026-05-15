@@ -153,7 +153,7 @@ function Builder(str::AbstractString="link.toml")
     end
 
     # Store the path to the builder file
-    builder.state.builder_file_path = str
+    builder.state.builder_file_path = abspath(str)
 
     # Update the iteration number with the new path
     _set_iteration!(builder)
@@ -279,17 +279,104 @@ end
 
 Run automated iterative building cycles.
 """
+abstract type AbstractLinkBackend end
+struct LocalLinkBackend <: AbstractLinkBackend end
+struct ClientServerLinkBackend <: AbstractLinkBackend end
+
+struct LinkPhaseResult
+    status::Symbol
+    phase::Symbol
+    iteration::Int
+    message::String
+    metrics::Dict{Symbol,Any}
+end
+
+LinkPhaseResult(status::Symbol, phase::Symbol, iteration::Int; message="", metrics=Dict{Symbol,Any}()) =
+    LinkPhaseResult(status, phase, iteration, String(message), Dict{Symbol,Any}(metrics))
+
+auto_link_backend(bu::Builder) =
+    bu.options.client_server.enabled ? ClientServerLinkBackend() : LocalLinkBackend()
+
 function link!(builder::Builder)
+    run_link_workflow!(builder, auto_link_backend(builder))
+end
+
+function run_link_workflow!(builder::Builder, backend::AbstractLinkBackend=auto_link_backend(builder))
+    validate_builder_for_link!(builder, backend)
     state = builder.state
-    _check_dependencies()
 
     while state.iteration <= state.max_iterations
-        step!(builder)
-        if should_stop(builder)
+        result = run_link_iteration!(builder, backend, state.iteration)
+        if result.status == :stopped
             @warn "Aborted training loop at iteration: $(state.iteration)."
-            return
+            shutdown_link_backend!(backend, builder)
+            return builder
+        end
+        if result.status == :pending
+            @info "Paused training loop at iteration $(state.iteration); phase $(result.phase) is pending."
+            return builder
         end
     end
+    shutdown_link_backend!(backend, builder)
+    return builder
+end
+
+shutdown_link_backend!(::AbstractLinkBackend, ::Builder) = nothing
+
+function run_link_iteration!(bu::Builder, backend::AbstractLinkBackend, iter::Int)
+    should_stop(bu) && return LinkPhaseResult(:stopped, :preflight, iter)
+
+    if has_ensemble(bu, iter)
+        bu.state.iteration += 1
+        return LinkPhaseResult(:ok, :advance, iter; message="ensemble already exists")
+    end
+
+    if !is_generation_data_ready(bu, iter)
+        result = _generate_random_structures(bu, iter)
+        result == :stopped && return LinkPhaseResult(:stopped, :generate, iter)
+        should_stop(bu) && return LinkPhaseResult(:stopped, :generate, iter)
+    end
+    validate_generated_structures!(bu, iter)
+
+    if !is_training_data_ready(bu, iter)
+        @info "Starting energy calculations for iteration $iter."
+        result = run_dft_phase!(backend, bu, iter)
+        result.status == :stopped && return result
+        result.status == :ok ||
+            throw(ErrorException("DFT phase failed for iteration $iter: $(result.message)"))
+    end
+    validate_dft_outputs!(bu, iter)
+
+    ns = nstructures(bu, iter)
+    @info "Number of new structures in iteration $(iter): $ns"
+
+    if bu.state.run_walk_forward && iter > 0
+        walk_forward_tests(bu; print_results=true, iters=[iter - 1])
+        should_stop(bu) && return LinkPhaseResult(:stopped, :walk_forward, iter)
+    end
+
+    if !is_training_dataset_ready(bu, iter)
+        @info "Preparing dataset..."
+        write_dataset(bu)
+    else
+        @info "Skipping dataset preparation for iteration $iter; dataset artifact already exists."
+    end
+    should_stop(bu) && return LinkPhaseResult(:stopped, :prepare_dataset, iter)
+
+    if !_models_ready_for_ensemble(bu)
+        @info "Starting training for iteration $iter."
+        result = run_training_phase!(backend, bu, iter)
+        result.status == :stopped && return result
+        result.status == :pending && return result
+        result.status == :ok ||
+            throw(ErrorException("Training phase failed for iteration $iter: $(result.message)"))
+    else
+        @info "Skipping training for iteration $iter; enough model artifacts already exist."
+    end
+
+    create_iteration_ensemble!(bu, iter)
+    bu.state.iteration += 1
+    return LinkPhaseResult(:ok, :advance, iter)
 end
 
 
@@ -323,7 +410,7 @@ function link()
         builder.state.iteration = args["iter"]
     end
     @info "Loading builder from $(fname)"
-    link!(builder)
+    return link!(builder)
 end
 
 
@@ -332,15 +419,135 @@ end
 
 Check if external programs are available in the system.
 """
-function _check_dependencies()
-    names = ["crud.pl", "buildcell", "cabal"]
-    @info "Check if $names are available."
-    for name in names
-        if run(`which $name`).exitcode != 0
-            @info "External program $name not found! Please check the runtime environment."
-        end
-    end
+function _check_dependencies(names)
+    unique_names = unique(String.(names))
+    isempty(unique_names) && return true
+    @info "Checking required external programs: $unique_names"
+    missing = [name for name in unique_names if Sys.which(name) === nothing]
+    isempty(missing) || throw(
+        ErrorException(
+            "Missing required external program(s): $(join(missing, ", ")). Please check the runtime environment.",
+        ),
+    )
+    return true
 end
+
+_scheduler_command(scheduler) = scheduler.type == "SLURM" ? "sbatch" :
+                                scheduler.type == "SGE" ? "qsub" : ""
+
+function _dft_required_commands(bu::Builder)
+    mode = lowercase(strip(bu.state.dft_mode))
+    if mode == "pp3"
+        return ["pp3"]
+    elseif mode in ("crud", "crud-queue")
+        return ["crud.pl"]
+    elseif mode == "acrud"
+        return String[]
+    elseif mode == "disp-castep"
+        return ["disp"]
+    elseif mode == "mock"
+        return String[]
+    end
+    return String[]
+end
+
+function _required_commands(::LocalLinkBackend, bu::Builder)
+    commands = String["buildcell"]
+    append!(commands, _dft_required_commands(bu))
+    if bu.trainer.external && lowercase(strip(bu.trainer.external_mode)) in ("submit", "command")
+        scheduler = bu.options.scheduler
+        scheduler === nothing && throw(
+            ArgumentError("A top-level `[scheduler]` config is required when trainer.external_mode = \"submit\"."),
+        )
+        scheduler.submit_jobs && push!(commands, _scheduler_command(scheduler))
+    end
+    filter!(!isempty, commands)
+    return commands
+end
+
+function _required_commands(::ClientServerLinkBackend, bu::Builder)
+    commands = String["buildcell"]
+    scheduler = bu.options.scheduler
+    if scheduler !== nothing && bu.options.client_server.submit_client_jobs
+        push!(commands, _scheduler_command(scheduler))
+    end
+    filter!(!isempty, commands)
+    return commands
+end
+
+function _require_builder_file_path!(bu::Builder)
+    path = strip(bu.state.builder_file_path)
+    isempty(path) && throw(
+        ArgumentError(
+            "builder.state.builder_file_path must be set to an existing configuration file before launching subprocesses or client-server workers. Build from `Builder(\"link.toml\")` or save the BuilderOption first.",
+        ),
+    )
+    abspath_path = abspath(path)
+    isfile(abspath_path) || throw(
+        ArgumentError("builder.state.builder_file_path does not exist: `$abspath_path`."),
+    )
+    bu.state.builder_file_path = abspath_path
+    return abspath_path
+end
+
+function _uses_subprocesses(bu::Builder, ::LocalLinkBackend)
+    return bu.state.rss_external ||
+           bu.trainer.external ||
+           lowercase(strip(bu.trainer.external_mode)) in ("submit", "command")
+end
+
+_uses_subprocesses(bu::Builder, ::ClientServerLinkBackend) = true
+
+function validate_builder_for_link!(bu::Builder, backend::AbstractLinkBackend)
+    bu.state.rss_nprocs >= 1 ||
+        throw(ArgumentError("state.rss_nprocs must be >= 1."))
+    0.0 < bu.state.per_generation_threshold <= 1.0 ||
+        throw(ArgumentError("state.per_generation_threshold must be in the interval (0, 1]."))
+    _check_dependencies(_required_commands(backend, bu))
+    _uses_subprocesses(bu, backend) && _require_builder_file_path!(bu)
+    return true
+end
+
+function run_dft_phase!(::LocalLinkBackend, bu::Builder, iter::Int)
+    is_training_data_ready(bu, iter) && return LinkPhaseResult(:ok, :dft, iter; message="DFT outputs already ready")
+    flag = _run_external(bu)
+    should_stop(bu) && return LinkPhaseResult(:stopped, :dft, iter)
+    flag || throw(ErrorException("Cannot find external code to run for generating training data"))
+    return LinkPhaseResult(:ok, :dft, iter)
+end
+
+function run_training_phase!(::LocalLinkBackend, bu::Builder, iter::Int)
+    _models_ready_for_ensemble(bu) &&
+        return LinkPhaseResult(:ok, :train_models, iter; message="models already ready")
+    result = _perform_training_models(bu)
+    result == :stopped && return LinkPhaseResult(:stopped, :train_models, iter)
+    result == :pending && return LinkPhaseResult(:pending, :train_models, iter)
+    return LinkPhaseResult(:ok, :train_models, iter)
+end
+
+function create_iteration_ensemble!(bu::Builder, iter::Int=bu.state.iteration)
+    nm = num_existing_models(bu)
+    required = _required_models_for_ensemble(bu.trainer)
+    @info "Number of trained models: $nm"
+    if nm >= required
+        return create_ensemble(
+            bu;
+            clean_individual_models=bu.trainer.clean_models,
+            save_ensemble_model=true,
+        )
+    end
+    throw(
+        ErrorException(
+            "Only $nm models are found in the training directory, need $required.",
+        ),
+    )
+end
+
+_required_models_for_ensemble(tra::TrainingOption) =
+    tra.external ? _external_required_models(tra) : tra.nmodels
+
+_models_ready_for_ensemble(bu::Builder) =
+    num_existing_models(bu) >= _required_models_for_ensemble(bu.trainer)
 
 
 """
@@ -363,43 +570,9 @@ end
 Run a single step for the Builder.
 """
 function step!(bu::Builder)
-    should_stop(bu) && return
-    iter = bu.state.iteration
-
-    if has_ensemble(bu, iter)
-        bu.state.iteration += 1
-        return bu
-    end
-
-    # Generate new structures
-    _generate_random_structures(bu, iter)
-    should_stop(bu) && return
-
-    # Run external code for DFT calculations
-    if !is_training_data_ready(bu, iter)
-        @info "Starting energy calculations for iteration $iter."
-        flag = _run_external(bu)
-        should_stop(bu) && return
-        flag || throw(
-            ErrorException("Cannot find external code to run for generating training data"),
-        )
-    end
-
-    ns = nstructures(bu, iter)
-    @info "Number of new structures in iteration $(iter): $ns"
-
-    # Optional - run walk-forward test
-    if bu.state.run_walk_forward
-        walk_forward_tests(bu; print_results=true, iters=[iter - 1])
-        should_stop(bu) && return
-    end
-
-    # Retrain model
-    @info "Starting training for iteration $iter."
-    _perform_training(bu)
-
-    bu.state.iteration += 1
-    bu
+    validate_builder_for_link!(bu, auto_link_backend(bu))
+    run_link_iteration!(bu, auto_link_backend(bu), bu.state.iteration)
+    return bu
 end
 
 
@@ -456,10 +629,6 @@ end
 Run external DFT calculator for generating training data.
 """
 function _run_external(bu::Builder)
-    if bu.options.hpc.enabled
-        hpc_run_dft_phase!(bu)
-        return true
-    end
     ensure_dir(_output_structure_dir(bu))
     calculator = get_external_calculator(bu)
     return calculator(_input_structure_dir(bu), _output_structure_dir(bu))
@@ -471,11 +640,35 @@ end
 
 Generate random structures (if needed) as training data for the `Builder`.
 """
+function required_generated_structures(bu::Builder, iter::Int=bu.state.iteration)
+    iter == 0 ? bu.state.n_initial : bu.state.per_generation
+end
+
+function is_generation_data_ready(bu::Builder, iter::Int=bu.state.iteration)
+    generated_input_count(bu, iter) >= required_generated_structures(bu, iter)
+end
+
+function validate_generated_structures!(bu::Builder, iter::Int=bu.state.iteration)
+    required = required_generated_structures(bu, iter)
+    actual = generated_input_count(bu, iter)
+    actual >= required && return true
+    throw(
+        ErrorException(
+            "Too few generated structures for iteration $iter: found $actual in `$(input_structure_dir(bu.state.workdir, iter))`, need at least $required.",
+        ),
+    )
+end
+
 function _generate_random_structures(bu::Builder, iter)
     # Generate new structures
-    outdir = _input_structure_dir(bu)
+    outdir = input_structure_dir(bu.state.workdir, iter)
     ensure_dir(outdir)
     ndata = length(glob_allow_abs(joinpath(outdir, "*.res")))
+    required = required_generated_structures(bu, iter)
+    if ndata >= required
+        @info "Skipping structure generation for iteration $iter; found $ndata existing structures."
+        return :ok
+    end
     (; seedfile, seedfile_weights, workdir, buildcell_nprocs, build_timeout) = bu.state
     formula_ctx = _formula_sampling_context(bu.state, bu.cfopt.elements)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
@@ -495,6 +688,10 @@ function _generate_random_structures(bu::Builder, iter)
         end
 
         ndata = length(glob_allow_abs(joinpath(outdir, "*.res")))
+        if ndata >= required
+            @info "Skipping initial structure generation for iteration $iter; found $ndata existing structures."
+            return :ok
+        end
 
         # First cycle generate from the seed without relaxation
         # Sanity check - are we definitely overfitting?
@@ -502,7 +699,7 @@ function _generate_random_structures(bu::Builder, iter)
             @warn "The number of features $(nfeatures(bu.cf)) is larger than the initial training size!"
         end
         # Generate random structures
-        nstruct = bu.state.n_initial - ndata + num_known
+        nstruct = required - ndata
         if nstruct > 0
             @info "Generating $(nstruct) initial training structures with $(buildcell_nprocs) buildcell process(es)."
             build_random_structures(
@@ -517,14 +714,15 @@ function _generate_random_structures(bu::Builder, iter)
         end
     else
         # Subsequent cycles - generate from the seed and perform relaxation
-        nstruct = bu.state.per_generation - ndata
+        nstruct = required - ndata
         if nstruct > 0
             # Launch external processes or internal RSS
-            if bu.state.rss_external
+            result = if bu.state.rss_external
                 _launch_rss_external(bu, iter, nstruct)
             else
                 _launch_rss_internal(bu, iter, nstruct)
             end
+            result == :stopped && return :stopped
 
             @info "Shaking generated structures."
             outdir = joinpath(bu.state.workdir, "gen$(iter)")
@@ -536,6 +734,7 @@ function _generate_random_structures(bu::Builder, iter)
             )
         end
     end
+    return :ok
 end
 
 
@@ -546,12 +745,13 @@ Launch external Julia processes for RSS generation.
 """
 function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
     @info "Generating $(nstruct) training structures for iteration $iter."
+    _require_builder_file_path!(bu)
 
     # Distribute the workloads
-    nstruct_per_proc = div(nstruct, bu.state.rss_nprocs) + 1
-    nstruct_per_proc_last = nstruct % nstruct_per_proc
+    bu.state.rss_nprocs >= 1 ||
+        throw(ArgumentError("state.rss_nprocs must be >= 1."))
+    nstruct_per_proc = max(1, ceil(Int, nstruct / bu.state.rss_nprocs))
     nstructs = fill(nstruct_per_proc, bu.state.rss_nprocs)
-    nstructs[end] = nstruct_per_proc_last
 
     # Launch external processes
     state = bu.state
@@ -596,18 +796,32 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
 
     @info "Subprocess launch command: $(Cmd([cmds[1]...])) for $(state.rss_nprocs) process"
 
-    # Launch tasks
+    # Launch processes
     tasks = Task[]
+    processes = []
     for i = 1:state.rss_nprocs
-        this_task = @async run(
-            pipeline(cmds[i], stdout="rss-process-$i-stdout", stderr="rss-process-$i"),
+        proc = run(
+            pipeline(cmds[i], stdout="rss-process-$i-stdout", stderr="rss-process-$i");
+            wait=false,
         )
+        push!(processes, proc)
+        this_task = @async wait(proc)
         push!(tasks, this_task)
     end
 
     @info "Search process launched, waiting..."
     last_nstruct = length(glob(joinpath(outdir, "*.res")))
     while !all(istaskdone.(tasks))
+        if should_stop(bu)
+            for proc in processes
+                try
+                    process_running(proc) && kill(proc)
+                catch err
+                    @warn "Failed to stop RSS process `$proc`: $err"
+                end
+            end
+            return :stopped
+        end
         nfound = length(glob(joinpath(outdir, "*.res")))
         # Print progress if the number of models have changed
         if nfound != last_nstruct
@@ -616,34 +830,29 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
         end
         sleep(5)
     end
-    @assert all(fetch(x).exitcode == 0 for x in tasks) "There are tasks with non-zero exit code!"
+    foreach(fetch, tasks)
+    @assert all(success, processes) "There are tasks with non-zero exit code!"
+    return :ok
 end
 
 
 """
     _populate_hyper_option(state::BuilderState; verbose::Bool=true) -> RelaxOption
 
-Create a RelaxOption from the BuilderState, copying hyper_* fields into the
-RelaxOption when `relax_mode == "hyperspace"`. Uses `state.relax` as the base.
+Create a RelaxOption from the BuilderState. `state.relax` is the single source
+of hyperspace relaxation parameters.
 """
 function _populate_hyper_option(state; verbose::Bool=true)
     opt = deepcopy(state.relax)
     opt.verbose = verbose
-    if state.relax_mode == "hyperspace"
-        opt.hyper_ndim = state.hyper_ndim
-        opt.hyper_alpha_start = state.hyper_alpha_start
-        opt.hyper_schedule_every = state.hyper_schedule_every
-        opt.hyper_target_iterations = state.hyper_target_iterations
-        opt.hyper_dynamic_alpha = state.hyper_dynamic_alpha
-        opt.hyper_force_ratio = state.hyper_force_ratio
-        opt.hyper_max_alpha = state.hyper_max_alpha
-        opt.hyper_ramp_alpha = state.hyper_ramp_alpha
-        opt.hyper_alpha_ramp_factor = state.hyper_alpha_ramp_factor
-        opt.hyper_phase1_alpha = state.hyper_phase1_alpha
-        opt.hyper_phase1_fraction = state.hyper_phase1_fraction
+    if state.relax_mode == "hyperspace" && opt.hyper_ndim <= 0
+        opt.hyper_ndim = 3
     end
     opt
 end
+
+_normalized_relax_mode(state, opt) =
+    state.relax_mode == "hyperspace" || opt.hyper_ndim > 0 ? "hyperspace" : state.relax_mode
 
 
 """
@@ -658,18 +867,19 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
     outdir = joinpath(state.workdir, "gen$(iter)")
     ensure_dir(outdir)
 
-    (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max, relax_mode) = state
+    (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max) = state
     _relax_option = _populate_hyper_option(state)
+    relax_mode = _normalized_relax_mode(state, _relax_option)
     formula_ctx = _formula_sampling_context(state, bu.cfopt.elements)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
     hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
         md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
         relax_cell=state.hot_relax_cell)
 
-    _run_rss(
-        joinpath.(Ref(state.workdir), seedfile),
-        ensemble,
-        bu.cf;
+        _run_rss(
+            joinpath.(Ref(state.workdir), seedfile),
+            ensemble,
+            bu.cf;
         show_progress=true,
         max=nstruct,
         core_size=state.core_size,
@@ -690,6 +900,7 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
         prune_option=state.rss_prune,
         prune_random_composition=formula_ctx !== nothing,
     )
+    return :ok
 end
 
 
@@ -714,7 +925,7 @@ function run_rss(builder::Builder)
     state = builder.state
     _relax_option = deepcopy(rs.relax)
     _relax_option.verbose = state.rss_nprocs > 0
-    _relax_mode = _relax_option.hyper_ndim > 0 ? "hyperspace" : state.relax_mode
+    _relax_mode = _normalized_relax_mode(state, _relax_option)
     formula_ctx = _formula_sampling_context(state, builder.cfopt.elements; seedfile=seedfile)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
     hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
@@ -817,9 +1028,7 @@ function _run_rss_link()
     state = bu.state
     _relax_option = deepcopy(state.relax)
     _relax_option.verbose = true
-    if _relax_option.hyper_ndim > 0
-        relax_mode = "hyperspace"
-    end
+    relax_mode = _normalized_relax_mode(state, _relax_option)
     formula_ctx = _formula_sampling_context(state, bu.cfopt.elements)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
     hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
@@ -860,32 +1069,24 @@ function _perform_training(bu::Builder)
     # Write the dataset to the disk
     @info "Preparing dataset..."
     write_dataset(bu)
+    result = _perform_training_models(bu)
+    result == :pending && throw(
+        ErrorException(
+            "Training jobs were submitted without waiting for model artifacts; rerun link! after the jobs finish to create the ensemble.",
+        ),
+    )
+    result == :stopped && return nothing
+    return create_iteration_ensemble!(bu)
+end
 
+function _perform_training_models(bu::Builder)
     if bu.trainer.external
-        _perform_training_external(bu)
+        result = _perform_training_external(bu)
+        result isa Symbol && return result
     else
         run_trainer(bu, bu.trainer)
     end
-
-    nm = num_existing_models(bu)
-    @info "Number of trained models: $nm"
-
-    # Create ensemble
-    nm = num_existing_models(bu)
-    if nm >= bu.trainer.nmodels * 0.9
-        ensemble = create_ensemble(
-            bu;
-            clean_individual_models=bu.trainer.clean_models,
-            save_ensemble_model=true,
-        )
-    else
-        throw(
-            ErrorException(
-                "Only $nm models are found in the training directory, need $(bu.trainer.nmodels)",
-            ),
-        )
-    end
-    return ensemble
+    return :ok
 end
 
 
@@ -898,17 +1099,14 @@ function _perform_training_external(bu::Builder)
     tra = bu.trainer
     mode = lowercase(strip(tra.external_mode))
 
-    if bu.options.hpc.enabled
-        hpc_run_training_phase!(bu; create_ensemble_model=false)
-    elseif mode == "local"
+    if mode == "local"
         _perform_training_external_local(bu)
     elseif mode == "submit" || mode == "command"
-        _perform_training_external_submit(bu)
-    elseif mode == "hpc"
-        hpc_run_training_phase!(bu; create_ensemble_model=false)
+        return _perform_training_external_submit(bu)
     else
-        throw(ArgumentError("Unknown trainer.external_mode `$mode`; expected `local`, `submit`, or `hpc`."))
+        throw(ArgumentError("Unknown trainer.external_mode `$mode`; expected `local` or `submit`."))
     end
+    return :ok
 end
 
 function _training_julia_code(tra::TrainingOption)
@@ -921,8 +1119,7 @@ end
 function _training_base_cmd(bu::Builder)
     tra = bu.trainer
     project_path = dirname(Base.active_project())
-    builder_file = bu.state.builder_file_path
-    @assert builder_file != ""
+    builder_file = _require_builder_file_path!(bu)
 
     Cmd([
         Base.julia_cmd()...,
@@ -979,7 +1176,7 @@ function _wait_for_training_models(
             if cancel_callback !== nothing
                 cancel_callback()
             end
-            return
+            return :ok
         end
 
         if should_stop(bu)
@@ -987,7 +1184,7 @@ function _wait_for_training_models(
             if cancel_callback !== nothing
                 cancel_callback()
             end
-            return
+            return :stopped
         end
 
         if !isempty(tasks) && all(istaskdone.(tasks))
@@ -1164,11 +1361,12 @@ function _perform_training_external_submit(bu::Builder)
 
     if tra.external_wait
         @info "Cluster training jobs submitted, waiting for model artifacts..."
-        _wait_for_training_models(
+        return _wait_for_training_models(
             bu;
             cancel_callback=() -> _cancel_scheduler_job(scheduler, job_id, workdir),
         )
     else
         @info "Cluster training jobs submitted without waiting for model artifacts."
+        return :pending
     end
 end

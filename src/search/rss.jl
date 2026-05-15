@@ -4,6 +4,7 @@ Routines for performing random structure searching using models
 
 using Printf
 using Configurations
+using ProgressMeter
 
 """
     RssPruneOption
@@ -179,7 +180,7 @@ function build_and_relax(
         ndim = relax_option.hyper_ndim > 0 ? relax_option.hyper_ndim : 3
         alpha_start = relax_option.hyper_alpha_start
         schedule_every = relax_option.hyper_schedule_every
-        target_iterations = _hyper_max_iterations(relax_option)
+        target_iterations = Simulation._hyper_max_iterations(relax_option)
         phase1_alpha = relax_option.hyper_phase1_alpha
         phase1_frac = relax_option.hyper_phase1_fraction
         pressure_gpa = relax_option.external_pressure[1]

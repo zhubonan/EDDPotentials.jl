@@ -15,16 +15,10 @@ Check if sufficient training data has been calculated for a given iteration.
 """
 function is_training_data_ready(bu::Builder, iteration=bu.state.iteration)
     isdir(joinpath(bu.state.workdir, "gen$(iteration)-dft")) || return false
-    ndft = nstructures_calculated(bu, iteration)
-    if iteration == 0
-        nexpected = bu.state.n_initial
-    else
-        nexpected = bu.state.per_generation * (bu.state.shake_per_minima + 1)
-    end
-    if ndft / nexpected > bu.state.per_generation_threshold
-        return true
-    end
-    return false
+    input_count = generated_input_count(bu, iteration)
+    input_count > 0 || return false
+    return nstructures_calculated(bu, iteration) >=
+           required_success_count(input_count, bu.state.per_generation_threshold)
 end
 
 
@@ -44,6 +38,47 @@ Count the number of DFT-calculated structures for a given iteration.
 """
 nstructures_calculated(bu::Builder, iteration) =
     length(glob_allow_abs(joinpath(bu.state.workdir, "gen$(iteration)-dft/*.res")))
+
+"""
+    generated_input_count(bu::Builder, iteration)
+
+Count actual generated input structures for an iteration.
+"""
+generated_input_count(bu::Builder, iteration) = nstructures(bu, iteration)
+
+"""
+    required_success_count(input_count, threshold)
+
+Minimum successful DFT outputs required for a generated input count.
+"""
+function required_success_count(input_count::Integer, threshold::Real)
+    input_count > 0 || return 0
+    return max(1, ceil(Int, input_count * threshold))
+end
+
+"""
+    validate_dft_outputs!(bu::Builder, iteration)
+
+Validate that DFT produced enough output structures for an iteration.
+"""
+function validate_dft_outputs!(bu::Builder, iteration=bu.state.iteration)
+    input_count = generated_input_count(bu, iteration)
+    input_dir = input_structure_dir(bu.state.workdir, iteration)
+    output_dir = output_structure_dir(bu.state.workdir, iteration)
+    input_count > 0 || throw(
+        ErrorException(
+            "No generated input structures found for iteration $iteration in `$input_dir`; cannot run training.",
+        ),
+    )
+    required = required_success_count(input_count, bu.state.per_generation_threshold)
+    calculated = nstructures_calculated(bu, iteration)
+    calculated >= required && return true
+    throw(
+        ErrorException(
+            "Too few DFT outputs for iteration $iteration: found $calculated successful structures in `$output_dir`, need at least $required from $input_count generated inputs in `$input_dir` (threshold=$(bu.state.per_generation_threshold)). Check DFT settings and generated structures.",
+        ),
+    )
+end
 
 
 """

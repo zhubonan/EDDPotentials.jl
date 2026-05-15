@@ -100,19 +100,19 @@ end
         builder = Builder(opt)
         test_to_from_toml_builder(builder)
 
-        hpc = EDDPotentials.HPCWorkflowOption()
-        hpc.enabled = true
-        hpc.coordination_dir = ".custom-hpc"
-        opt_hpc = EDDPotentials.BuilderOption(
+        client_server = EDDPotentials.ClientServerOption()
+        client_server.enabled = true
+        client_server.coordination_dir = ".custom-client-server"
+        opt_client_server = EDDPotentials.BuilderOption(
             state,
             cf,
             nothing,
             rss,
             EDDPotentials.TrainingOption(),
             nothing,
-            hpc,
+            client_server,
         )
-        test_to_from_toml(opt_hpc)
+        test_to_from_toml(opt_client_server)
     end
 
     @testset "Training scheduler script rendering" begin
@@ -142,6 +142,7 @@ end
             opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, scheduler)
             builder = Builder(opt)
             builder.state.builder_file_path = joinpath(temp, "link.toml")
+            EDDPotentials.save_builder(builder.state.builder_file_path, builder)
 
             workdir = joinpath(temp, "training-work", "gen0")
             rendered_script =
@@ -180,7 +181,122 @@ end
         end
     end
 
-    @testset "HPC file protocol helpers" begin
+    @testset "DFT readiness uses actual generated inputs" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.per_generation_threshold = 1.0
+            cf = EDDPotentials.CellFeatureConfig(elements=["H"])
+            builder = Builder(
+                EDDPotentials.BuilderOption(
+                    state,
+                    cf,
+                    nothing,
+                    EDDPotentials.RssSetting(),
+                    EDDPotentials.TrainingOption(),
+                    nothing,
+                ),
+            )
+
+            gen0 = EDDPotentials.input_structure_dir(temp, 0)
+            dft0 = EDDPotentials.output_structure_dir(temp, 0)
+            mkpath(gen0)
+            mkpath(dft0)
+            for i = 1:3
+                write(joinpath(gen0, "s$i.res"), "TITL test\nEND\n")
+            end
+            for i = 1:2
+                write(joinpath(dft0, "s$i.res"), "TITL test\nEND\n")
+            end
+
+            @test EDDPotentials.generated_input_count(builder, 0) == 3
+            @test EDDPotentials.required_success_count(3, 1.0) == 3
+            @test !EDDPotentials.is_training_data_ready(builder, 0)
+            @test_throws ErrorException EDDPotentials.validate_dft_outputs!(builder, 0)
+
+            write(joinpath(dft0, "s3.res"), "TITL test\nEND\n")
+            @test EDDPotentials.is_training_data_ready(builder, 0)
+            @test EDDPotentials.validate_dft_outputs!(builder, 0)
+        end
+
+        @test !(:hyper_ndim in fieldnames(EDDPotentials.BuilderState))
+        @test EDDPotentials.BuilderState(seedfile="seed.cell", seedfile_calc="calc.cell").per_generation_threshold == 0.7
+
+        trainer = EDDPotentials.TrainingOption()
+        trainer.nmodels = 10
+        trainer.external = true
+        trainer.external_completion_ratio = 0.5
+            @test EDDPotentials._required_models_for_ensemble(trainer) == 5
+    end
+
+    @testset "Workflow artifact readiness skips completed phases" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.n_initial = 3
+            state.per_generation_threshold = 1.0
+            cf = EDDPotentials.CellFeatureConfig(elements=["H"])
+            trainer = EDDPotentials.TrainingOption()
+            trainer.nmodels = 2
+            trainer.external = false
+            builder = Builder(
+                EDDPotentials.BuilderOption(
+                    state,
+                    cf,
+                    nothing,
+                    EDDPotentials.RssSetting(),
+                    trainer,
+                    nothing,
+                ),
+            )
+
+            gen0 = EDDPotentials.input_structure_dir(temp, 0)
+            dft0 = EDDPotentials.output_structure_dir(temp, 0)
+            mkpath(gen0)
+            mkpath(dft0)
+            for i = 1:3
+                write(joinpath(gen0, "s$i.res"), "TITL test\nEND\n")
+                write(joinpath(dft0, "s$i.res"), "TITL test\nEND\n")
+            end
+
+            @test EDDPotentials.is_generation_data_ready(builder, 0)
+            @test EDDPotentials._generate_random_structures(builder, 0) == :ok
+            @test EDDPotentials.validate_generated_structures!(builder, 0)
+            @test length(readdir(gen0)) == 3
+
+            dft_result = EDDPotentials.run_dft_phase!(EDDPotentials.LocalLinkBackend(), builder, 0)
+            @test dft_result.status == :ok
+            @test dft_result.message == "DFT outputs already ready"
+
+            training_dir = joinpath(temp, EDDPotentials.TRAINING_DIR)
+            mkpath(training_dir)
+            for i = 1:2
+                write(joinpath(training_dir, "gen-0-model-$i.json"), "{}")
+            end
+            dataset_path = EDDPotentials.dataset_name(builder, 0)
+            mkpath(dirname(dataset_path))
+            write(dataset_path, "placeholder")
+            @test EDDPotentials.is_training_dataset_ready(builder, 0)
+            sleep(1.1)
+            write(joinpath(dft0, "s3.res"), "TITL updated\nEND\n")
+            @test !EDDPotentials.is_training_dataset_ready(builder, 0)
+            sleep(1.1)
+            write(dataset_path, "placeholder")
+            @test EDDPotentials.is_training_dataset_ready(builder, 0)
+            @test EDDPotentials._models_ready_for_ensemble(builder)
+            train_result = EDDPotentials.run_training_phase!(EDDPotentials.LocalLinkBackend(), builder, 0)
+            @test train_result.status == :ok
+            @test train_result.message == "models already ready"
+        end
+    end
+
+    @testset "Client-server file protocol helpers" begin
         mktempdir() do temp
             state = EDDPotentials.BuilderState(
                 seedfile="seed.cell",
@@ -193,10 +309,10 @@ end
             rss = EDDPotentials.RssSetting()
             trainer = EDDPotentials.TrainingOption()
             trainer.nmodels = 3
-            hpc = EDDPotentials.HPCWorkflowOption()
-            hpc.enabled = true
-            hpc.client_heartbeat_interval_seconds = 0.01
-            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, hpc)
+            client_server = EDDPotentials.ClientServerOption()
+            client_server.enabled = true
+            client_server.client_heartbeat_interval_seconds = 0.01
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, client_server)
             builder = Builder(opt)
             builder.state.builder_file_path = joinpath(temp, "link.toml")
 
@@ -213,7 +329,7 @@ end
             write(joinpath(gen0, "calc-001.res"), "TITL test\nEND\n")
             write(joinpath(gen0, "calc-002.res"), "TITL test\nEND\n")
 
-            crud_workdir = EDDPotentials.hpc_prepare_crud_workdir!(builder, 0)
+            crud_workdir = EDDPotentials.client_server_prepare_crud_workdir!(builder, 0)
             @test isdir(joinpath(crud_workdir, "hopper"))
             @test isdir(joinpath(crud_workdir, "good_castep"))
             @test isdir(joinpath(crud_workdir, "bad_castep"))
@@ -221,7 +337,7 @@ end
             @test isfile(joinpath(crud_workdir, "calc.param"))
             @test count(endswith(".res"), readdir(joinpath(crud_workdir, "hopper"))) == 2
 
-            EDDPotentials.hpc_write_heartbeat(
+            EDDPotentials.client_server_write_heartbeat(
                 builder,
                 "worker-1";
                 state="DFT_RUNNING",
@@ -231,25 +347,87 @@ end
                 child_pid=123,
                 message="testing",
             )
-            states = EDDPotentials.hpc_worker_states(builder)
+            states = EDDPotentials.client_server_worker_states(builder)
             @test length(states) == 1
             @test states[1]["worker_id"] == "worker-1"
             @test states[1]["state"] == "DFT_RUNNING"
 
-            EDDPotentials.hpc_prepare_training_phase!(builder, 0)
-            claim1 = EDDPotentials.hpc_claim_training_slot!(builder, 0, "worker-1")
-            claim2 = EDDPotentials.hpc_claim_training_slot!(builder, 0, "worker-2")
+            EDDPotentials.client_server_prepare_training_phase!(builder, 0)
+            claim1 = EDDPotentials.client_server_claim_training_slot!(builder, 0, "worker-1")
+            claim2 = EDDPotentials.client_server_claim_training_slot!(builder, 0, "worker-2")
             @test claim1 !== nothing
             @test claim2 !== nothing
             @test claim1[1] != claim2[1]
-            model_path = EDDPotentials.hpc_training_model_path(builder, 0, claim1[1])
+            model_path = EDDPotentials.client_server_training_model_path(builder, 0, claim1[1])
             @test endswith(model_path, "gen-0-model-slot-$(lpad(string(claim1[1]), 6, '0')).json")
-            EDDPotentials.hpc_mark_training_slot_done!(builder, 0, claim1[1], model_path)
-            @test isfile(joinpath(temp, ".eddp-hpc", "phases", "gen0-train", "slots", "$(lpad(string(claim1[1]), 6, '0')).done.json"))
+            EDDPotentials.client_server_mark_training_slot_done!(builder, 0, claim1[1], model_path)
+            done_path = joinpath(temp, ".eddp-client-server", "phases", "gen0-train", "slots", "$(lpad(string(claim1[1]), 6, '0')).done.json")
+            @test isfile(done_path)
+
+            mkpath(dirname(model_path))
+            write(model_path, "{}")
+            trainer.nmodels = 4
+            EDDPotentials.client_server_prepare_training_phase!(builder, 0)
+            @test !isfile(done_path)
+            @test !isfile(model_path)
         end
     end
 
-    @testset "HPC stop and retry behavior" begin
+    @testset "Client-server DFT waits until pass or impossible failure" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.per_generation_threshold = 0.8
+            client_server = EDDPotentials.ClientServerOption()
+            client_server.enabled = true
+            client_server.control_poll_interval_seconds = 0.01
+            builder = Builder(
+                EDDPotentials.BuilderOption(
+                    state,
+                    EDDPotentials.CellFeatureConfig(elements=["H"]),
+                    nothing,
+                    EDDPotentials.RssSetting(),
+                    EDDPotentials.TrainingOption(),
+                    nothing,
+                    client_server,
+                ),
+            )
+
+            open(joinpath(temp, "calc.cell"), "w") do io
+                println(io, "%BLOCK LATTICE_CART")
+                println(io, "1 0 0")
+                println(io, "0 1 0")
+                println(io, "0 0 1")
+                println(io, "%ENDBLOCK LATTICE_CART")
+            end
+            write(joinpath(temp, "calc.param"), "task : SinglePoint\n")
+            gen0 = EDDPotentials.input_structure_dir(temp, 0)
+            mkpath(gen0)
+            for i = 1:10
+                write(joinpath(gen0, "calc-$(lpad(string(i), 3, '0')).res"), "TITL test\nEND\n")
+            end
+
+            crud_workdir = EDDPotentials.client_server_prepare_crud_workdir!(builder, 0)
+            good_dir = joinpath(crud_workdir, "good_castep")
+            bad_dir = joinpath(crud_workdir, "bad_castep")
+            for i = 1:7
+                write(joinpath(good_dir, "good-$i.res"), "TITL test\nEND\n")
+            end
+            write(joinpath(bad_dir, "bad-1.res"), "TITL test\nEND\n")
+
+            phase_dir = joinpath(temp, ".eddp-client-server", "phases", "gen0-dft")
+            task = @async EDDPotentials._client_server_wait_for_dft!(builder, phase_dir)
+            sleep(0.05)
+            @test !istaskdone(task)
+            write(joinpath(good_dir, "good-8.res"), "TITL test\nEND\n")
+            @test fetch(task) == (8, 1)
+        end
+    end
+
+    @testset "Client-server stop and retry behavior" begin
         mktempdir() do temp
             state = EDDPotentials.BuilderState(
                 seedfile="seed.cell",
@@ -261,10 +439,10 @@ end
             rss = EDDPotentials.RssSetting()
             trainer = EDDPotentials.TrainingOption()
             trainer.nmodels = 1
-            hpc = EDDPotentials.HPCWorkflowOption()
-            hpc.enabled = true
-            hpc.control_poll_interval_seconds = 0.01
-            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, hpc)
+            client_server = EDDPotentials.ClientServerOption()
+            client_server.enabled = true
+            client_server.control_poll_interval_seconds = 0.01
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, client_server)
             builder = Builder(opt)
 
             open(joinpath(temp, "calc.cell"), "w") do io
@@ -279,29 +457,29 @@ end
             mkpath(gen0)
             write(joinpath(gen0, "calc-001.res"), "TITL test\nEND\n")
 
-            EDDPotentials.hpc_prepare_crud_workdir!(builder, 0)
+            EDDPotentials.client_server_prepare_crud_workdir!(builder, 0)
             touch(joinpath(temp, "STOP"))
-            phase_dir = joinpath(temp, ".eddp-hpc", "phases", "gen0-dft")
-            @test_throws ErrorException EDDPotentials._hpc_wait_for_dft!(builder, phase_dir)
+            phase_dir = joinpath(temp, ".eddp-client-server", "phases", "gen0-dft")
+            @test EDDPotentials._client_server_wait_for_dft!(builder, phase_dir) == :stopped
             @test isfile(joinpath(phase_dir, "ABORTED.json"))
             rm(joinpath(temp, "STOP"))
 
-            EDDPotentials.hpc_prepare_training_phase!(builder, 0)
-            claim1 = EDDPotentials.hpc_claim_training_slot!(builder, 0, "worker-1")
+            EDDPotentials.client_server_prepare_training_phase!(builder, 0)
+            claim1 = EDDPotentials.client_server_claim_training_slot!(builder, 0, "worker-1")
             @test claim1 !== nothing
-            EDDPotentials.hpc_mark_training_slot_failed!(
+            EDDPotentials.client_server_mark_training_slot_failed!(
                 builder,
                 0,
                 claim1[1],
                 "simulated failure",
             )
-            claim2 = EDDPotentials.hpc_claim_training_slot!(builder, 0, "worker-2")
+            claim2 = EDDPotentials.client_server_claim_training_slot!(builder, 0, "worker-2")
             @test claim2 !== nothing
             @test claim2[1] == claim1[1]
         end
     end
 
-    @testset "HPC enabled overrides backend selectors" begin
+    @testset "Client-server enabled overrides backend selectors" begin
         mktempdir() do temp
             state = EDDPotentials.BuilderState(
                 seedfile="seed.cell",
@@ -314,10 +492,10 @@ end
             trainer = EDDPotentials.TrainingOption()
             trainer.external = true
             trainer.external_mode = "local"
-            hpc = EDDPotentials.HPCWorkflowOption()
-            hpc.enabled = true
-            hpc.submit_client_jobs = false
-            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, hpc)
+            client_server = EDDPotentials.ClientServerOption()
+            client_server.enabled = true
+            client_server.submit_client_jobs = false
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, client_server)
             builder = Builder(opt)
 
             open(joinpath(temp, "calc.cell"), "w") do io
@@ -332,24 +510,24 @@ end
             mkpath(gen0)
             write(joinpath(gen0, "calc-001.res"), "TITL test\nEND\n")
 
-            EDDPotentials.hpc_prepare_crud_workdir!(builder, 0)
-            phase_dir = joinpath(temp, ".eddp-hpc", "phases", "gen0-dft")
+            EDDPotentials.client_server_prepare_crud_workdir!(builder, 0)
+            phase_dir = joinpath(temp, ".eddp-client-server", "phases", "gen0-dft")
             cp(
                 joinpath(gen0, "calc-001.res"),
                 joinpath(temp, "crud-work", "gen0", "good_castep", "calc-001.res"),
             )
-            @test EDDPotentials._run_external(builder) == true
+            @test EDDPotentials.client_server_run_dft_phase!(builder, 0) == :ok
             @test isfile(joinpath(EDDPotentials.output_structure_dir(temp, 0), "calc-001.res"))
             @test isfile(joinpath(phase_dir, "DONE"))
         end
     end
 
-    @testset "HPC scheduler script rendering" begin
+    @testset "Client-server scheduler script rendering" begin
         mktempdir() do temp
-            script = joinpath(temp, "hpc_job.sh")
+            script = joinpath(temp, "client_server_job.sh")
             open(script, "w") do io
                 println(io, "#!/bin/bash")
-                println(io, "{{EDDP_HPC_CLIENT_CMD}}")
+                println(io, "{{EDDP_CLIENT_SERVER_CMD}}")
             end
 
             state = EDDPotentials.BuilderState(
@@ -360,29 +538,30 @@ end
             cf = EDDPotentials.CellFeatureConfig(elements=["H"])
             rss = EDDPotentials.RssSetting()
             trainer = EDDPotentials.TrainingOption()
-            hpc = EDDPotentials.HPCWorkflowOption()
-            hpc.submit_client_jobs = false
+            client_server = EDDPotentials.ClientServerOption()
+            client_server.submit_client_jobs = false
             scheduler = EDDPotentials.SchedulerConfig(
                 script=script,
                 njobs=2,
                 type="SLURM",
                 submit_jobs=true,
             )
-            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, scheduler, hpc)
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, scheduler, client_server)
             builder = Builder(opt)
             builder.state.builder_file_path = joinpath(temp, "link.toml")
+            EDDPotentials.save_builder(builder.state.builder_file_path, builder)
 
-            rendered = EDDPotentials._render_hpc_client_job_script(
+            rendered = EDDPotentials._render_client_server_client_job_script(
                 builder,
                 scheduler,
                 joinpath(temp, "submit"),
             )
             text = read(rendered, String)
-            @test !contains(text, "{{EDDP_HPC_CLIENT_CMD}}")
-            @test contains(text, "EDDPotentials.hpc_client()")
+            @test !contains(text, "{{EDDP_CLIENT_SERVER_CMD}}")
+            @test contains(text, "EDDPotentials.client_server_client()")
             @test contains(text, "--worker-id \"\$WORKER_ID\"")
             @test contains(text, "SLURM_ARRAY_TASK_ID")
-            @test EDDPotentials._hpc_submit_clients(builder, "dft", 0) == ""
+            @test EDDPotentials._client_server_submit_clients(builder, "dft", 0) == ""
         end
     end
 

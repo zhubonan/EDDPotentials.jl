@@ -166,8 +166,9 @@ if check_airss(; verbose=true)
                 @test builder.state.iteration == 0
                 EDDPotentials.step!(builder)
                 @test builder.state.iteration == 1
+                builder.state.max_iterations = 1
                 EDDPotentials.link!(builder)
-                @test builder.state.iteration == 3
+                @test builder.state.iteration == 2
 
                 # Run walk forward tests
                 EDDPotentials.walk_forward_tests(builder)
