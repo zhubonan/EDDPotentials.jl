@@ -359,6 +359,7 @@ Options for the file-backed distributed link server/worker workflow.
     dft_crud_workdir::String = "crud-work"
     dft_worker_jobs::Int = 1
     training_worker_jobs::Int = 1
+    "Deprecated no-op retained for compatibility with slot-based distributed training configs."
     training_slot_stale_seconds::Float64 = 86400.0
     manage_worker_jobs::Bool = true
     log_enabled::Bool = false

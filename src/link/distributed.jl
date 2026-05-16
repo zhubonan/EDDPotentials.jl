@@ -588,7 +588,6 @@ function _worker_active_for_control(state, control)
     Int(get(state, "epoch", -1)) == Int(get(control, "epoch", -2)) || return false
     return get(state, "state", "") in (
         "DFT_RUNNING",
-        "TRAINING_CLAIM",
         "TRAINING_RUNNING",
         "STOPPING_CHILD",
     )
@@ -596,7 +595,7 @@ end
 
 function _server_wait_for_workers_stopped!(bu::Builder, control)
     timeout =
-        bu.options.distributed.worker_child_grace_seconds +
+        2 * bu.options.distributed.worker_child_grace_seconds +
         bu.options.distributed.worker_child_kill_seconds +
         bu.options.distributed.worker_heartbeat_interval_seconds +
         2 * bu.options.distributed.control_poll_interval_seconds
@@ -704,14 +703,6 @@ function _training_phase_dir(bu::Builder, iter=bu.state.iteration)
     _phase_dir(bu, iter, "train")
 end
 
-function _training_slots_dir(bu::Builder, iter=bu.state.iteration)
-    joinpath(_training_phase_dir(bu, iter), "slots")
-end
-
-function _training_slot_name(slot_id::Int)
-    lpad(string(slot_id), 6, '0')
-end
-
 function _training_manifest_matches(bu::Builder, manifest, iter::Int, dataset_path)
     manifest === nothing && return false
     Int(get(manifest, "iteration", -1)) == iter || return false
@@ -727,10 +718,10 @@ function _server_clear_training_phase!(bu::Builder, phase_dir, iter::Int)
         path = joinpath(phase_dir, marker)
         isfile(path) && rm(path; force=true)
     end
-    for dir in ("slots", "events")
-        path = joinpath(phase_dir, dir)
-        isdir(path) && rm(path; recursive=true, force=true)
-    end
+    events_dir = _phase_events_dir(phase_dir)
+    isdir(events_dir) && rm(events_dir; recursive=true, force=true)
+    legacy_slots_dir = joinpath(phase_dir, "slots")
+    isdir(legacy_slots_dir) && rm(legacy_slots_dir; recursive=true, force=true)
     pattern = joinpath(
         bu.state.workdir,
         TRAINING_DIR,
@@ -748,13 +739,19 @@ function server_prepare_training_phase!(bu::Builder, iter::Int=bu.state.iteratio
     manifest = _read_json(manifest_path)
     if (isfile(joinpath(phase_dir, "READY")) || isfile(joinpath(phase_dir, "DONE"))) &&
        _training_manifest_matches(bu, manifest, iter, dataset_path)
+        legacy_slots_dir = joinpath(phase_dir, "slots")
+        isdir(legacy_slots_dir) && rm(legacy_slots_dir; recursive=true, force=true)
+        if num_existing_models(bu) < Int(manifest["required_models"])
+            for marker in ("DONE", "FAILED", "STOP", "ABORTED.json")
+                path = joinpath(phase_dir, marker)
+                isfile(path) && rm(path; force=true)
+            end
+        end
         return phase_dir
     end
 
-    mkpath(joinpath(phase_dir, "slots"))
     mkpath(_phase_events_dir(phase_dir))
     _server_clear_training_phase!(bu, phase_dir, iter)
-    mkpath(joinpath(phase_dir, "slots"))
     mkpath(_phase_events_dir(phase_dir))
     manifest = Dict{String,Any}(
         "phase" => "training",
@@ -769,78 +766,6 @@ function server_prepare_training_phase!(bu::Builder, iter::Int=bu.state.iteratio
     _write_json(manifest_path, manifest)
     _touch_marker(joinpath(phase_dir, "READY"))
     return phase_dir
-end
-
-function training_slot_model_path(bu::Builder, iter::Int, slot_id::Int)
-    slot = _training_slot_name(slot_id)
-    joinpath(
-        bu.state.workdir,
-        TRAINING_DIR,
-        "$(bu.trainer.prefix)gen-$(iter)-model-slot-$(slot).json",
-    )
-end
-
-function worker_claim_training_slot!(bu::Builder, iter::Int, worker_id::AbstractString)
-    slots_dir = _training_slots_dir(bu, iter)
-    mkpath(slots_dir)
-    now = time()
-    for slot_id = 1:bu.trainer.nmodels
-        slot = _training_slot_name(slot_id)
-        done_path = joinpath(slots_dir, "$(slot).done.json")
-        failed_path = joinpath(slots_dir, "$(slot).failed.json")
-        lock_path = joinpath(slots_dir, "$(slot).lock")
-        isfile(done_path) && continue
-        if isdir(lock_path)
-            age = now - stat(lock_path).mtime
-            if age > bu.options.distributed.training_slot_stale_seconds
-                rm(lock_path; recursive=true, force=true)
-            else
-                continue
-            end
-        end
-        try
-            isfile(failed_path) && rm(failed_path; force=true)
-            mkdir(lock_path)
-            model_path = training_slot_model_path(bu, iter, slot_id)
-            claim = Dict{String,Any}(
-                "slot_id" => slot_id,
-                "worker_id" => worker_id,
-                "host" => get(ENV, "HOSTNAME", ""),
-                "pid" => getpid(),
-                "model_path" => model_path,
-                "claimed_at" => _timestamp(),
-            )
-            _write_json(joinpath(lock_path, "claim.json"), claim)
-            return slot_id, lock_path, model_path
-        catch err
-            (err isa Base.IOError && err.code == Base.UV_EEXIST) || rethrow()
-        end
-    end
-    return nothing
-end
-
-function worker_mark_training_slot_done!(bu::Builder, iter::Int, slot_id::Int, model_path)
-    slots_dir = _training_slots_dir(bu, iter)
-    slot = _training_slot_name(slot_id)
-    payload = Dict{String,Any}(
-        "slot_id" => slot_id,
-        "model_path" => model_path,
-        "done_at" => _timestamp(),
-    )
-    _write_json(joinpath(slots_dir, "$(slot).done.json"), payload)
-end
-
-function worker_mark_training_slot_failed!(bu::Builder, iter::Int, slot_id::Int, message)
-    slots_dir = _training_slots_dir(bu, iter)
-    slot = _training_slot_name(slot_id)
-    lock_path = joinpath(slots_dir, "$(slot).lock")
-    payload = Dict{String,Any}(
-        "slot_id" => slot_id,
-        "message" => message,
-        "failed_at" => _timestamp(),
-    )
-    _write_json(joinpath(slots_dir, "$(slot).failed.json"), payload)
-    isdir(lock_path) && rm(lock_path; recursive=true, force=true)
 end
 
 function _server_wait_for_training!(bu::Builder, phase_dir)
@@ -1018,6 +943,12 @@ function _worker_stop_requested(bu::Builder, control, phase_dir, worker_id)
     return false
 end
 
+function _phase_stop_requested(control, phase_dir)
+    isfile(joinpath(phase_dir, "STOP")) && return true
+    get(control, "status", "running") in ("stop", "stopping", "done", "error") && return true
+    return false
+end
+
 function _process_pid(proc)
     try
         return getpid(proc)
@@ -1062,7 +993,6 @@ function _worker_supervise_child!(
     state,
     claim=nothing,
     model_path=nothing,
-    slot_id=nothing,
 )
     started = time()
     proc = run(cmd; wait=false)
@@ -1089,7 +1019,6 @@ function _worker_supervise_child!(
         next_action="supervise_child",
         child_pid,
         command=string(cmd),
-        slot_id,
         model_path,
     )
 
@@ -1106,7 +1035,6 @@ function _worker_supervise_child!(
                 next_action="supervise_child",
                 child_pid,
                 runtime_seconds,
-                slot_id,
                 model_path,
             )
 
@@ -1123,10 +1051,20 @@ function _worker_supervise_child!(
                 child_pid,
                 runtime_seconds,
                 reason="stop_requested",
-                slot_id,
                 model_path,
             )
 
+            if phase == "training"
+                graceful_started = time()
+                while process_running(proc) &&
+                      time() - graceful_started < bu.options.distributed.worker_child_grace_seconds
+                    sleep(1)
+                end
+                if !process_running(proc)
+                    wait(proc)
+                    return false
+                end
+            end
             _worker_stop_child!(proc, bu.options.distributed)
             return false
         end
@@ -1144,7 +1082,6 @@ function _worker_supervise_child!(
             child_pid,
             runtime_seconds,
             success=true,
-            slot_id,
             model_path,
         )
     else
@@ -1157,7 +1094,6 @@ function _worker_supervise_child!(
             runtime_seconds,
             success=false,
             reason="process_failed",
-            slot_id,
             model_path,
         )
     end
@@ -1166,6 +1102,23 @@ end
 
 function _worker_run_dft!(bu::Builder, worker::WorkerState, control)
     phase_dir = control["phase_dir"]
+    if _phase_stop_requested(control, phase_dir)
+        write_worker_heartbeat!(
+            bu,
+            worker;
+            state="STOPPED",
+            phase="dft",
+            iteration=Int(control["iteration"]),
+            epoch=Int(control["epoch"]),
+            message="DFT phase stop requested",
+            run_id=string(control["run_id"]),
+            child_pid=nothing,
+            claim=nothing,
+            model_path=nothing,
+        )
+        _worker_log(Logging.Info, "distributed link DFT phase already stopping", worker; next_action="poll_control")
+        return true
+    end
     manifest = _read_json(_phase_manifest_path(phase_dir))
     if manifest === nothing
         _update_worker_state!(
@@ -1217,65 +1170,111 @@ function _worker_run_dft!(bu::Builder, worker::WorkerState, control)
     return ok
 end
 
-function _train_slot_base_cmd(bu::Builder, slot_id::Int, model_path::AbstractString)
+function _distributed_training_cmd(
+    bu::Builder,
+    iter::Int,
+    worker_id::AbstractString,
+    phase_dir::AbstractString,
+)
+    tra = bu.trainer
     project_path = dirname(Base.active_project())
     builder_file = _require_builder_file_path!(bu)
-    Cmd([
+    base_cmd = Cmd([
         Base.julia_cmd()...,
         "--project=$(project_path)",
         "-e",
-        "using EDDPotentials; EDDPotentials.distributed_train_slot()",
-        "--",
-        "--file",
+        _training_julia_code(tra),
         builder_file,
         "--iteration",
-        string(bu.state.iteration),
-        "--slot-id",
-        string(slot_id),
-        "--model-path",
-        model_path,
+        string(iter),
     ])
+    cmd = add_threads_env(
+        Cmd([
+            base_cmd...,
+            "--id",
+            String(worker_id),
+            "--stop-file",
+            joinpath(phase_dir, "STOP"),
+        ]);
+        julia_threads=tra.num_threads_per_worker,
+    )
+    if tra.cuda_visible_devices != ""
+        devices = split(tra.cuda_visible_devices, ",")
+        device_index = try
+            (parse(Int, worker_id) - 1) % length(devices) + 1
+        catch
+            sum(Int, codeunits(String(worker_id))) % length(devices) + 1
+        end
+        cmd = addenv(cmd, "EDDP_CUDA_DEVICE" => devices[device_index])
+    end
+    cmd
+end
+
+function _deprecated_training_slot_api(name::AbstractString)
+    throw(
+        ArgumentError(
+            "`$name` is deprecated because distributed training no longer uses model slots. " *
+            "Use `distributed_worker` or the standard `run_trainer` UUID model workflow instead.",
+        ),
+    )
+end
+
+function distributed_train_slot()
+    _deprecated_training_slot_api("distributed_train_slot")
+end
+
+function training_slot_model_path(args...; kwargs...)
+    _deprecated_training_slot_api("training_slot_model_path")
+end
+
+function worker_claim_training_slot!(args...; kwargs...)
+    _deprecated_training_slot_api("worker_claim_training_slot!")
+end
+
+function worker_mark_training_slot_done!(args...; kwargs...)
+    _deprecated_training_slot_api("worker_mark_training_slot_done!")
+end
+
+function worker_mark_training_slot_failed!(args...; kwargs...)
+    _deprecated_training_slot_api("worker_mark_training_slot_failed!")
 end
 
 function _worker_run_training!(bu::Builder, worker::WorkerState, control)
     iter = Int(control["iteration"])
     phase_dir = control["phase_dir"]
-    claim = worker_claim_training_slot!(bu, iter, worker.worker_id)
-    if claim === nothing
+    if _phase_stop_requested(control, phase_dir)
         write_worker_heartbeat!(
             bu,
             worker;
-            state="EXIT",
+            state="STOPPED",
             phase="training",
             iteration=iter,
             epoch=Int(control["epoch"]),
-            message="no training slot available",
+            message="training phase stop requested",
             run_id=string(control["run_id"]),
             child_pid=nothing,
             claim=nothing,
             model_path=nothing,
         )
-        _worker_log(Logging.Info, "distributed link no training slot available", worker; next_action="poll_control")
+        _worker_log(Logging.Info, "distributed link training phase already stopping", worker; next_action="poll_control")
         return true
     end
-    slot_id, claim_path, model_path = claim
     write_worker_heartbeat!(
         bu,
         worker;
-        state="TRAINING_CLAIM",
+        state="TRAINING_RUNNING",
         phase="training",
         iteration=iter,
         epoch=Int(control["epoch"]),
-        claim=claim_path,
-        model_path,
-        message="claimed training slot",
+        claim=nothing,
+        model_path=nothing,
+        message="training child starting",
         run_id=string(control["run_id"]),
         child_pid=nothing,
     )
-    _worker_log(Logging.Info, "distributed link training slot claimed", worker; next_action="launch_training_slot", slot_id, claim_path, model_path)
-    cmd = _train_slot_base_cmd(bu, slot_id, model_path)
+    cmd = _distributed_training_cmd(bu, iter, worker.worker_id, phase_dir)
     _update_worker_state!(worker; state="TRAINING_RUNNING", message="")
-    _worker_log(Logging.Info, "distributed link training child starting", worker; next_action="supervise_child", slot_id, model_path)
+    _worker_log(Logging.Info, "distributed link training child starting", worker; next_action="supervise_child")
 
     ok = _worker_supervise_child!(
         bu,
@@ -1284,20 +1283,17 @@ function _worker_run_training!(bu::Builder, worker::WorkerState, control)
         phase_dir,
         cmd;
         state="TRAINING_RUNNING",
-        claim=claim_path,
-        model_path,
-        slot_id,
+        claim=nothing,
+        model_path=nothing,
     )
-    if ok && isfile(model_path)
-        worker_mark_training_slot_done!(bu, iter, slot_id, model_path)
-        _write_phase_event(phase_dir, worker.worker_id, "train-done", Dict("slot_id" => slot_id))
+    if ok
+        _write_phase_event(phase_dir, worker.worker_id, "train-done")
         _update_worker_state!(worker; state="TRAINING_DONE", message="")
-        _worker_log(Logging.Info, "distributed link training slot done", worker; next_action="poll_control", slot_id, model_path)
+        _worker_log(Logging.Info, "distributed link training child done", worker; next_action="poll_control", models_found=num_existing_models(bu))
     else
-        worker_mark_training_slot_failed!(bu, iter, slot_id, ok ? "model artifact missing" : "training stopped")
-        _write_phase_event(phase_dir, worker.worker_id, "train-failed", Dict("slot_id" => slot_id))
-        _update_worker_state!(worker; state="TRAINING_FAILED", message="")
-        _worker_log(Logging.Error, "distributed link training slot failed", worker; next_action="mark_slot_failed", slot_id, model_path, success=ok)
+        _write_phase_event(phase_dir, worker.worker_id, "train-stopped")
+        _update_worker_state!(worker; state="STOPPED", message="")
+        _worker_log(Logging.Info, "distributed link training child stopped", worker; next_action="poll_control", models_found=num_existing_models(bu))
     end
     write_worker_heartbeat!(
         bu,
@@ -1306,9 +1302,9 @@ function _worker_run_training!(bu::Builder, worker::WorkerState, control)
         phase="training",
         iteration=iter,
         epoch=Int(control["epoch"]),
-        claim=claim_path,
-        model_path,
-        message=ok ? "training slot finished" : "training slot stopped",
+        claim=nothing,
+        model_path=nothing,
+        message=ok ? "training child finished" : "training child stopped",
         run_id=string(control["run_id"]),
         child_pid=nothing,
     )
@@ -1353,7 +1349,7 @@ function _worker_handle_control!(
         Logging.Info,
         "distributed link control loaded",
         worker;
-        next_action=phase == "dft" ? "run_dft_worker" : phase == "training" ? "claim_training_slot" : phase == "shutdown" ? "exit" : "idle",
+        next_action=phase == "dft" ? "run_dft_worker" : phase == "training" ? "run_training_worker" : phase == "shutdown" ? "exit" : "idle",
     )
     if phase == "dft"
         if control_key in handled_dft_controls
@@ -1462,39 +1458,6 @@ function distributed_worker()
     end
     args = parse_args(s)
     distributed_worker(args["file"]; worker_id=args["worker-id"], once=args["once"])
-end
-
-function distributed_train_slot()
-    s = ArgParseSettings()
-    @add_arg_table! s begin
-        "--file"
-        help = "Name of the link TOML/YAML file"
-        default = "link.toml"
-        arg_type = String
-        "--iteration"
-        help = "Override the iteration setting of the builder"
-        default = -1
-        arg_type = Int
-        "--slot-id"
-        help = "Training slot id"
-        required = true
-        arg_type = Int
-        "--model-path"
-        help = "Output model path"
-        required = true
-        arg_type = String
-    end
-    args = parse_args(s)
-    bu = Builder(args["file"])
-    if args["iteration"] >= 0
-        bu.state.iteration = args["iteration"]
-    end
-    run_trainer_slot!(
-        bu,
-        bu.trainer;
-        slot_id=args["slot-id"],
-        model_path=args["model-path"],
-    )
 end
 
 function link_distributed(bu::Builder)

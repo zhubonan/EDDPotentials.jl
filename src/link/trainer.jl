@@ -285,32 +285,31 @@ function _train_one_model!(bu::Builder, tra::TrainingOption=bu.trainer; model_pa
         ensure_dir(splitdir(model_path)[1])
         model_path
     end
-    save_model_artifact(
-        savepath,
-        model;
-        feature_spec=bu.cf,
-        elemental_energies=make_symbol_keys(bu.state.elemental_energies),
-    )
+    tmp_savepath = savepath * ".tmp-$(getpid())-$(rand(UInt))"
+    isfile(tmp_savepath) && rm(tmp_savepath; force=true)
+    try
+        save_model_artifact(
+            tmp_savepath,
+            model;
+            feature_spec=bu.cf,
+            elemental_energies=make_symbol_keys(bu.state.elemental_energies),
+        )
+        mv(tmp_savepath, savepath; force=true)
+    catch
+        isfile(tmp_savepath) && rm(tmp_savepath; force=true)
+        rethrow()
+    end
     @info "Model saved $(basename(savepath))"
     return savepath
 end
 
-function run_trainer_slot!(
-    bu::Builder,
-    tra::TrainingOption=bu.trainer;
-    slot_id::Int,
-    model_path::AbstractString,
-)
-    tmp_path = model_path * ".tmp-$(getpid())"
-    isfile(tmp_path) && rm(tmp_path)
-    result = _train_one_model!(bu, tra; model_path=tmp_path)
-    mv(result, model_path; force=true)
-    return model_path
-end
-
-function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer;)
+function run_trainer(bu::Builder, tra::TrainingOption=bu.trainer; stop_file::AbstractString="")
     i_trained = 0
     while num_existing_models(bu) < tra.nmodels
+        if !isempty(stop_file) && isfile(stop_file)
+            @info "Trainer stop file detected; exiting before starting another model." stop_file
+            break
+        end
         _train_one_model!(bu, tra)
         i_trained += 1
     end
@@ -408,6 +407,10 @@ function run_trainer()
         help = "ID of the process"
         default = ""
         arg_type = String
+        "--stop-file"
+        help = "Optional file whose presence stops training between models."
+        default = ""
+        arg_type = String
         "builder"
         help = "Path to the builder file."
     end
@@ -422,5 +425,5 @@ function run_trainer()
     if args["id"] != "" && builder.trainer.log_file != ""
         builder.trainer.log_file = builder.trainer.log_file * "-" * args["id"]
     end
-    run_trainer(builder)
+    run_trainer(builder; stop_file=args["stop-file"])
 end

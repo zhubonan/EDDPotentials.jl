@@ -299,7 +299,7 @@ dft_mode = "crud"
 Use this mode when DFT calculations and model training should run as separate
 worker processes coordinated through files on a shared filesystem. The server
 publishes the active phase in `.eddp-distributed/control.json`; workers read that file
-and run either `crud.pl` or a one-model training subprocess. A scheduler can
+and run either `crud.pl` or a UUID-model training subprocess. A scheduler can
 launch the workers, but it is not required; workers may also be started manually
 and left running as daemons.
 
@@ -325,7 +325,7 @@ control_poll_interval_seconds = 10.0
 worker_heartbeat_interval_seconds = 30.0
 worker_child_grace_seconds = 300.0
 worker_child_kill_seconds = 30.0
-training_slot_stale_seconds = 86400.0
+training_slot_stale_seconds = 86400.0  # Deprecated no-op; retained for old configs.
 log_enabled = true
 log_level = "info"        # debug, info, warn, or error
 log_dir = "logs"
@@ -367,7 +367,7 @@ The server then:
 4. Stops DFT workers after enough calculations reach `good_castep/` or `bad_castep/`.
 5. Publishes successful results into `genN-dft/`.
 6. Writes `training/gen-N-dataset.jld2`.
-7. Manages training workers, each claiming one deterministic model slot.
+7. Manages training workers, which write UUID-named model artifacts until enough models are available.
 8. Creates `ensemble-genN.json` after enough model artifacts are available.
 
 If you prefer to submit worker jobs yourself, set:
@@ -403,11 +403,12 @@ includes all distributed link log messages, while `"warn"` keeps only warnings a
 Each line includes the role, id, workflow state, next action, and phase-specific
 progress metrics when available.
 
-Training claims and completion markers are stored under:
-
-```
-.eddp-distributed/phases/genN-train/slots/
-```
+Distributed training workers write ordinary UUID-named model artifacts under
+`training/`. The server polls the number of generation-matched model files and
+touches `.eddp-distributed/phases/genN-train/STOP` once enough models are
+available. Workers observe that stop marker, stop their active child process,
+and return to polling for the next phase. A few surplus models may be produced
+when training children are already in flight.
 
 To stop the workflow gracefully:
 

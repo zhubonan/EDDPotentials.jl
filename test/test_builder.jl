@@ -319,6 +319,7 @@ end
             opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, distributed)
             builder = Builder(opt)
             builder.state.builder_file_path = joinpath(temp, "link.toml")
+            write(builder.state.builder_file_path, "")
 
             open(joinpath(temp, "calc.cell"), "w") do io
                 println(io, "%BLOCK LATTICE_CART")
@@ -356,26 +357,39 @@ end
             @test states[1]["worker_id"] == "worker-1"
             @test states[1]["state"] == "DFT_RUNNING"
 
-            EDDPotentials.server_prepare_training_phase!(builder, 0)
-            claim1 = EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-1")
-            claim2 = EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-2")
-            @test claim1 !== nothing
-            @test claim2 !== nothing
-            @test claim1[1] != claim2[1]
-            slots_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-train", "slots")
-            write(joinpath(slots_dir, "000003.lock"), "")
-            @test EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-3") === nothing
-            model_path = EDDPotentials.training_slot_model_path(builder, 0, claim1[1])
-            @test endswith(model_path, "gen-0-model-slot-$(lpad(string(claim1[1]), 6, '0')).json")
-            EDDPotentials.worker_mark_training_slot_done!(builder, 0, claim1[1], model_path)
-            done_path = joinpath(temp, ".eddp-distributed", "phases", "gen0-train", "slots", "$(lpad(string(claim1[1]), 6, '0')).done.json")
-            @test isfile(done_path)
-
+            training_phase = EDDPotentials.server_prepare_training_phase!(builder, 0)
+            @test isfile(joinpath(training_phase, "READY"))
+            @test isfile(joinpath(training_phase, "manifest.json"))
+            @test isdir(joinpath(training_phase, "events"))
+            @test !isdir(joinpath(training_phase, "slots"))
+            touch(joinpath(training_phase, "STOP"))
+            mkpath(joinpath(training_phase, "slots"))
+            @test EDDPotentials.server_prepare_training_phase!(builder, 0) == training_phase
+            @test !isdir(joinpath(training_phase, "slots"))
+            @test !isfile(joinpath(training_phase, "STOP"))
+            trainer.num_threads_per_worker = 3
+            trainer.cuda_visible_devices = "0,1"
+            train_cmd = EDDPotentials._distributed_training_cmd(
+                builder,
+                0,
+                "worker-1",
+                training_phase,
+            )
+            train_cmd_text = join(string.(collect(train_cmd)), " ")
+            @test contains(train_cmd_text, "EDDPotentials.run_trainer()")
+            @test contains(train_cmd_text, "--stop-file")
+            @test !contains(train_cmd_text, "--slot-id")
+            train_cmd_env = getfield(train_cmd, :env)
+            @test "JULIA_NUM_THREADS=3" in train_cmd_env
+            @test "OMP_NUM_THREADS=1" in train_cmd_env
+            @test "EDDP_CUDA_DEVICE=0" in train_cmd_env
+            @test_throws ArgumentError EDDPotentials.training_slot_model_path(builder, 0, 1)
+            @test_throws ArgumentError EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-1")
+            model_path = joinpath(temp, EDDPotentials.TRAINING_DIR, "gen-0-model-abcd1234.json")
             mkpath(dirname(model_path))
             write(model_path, "{}")
             trainer.nmodels = 4
             EDDPotentials.server_prepare_training_phase!(builder, 0)
-            @test !isfile(done_path)
             @test !isfile(model_path)
         end
     end
@@ -573,7 +587,6 @@ end
                         cmd;
                         state="TRAINING_RUNNING",
                         model_path="model.json",
-                        slot_id=3,
                     )
                 end
             end
@@ -582,7 +595,6 @@ end
             @test contains(child_log, "distributed link child launched")
             @test contains(child_log, "child_pid=")
             @test contains(child_log, "command=")
-            @test contains(child_log, "slot_id=3")
             @test contains(child_log, "model_path=model.json")
             @test contains(child_log, "distributed link child still running")
             @test contains(child_log, "runtime_seconds=")
@@ -811,18 +823,23 @@ end
             @test isfile(joinpath(phase_dir, "ABORTED.json"))
             rm(joinpath(temp, "STOP"))
 
-            EDDPotentials.server_prepare_training_phase!(builder, 0)
-            claim1 = EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-1")
-            @test claim1 !== nothing
-            EDDPotentials.worker_mark_training_slot_failed!(
-                builder,
-                0,
-                claim1[1],
-                "simulated failure",
+            training_phase = EDDPotentials.server_prepare_training_phase!(builder, 0)
+            touch(joinpath(training_phase, "STOP"))
+            worker = EDDPotentials.WorkerState("worker-training-stop"; iteration=0)
+            control = Dict{String,Any}(
+                "phase" => "training",
+                "phase_dir" => training_phase,
+                "iteration" => 0,
+                "epoch" => 1,
+                "run_id" => "stop-test",
+                "status" => "running",
             )
-            claim2 = EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-2")
-            @test claim2 !== nothing
-            @test claim2[1] == claim1[1]
+            @test EDDPotentials._worker_run_training!(builder, worker, control)
+            states = EDDPotentials.read_worker_states(builder)
+            stopped = filter(state -> state["worker_id"] == "worker-training-stop", states)
+            @test length(stopped) == 1
+            @test stopped[1]["state"] == "STOPPED"
+            @test stopped[1]["message"] == "training phase stop requested"
         end
     end
 
