@@ -389,8 +389,9 @@ Worker status is written to:
 .eddp-distributed/workers/<worker-id>.json
 ```
 
-When `log_enabled = true`, the server and each worker also write Julia
-`@debug`/`@info`/`@warn`/`@error` log messages to stderr and to dedicated log files:
+When `log_enabled = true`, the server and each worker also write timestamped
+single-line `@debug`/`@info`/`@warn`/`@error` diagnostics to stderr and to
+dedicated log files:
 
 ```
 .eddp-distributed/logs/server-<pid>.log
@@ -399,6 +400,8 @@ When `log_enabled = true`, the server and each worker also write Julia
 
 Set `log_level` to the minimum level to emit. For example, `"debug"`
 includes all distributed link log messages, while `"warn"` keeps only warnings and errors.
+Each line includes the role, id, workflow state, next action, and phase-specific
+progress metrics when available.
 
 Training claims and completion markers are stored under:
 

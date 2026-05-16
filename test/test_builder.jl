@@ -362,6 +362,9 @@ end
             @test claim1 !== nothing
             @test claim2 !== nothing
             @test claim1[1] != claim2[1]
+            slots_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-train", "slots")
+            write(joinpath(slots_dir, "000003.lock"), "")
+            @test EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-3") === nothing
             model_path = EDDPotentials.training_slot_model_path(builder, 0, claim1[1])
             @test endswith(model_path, "gen-0-model-slot-$(lpad(string(claim1[1]), 6, '0')).json")
             EDDPotentials.worker_mark_training_slot_done!(builder, 0, claim1[1], model_path)
@@ -415,8 +418,16 @@ end
             log_text = read(log_path, String)
             @test contains(log_text, "visible info log")
             @test contains(err_text, "visible info log")
+            @test contains(err_text, "timestamp=")
+            @test contains(err_text, "level=INFO")
             @test !contains(log_text, "hidden debug log")
-            @test contains(log_text, "poll_control")
+            @test contains(log_text, "timestamp=")
+            @test contains(log_text, "level=INFO")
+            @test contains(log_text, "role=worker")
+            @test contains(log_text, "id=worker-info")
+            @test contains(log_text, "message=\"visible info log\"")
+            @test contains(log_text, "state=IDLE")
+            @test contains(log_text, "next_action=poll_control")
 
             builder.options.distributed.log_level = "warn"
             warn_path = EDDPotentials._distributed_log_path(builder; role="worker", id="worker-warn")
@@ -428,6 +439,7 @@ end
             end
             warn_text = read(warn_path, String)
             @test contains(warn_text, "visible warn log")
+            @test contains(warn_text, "level=WARN")
             @test !contains(warn_text, "suppressed info log")
 
             builder.options.distributed.log_level = "debug"
@@ -437,7 +449,9 @@ end
                     @debug "visible debug log" _group=EDDPotentials.DISTRIBUTED_LOG_GROUP role="worker" state="IDLE"
                 end
             end
-            @test contains(read(debug_path, String), "visible debug log")
+            debug_text = read(debug_path, String)
+            @test contains(debug_text, "visible debug log")
+            @test contains(debug_text, "level=DEBUG")
 
             builder.options.distributed.log_enabled = false
             disabled_path = EDDPotentials._distributed_log_path(builder; role="worker", id="worker-disabled")
@@ -504,10 +518,76 @@ end
             log_path = joinpath(temp, ".eddp-distributed", "logs", "worker-idle-worker.log")
             text = read(log_path, String)
             @test contains(text, "distributed link worker idle")
-            @test contains(text, "IDLE")
-            @test contains(text, "poll_control")
-            @test contains(text, "waiting")
+            @test contains(text, "timestamp=")
+            @test contains(text, "level=INFO")
+            @test contains(text, "role=worker")
+            @test contains(text, "id=idle-worker")
+            @test contains(text, "state=IDLE")
+            @test contains(text, "waiting=true")
+            @test contains(text, "next_action=poll_control")
             @test contains(err_text, "distributed link worker idle")
+        end
+    end
+
+    @testset "Distributed link child supervision logging" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.enabled = true
+            distributed.log_enabled = true
+            distributed.log_level = "debug"
+            distributed.worker_heartbeat_interval_seconds = 0.0
+            distributed.control_poll_interval_seconds = 0.01
+            builder = Builder(
+                EDDPotentials.BuilderOption(
+                    state,
+                    EDDPotentials.CellFeatureConfig(elements=["H"]),
+                    nothing,
+                    EDDPotentials.RssSetting(),
+                    EDDPotentials.TrainingOption(),
+                    nothing,
+                    distributed,
+                ),
+            )
+            worker = EDDPotentials.WorkerState("child-worker"; iteration=0)
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-train")
+            mkpath(phase_dir)
+            control = Dict{String,Any}(
+                "phase" => "training",
+                "iteration" => 0,
+                "epoch" => 1,
+                "run_id" => "child-test",
+            )
+            cmd = Cmd([Base.julia_cmd()..., "--startup-file=no", "-e", "sleep(0.2)"])
+            redirect_stderr(devnull) do
+                EDDPotentials._with_distributed_logger(builder; role="worker", id="child-worker") do
+                    @test EDDPotentials._worker_supervise_child!(
+                        builder,
+                        worker,
+                        control,
+                        phase_dir,
+                        cmd;
+                        state="TRAINING_RUNNING",
+                        model_path="model.json",
+                        slot_id=3,
+                    )
+                end
+            end
+
+            child_log = read(joinpath(temp, ".eddp-distributed", "logs", "worker-child-worker.log"), String)
+            @test contains(child_log, "distributed link child launched")
+            @test contains(child_log, "child_pid=")
+            @test contains(child_log, "command=")
+            @test contains(child_log, "slot_id=3")
+            @test contains(child_log, "model_path=model.json")
+            @test contains(child_log, "distributed link child still running")
+            @test contains(child_log, "runtime_seconds=")
+            @test contains(child_log, "distributed link child finished")
+            @test contains(child_log, "success=true")
         end
     end
 
@@ -665,8 +745,15 @@ end
             end
             dft_log = read(joinpath(temp, ".eddp-distributed", "logs", "server-wait-test.log"), String)
             @test contains(dft_log, "distributed link waiting for DFT results")
-            @test contains(dft_log, "required_success")
-            @test contains(dft_log, "input_count")
+            @test contains(dft_log, "timestamp=")
+            @test contains(dft_log, "level=INFO")
+            @test contains(dft_log, "role=server")
+            @test contains(dft_log, "id=")
+            @test contains(dft_log, "good=")
+            @test contains(dft_log, "bad=")
+            @test contains(dft_log, "required_success=")
+            @test contains(dft_log, "input_count=")
+            @test !contains(dft_log, "distributed link DFT poll")
 
             training_phase = EDDPotentials.server_prepare_training_phase!(builder, 0)
             training_dir = joinpath(temp, EDDPotentials.TRAINING_DIR)
@@ -679,8 +766,11 @@ end
             end
             train_log = read(joinpath(temp, ".eddp-distributed", "logs", "server-train-wait-test.log"), String)
             @test contains(train_log, "distributed link waiting for training models")
-            @test contains(train_log, "models_found")
-            @test contains(train_log, "required_models")
+            @test contains(train_log, "timestamp=")
+            @test contains(train_log, "level=INFO")
+            @test contains(train_log, "models_found=")
+            @test contains(train_log, "required_models=")
+            @test !contains(train_log, "distributed link training poll")
         end
     end
 

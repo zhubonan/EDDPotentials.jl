@@ -31,25 +31,80 @@ _worker_state_path(bu::Builder, worker_id) =
 _timestamp() = Dates.format(Dates.now(Dates.UTC), dateformat"yyyy-mm-ddTHH:MM:SS.sssZ")
 
 struct DistributedTeeLogger <: Logging.AbstractLogger
-    stderr_logger::Logging.ConsoleLogger
-    file_logger::Logging.SimpleLogger
     file_io::IO
     min_level::Logging.LogLevel
+    role::String
+    id::String
 end
 
 Logging.min_enabled_level(logger::DistributedTeeLogger) = logger.min_level
 Logging.catch_exceptions(::DistributedTeeLogger) = true
 
-function Logging.shouldlog(
-    logger::DistributedTeeLogger,
-    level,
-    _module,
-    group,
-    id,
-)
-    level >= logger.min_level &&
-        Logging.shouldlog(logger.stderr_logger, level, _module, group, id) &&
-        Logging.shouldlog(logger.file_logger, level, _module, group, id)
+Logging.shouldlog(logger::DistributedTeeLogger, level, _module, group, id) =
+    level >= logger.min_level
+
+function _distributed_level_name(level::Logging.LogLevel)
+    level == Logging.Debug && return "DEBUG"
+    level == Logging.Info && return "INFO"
+    level == Logging.Warn && return "WARN"
+    level == Logging.Error && return "ERROR"
+    return string(level)
+end
+
+function _log_value_present(value)
+    value === nothing && return false
+    value isa AbstractString && isempty(value) && return false
+    return true
+end
+
+function _escape_log_string(value)
+    replace(String(value), "\\" => "\\\\", "\"" => "\\\"", "\n" => "\\n", "\r" => "\\r")
+end
+
+function _format_log_value(value; always_quote::Bool=false)
+    if value isa Bool
+        return value ? "true" : "false"
+    elseif value isa Real
+        return string(value)
+    end
+    text = value isa Symbol ? String(value) : string(value)
+    if !always_quote && occursin(r"^[A-Za-z0-9_.:/@%+=,\-]+$", text)
+        return text
+    end
+    return "\"$(_escape_log_string(text))\""
+end
+
+function _distributed_kwarg(kwargs, name::Symbol, default=nothing)
+    for (key, value) in kwargs
+        Symbol(key) == name && return value
+    end
+    return default
+end
+
+function _distributed_log_line(logger::DistributedTeeLogger, level, message; kwargs...)
+    role = _distributed_kwarg(kwargs, :role, logger.role)
+    log_id = _distributed_kwarg(kwargs, :id, nothing)
+    if !_log_value_present(log_id)
+        worker_id = _distributed_kwarg(kwargs, :worker_id, nothing)
+        pid = _distributed_kwarg(kwargs, :pid, nothing)
+        log_id = _log_value_present(worker_id) ? worker_id :
+                 _log_value_present(pid) ? pid : logger.id
+    end
+
+    parts = String[
+        "timestamp=$(_timestamp())",
+        "level=$(_distributed_level_name(level))",
+        "role=$(_format_log_value(role))",
+        "id=$(_format_log_value(log_id))",
+        "message=$(_format_log_value(message; always_quote=true))",
+    ]
+    for (key, value) in kwargs
+        key_symbol = Symbol(key)
+        key_symbol in (:_group, :role, :id, :worker_id, :pid) && continue
+        _log_value_present(value) || continue
+        push!(parts, "$(key_symbol)=$(_format_log_value(value))")
+    end
+    return join(parts, " ")
 end
 
 function Logging.handle_message(
@@ -63,27 +118,18 @@ function Logging.handle_message(
     line;
     kwargs...,
 )
-    Logging.handle_message(logger.stderr_logger, level, message, _module, group, id, file, line; kwargs...)
+    log_line = _distributed_log_line(logger, level, message; kwargs...)
+    println(stderr, log_line)
+    flush(stderr)
     file_ok = true
     file_err = nothing
     try
-        Logging.handle_message(
-            logger.file_logger,
-            level,
-            message,
-            _module,
-            group,
-            id,
-            file,
-            line;
-            kwargs...,
-        )
+        println(logger.file_io, log_line)
         flush(logger.file_io)
     catch err
         file_ok = false
         file_err = err
     end
-    flush(stderr)
     if !file_ok
         try
             println(stderr, "Warning: distributed link diagnostic file logging failed")
@@ -182,10 +228,10 @@ function _with_distributed_logger(f, bu::Builder; role::AbstractString, id::Abst
     open(path, "a") do io
         min_level = _distributed_log_level(bu.options.distributed.log_level)
         tee_logger = DistributedTeeLogger(
-            ConsoleLogger(stderr, min_level),
-            SimpleLogger(io, min_level),
             io,
             min_level,
+            String(role),
+            String(id),
         )
         logger = DistributedDiagnosticLogger(parent_logger, tee_logger)
         with_logger(logger) do
@@ -559,7 +605,6 @@ function _server_wait_for_workers_stopped!(bu::Builder, control)
         active = filter(state -> _worker_active_for_control(state, control), read_worker_states(bu))
         isempty(active) && return true
         if time() - started >= timeout
-            @warn "Timed out waiting for Distributed link workers to stop" active_workers = length(active)
             @warn "timed out waiting for distributed link workers to stop" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_WORKERS_STOPPED" phase = string(get(control, "phase", "")) iteration = Int(get(control, "iteration", bu.state.iteration)) epoch = Int(get(control, "epoch", 0)) waiting = true next_action = "continue_after_timeout" active_workers = length(active)
 
             return false
@@ -578,7 +623,6 @@ function _server_wait_for_dft!(bu::Builder, phase_dir)
     last_diag = 0.0
     while true
         good, bad = _dft_result_counts(crud_workdir)
-        @debug "distributed link DFT poll" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_DFT" phase = "dft" iteration = Int(manifest["iteration"]) waiting = true next_action = "wait_for_dft_results" good bad required_success input_count
         if _log_interval_due(last_diag, bu)
             @info "distributed link waiting for DFT results" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_DFT" phase = "dft" iteration = Int(manifest["iteration"]) waiting = true next_action = "wait_for_dft_results" good bad required_success input_count
             last_diag = time()
@@ -769,7 +813,7 @@ function worker_claim_training_slot!(bu::Builder, iter::Int, worker_id::Abstract
             _write_json(joinpath(lock_path, "claim.json"), claim)
             return slot_id, lock_path, model_path
         catch err
-            err isa IOError || rethrow()
+            (err isa Base.IOError && err.code == Base.UV_EEXIST) || rethrow()
         end
     end
     return nothing
@@ -806,7 +850,6 @@ function _server_wait_for_training!(bu::Builder, phase_dir)
     last_diag = 0.0
     while true
         nm = num_existing_models(bu)
-        @debug "distributed link training poll" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_TRAINING" phase = "training" iteration = Int(manifest["iteration"]) waiting = true next_action = "wait_for_models" models_found = nm required_models = required
         if _log_interval_due(last_diag, bu)
             @info "distributed link waiting for training models" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_TRAINING" phase = "training" iteration = Int(manifest["iteration"]) waiting = true next_action = "wait_for_models" models_found = nm required_models = required
             last_diag = time()
@@ -1019,7 +1062,9 @@ function _worker_supervise_child!(
     state,
     claim=nothing,
     model_path=nothing,
+    slot_id=nothing,
 )
+    started = time()
     proc = run(cmd; wait=false)
     child_pid = _process_pid(proc)
     phase = string(get(control, "phase", ""))
@@ -1037,19 +1082,50 @@ function _worker_supervise_child!(
         claim,
         model_path,
     )
-    _worker_log(Logging.Info, "distributed link child launched", worker; next_action="supervise_child", command=string(cmd))
+    _worker_log(
+        Logging.Info,
+        "distributed link child launched",
+        worker;
+        next_action="supervise_child",
+        child_pid,
+        command=string(cmd),
+        slot_id,
+        model_path,
+    )
 
     last_heartbeat = 0.0
     while process_running(proc)
         if time() - last_heartbeat >= bu.options.distributed.worker_heartbeat_interval_seconds
             write_worker_heartbeat!(bu, worker; message="child running")
-            _worker_log(Logging.Debug, "distributed link child still running", worker; waiting=true, next_action="supervise_child")
+            runtime_seconds = round(time() - started; digits=3)
+            _worker_log(
+                Logging.Debug,
+                "distributed link child still running",
+                worker;
+                waiting=true,
+                next_action="supervise_child",
+                child_pid,
+                runtime_seconds,
+                slot_id,
+                model_path,
+            )
 
             last_heartbeat = time()
         end
         if _worker_stop_requested(bu, control, phase_dir, worker.worker_id)
             write_worker_heartbeat!(bu, worker; state="STOPPING_CHILD", message="stop requested")
-            _worker_log(Logging.Warn, "distributed link child stop requested", worker; next_action="terminate_child")
+            runtime_seconds = round(time() - started; digits=3)
+            _worker_log(
+                Logging.Warn,
+                "distributed link child stop requested",
+                worker;
+                next_action="terminate_child",
+                child_pid,
+                runtime_seconds,
+                reason="stop_requested",
+                slot_id,
+                model_path,
+            )
 
             _worker_stop_child!(proc, bu.options.distributed)
             return false
@@ -1058,10 +1134,32 @@ function _worker_supervise_child!(
     end
     wait(proc)
     ok = success(proc)
+    runtime_seconds = round(time() - started; digits=3)
     if ok
-        _worker_log(Logging.Info, "distributed link child finished", worker; next_action="mark_child_result")
+        _worker_log(
+            Logging.Info,
+            "distributed link child finished",
+            worker;
+            next_action="mark_child_result",
+            child_pid,
+            runtime_seconds,
+            success=true,
+            slot_id,
+            model_path,
+        )
     else
-        _worker_log(Logging.Error, "distributed link child failed", worker; next_action="mark_child_failed")
+        _worker_log(
+            Logging.Error,
+            "distributed link child failed",
+            worker;
+            next_action="mark_child_failed",
+            child_pid,
+            runtime_seconds,
+            success=false,
+            reason="process_failed",
+            slot_id,
+            model_path,
+        )
     end
     return ok
 end
@@ -1188,6 +1286,7 @@ function _worker_run_training!(bu::Builder, worker::WorkerState, control)
         state="TRAINING_RUNNING",
         claim=claim_path,
         model_path,
+        slot_id,
     )
     if ok && isfile(model_path)
         worker_mark_training_slot_done!(bu, iter, slot_id, model_path)
@@ -1297,6 +1396,7 @@ function distributed_worker(file::AbstractString; worker_id::AbstractString="", 
 
         write_worker_heartbeat!(bu, worker; message="worker boot")
         handled_dft_controls = Set{Tuple{Int,Int}}()
+        last_idle_diag = 0.0
         while true
             if _worker_shutdown_requested(bu)
                 write_worker_heartbeat!(
@@ -1329,8 +1429,10 @@ function distributed_worker(file::AbstractString; worker_id::AbstractString="", 
                     claim=nothing,
                     model_path=nothing,
                 )
-                _worker_log(Logging.Info, "distributed link worker idle", worker; waiting=true, next_action="poll_control")
-                _worker_log(Logging.Debug, "distributed link no active control", worker; waiting=true, next_action="poll_control")
+                if once || _log_interval_due(last_idle_diag, bu)
+                    _worker_log(Logging.Info, "distributed link worker idle", worker; waiting=true, next_action="poll_control")
+                    last_idle_diag = time()
+                end
                 once && return false
                 sleep(max(1.0, bu.options.distributed.worker_poll_interval_seconds))
                 continue
