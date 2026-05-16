@@ -281,7 +281,7 @@ Run automated iterative building cycles.
 """
 abstract type AbstractLinkBackend end
 struct LocalLinkBackend <: AbstractLinkBackend end
-struct ClientServerLinkBackend <: AbstractLinkBackend end
+struct DistributedLinkBackend <: AbstractLinkBackend end
 
 struct LinkPhaseResult
     status::Symbol
@@ -295,7 +295,7 @@ LinkPhaseResult(status::Symbol, phase::Symbol, iteration::Int; message="", metri
     LinkPhaseResult(status, phase, iteration, String(message), Dict{Symbol,Any}(metrics))
 
 auto_link_backend(bu::Builder) =
-    bu.options.client_server.enabled ? ClientServerLinkBackend() : LocalLinkBackend()
+    bu.options.distributed.enabled ? DistributedLinkBackend() : LocalLinkBackend()
 
 function link!(builder::Builder)
     run_link_workflow!(builder, auto_link_backend(builder))
@@ -465,10 +465,10 @@ function _required_commands(::LocalLinkBackend, bu::Builder)
     return commands
 end
 
-function _required_commands(::ClientServerLinkBackend, bu::Builder)
-    commands = String["buildcell"]
+function _required_commands(::DistributedLinkBackend, bu::Builder)
+    commands = String["buildcell", "crud.pl"]
     scheduler = bu.options.scheduler
-    if scheduler !== nothing && bu.options.client_server.submit_client_jobs
+    if scheduler !== nothing && bu.options.distributed.manage_worker_jobs && scheduler.submit_jobs
         push!(commands, _scheduler_command(scheduler))
     end
     filter!(!isempty, commands)
@@ -479,7 +479,7 @@ function _require_builder_file_path!(bu::Builder)
     path = strip(bu.state.builder_file_path)
     isempty(path) && throw(
         ArgumentError(
-            "builder.state.builder_file_path must be set to an existing configuration file before launching subprocesses or client-server workers. Build from `Builder(\"link.toml\")` or save the BuilderOption first.",
+            "builder.state.builder_file_path must be set to an existing configuration file before launching subprocesses or distributed link workers. Build from `Builder(\"link.toml\")` or save the BuilderOption first.",
         ),
     )
     abspath_path = abspath(path)
@@ -496,13 +496,18 @@ function _uses_subprocesses(bu::Builder, ::LocalLinkBackend)
            lowercase(strip(bu.trainer.external_mode)) in ("submit", "command")
 end
 
-_uses_subprocesses(bu::Builder, ::ClientServerLinkBackend) = true
+_uses_subprocesses(bu::Builder, ::DistributedLinkBackend) = true
 
 function validate_builder_for_link!(bu::Builder, backend::AbstractLinkBackend)
     bu.state.rss_nprocs >= 1 ||
         throw(ArgumentError("state.rss_nprocs must be >= 1."))
     0.0 < bu.state.per_generation_threshold <= 1.0 ||
         throw(ArgumentError("state.per_generation_threshold must be in the interval (0, 1]."))
+    if backend isa DistributedLinkBackend
+        _distributed_log_level(bu.options.distributed.log_level)
+        bu.options.distributed.log_interval_seconds > 0.0 ||
+            throw(ArgumentError("options.distributed.log_interval_seconds must be > 0."))
+    end
     _check_dependencies(_required_commands(backend, bu))
     _uses_subprocesses(bu, backend) && _require_builder_file_path!(bu)
     return true

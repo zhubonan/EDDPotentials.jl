@@ -100,19 +100,23 @@ end
         builder = Builder(opt)
         test_to_from_toml_builder(builder)
 
-        client_server = EDDPotentials.ClientServerOption()
-        client_server.enabled = true
-        client_server.coordination_dir = ".custom-client-server"
-        opt_client_server = EDDPotentials.BuilderOption(
+        distributed = EDDPotentials.DistributedLinkOption()
+        distributed.enabled = true
+        distributed.coordination_dir = ".custom-distributed"
+        distributed.log_enabled = true
+        distributed.log_level = "debug"
+        distributed.log_dir = "diag-logs"
+        distributed.log_interval_seconds = 1.5
+        opt_distributed = EDDPotentials.BuilderOption(
             state,
             cf,
             nothing,
             rss,
             EDDPotentials.TrainingOption(),
             nothing,
-            client_server,
+            distributed,
         )
-        test_to_from_toml(opt_client_server)
+        test_to_from_toml(opt_distributed)
     end
 
     @testset "Training scheduler script rendering" begin
@@ -296,7 +300,7 @@ end
         end
     end
 
-    @testset "Client-server file protocol helpers" begin
+    @testset "Distributed link file protocol helpers" begin
         mktempdir() do temp
             state = EDDPotentials.BuilderState(
                 seedfile="seed.cell",
@@ -309,10 +313,10 @@ end
             rss = EDDPotentials.RssSetting()
             trainer = EDDPotentials.TrainingOption()
             trainer.nmodels = 3
-            client_server = EDDPotentials.ClientServerOption()
-            client_server.enabled = true
-            client_server.client_heartbeat_interval_seconds = 0.01
-            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, client_server)
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.enabled = true
+            distributed.worker_heartbeat_interval_seconds = 0.01
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, distributed)
             builder = Builder(opt)
             builder.state.builder_file_path = joinpath(temp, "link.toml")
 
@@ -329,7 +333,7 @@ end
             write(joinpath(gen0, "calc-001.res"), "TITL test\nEND\n")
             write(joinpath(gen0, "calc-002.res"), "TITL test\nEND\n")
 
-            crud_workdir = EDDPotentials.client_server_prepare_crud_workdir!(builder, 0)
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
             @test isdir(joinpath(crud_workdir, "hopper"))
             @test isdir(joinpath(crud_workdir, "good_castep"))
             @test isdir(joinpath(crud_workdir, "bad_castep"))
@@ -337,7 +341,7 @@ end
             @test isfile(joinpath(crud_workdir, "calc.param"))
             @test count(endswith(".res"), readdir(joinpath(crud_workdir, "hopper"))) == 2
 
-            EDDPotentials.client_server_write_heartbeat(
+            EDDPotentials.write_worker_heartbeat!(
                 builder,
                 "worker-1";
                 state="DFT_RUNNING",
@@ -347,43 +351,44 @@ end
                 child_pid=123,
                 message="testing",
             )
-            states = EDDPotentials.client_server_worker_states(builder)
+            states = EDDPotentials.read_worker_states(builder)
             @test length(states) == 1
             @test states[1]["worker_id"] == "worker-1"
             @test states[1]["state"] == "DFT_RUNNING"
 
-            EDDPotentials.client_server_prepare_training_phase!(builder, 0)
-            claim1 = EDDPotentials.client_server_claim_training_slot!(builder, 0, "worker-1")
-            claim2 = EDDPotentials.client_server_claim_training_slot!(builder, 0, "worker-2")
+            EDDPotentials.server_prepare_training_phase!(builder, 0)
+            claim1 = EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-1")
+            claim2 = EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-2")
             @test claim1 !== nothing
             @test claim2 !== nothing
             @test claim1[1] != claim2[1]
-            model_path = EDDPotentials.client_server_training_model_path(builder, 0, claim1[1])
+            model_path = EDDPotentials.training_slot_model_path(builder, 0, claim1[1])
             @test endswith(model_path, "gen-0-model-slot-$(lpad(string(claim1[1]), 6, '0')).json")
-            EDDPotentials.client_server_mark_training_slot_done!(builder, 0, claim1[1], model_path)
-            done_path = joinpath(temp, ".eddp-client-server", "phases", "gen0-train", "slots", "$(lpad(string(claim1[1]), 6, '0')).done.json")
+            EDDPotentials.worker_mark_training_slot_done!(builder, 0, claim1[1], model_path)
+            done_path = joinpath(temp, ".eddp-distributed", "phases", "gen0-train", "slots", "$(lpad(string(claim1[1]), 6, '0')).done.json")
             @test isfile(done_path)
 
             mkpath(dirname(model_path))
             write(model_path, "{}")
             trainer.nmodels = 4
-            EDDPotentials.client_server_prepare_training_phase!(builder, 0)
+            EDDPotentials.server_prepare_training_phase!(builder, 0)
             @test !isfile(done_path)
             @test !isfile(model_path)
         end
     end
 
-    @testset "Client-server DFT waits until pass or impossible failure" begin
+    @testset "Distributed link logging" begin
         mktempdir() do temp
             state = EDDPotentials.BuilderState(
                 seedfile="seed.cell",
                 seedfile_calc="calc.cell",
                 workdir=temp,
             )
-            state.per_generation_threshold = 0.8
-            client_server = EDDPotentials.ClientServerOption()
-            client_server.enabled = true
-            client_server.control_poll_interval_seconds = 0.01
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.enabled = true
+            distributed.log_enabled = true
+            distributed.log_level = "info"
+            distributed.log_interval_seconds = 0.0
             builder = Builder(
                 EDDPotentials.BuilderOption(
                     state,
@@ -392,7 +397,188 @@ end
                     EDDPotentials.RssSetting(),
                     EDDPotentials.TrainingOption(),
                     nothing,
-                    client_server,
+                    distributed,
+                ),
+            )
+
+            log_path = EDDPotentials._distributed_log_path(builder; role="worker", id="worker-info")
+            err_text = mktemp() do _, err_io
+                redirect_stderr(err_io) do
+                    EDDPotentials._with_distributed_logger(builder; role="worker", id="worker-info") do
+                        @debug "hidden debug log" _group=EDDPotentials.DISTRIBUTED_LOG_GROUP role="worker"
+                        @info "visible info log" _group=EDDPotentials.DISTRIBUTED_LOG_GROUP role="worker" state="IDLE" next_action="poll_control"
+                    end
+                end
+                seekstart(err_io)
+                read(err_io, String)
+            end
+            log_text = read(log_path, String)
+            @test contains(log_text, "visible info log")
+            @test contains(err_text, "visible info log")
+            @test !contains(log_text, "hidden debug log")
+            @test contains(log_text, "poll_control")
+
+            builder.options.distributed.log_level = "warn"
+            warn_path = EDDPotentials._distributed_log_path(builder; role="worker", id="worker-warn")
+            redirect_stderr(devnull) do
+                EDDPotentials._with_distributed_logger(builder; role="worker", id="worker-warn") do
+                    @info "suppressed info log" _group=EDDPotentials.DISTRIBUTED_LOG_GROUP role="worker"
+                    @warn "visible warn log" _group=EDDPotentials.DISTRIBUTED_LOG_GROUP role="worker" state="STOPPING_CHILD"
+                end
+            end
+            warn_text = read(warn_path, String)
+            @test contains(warn_text, "visible warn log")
+            @test !contains(warn_text, "suppressed info log")
+
+            builder.options.distributed.log_level = "debug"
+            debug_path = EDDPotentials._distributed_log_path(builder; role="worker", id="worker-debug")
+            redirect_stderr(devnull) do
+                EDDPotentials._with_distributed_logger(builder; role="worker", id="worker-debug") do
+                    @debug "visible debug log" _group=EDDPotentials.DISTRIBUTED_LOG_GROUP role="worker" state="IDLE"
+                end
+            end
+            @test contains(read(debug_path, String), "visible debug log")
+
+            builder.options.distributed.log_enabled = false
+            disabled_path = EDDPotentials._distributed_log_path(builder; role="worker", id="worker-disabled")
+            disabled_err = mktemp() do _, err_io
+                redirect_stderr(err_io) do
+                    EDDPotentials._with_distributed_logger(builder; role="worker", id="worker-disabled") do
+                        @info "should not be written" _group=EDDPotentials.DISTRIBUTED_LOG_GROUP
+                    end
+                end
+                seekstart(err_io)
+                read(err_io, String)
+            end
+            @test !isfile(disabled_path)
+            @test !contains(disabled_err, "should not be written")
+
+            builder.options.distributed.log_enabled = true
+            builder.options.distributed.log_level = "verbose"
+            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
+                builder,
+                EDDPotentials.DistributedLinkBackend(),
+            )
+
+            builder.options.distributed.log_level = "info"
+            builder.options.distributed.log_interval_seconds = 0.0
+            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
+                builder,
+                EDDPotentials.DistributedLinkBackend(),
+            )
+        end
+    end
+
+    @testset "Distributed link worker idle logging" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=".",
+            )
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.enabled = true
+            distributed.log_enabled = true
+            distributed.log_level = "debug"
+            opt = EDDPotentials.BuilderOption(
+                state,
+                EDDPotentials.CellFeatureConfig(elements=["H"]),
+                nothing,
+                EDDPotentials.RssSetting(),
+                EDDPotentials.TrainingOption(),
+                nothing,
+                distributed,
+            )
+            builder = Builder(opt)
+            link_path = joinpath(temp, "link.toml")
+            EDDPotentials.save_builder(link_path, builder)
+
+            result, err_text = mktemp() do _, err_io
+                result = redirect_stderr(err_io) do
+                    EDDPotentials.distributed_worker(link_path; worker_id="idle-worker", once=true)
+                end
+                seekstart(err_io)
+                result, read(err_io, String)
+            end
+            @test result == false
+            log_path = joinpath(temp, ".eddp-distributed", "logs", "worker-idle-worker.log")
+            text = read(log_path, String)
+            @test contains(text, "distributed link worker idle")
+            @test contains(text, "IDLE")
+            @test contains(text, "poll_control")
+            @test contains(text, "waiting")
+            @test contains(err_text, "distributed link worker idle")
+        end
+    end
+
+    @testset "Distributed link DFT control identity" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.enabled = true
+            builder = Builder(
+                EDDPotentials.BuilderOption(
+                    state,
+                    EDDPotentials.CellFeatureConfig(elements=["H"]),
+                    nothing,
+                    EDDPotentials.RssSetting(),
+                    EDDPotentials.TrainingOption(),
+                    nothing,
+                    distributed,
+                ),
+            )
+            worker = EDDPotentials.WorkerState("worker-1"; iteration=0)
+            control = Dict{String,Any}(
+                "phase" => "dft",
+                "iteration" => 1,
+                "epoch" => 1,
+                "run_id" => "test-1",
+                "phase_dir" => joinpath(temp, ".eddp-distributed", "phases", "gen1-dft"),
+            )
+
+            handled = Set{Tuple{Int,Int}}([(0, 1)])
+            @test_throws ArgumentError EDDPotentials._worker_handle_control!(
+                builder,
+                worker,
+                control,
+                handled,
+            )
+
+            handled = Set{Tuple{Int,Int}}([(1, 1)])
+            @test EDDPotentials._worker_handle_control!(
+                builder,
+                worker,
+                control,
+                handled,
+            ) == true
+            @test worker.state == "IDLE"
+        end
+    end
+
+    @testset "Distributed link DFT waits until pass or impossible failure" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.per_generation_threshold = 0.8
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.enabled = true
+            distributed.control_poll_interval_seconds = 0.01
+            builder = Builder(
+                EDDPotentials.BuilderOption(
+                    state,
+                    EDDPotentials.CellFeatureConfig(elements=["H"]),
+                    nothing,
+                    EDDPotentials.RssSetting(),
+                    EDDPotentials.TrainingOption(),
+                    nothing,
+                    distributed,
                 ),
             )
 
@@ -410,7 +596,7 @@ end
                 write(joinpath(gen0, "calc-$(lpad(string(i), 3, '0')).res"), "TITL test\nEND\n")
             end
 
-            crud_workdir = EDDPotentials.client_server_prepare_crud_workdir!(builder, 0)
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
             good_dir = joinpath(crud_workdir, "good_castep")
             bad_dir = joinpath(crud_workdir, "bad_castep")
             for i = 1:7
@@ -418,8 +604,8 @@ end
             end
             write(joinpath(bad_dir, "bad-1.res"), "TITL test\nEND\n")
 
-            phase_dir = joinpath(temp, ".eddp-client-server", "phases", "gen0-dft")
-            task = @async EDDPotentials._client_server_wait_for_dft!(builder, phase_dir)
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
+            task = @async EDDPotentials._server_wait_for_dft!(builder, phase_dir)
             sleep(0.05)
             @test !istaskdone(task)
             write(joinpath(good_dir, "good-8.res"), "TITL test\nEND\n")
@@ -427,7 +613,78 @@ end
         end
     end
 
-    @testset "Client-server stop and retry behavior" begin
+    @testset "Distributed link server wait logging" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.per_generation_threshold = 1.0
+            trainer = EDDPotentials.TrainingOption()
+            trainer.nmodels = 1
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.enabled = true
+            distributed.log_enabled = true
+            distributed.log_level = "debug"
+            distributed.log_interval_seconds = 0.0
+            builder = Builder(
+                EDDPotentials.BuilderOption(
+                    state,
+                    EDDPotentials.CellFeatureConfig(elements=["H"]),
+                    nothing,
+                    EDDPotentials.RssSetting(),
+                    trainer,
+                    nothing,
+                    distributed,
+                ),
+            )
+
+            open(joinpath(temp, "calc.cell"), "w") do io
+                println(io, "%BLOCK LATTICE_CART")
+                println(io, "1 0 0")
+                println(io, "0 1 0")
+                println(io, "0 0 1")
+                println(io, "%ENDBLOCK LATTICE_CART")
+            end
+            write(joinpath(temp, "calc.param"), "task : SinglePoint\n")
+            gen0 = EDDPotentials.input_structure_dir(temp, 0)
+            mkpath(gen0)
+            write(joinpath(gen0, "calc-001.res"), "TITL test\nEND\n")
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            cp(
+                joinpath(gen0, "calc-001.res"),
+                joinpath(crud_workdir, "good_castep", "calc-001.res"),
+            )
+
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
+            redirect_stderr(devnull) do
+                EDDPotentials._with_distributed_logger(builder; role="server", id="wait-test") do
+                    @test EDDPotentials._server_wait_for_dft!(builder, phase_dir) == (1, 0)
+                end
+            end
+            dft_log = read(joinpath(temp, ".eddp-distributed", "logs", "server-wait-test.log"), String)
+            @test contains(dft_log, "distributed link waiting for DFT results")
+            @test contains(dft_log, "required_success")
+            @test contains(dft_log, "input_count")
+
+            training_phase = EDDPotentials.server_prepare_training_phase!(builder, 0)
+            training_dir = joinpath(temp, EDDPotentials.TRAINING_DIR)
+            mkpath(training_dir)
+            write(joinpath(training_dir, "gen-0-model-1.json"), "{}")
+            redirect_stderr(devnull) do
+                EDDPotentials._with_distributed_logger(builder; role="server", id="train-wait-test") do
+                    @test EDDPotentials._server_wait_for_training!(builder, training_phase) == 1
+                end
+            end
+            train_log = read(joinpath(temp, ".eddp-distributed", "logs", "server-train-wait-test.log"), String)
+            @test contains(train_log, "distributed link waiting for training models")
+            @test contains(train_log, "models_found")
+            @test contains(train_log, "required_models")
+        end
+    end
+
+    @testset "Distributed link stop and retry behavior" begin
         mktempdir() do temp
             state = EDDPotentials.BuilderState(
                 seedfile="seed.cell",
@@ -439,10 +696,10 @@ end
             rss = EDDPotentials.RssSetting()
             trainer = EDDPotentials.TrainingOption()
             trainer.nmodels = 1
-            client_server = EDDPotentials.ClientServerOption()
-            client_server.enabled = true
-            client_server.control_poll_interval_seconds = 0.01
-            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, client_server)
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.enabled = true
+            distributed.control_poll_interval_seconds = 0.01
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, distributed)
             builder = Builder(opt)
 
             open(joinpath(temp, "calc.cell"), "w") do io
@@ -457,29 +714,29 @@ end
             mkpath(gen0)
             write(joinpath(gen0, "calc-001.res"), "TITL test\nEND\n")
 
-            EDDPotentials.client_server_prepare_crud_workdir!(builder, 0)
+            EDDPotentials.server_prepare_dft_phase!(builder, 0)
             touch(joinpath(temp, "STOP"))
-            phase_dir = joinpath(temp, ".eddp-client-server", "phases", "gen0-dft")
-            @test EDDPotentials._client_server_wait_for_dft!(builder, phase_dir) == :stopped
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
+            @test EDDPotentials._server_wait_for_dft!(builder, phase_dir) == :stopped
             @test isfile(joinpath(phase_dir, "ABORTED.json"))
             rm(joinpath(temp, "STOP"))
 
-            EDDPotentials.client_server_prepare_training_phase!(builder, 0)
-            claim1 = EDDPotentials.client_server_claim_training_slot!(builder, 0, "worker-1")
+            EDDPotentials.server_prepare_training_phase!(builder, 0)
+            claim1 = EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-1")
             @test claim1 !== nothing
-            EDDPotentials.client_server_mark_training_slot_failed!(
+            EDDPotentials.worker_mark_training_slot_failed!(
                 builder,
                 0,
                 claim1[1],
                 "simulated failure",
             )
-            claim2 = EDDPotentials.client_server_claim_training_slot!(builder, 0, "worker-2")
+            claim2 = EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-2")
             @test claim2 !== nothing
             @test claim2[1] == claim1[1]
         end
     end
 
-    @testset "Client-server enabled overrides backend selectors" begin
+    @testset "Distributed link enabled overrides backend selectors" begin
         mktempdir() do temp
             state = EDDPotentials.BuilderState(
                 seedfile="seed.cell",
@@ -492,10 +749,10 @@ end
             trainer = EDDPotentials.TrainingOption()
             trainer.external = true
             trainer.external_mode = "local"
-            client_server = EDDPotentials.ClientServerOption()
-            client_server.enabled = true
-            client_server.submit_client_jobs = false
-            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, client_server)
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.enabled = true
+            distributed.manage_worker_jobs = false
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing, distributed)
             builder = Builder(opt)
 
             open(joinpath(temp, "calc.cell"), "w") do io
@@ -510,24 +767,24 @@ end
             mkpath(gen0)
             write(joinpath(gen0, "calc-001.res"), "TITL test\nEND\n")
 
-            EDDPotentials.client_server_prepare_crud_workdir!(builder, 0)
-            phase_dir = joinpath(temp, ".eddp-client-server", "phases", "gen0-dft")
+            EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
             cp(
                 joinpath(gen0, "calc-001.res"),
                 joinpath(temp, "crud-work", "gen0", "good_castep", "calc-001.res"),
             )
-            @test EDDPotentials.client_server_run_dft_phase!(builder, 0) == :ok
+            @test EDDPotentials.server_run_dft_phase!(builder, 0) == :ok
             @test isfile(joinpath(EDDPotentials.output_structure_dir(temp, 0), "calc-001.res"))
             @test isfile(joinpath(phase_dir, "DONE"))
         end
     end
 
-    @testset "Client-server scheduler script rendering" begin
+    @testset "Distributed link scheduler script rendering" begin
         mktempdir() do temp
-            script = joinpath(temp, "client_server_job.sh")
+            script = joinpath(temp, "distributed_job.sh")
             open(script, "w") do io
                 println(io, "#!/bin/bash")
-                println(io, "{{EDDP_CLIENT_SERVER_CMD}}")
+                println(io, "{{EDDP_DISTRIBUTED_WORKER_CMD}}")
             end
 
             state = EDDPotentials.BuilderState(
@@ -538,30 +795,50 @@ end
             cf = EDDPotentials.CellFeatureConfig(elements=["H"])
             rss = EDDPotentials.RssSetting()
             trainer = EDDPotentials.TrainingOption()
-            client_server = EDDPotentials.ClientServerOption()
-            client_server.submit_client_jobs = false
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.manage_worker_jobs = false
             scheduler = EDDPotentials.SchedulerConfig(
                 script=script,
                 njobs=2,
                 type="SLURM",
                 submit_jobs=true,
             )
-            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, scheduler, client_server)
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, scheduler, distributed)
             builder = Builder(opt)
             builder.state.builder_file_path = joinpath(temp, "link.toml")
             EDDPotentials.save_builder(builder.state.builder_file_path, builder)
 
-            rendered = EDDPotentials._render_client_server_client_job_script(
+            rendered = EDDPotentials._render_distributed_worker_job_script(
                 builder,
                 scheduler,
                 joinpath(temp, "submit"),
             )
             text = read(rendered, String)
-            @test !contains(text, "{{EDDP_CLIENT_SERVER_CMD}}")
-            @test contains(text, "EDDPotentials.client_server_client()")
+            @test !contains(text, "{{EDDP_DISTRIBUTED_WORKER_CMD}}")
+            @test contains(text, "EDDPotentials.distributed_worker()")
             @test contains(text, "--worker-id \"\$WORKER_ID\"")
             @test contains(text, "SLURM_ARRAY_TASK_ID")
-            @test EDDPotentials._client_server_submit_clients(builder, "dft", 0) == ""
+            @test EDDPotentials._server_submit_workers(builder, "dft", 0) == ""
+
+            distributed.manage_worker_jobs = true
+            scheduler = EDDPotentials.SchedulerConfig(
+                script=script,
+                njobs=2,
+                type="SLURM",
+                submit_jobs=false,
+            )
+            builder = Builder(EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, scheduler, distributed))
+            builder.state.builder_file_path = joinpath(temp, "link.toml")
+            EDDPotentials.save_builder(builder.state.builder_file_path, builder)
+            @test "crud.pl" in EDDPotentials._required_commands(
+                EDDPotentials.DistributedLinkBackend(),
+                builder,
+            )
+            @test !("sbatch" in EDDPotentials._required_commands(
+                EDDPotentials.DistributedLinkBackend(),
+                builder,
+            ))
+            @test EDDPotentials._server_submit_workers(builder, "dft", 0) == ""
         end
     end
 

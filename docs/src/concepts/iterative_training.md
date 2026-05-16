@@ -294,13 +294,13 @@ dft_mode = "crud"
 
 4. **"disp-castep"**: Distributed CASTEP via DISP package
 
-### File-Backed Client-Server Mode
+### Distributed Link Mode
 
 Use this mode when DFT calculations and model training should run as separate
-client processes coordinated through files on a shared filesystem. The master
-publishes the active phase in `.eddp-client-server/control.json`; clients read that file
+worker processes coordinated through files on a shared filesystem. The server
+publishes the active phase in `.eddp-distributed/control.json`; workers read that file
 and run either `crud.pl` or a one-model training subprocess. A scheduler can
-launch the clients, but it is not required; clients may also be started manually
+launch the workers, but it is not required; workers may also be started manually
 and left running as daemons.
 
 Minimal `link.toml` settings:
@@ -314,81 +314,96 @@ external = true
 nmodels = 128
 external_completion_ratio = 0.9
 
-[client_server]
+[distributed]
 enabled = true
-coordination_dir = ".eddp-client-server"
-submit_client_jobs = true
-dft_client_jobs = 16
-training_client_jobs = 8
+coordination_dir = ".eddp-distributed"
+manage_worker_jobs = true
+dft_worker_jobs = 16
+training_worker_jobs = 8
 dft_crud_workdir = "crud-work"
 control_poll_interval_seconds = 10.0
-client_heartbeat_interval_seconds = 30.0
-client_child_grace_seconds = 300.0
-client_child_kill_seconds = 30.0
+worker_heartbeat_interval_seconds = 30.0
+worker_child_grace_seconds = 300.0
+worker_child_kill_seconds = 30.0
 training_slot_stale_seconds = 86400.0
+log_enabled = true
+log_level = "info"        # debug, info, warn, or error
+log_dir = "logs"
+log_interval_seconds = 30.0
 
 [scheduler]
-script = "client_server_client_job.sh"
+script = "distributed_worker_job.sh"
 type = "SLURM"                    # or "SGE"
 ```
 
-When `[client_server] enabled = true`, the normal DFT and external-training backends are
-overridden by the file-backed client-server workflow. You do not need to set
-`trainer.external_mode = "client_server"` in this mode.
+When `[distributed] enabled = true`, the normal DFT and external-training backends are
+overridden by the file-backed distributed link workflow. You do not need to set
+`trainer.external_mode = "distributed"` in this mode.
 
-The scheduler script launches EDDP client jobs. It must contain the placeholder
-`{{EDDP_CLIENT_SERVER_CMD}}`, which the master replaces with the correct Julia
-client command:
+The scheduler script launches EDDP worker jobs. It must contain the placeholder
+`{{EDDP_DISTRIBUTED_WORKER_CMD}}`, which the server replaces with the correct Julia
+worker command:
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=eddp-client-server
+#SBATCH --job-name=eddp-distributed-link
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
 
-{{EDDP_CLIENT_SERVER_CMD}}
+{{EDDP_DISTRIBUTED_WORKER_CMD}}
 ```
 
-Start the master with:
+Start the server with:
 
 ```bash
-julia --project=. -e 'using EDDPotentials; client_server_master("link.toml")'
+julia --project=. -e 'using EDDPotentials; link_distributed("link.toml")'
 ```
 
-The master then:
+The server then:
 
 1. Generates structures into `genN/`.
 2. Prepares `crud-work/genN/hopper/`, `good_castep/`, and `bad_castep/`.
-3. Submits DFT client jobs when `submit_client_jobs = true`.
-4. Stops DFT clients after enough calculations reach `good_castep/` or `bad_castep/`.
+3. Manages DFT worker jobs when `manage_worker_jobs = true`, rendering scripts and submitting only when `scheduler.submit_jobs = true`.
+4. Stops DFT workers after enough calculations reach `good_castep/` or `bad_castep/`.
 5. Publishes successful results into `genN-dft/`.
 6. Writes `training/gen-N-dataset.jld2`.
-7. Submits training clients, each claiming one deterministic model slot.
+7. Manages training workers, each claiming one deterministic model slot.
 8. Creates `ensemble-genN.json` after enough model artifacts are available.
 
-If you prefer to submit client jobs yourself, set:
+If you prefer to submit worker jobs yourself, set:
 
 ```toml
-[client_server]
-submit_client_jobs = false
+[distributed]
+manage_worker_jobs = false
 ```
 
-Then run long-lived clients manually or through your own job script:
+Then run long-lived workers manually or through your own job script:
 
 ```bash
-julia --project=. -e 'using EDDPotentials; EDDPotentials.client_server_client()' -- --file link.toml --worker-id 1
+julia --project=. -e 'using EDDPotentials; EDDPotentials.distributed_worker()' -- --file link.toml --worker-id 1
 ```
 
-Client status is written to:
+Worker status is written to:
 
 ```
-.eddp-client-server/workers/<worker-id>.json
+.eddp-distributed/workers/<worker-id>.json
 ```
+
+When `log_enabled = true`, the server and each worker also write Julia
+`@debug`/`@info`/`@warn`/`@error` log messages to stderr and to dedicated log files:
+
+```
+.eddp-distributed/logs/server-<pid>.log
+.eddp-distributed/logs/worker-<worker-id>.log
+```
+
+Set `log_level` to the minimum level to emit. For example, `"debug"`
+includes all distributed link log messages, while `"warn"` keeps only warnings and errors.
 
 Training claims and completion markers are stored under:
 
 ```
-.eddp-client-server/phases/genN-train/slots/
+.eddp-distributed/phases/genN-train/slots/
 ```
 
 To stop the workflow gracefully:
@@ -397,9 +412,9 @@ To stop the workflow gracefully:
 touch <workdir>/STOP
 ```
 
-Clients first ask their current child process to exit, wait
-`client_child_grace_seconds`, and then force-kill after
-`client_child_kill_seconds` if needed.
+Workers first ask their current child process to exit, wait
+`worker_child_grace_seconds`, and then force-kill after
+`worker_child_kill_seconds` if needed.
 
 ## Monitoring and Troubleshooting
 
@@ -583,9 +598,9 @@ Inside the `crud-work` folder, there three folders.
 Multiple crud.pl instances run simultaneously, each taking structures from hopper (atomic `mv` guarantees unique selection).
 
 On a cluster, use either `crud-queue` for the legacy scheduler-backed DFT runner or
-enable `[client_server]` for the file-backed client-server workflow. In client-server mode the
-master prepares the shared `crud-work/genN/hopper/` directory, and client jobs
-launch `crud.pl` when the master publishes the DFT phase.
+enable `[distributed]` for the file-backed distributed link workflow. In distributed link mode the
+server prepares the shared `crud-work/genN/hopper/` directory, and worker jobs
+launch `crud.pl` when the server publishes the DFT phase.
 
 
 ### Data Management

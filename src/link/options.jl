@@ -344,23 +344,27 @@ end
 get_job_script_content(sch::SchedulerConfig) = read(sch.script, String)
 
 """
-    ClientServerOption
+    DistributedLinkOption
 
-Options for the file-backed Client-server master/client workflow.
+Options for the file-backed distributed link server/worker workflow.
 """
-@option mutable struct ClientServerOption <: EDDPotentialsOption
+@option mutable struct DistributedLinkOption <: EDDPotentialsOption
     enabled::Bool = false
-    coordination_dir::String = ".eddp-client-server"
+    coordination_dir::String = ".eddp-distributed"
     control_poll_interval_seconds::Float64 = 10.0
-    client_poll_interval_seconds::Float64 = 10.0
-    client_heartbeat_interval_seconds::Float64 = 30.0
-    client_child_grace_seconds::Float64 = 60.0
-    client_child_kill_seconds::Float64 = 30.0
+    worker_poll_interval_seconds::Float64 = 10.0
+    worker_heartbeat_interval_seconds::Float64 = 30.0
+    worker_child_grace_seconds::Float64 = 60.0
+    worker_child_kill_seconds::Float64 = 30.0
     dft_crud_workdir::String = "crud-work"
-    dft_client_jobs::Int = 1
-    training_client_jobs::Int = 1
+    dft_worker_jobs::Int = 1
+    training_worker_jobs::Int = 1
     training_slot_stale_seconds::Float64 = 86400.0
-    submit_client_jobs::Bool = true
+    manage_worker_jobs::Bool = true
+    log_enabled::Bool = false
+    log_level::String = "info"
+    log_dir::String = "logs"
+    log_interval_seconds::Float64 = 30.0
 end
 
 """
@@ -375,11 +379,11 @@ The container for all options used for building the EDDP potentials used by the 
     rss::RssSetting
     trainer::TrainingOption
     scheduler::Maybe{SchedulerConfig}
-    client_server::ClientServerOption = ClientServerOption()
+    distributed::DistributedLinkOption = DistributedLinkOption()
 end
 
 BuilderOption(state, cf, cf_embedding, rss, trainer, scheduler) =
-    BuilderOption(state, cf, cf_embedding, rss, trainer, scheduler, ClientServerOption())
+    BuilderOption(state, cf, cf_embedding, rss, trainer, scheduler, DistributedLinkOption())
 
 
 Base.show(io::IO, mime::MIME"text/plain", x::EDDPotentialsOption) = pprint_struct(io, x)

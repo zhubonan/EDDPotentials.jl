@@ -235,24 +235,22 @@ export StructureContainer,
     load_feature_artifact,
     save_feature_json
 export split_and_featurize
-export BuilderState, TrainingOption, RssPruneOption, ClientServerOption, link!
+export BuilderState, TrainingOption, RssPruneOption, DistributedLinkOption, link!
 export Builder,
     walk_forward_tests, load_ensemble, load_features, load_training_dataset, run_rss,
     split_then_featurize, diagnose_formula_sampling
-export client_server_master,
-    link_client_server,
-    client_server_client,
-    link_worker,
-    client_server_train_slot,
-    client_server_write_heartbeat,
-    client_server_worker_states,
-    client_server_prepare_crud_workdir!,
-    client_server_collect_crud_results!,
-    client_server_prepare_training_phase!,
-    client_server_claim_training_slot!,
-    client_server_mark_training_slot_done!,
-    client_server_mark_training_slot_failed!,
-    client_server_training_model_path
+export link_distributed,
+    distributed_worker,
+    distributed_train_slot,
+    write_worker_heartbeat!,
+    read_worker_states,
+    server_prepare_dft_phase!,
+    server_collect_dft_results!,
+    server_prepare_training_phase!,
+    worker_claim_training_slot!,
+    worker_mark_training_slot_done!,
+    worker_mark_training_slot_failed!,
+    training_slot_model_path
 export rmse_per_atom, mae_per_atom, max_ae_per_atom
 export TrainedModel, train_model, predict
 export nfeatures
