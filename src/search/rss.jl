@@ -318,7 +318,7 @@ function _run_rss(
     if packed
         # Select the first resolved seed file and use it as the name
         name = _select_seed(seedfile, seedfile_weights)[2][1]
-        label = EDDPotentials.get_label(EDDPotentials.stem(name))
+        label = get_label(stem(name))
         # Name of the packed out file
         packed_outfile = joinpath(outdir, "$(label).packed.res")
         mode = "a"
@@ -393,7 +393,7 @@ function _run_rss(
 
         # Update the label of the structure
         label = get_label(stem(this_seed))
-        EDDPotentials.update_metadata!(calc, label)
+        update_metadata!(calc, label)
 
         # Write output file
         cell = get_cell(calc)

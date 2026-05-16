@@ -32,6 +32,26 @@ using EDDPotentials
 
     @test EDDPotentials.Tools.update_metadata! === EDDPotentials.update_metadata!
     @test EDDPotentials.Tools.ensure_dir === EDDPotentials.ensure_dir
+    @test EDDPotentials.Tools.progress_callback! === EDDPotentials.progress_callback!
+
+    @test parentmodule(EDDPotentials.TrainingResults) === EDDPotentials.Training
+    @test parentmodule(EDDPotentials.HotAIRSSOption) === EDDPotentials.Search
+    @test parentmodule(EDDPotentials.RssPruneOption) === EDDPotentials.Search
+    @test parentmodule(EDDPotentials.Builder) === EDDPotentials.Workflow
+    @test parentmodule(EDDPotentials.evaluate) === EDDPotentials.Analysis
+    @test parentmodule(EDDPotentials.update_metadata!) === EDDPotentials.Tools
+    @test parentmodule(EDDPotentials.hyper_gen_relax) === EDDPotentials.Search
+    @test parentmodule(EDDPotentials.progress_callback!) === EDDPotentials.Tools
+    @test isdefined(EDDPotentials, :_run_rss_link)
+    @test parentmodule(EDDPotentials._run_rss_link) === EDDPotentials.Workflow
+
+    mktempdir() do dir
+        seed = joinpath(dir, "seed.cell")
+        write(seed, "# seed placeholder")
+        selected, expanded = EDDPotentials.Search._select_seed([seed])
+        @test basename(selected) == "seed.cell"
+        @test basename(only(expanded)) == "seed.cell"
+    end
 
     for mod in (
         EDDPotentials.Potential,

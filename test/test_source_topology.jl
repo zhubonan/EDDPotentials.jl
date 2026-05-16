@@ -10,6 +10,7 @@ using Test
         "data/preprocessing.jl",
         "training/lmsolve.jl",
         "training/lmsolve_batched.jl",
+        "training/context.jl",
         "training/sgd_training.jl",
         "training/training.jl",
         "simulation/Simulation.jl",
@@ -33,7 +34,7 @@ using Test
         "analysis/plotting/recipes.jl",
         "analysis/records.jl",
         "workflow/hyper.jl",
-        "namespaces.jl",
+        "workflow/hyper_builder.jl",
     ]
 
     retired_paths = [

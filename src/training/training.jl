@@ -6,23 +6,23 @@ using Dates
 using JLD2
 using Glob
 using Printf
-using .EDDPotentialsCore.NNLS: nnls
+using ..EDDPotentialsCore.NNLS: nnls
 using NLSolversBase
 using ProgressMeter: Progress
 using Parameters
 using Printf
 using StatsBase: corspearman, mean, std
 using Flux: Dense, Chain
-using .EDDPotentialsCore: leaky_tanh
+using ..EDDPotentialsCore: leaky_tanh
 import Flux
 import Base
 import CellBase
 import Zygote
 using Logging
 using NonNegLeastSquares
-using .EDDPotentialsCore: paramvector, save_model_artifact, ThreadBufferPool, rmse_per_atom_threaded,
+using ..EDDPotentialsCore: paramvector, save_model_artifact, ThreadBufferPool, rmse_per_atom_threaded,
     nfeatures, EDDPCalculator, predict, nparams
-import .EDDPotentialsCore: EnsembleNNInterface
+import ..EDDPotentialsCore: EnsembleNNInterface
 
 
 const XT_NAME = "xt"
@@ -336,7 +336,7 @@ function train_lm!(
     callback = show_progress || (earlystop > 0) || checkpoint_every > 0 ? progress_tracker : nothing
 
     func = levenberg_marquardt
-    if EDDPotentials.USE_CUDA[]
+    if parentmodule(@__MODULE__).USE_CUDA[]
         func = levenberg_marquardt_gpu
     end
 
@@ -544,7 +544,7 @@ function train!(
         train_sgd!(itf, x_train, y_train; x_val, y_val, kw...)
     elseif _method === :optim
         model = get_flux_model(itf)
-        f, g!, pview, callback = EDDPotentials.generate_f_g_optim(model, train_data, val_data)
+        f, g!, pview, callback = generate_f_g_optim(model, train_data, val_data)
         od = OnceDifferentiable(f, g!, collect(pview))
         x0 = collect(pview)
         opt_res = Optim.optimize(od, x0; callback=callback, kwargs...)

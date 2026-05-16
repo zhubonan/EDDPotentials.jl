@@ -36,6 +36,7 @@ using Test
 using Flux
 using StatsBase
 using NLSolversBase
+using Random
 
 isdefined(Main, :datadir) || include("utils.jl")
 
@@ -73,6 +74,7 @@ end
 
 @testset "Training" begin
     @testset "Tools" begin
+        Random.seed!(1234)
         nf = 1000
         data = vcat([rand(nf, 3) for _ = 1:10], [rand(nf, 2) for _ = 1:10])
 

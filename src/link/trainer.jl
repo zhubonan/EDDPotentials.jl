@@ -3,7 +3,7 @@ Function for running training as a separate process
 =#
 
 using ArgParse
-using .EDDPotentialsCore:
+using ..EDDPotentialsCore:
     LinearInterface,
     ManualFluxBackPropInterface,
     clear_transient_gradients!,

@@ -15,7 +15,11 @@ using EDDPotentials
     top_text = read(joinpath(srcdir, "EDDPotentials.jl"), String)
 
     @test "core/EDDPotentialsCore.jl" in top_targets
-    @test "namespaces.jl" in top_targets
+    @test "data/preprocessing.jl" in top_targets
+    @test "simulation/Simulation.jl" in top_targets
+    @test "training/training.jl" in top_targets
+    @test "search/rss.jl" in top_targets
+    @test "link/link.jl" in top_targets
     @test !("eddpf90.jl" in top_targets)
 
     @test "feature/feature.jl" in core_targets
@@ -28,17 +32,19 @@ using EDDPotentials
 
     @test occursin(r"using\s+\.EDDPotentialsCore", top_text)
 
-    namespace_text = read(joinpath(srcdir, "namespaces.jl"), String)
     for name in [
         "Potential",
         "Model",
+        "Tools",
         "Training",
         "Search",
         "Analysis",
         "Workflow",
-        "Tools",
     ]
-        @test occursin("module $name", namespace_text)
+        @test occursin("module $name", top_text)
     end
+    @test occursin("include(\"training/training.jl\")", top_text)
+    @test occursin("include(\"search/rss.jl\")", top_text)
+    @test occursin("include(\"link/link.jl\")", top_text)
     @test isdefined(EDDPotentials, :Simulation)
 end

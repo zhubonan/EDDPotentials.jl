@@ -45,7 +45,7 @@ function walk_forward_tests(
         @info "Loading features of generation $(iter+1) to test for generation $(iter)..."
         fc = load_features(bu, iter + 1; show_progress=fc_show_progress)
         ensemble = load_ensemble(bu, iter)
-        tr = EDDPotentials.TrainingResults(ensemble, fc)
+        tr = TrainingResults(ensemble, fc)
         push!(trs, tr)
         if print_results
             println(
@@ -75,7 +75,7 @@ for func in [:eddp_energy, :eddp_forces, :eddp_pressure, :eddp_energy_std, :eddp
         @doc """
             $($func)(cell::Cell, builder::Builder, gen::Int=_latest_ensemble_iteration(builder);kwargs...)
 
-        Convenient method for calling $(EDDPotentials.$func) using a Builder object.
+        Convenient method for calling $($func) using a Builder object.
         """ $func(cell::Cell, builder::Builder, gen::Int)
     end
 end

@@ -95,7 +95,7 @@ sc = load_structures(bu)            # Load all iterations up to current
 """
 function load_structures(bu::Builder, iteration::Vararg{Int})
     dirs = [joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter in iteration]
-    sc = EDDPotentials.StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
+    sc = StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
     return sc
 end
 
@@ -135,7 +135,7 @@ fc = load_features(bu)            # Load all iterations up to current
 function load_features(bu::Builder, iteration::Vararg{Int}; show_progress=true, kwargs...)
     sc = load_structures(bu, iteration...;)
     elemental_energies = make_symbol_keys(bu.state.elemental_energies)
-    return EDDPotentials.FeatureStore(
+    return FeatureStore(
         sc,
         bu.cf;
         nmax=bu.trainer.nmax,
@@ -169,7 +169,7 @@ independently. Peak memory is the size of the largest split's features, not the 
 function split_then_featurize(bu::Builder, nsplit::Vararg; kwargs...)
     sc = load_structures(bu)
     elemental_energies = make_symbol_keys(bu.state.elemental_energies)
-    EDDPotentials.split_and_featurize(
+    split_and_featurize(
         sc,
         bu.cf,
         nsplit...;
