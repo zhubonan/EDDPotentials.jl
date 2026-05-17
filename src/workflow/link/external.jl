@@ -317,7 +317,7 @@ function run_crud(workdir, seedfile_calc, indir, outdir; nparallel=1, mpinp=4)
     ensure_dir(hopper_folder)
     ensure_dir(outdir)
 
-    infiles = glob(joinpath(indir, "*.res"))
+    infiles = glob_allow_abs(joinpath(indir, "*.res"))
 
     # Copy files to hopper
     for file in infiles
@@ -462,8 +462,8 @@ function run_crud_queue(
     good_castep = joinpath(workdir, "good_castep")
     bad_castep = joinpath(workdir, "bad_castep")
     nfinished =
-        length(glob(joinpath(good_castep, "*.res"))) +
-        length(glob(joinpath(bad_castep, "*.res")))
+        length(glob_allow_abs(joinpath(good_castep, "*.res"))) +
+        length(glob_allow_abs(joinpath(bad_castep, "*.res")))
     perc_finished = nfinished / nstruct
 
     # Submit jobs if needed
@@ -474,8 +474,8 @@ function run_crud_queue(
     # Monitor progress
     while true
         nfinished =
-            length(glob(joinpath(good_castep, "*.res"))) +
-            length(glob(joinpath(bad_castep, "*.res")))
+            length(glob_allow_abs(joinpath(good_castep, "*.res"))) +
+            length(glob_allow_abs(joinpath(bad_castep, "*.res")))
         perc_finished = nfinished / nstruct
         perc_finished > perc_threshold && break
         sleep(60)
@@ -609,7 +609,7 @@ function acrud(
 
     while true
         # Select files from hopper
-        infiles = glob(joinpath(hopper_folder, "*.res"))
+        infiles = glob_allow_abs(joinpath(hopper_folder, "*.res"))
 
         # Wait or stop if no files
         if length(infiles) == 0
@@ -658,7 +658,7 @@ function acrud(
                 )
 
                 if move_good
-                    debug_files = glob(splitext(fname)[1] * ".*")
+                    debug_files = glob_allow_abs(splitext(fname)[1] * ".*")
                     for file in debug_files
                         mv(file, joinpath(gd_folder, splitdir(file)[2]), force=true)
                     end
@@ -667,7 +667,7 @@ function acrud(
         else
             # Failure - move to bad folder
             for fname in fnames
-                debug_files = glob(splitext(fname)[1] * ".*")
+                debug_files = glob_allow_abs(splitext(fname)[1] * ".*")
                 for file in debug_files
                     mv(file, joinpath(bd_folder, splitdir(file)[2]), force=true)
                 end

@@ -837,7 +837,6 @@ function _server_run_dft_phase_impl!(bu::Builder, iter::Int=bu.state.iteration)
         phase_dir,
         extra=Dict("dft" => manifest),
     )
-    _server_submit_workers(bu, "dft", iter)
     @info "distributed link DFT phase waiting" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_DFT" phase = "dft" iteration = iter epoch = Int(control["epoch"]) waiting = true next_action = "wait_for_dft_results"
 
     result = try
@@ -979,7 +978,6 @@ function _server_run_training_phase_impl!(bu::Builder, iter::Int=bu.state.iterat
         phase_dir,
         extra=Dict("training" => manifest),
     )
-    _server_submit_workers(bu, "training", iter)
     @info "distributed link training phase waiting" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_TRAINING" phase = "training" iteration = iter epoch = Int(control["epoch"]) waiting = true next_action = "wait_for_models"
 
     result = try
@@ -1025,6 +1023,9 @@ end
 
 function run_link_workflow!(builder::Builder, backend::DistributedLinkBackend)
     _with_distributed_logger(builder; role="server", id=_server_id()) do
+        validate_builder_for_link!(builder, backend)
+        _server_clear_shutdown!(builder)
+        _server_submit_workers(builder, builder.state.iteration)
         invoke(run_link_workflow!, Tuple{Builder,AbstractLinkBackend}, builder, backend)
     end
 end
@@ -1069,20 +1070,17 @@ function _render_distributed_worker_job_script(bu::Builder, scheduler::Scheduler
     return script_path
 end
 
-function _server_submit_workers(bu::Builder, phase::AbstractString, iter::Int)
+function _server_submit_workers(bu::Builder, iter::Int=bu.state.iteration)
     scheduler = bu.options.scheduler
     scheduler === nothing && return ""
-    workdir = joinpath(_coordination_root(bu), "submit", "gen$(iter)-$(phase)")
+    workdir = joinpath(_coordination_root(bu), "submit", "gen$(iter)-workers")
     _render_distributed_worker_job_script(bu, scheduler, workdir)
     bu.options.distributed.manage_worker_jobs || return ""
     scheduler.submit_jobs || return ""
-    nworkers = if phase == "dft"
-        bu.options.distributed.dft_worker_jobs
-    elseif phase == "training"
-        bu.options.distributed.training_worker_jobs
-    else
-        scheduler.njobs
-    end
+    nworkers = max(
+        bu.options.distributed.dft_worker_jobs,
+        bu.options.distributed.training_worker_jobs,
+    )
     distributed_scheduler = SchedulerConfig(
         scheduler.script,
         max(1, nworkers),

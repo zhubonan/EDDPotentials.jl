@@ -815,7 +815,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
     end
 
     @info "Search process launched, waiting..."
-    last_nstruct = length(glob(joinpath(outdir, "*.res")))
+    last_nstruct = length(glob_allow_abs(joinpath(outdir, "*.res")))
     while !all(istaskdone.(tasks))
         if should_stop(bu)
             for proc in processes
@@ -827,7 +827,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
             end
             return :stopped
         end
-        nfound = length(glob(joinpath(outdir, "*.res")))
+        nfound = length(glob_allow_abs(joinpath(outdir, "*.res")))
         # Print progress if the number of models have changed
         if nfound != last_nstruct
             @info "Number of relaxed structures: $(nfound)/$(state.per_generation)"

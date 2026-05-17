@@ -616,7 +616,7 @@ end
             @test contains(text, "EDDPotentials.distributed_worker()")
             @test contains(text, "--worker-id \"\$WORKER_ID\"")
             @test contains(text, "SLURM_ARRAY_TASK_ID")
-            @test EDDPotentials._server_submit_workers(builder, "dft", 0) == ""
+            @test EDDPotentials._server_submit_workers(builder, 0) == ""
 
             distributed.manage_worker_jobs = true
             scheduler = EDDPotentials.SchedulerConfig(
@@ -636,7 +636,7 @@ end
                 EDDPotentials.DistributedLinkBackend(),
                 builder,
             ))
-            @test EDDPotentials._server_submit_workers(builder, "dft", 0) == ""
+            @test EDDPotentials._server_submit_workers(builder, 0) == ""
         end
     end
 end
