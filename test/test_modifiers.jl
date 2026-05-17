@@ -2,7 +2,7 @@ using EDDPotentials
 using CellBase
 using Test
 using LinearAlgebra
-using EDDPotentials.EDDPotentialsCore: set_parameter!, get_parameter, post_calculate!, requires_forces, pre_calculate!
+using EDDPotentials.Potential: set_parameter!, get_parameter, post_calculate!, requires_forces, pre_calculate!
 
 @testset "Modifier Interface" begin
     # Test abstract modifier interface
@@ -104,7 +104,7 @@ end
     end
 
     @testset "AdditiveCalculatorModifier.post_calculate!" begin
-        using EDDPotentials.EDDPotentialsCore: PairpotCalc, PairpotWorkspace, build_lj_spec
+        using EDDPotentials.Potential: PairpotCalc, PairpotWorkspace, build_lj_spec
         cell = Cell(Lattice(15,15,15), [:Ar,:Ar], [0 4.0; 0 0.0; 0 0])
         spec = build_lj_spec(((:Ar,:Ar), 3.4); epsilon=0.01, cutoff=12.0)
         pair_calc = PairpotCalc(cell, PairpotWorkspace(cell, spec); nl=NeighbourList(cell, 12.0; savevec=true))

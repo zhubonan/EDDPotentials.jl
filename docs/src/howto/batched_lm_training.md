@@ -90,7 +90,7 @@ The batch size must be **at least as large as the number of model parameters** f
 To check the number of parameters:
 
 ```julia
-using EDDPotentials.EDDPotentialsCore: nparams
+using EDDPotentials.Potential: nparams
 println("Parameters: ", nparams(itf))
 ```
 
@@ -100,7 +100,7 @@ Larger batch sizes give more stable convergence but reduce the speed advantage. 
 
 ```julia
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface, reinit
+using EDDPotentials.Potential: ManualFluxBackPropInterface, reinit
 
 # Standard LM
 itf_lm = ManualFluxBackPropInterface(cf, 30, 30;

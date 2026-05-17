@@ -1,4 +1,7 @@
 using EDDPotentials
+using EDDPotentials.Workflow:
+    add_threads_env,
+    _generate_random_structures
 using CellBase
 using Test
 using Logging
@@ -15,25 +18,25 @@ end
 
 @testset "add_threads_env" begin
     # Default: both threads set to 1
-    cmd = EDDPotentials.add_threads_env(`echo hello`)
+    cmd = add_threads_env(`echo hello`)
     env = _env_dict(cmd)
     @test env["JULIA_NUM_THREADS"] == "1"
     @test env["OMP_NUM_THREADS"] == "1"
 
     # Custom julia threads
-    cmd = EDDPotentials.add_threads_env(`echo hello`; julia_threads=4)
+    cmd = add_threads_env(`echo hello`; julia_threads=4)
     env = _env_dict(cmd)
     @test env["JULIA_NUM_THREADS"] == "4"
     @test env["OMP_NUM_THREADS"] == "1"
 
     # Custom omp threads
-    cmd = EDDPotentials.add_threads_env(`echo hello`; omp_threads=2)
+    cmd = add_threads_env(`echo hello`; omp_threads=2)
     env = _env_dict(cmd)
     @test env["JULIA_NUM_THREADS"] == "1"
     @test env["OMP_NUM_THREADS"] == "2"
 
     # Both custom
-    cmd = EDDPotentials.add_threads_env(`echo hello`; julia_threads=4, omp_threads=2)
+    cmd = add_threads_env(`echo hello`; julia_threads=4, omp_threads=2)
     env = _env_dict(cmd)
     @test env["JULIA_NUM_THREADS"] == "4"
     @test env["OMP_NUM_THREADS"] == "2"
@@ -43,7 +46,7 @@ end
 
     # Existing env vars on the cmd are preserved
     base = setenv(`echo hello`, "MY_VAR" => "myval")
-    cmd = EDDPotentials.add_threads_env(base; julia_threads=2)
+    cmd = add_threads_env(base; julia_threads=2)
     env = _env_dict(cmd)
     @test env["JULIA_NUM_THREADS"] == "2"
     @test env["OMP_NUM_THREADS"] == "1"
@@ -141,7 +144,7 @@ end
             builder.state.buildcell_nprocs = 2
             builder.state.build_timeout = 7.5
 
-            EDDPotentials._generate_random_structures(builder, 0)
+            _generate_random_structures(builder, 0)
 
             outdir = joinpath(builder.state.workdir, "gen0")
             resfiles = filter(x -> endswith(x, ".res"), readdir(outdir; join=true))

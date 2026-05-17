@@ -14,7 +14,7 @@ using YAML
 using TOML
 using ArgParse
 using Random
-using .EDDPotentialsCore: CellEmbedding, EnsembleNNInterface, load_model_artifact
+using ..Potential: CellEmbedding, EnsembleNNInterface, load_model_artifact
 
 # Note: Utils functions will be available from parent module after include
 # using ensure_dir, input_structure_dir, output_structure_dir
@@ -768,7 +768,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
                 Base.julia_cmd()...,
                 "--project=$(project_path)",
                 "-e",
-                "using EDDPotentials;EDDPotentials._run_rss_link()",
+                "using EDDPotentials;EDDPotentials.Workflow._run_rss_link()",
                 "--",
                 "--file",
                 "$(state.builder_file_path)",

@@ -1,4 +1,4 @@
-using EDDPotentials.EDDPotentialsCore.NNLS:
+using EDDPotentials.Potential.NNLS:
     NNLSWorkspace, load!, solve!, nnls, QP, QPWorkspace,
     primal_infeasibility, dual_infeasibility, stationarity_violation,
     slackness_violation, check_optimality_conditions

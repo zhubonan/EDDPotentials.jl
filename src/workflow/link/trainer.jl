@@ -3,7 +3,7 @@ Function for running training as a separate process
 =#
 
 using ArgParse
-using .EDDPotentialsCore:
+using ..Potential:
     LinearInterface,
     ManualFluxBackPropInterface,
     clear_transient_gradients!,
@@ -368,7 +368,7 @@ function create_ensemble(
     end
 
     ensemble =
-        create_ensemble(models, total; alg, error_threshold=tra.ensemble_error_threshold)
+        Training.create_ensemble(models, total; alg, error_threshold=tra.ensemble_error_threshold)
     if save_ensemble_model
         savepath = joinpath(bu.state.workdir, ensemble_name(bu))
         save_model_artifact(

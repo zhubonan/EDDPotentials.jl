@@ -9,15 +9,17 @@ using EDDPotentials:
     StressMetrics,
     LayerSaturationReport,
     AggregatedMetrics,
-    _extract_reference_energy,
-    _extract_reference_forces,
-    _extract_reference_stress,
-    _r2_score,
     energy_ae_per_atom,
     compare_energy,
     compare_forces,
-    compare_stress
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface, DenseGradient
+    compare_stress,
+    load_evaluation_data
+using EDDPotentials.Analysis:
+    _extract_reference_energy,
+    _extract_reference_forces,
+    _extract_reference_stress,
+    _r2_score
+using EDDPotentials.Potential: ManualFluxBackPropInterface, DenseGradient
 using CellBase
 using Test
 
@@ -374,4 +376,16 @@ end
     result = evaluate(calc, sc; compute_timing=false, compute_saturation=false)
     @test result.n_structures == 2
     @test !isnan(result.force_component_rmse)
+end
+
+@testset "load_evaluation_data paths" begin
+    mktempdir() do dir
+        cell1 = _h2_cell()
+        cell2 = _h2_cell(4.2)
+        CellBase.write_res(joinpath(dir, "eval_1.res"), cell1)
+        CellBase.write_res(joinpath(dir, "eval_2.res"), cell2)
+
+        cells = load_evaluation_data(joinpath(dir, "eval_*.res"))
+        @test length(cells) == 2
+    end
 end

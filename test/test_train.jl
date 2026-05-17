@@ -1,12 +1,7 @@
 using EDDPotentials
 using EDDPotentials:
-    ginit,
-    compute_objectives,
-    compute_objectives_diff,
-    levenberg_marquardt,
     train_lm!,
     train_lm_batched!,
-    levenberg_marquardt_batched,
     StructureContainer,
     CellFeature,
     FeatureStore,
@@ -22,20 +17,27 @@ using EDDPotentials:
     save_model_artifact,
     load_model_artifact,
     load_model
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     ManualFluxBackPropInterface,
     LinearInterface,
     AbstractNNInterface,
     FluxInterface,
+    ginit,
+    compute_objectives,
+    compute_objectives_diff,
     nparams,
     setup_fj,
     setup_fj_batched,
     paramvector
+using EDDPotentials.Training:
+    levenberg_marquardt,
+    levenberg_marquardt_batched
 
 using Test
 using Flux
 using StatsBase
 using NLSolversBase
+using Random
 
 isdefined(Main, :datadir) || include("utils.jl")
 
@@ -72,7 +74,8 @@ function _train_parent_sets(tm)
 end
 
 @testset "Training" begin
-    @testset "Tools" begin
+    @testset "NN objectives" begin
+        Random.seed!(1234)
         nf = 1000
         data = vcat([rand(nf, 3) for _ = 1:10], [rand(nf, 2) for _ = 1:10])
 

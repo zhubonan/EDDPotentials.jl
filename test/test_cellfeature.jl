@@ -1,8 +1,8 @@
 using EDDPotentials: CellFeature, nfeatures
-using EDDPotentials.EDDPotentialsCore: nfeatures_per_channel, nchannels, nbodyfeatures
-using EDDPotentials.EDDPotentialsCore: feature_size, feature_names, suggest_rcut
-using EDDPotentials.EDDPotentialsCore: two_body_channel, two_body_range, three_body_channel, three_body_range
-using EDDPotentials.EDDPotentialsCore: spec_index, spec_symbol, lookup
+using EDDPotentials.Potential: nfeatures_per_channel, nchannels, nbodyfeatures
+using EDDPotentials.Potential: feature_size, feature_names, suggest_rcut
+using EDDPotentials.Potential: two_body_channel, two_body_range, three_body_channel, three_body_range
+using EDDPotentials.Potential: spec_index, spec_symbol, lookup
 using Test
 
 

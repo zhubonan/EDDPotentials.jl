@@ -369,7 +369,7 @@ function _detect_saturation_from_interface(itf; threshold=0.01)
     nlayers = length(cg.layers)
     reports = LayerSaturationReport[]
     for (i, layer) in enumerate(cg.layers)
-        if !isa(layer, EDDPotentialsCore.DenseGradient)
+        if !isa(layer, Potential.DenseGradient)
             continue
         end
         # Skip the last layer (typically identity/linear — no saturation)

@@ -8,20 +8,19 @@ using EDDPotentials:
     EDDPCalculator,
     get_cell,
     nfeatures,
-    feature_vector,
     feature_size,
     eddp_energy,
     eddp_enthalpy,
     eddp_forces,
     eddp_stress,
     train!,
-    split,
-    ginit,
     fd_desc,
     stress_gradient
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     ManualFluxBackPropInterface,
     LinearInterface,
+    feature_vector,
+    ginit,
     flux_mlp_model,
     _need_calc,
     embedding_size,
@@ -171,7 +170,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
         @test length(fc) == length(sc)
         @test size(fc[1], 1) == nfeatures(mcf)
 
-        fc_train, fc_val = split(fc, 3, 1; standardize=true)
+        fc_train, fc_val = Base.split(fc, 3, 1; standardize=true)
         model = ManualFluxBackPropInterface(
             Chain(Dense(ginit(4, nfeatures(mcf))), Dense(ginit(1, 4))),
             xt=fc_train.xt,
@@ -190,7 +189,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
     end
 
     @testset "JSON serialization round-trip" begin
-        using EDDPotentials.EDDPotentialsCore: save_model_artifact, load_model_artifact
+        using EDDPotentials.Potential: save_model_artifact, load_model_artifact
 
         mcf = MultiRandomEmbeddedCellFeature(
             [:H, :O]; nembed=2, n_multi=2, seeds=[5, 6], p2=[2], p3=[2], q3=[2],

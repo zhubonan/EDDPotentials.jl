@@ -27,7 +27,7 @@ using EDDPotentials:
     relax!,
     lj_like_calc,
     opt_tpsd
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     _need_calc,
     ManualFluxBackPropInterface,
     CellEmbedding,

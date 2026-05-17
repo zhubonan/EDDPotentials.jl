@@ -25,12 +25,12 @@ Pass `train_method="sgd"` to the standard `train!` function. All SGD keyword arg
 
 ```julia
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
+using EDDPotentials.Potential: ManualFluxBackPropInterface
 
 # Load and prepare data
 sc = StructureContainer(["data/*.res"])
 cf = CellFeature([:C]; p2=2:8, rcut2=5.0)
-fc = FeatureContainer(sc, cf)
+fc = FeatureStore(sc, cf)
 fc_train, fc_val = split(fc, 450, 50; standardize=true)
 
 # Create model with standardization transforms
@@ -160,11 +160,11 @@ The simplest configuration. Adam with default hyperparameters is a good starting
 
 ```julia
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
+using EDDPotentials.Potential: ManualFluxBackPropInterface
 
 sc = StructureContainer(["data/*.res"])
 cf = CellFeature([:Si, :O])
-fc = FeatureContainer(sc, cf)
+fc = FeatureStore(sc, cf)
 fc_train, fc_val = split(fc, 400, 100; standardize=true)
 
 itf = ManualFluxBackPropInterface(
@@ -206,19 +206,19 @@ train!(itf, fc_train, fc_val;
 )
 ```
 
-### Integration with FeatureContainer workflow
+### Integration with FeatureStore workflow
 
 SGD training fits into the standard EDDP training and ensemble pipeline:
 
 ```julia
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface, nparams
+using EDDPotentials.Potential: ManualFluxBackPropInterface, nparams
 using EDDPotentials: create_ensemble
 
 # Prepare data
 sc = StructureContainer(["data/*.res"])
 cf = CellFeature([:C]; p2=2:8, rcut2=5.0)
-fc = FeatureContainer(sc, cf)
+fc = FeatureStore(sc, cf)
 fc_train, fc_val = split(fc, 450, 50; standardize=true)
 
 # Train an ensemble of models

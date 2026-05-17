@@ -1,5 +1,12 @@
 using Test
 using EDDPotentials
+using EDDPotentials.Potential: AbstractCalc
+import EDDPotentials.Potential:
+    get_cell,
+    eddp_energy,
+    eddp_forces,
+    eddp_stress,
+    calculate!
 using CellBase
 using LinearAlgebra
 using Unitful: ustrip
@@ -8,16 +15,16 @@ using Unitful: ustrip
 isdefined(Main, :_h2_cell) || include("utils.jl")
 const lj_like_calc = EDDPotentials.lj_like_calc
 
-mutable struct StressOnlyCalc <: EDDPotentials.AbstractCalc
+mutable struct StressOnlyCalc <: AbstractCalc
     cell::Cell
     stress::Matrix{Float64}
 end
 
-EDDPotentials.get_cell(calc::StressOnlyCalc) = calc.cell
-EDDPotentials.eddp_energy(calc::StressOnlyCalc; kwargs...) = 0.0
-EDDPotentials.eddp_forces(calc::StressOnlyCalc; kwargs...) = zeros(3, length(calc.cell))
-EDDPotentials.eddp_stress(calc::StressOnlyCalc; kwargs...) = copy(calc.stress)
-EDDPotentials.calculate!(calc::StressOnlyCalc; kwargs...) = calc
+get_cell(calc::StressOnlyCalc) = calc.cell
+eddp_energy(calc::StressOnlyCalc; kwargs...) = 0.0
+eddp_forces(calc::StressOnlyCalc; kwargs...) = zeros(3, length(calc.cell))
+eddp_stress(calc::StressOnlyCalc; kwargs...) = copy(calc.stress)
+calculate!(calc::StressOnlyCalc; kwargs...) = calc
 
 @testset "Native Optimizers" begin
 

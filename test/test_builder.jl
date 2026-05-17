@@ -1,4 +1,21 @@
 using EDDPotentials
+using EDDPotentials.Workflow:
+    TRAINING_DIR,
+    LocalLinkBackend,
+    generated_input_count,
+    required_success_count,
+    validate_dft_outputs!,
+    validate_generated_structures!,
+    is_generation_data_ready,
+    is_training_dataset_ready,
+    run_dft_phase!,
+    run_training_phase!,
+    load_training_data,
+    _render_training_job_script,
+    _training_submit_cmd,
+    _required_models_for_ensemble,
+    _generate_random_structures,
+    _models_ready_for_ensemble
 using Test
 using TOML
 using Configurations
@@ -155,7 +172,7 @@ end
 
             workdir = joinpath(temp, "training-work", "gen0")
             rendered_script =
-                EDDPotentials._render_training_job_script(builder, scheduler, workdir)
+                _render_training_job_script(builder, scheduler, workdir)
             rendered = read(rendered_script, String)
 
             @test !contains(rendered, "{{EDDP_TRAIN_CMD}}")
@@ -163,7 +180,7 @@ end
             @test contains(rendered, "--id \"\$WORKER_ID\"")
             @test contains(rendered, "SLURM_ARRAY_TASK_ID")
 
-            slurm_cmd = EDDPotentials._training_submit_cmd(scheduler, workdir)
+            slurm_cmd = _training_submit_cmd(scheduler, workdir)
             @test contains(string(slurm_cmd), "sbatch")
             @test contains(string(slurm_cmd), "--array=1-4")
             @test contains(string(slurm_cmd), "job.sh")
@@ -174,7 +191,7 @@ end
                 type="SGE",
                 submit_jobs=false,
             )
-            sge_cmd = EDDPotentials._training_submit_cmd(sge_scheduler, workdir)
+            sge_cmd = _training_submit_cmd(sge_scheduler, workdir)
             @test contains(string(sge_cmd), "qsub")
             @test contains(string(sge_cmd), "1-4")
             @test contains(string(sge_cmd), "-cwd")
@@ -182,7 +199,7 @@ end
             bad_script = joinpath(temp, "bad_train_job.sh")
             write(bad_script, "#!/bin/bash\n")
             bad_scheduler = EDDPotentials.SchedulerConfig(script=bad_script, type="SLURM")
-            @test_throws ArgumentError EDDPotentials._render_training_job_script(
+            @test_throws ArgumentError _render_training_job_script(
                 builder,
                 bad_scheduler,
                 workdir,
@@ -221,14 +238,14 @@ end
                 write(joinpath(dft0, "s$i.res"), "TITL test\nEND\n")
             end
 
-            @test EDDPotentials.generated_input_count(builder, 0) == 3
-            @test EDDPotentials.required_success_count(3, 1.0) == 3
+            @test generated_input_count(builder, 0) == 3
+            @test required_success_count(3, 1.0) == 3
             @test !EDDPotentials.is_training_data_ready(builder, 0)
-            @test_throws ErrorException EDDPotentials.validate_dft_outputs!(builder, 0)
+            @test_throws ErrorException validate_dft_outputs!(builder, 0)
 
             write(joinpath(dft0, "s3.res"), "TITL test\nEND\n")
             @test EDDPotentials.is_training_data_ready(builder, 0)
-            @test EDDPotentials.validate_dft_outputs!(builder, 0)
+            @test validate_dft_outputs!(builder, 0)
         end
 
         @test !(:hyper_ndim in fieldnames(EDDPotentials.BuilderState))
@@ -238,7 +255,7 @@ end
         trainer.nmodels = 10
         trainer.external = true
         trainer.external_completion_ratio = 0.5
-            @test EDDPotentials._required_models_for_ensemble(trainer) == 5
+            @test _required_models_for_ensemble(trainer) == 5
     end
 
     @testset "Workflow artifact readiness skips completed phases" begin
@@ -274,16 +291,16 @@ end
                 write(joinpath(dft0, "s$i.res"), "TITL test\nEND\n")
             end
 
-            @test EDDPotentials.is_generation_data_ready(builder, 0)
-            @test EDDPotentials._generate_random_structures(builder, 0) == :ok
-            @test EDDPotentials.validate_generated_structures!(builder, 0)
+            @test is_generation_data_ready(builder, 0)
+            @test _generate_random_structures(builder, 0) == :ok
+            @test validate_generated_structures!(builder, 0)
             @test length(readdir(gen0)) == 3
 
-            dft_result = EDDPotentials.run_dft_phase!(EDDPotentials.LocalLinkBackend(), builder, 0)
+            dft_result = run_dft_phase!(LocalLinkBackend(), builder, 0)
             @test dft_result.status == :ok
             @test dft_result.message == "DFT outputs already ready"
 
-            training_dir = joinpath(temp, EDDPotentials.TRAINING_DIR)
+            training_dir = joinpath(temp, TRAINING_DIR)
             mkpath(training_dir)
             for i = 1:2
                 write(joinpath(training_dir, "gen-0-model-$i.json"), "{}")
@@ -291,15 +308,15 @@ end
             dataset_path = EDDPotentials.dataset_name(builder, 0)
             mkpath(dirname(dataset_path))
             write(dataset_path, "placeholder")
-            @test EDDPotentials.is_training_dataset_ready(builder, 0)
+            @test is_training_dataset_ready(builder, 0)
             sleep(1.1)
             write(joinpath(dft0, "s3.res"), "TITL updated\nEND\n")
-            @test !EDDPotentials.is_training_dataset_ready(builder, 0)
+            @test !is_training_dataset_ready(builder, 0)
             sleep(1.1)
             write(dataset_path, "placeholder")
-            @test EDDPotentials.is_training_dataset_ready(builder, 0)
-            @test EDDPotentials._models_ready_for_ensemble(builder)
-            train_result = EDDPotentials.run_training_phase!(EDDPotentials.LocalLinkBackend(), builder, 0)
+            @test is_training_dataset_ready(builder, 0)
+            @test _models_ready_for_ensemble(builder)
+            train_result = run_training_phase!(LocalLinkBackend(), builder, 0)
             @test train_result.status == :ok
             @test train_result.message == "models already ready"
         end
@@ -323,7 +340,7 @@ end
             fs = _builder_rattled_family_store()
             dataset_path = joinpath(temp, "training", "grouped-dataset.jld2")
             EDDPotentials.write_dataset(builder, fs; name=dataset_path)
-            train, val, test = EDDPotentials.load_training_data(dataset_path)
+            train, val, test = load_training_data(dataset_path)
             train_parents, val_parents, test_parents = _builder_parent_sets(train, val, test)
 
             @test isempty(intersect(train_parents, val_parents))

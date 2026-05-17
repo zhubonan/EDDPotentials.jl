@@ -3,7 +3,7 @@ using CellBase
 using Random
 using Test
 
-@testset "Tools" begin
+@testset "Utilities" begin
     cell = Cell(Lattice(10, 10, 10), [:H], [[0.0, 0.0, 4]])
     cpar = cellpar(cell)
     spos = CellBase.scaled_positions(cell)
@@ -91,7 +91,7 @@ if get(ENV, "EDDP_RUN_NATIVE_OPT_TESTS", "0") == "1"
     end
 end
 
-@testset "Model" begin
+@testset "Model structures" begin
     calc = _get_lco_calc()
     for (n, order) in zip([6, 10, 15], [2, 3, 4])
         combs, structures =

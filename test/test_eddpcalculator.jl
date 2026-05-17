@@ -13,7 +13,7 @@ using EDDPotentials:
     predict,
     eddp_energy_per_atom,
     eddp_energy_std
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     LinearInterface,
     ManualFluxBackPropInterface,
     EnsembleNNInterface,

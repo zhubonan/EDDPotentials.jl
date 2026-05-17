@@ -3,8 +3,8 @@ using EDDPotentials:
     scheduled_penalty_relax!, hyper_gen_relax, bP,
     MetaCalculator, ExtraDimensionPenaltyModifier,
     create_calculator, set_modifier_parameter!, get_modifier_parameter
-using EDDPotentials.EDDPotentialsCore:
-    LinearInterface, ManualFluxBackPropInterface, CellFeature, nfeatures,
+using EDDPotentials.Potential:
+    LinearInterface, ManualFluxBackPropInterface, EnsembleNNInterface, CellFeature, nfeatures,
     add_dimensions
 using CellBase, Test, LinearAlgebra, Flux
 
@@ -74,6 +74,76 @@ using CellBase, Test, LinearAlgebra, Flux
             extra_dim_tol=0.0,
         )
         @test [r.iteration for r in remainder.results] == [3, 3, 1]
+    end
+
+    @testset "standalone hyper_gen_relax adds dimensions" begin
+        cell = Cell(Lattice(5,5,5), [:H,:H], [0 1.5; 0 0.0; 0 0])
+        cf = CellFeature([:H]; p2=[2.0], p3=Float64[], q3=Float64[])
+        model = LinearInterface(rand(nfeatures(cf)))
+        calc = EDDPCalculator(cf, model, Dict{Symbol,Float64}(); core_repulsion=nothing)
+        captured_calc = Ref{Any}()
+        function noop_relax(calc; itermax, kwargs...)
+            captured_calc[] = calc
+            (; iteration=itermax)
+        end
+
+        result = hyper_gen_relax(
+            calc,
+            cell;
+            ndim=1,
+            schedule_every=1,
+            target_iterations=1,
+            relax_fn=noop_relax,
+            ramp_alpha=false,
+            pos_tol=-1.0,
+            extra_dim_tol=0.0,
+        )
+        @test [r.iteration for r in result.results] == [1]
+        relaxed_calc = captured_calc[]
+        @test size(get_positions(get_cell(relaxed_calc)), 1) == 4
+        @test !isnothing(EDDPotentials.get_modifier(relaxed_calc, ExtraDimensionPenaltyModifier))
+    end
+
+    @testset "Builder hyper calculator" begin
+        mktempdir() do dir
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="seed.cell",
+                workdir=dir,
+            )
+            cf_config = EDDPotentials.CellFeatureConfig(
+                elements=["H"];
+                p2=[2.0],
+                p3=Float64[],
+                q3=Float64[],
+                geometry_sequence=false,
+            )
+            builder = EDDPotentials.Builder(
+                EDDPotentials.BuilderOption(
+                    state,
+                    cf_config,
+                    nothing,
+                    EDDPotentials.RssSetting(),
+                    EDDPotentials.TrainingOption(),
+                    nothing,
+                ),
+            )
+            builder.state.iteration = 0
+            model = LinearInterface(rand(nfeatures(builder.cf)))
+            ensemble = EnsembleNNInterface((model,), [1.0])
+            EDDPotentials.save_model_artifact(
+                joinpath(dir, "ensemble-gen0.json"),
+                ensemble;
+                feature_spec=builder.cf,
+                elemental_energies=Dict(:H => 0.0),
+            )
+
+            cell = Cell(Lattice(5,5,5), [:H,:H], [0 1.5; 0 0.0; 0 0])
+            calc = EDDPotentials.hyper_get_calc(cell, builder; alpha=0.02)
+            @test calc isa MetaCalculator
+            @test !isnothing(EDDPotentials.get_modifier(calc, ExtraDimensionPenaltyModifier))
+            @test hasmethod(EDDPotentials.Workflow.hyper_gen_relax, Tuple{typeof(builder)})
+        end
     end
 
     @testset "relax! hyperspace MetaCalculator returns result" begin

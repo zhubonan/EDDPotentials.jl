@@ -12,15 +12,16 @@ using EDDPotentials:
     FeatureStore,
     nfeatures,
     predict_energy,
-    reinit,
-    ginit,
-    _scatter_matrix,
-    _hcat_batch
-using EDDPotentials.EDDPotentialsCore:
+    reinit
+using EDDPotentials.Potential:
     ManualFluxBackPropInterface,
     FluxInterface,
+    ginit,
     nparams,
     paramvector
+using EDDPotentials.Training:
+    _scatter_matrix,
+    _hcat_batch
 
 using Test
 using Flux

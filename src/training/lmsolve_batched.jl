@@ -19,7 +19,7 @@ import StatsBase
 import StatsBase: mean
 import NLSolversBase: value, jacobian
 
-using .EDDPotentialsCore: to
+using ..EDDPotentials: to
 using TimerOutputs
 
 struct BatchedLevenbergMarquardt <: Optimizer end

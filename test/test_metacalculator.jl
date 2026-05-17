@@ -1,6 +1,6 @@
 using EDDPotentials
 using EDDPotentials: ExtraDimensionPenaltyModifier, AdditiveCalculatorModifier, VolumeConstraintModifier
-using EDDPotentials.EDDPotentialsCore: LinearInterface
+using EDDPotentials.Potential: LinearInterface
 using CellBase
 using Test
 using LinearAlgebra

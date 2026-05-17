@@ -12,7 +12,7 @@ using Random
 using StatsBase: mean
 using Flux
 using Zygote: withgradient
-using .EDDPotentialsCore:
+using ..Potential:
     AbstractNNInterface,
     get_flux_model,
     transformed_inp,
@@ -22,8 +22,8 @@ using .EDDPotentialsCore:
     forward!,
     ThreadBufferPool,
     rmse_per_atom_threaded
-using .EDDPotentialsCore: to
-using .EDDPotentialsCore: save_model_artifact
+using ..EDDPotentials: to
+using ..Potential: save_model_artifact
 using Base.Threads: nthreads
 using TimerOutputs
 
@@ -331,8 +331,8 @@ function train_sgd!(
 )
 
     # --- GPU dispatch ---
-    if EDDPotentials.USE_CUDA[]
-        return EDDPotentials.train_sgd_gpu!(itf, x, y;
+    if parentmodule(@__MODULE__).USE_CUDA[]
+        return parentmodule(@__MODULE__).train_sgd_gpu!(itf, x, y;
             x_val, y_val, optimizer, lr, lr_schedule, momentum,
             batch_size, max_epochs, earlystop, keep_best, show_progress,
             log_file, shuffle_seed, pow, weights, beta, eps,

@@ -7,19 +7,18 @@ using EDDPotentials:
     EDDPCalculator,
     get_cell,
     nfeatures,
-    feature_vector,
     eddp_energy,
     eddp_enthalpy,
     eddp_forces,
     eddp_stress,
     train!,
-    split,
-    ginit,
     fd_desc,
     stress_gradient
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     ManualFluxBackPropInterface,
     LinearInterface,
+    feature_vector,
+    ginit,
     flux_mlp_model,
     _need_calc
 using Test
@@ -313,7 +312,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
         @test length(get_data(fc)) == length(sc)
         @test size(fc[1], 1) == nfeatures(embedded)
 
-        fc_train, fc_val = split(fc, 3, 1; standardize=true)
+        fc_train, fc_val = Base.split(fc, 3, 1; standardize=true)
         model = ManualFluxBackPropInterface(
             Chain(Dense(ginit(4, nfeatures(embedded))), Dense(ginit(1, 4))),
             xt=fc_train.xt,
@@ -332,7 +331,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
     end
 
     @testset "Learnable Embedding Gradient" begin
-        using EDDPotentials.EDDPotentialsCore:
+        using EDDPotentials.Potential:
             grad_embedding!,
             recompute_features!,
             get_workspace,

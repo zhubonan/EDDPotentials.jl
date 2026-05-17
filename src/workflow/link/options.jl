@@ -1,6 +1,6 @@
 using Configurations
 using GarishPrint
-import .EDDPotentialsCore: CellFeature, Embedding, fr, gfr
+import ..Potential: CellFeature, fr, gfr
 
 """
     BuilderState
@@ -380,7 +380,7 @@ The container for all options used for building the EDDP potentials used by the 
 @option mutable struct BuilderOption <: EDDPotentialsOption
     state::BuilderState
     cf::CellFeatureConfig
-    cf_embedding::Maybe{Embedding}
+    cf_embedding::Maybe{EmbeddingOption}
     rss::RssSetting
     trainer::TrainingOption
     scheduler::Maybe{SchedulerConfig}
