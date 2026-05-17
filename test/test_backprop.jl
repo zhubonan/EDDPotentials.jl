@@ -1,9 +1,7 @@
 using Flux
 
 using EDDPotentials
-using EDDPotentials: generate_chain
-using EDDPotentials.Potential:
-    backward!, forward!, ChainGradients, setup_fg_backprop, paramvector
+using EDDPotentials.Potential: backward!, forward!, ChainGradients, setup_fg_backprop, paramvector
 using Test
 
 

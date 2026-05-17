@@ -1,12 +1,5 @@
 using Test
 using EDDPotentials
-using EDDPotentials.Potential: AbstractCalc
-import EDDPotentials.Potential:
-    get_cell,
-    eddp_energy,
-    eddp_forces,
-    eddp_stress,
-    calculate!
 using CellBase
 using LinearAlgebra
 using Unitful: ustrip

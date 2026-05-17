@@ -2,13 +2,7 @@
 Tests for the molecular dynamics module
 =#
 using EDDPotentials
-using EDDPotentials.Potential: AbstractCalc
-import EDDPotentials.Potential:
-    get_cell,
-    eddp_energy,
-    eddp_forces,
-    eddp_stress,
-    calculate!
+import EDDPotentials.Potential: get_cell, eddp_energy, eddp_forces, eddp_stress, calculate!
 using CellBase
 using Test
 using Random

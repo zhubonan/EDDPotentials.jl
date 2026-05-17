@@ -1,17 +1,5 @@
 using EDDPotentials
-using EDDPotentials.Potential:
-    LinearInterface,
-    ManualFluxBackPropInterface,
-    FluxInterface,
-    EnsembleNNInterface,
-    forward!,
-    backward!,
-    paramvector,
-    paramvector!,
-    setparamvector!,
-    nparams,
-    gradparam!,
-    gradinp!
+using EDDPotentials.Potential: LinearInterface, ManualFluxBackPropInterface, FluxInterface, EnsembleNNInterface, forward!, backward!, paramvector, paramvector!, setparamvector!, nparams, gradparam!, gradinp!
 using Flux
 using Test
 

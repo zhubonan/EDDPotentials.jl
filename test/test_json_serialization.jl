@@ -1,20 +1,5 @@
 using EDDPotentials
-using EDDPotentials: EDDPCalculator, eddp_energy
-using EDDPotentials.Potential:
-    BodyEmbedding,
-    CellEmbedding,
-    EnsembleNNInterface,
-    JSON,
-    feature_size,
-    feature_vector,
-    LinearInterface,
-    ManualFluxBackPropInterface,
-    forward!,
-    load_feature_artifact,
-    load_model_artifact,
-    save_as_jld2,
-    save_feature_json,
-    save_model_artifact
+using EDDPotentials.Potential: BodyEmbedding, CellEmbedding, EnsembleNNInterface, JSON, feature_size, feature_vector, LinearInterface, ManualFluxBackPropInterface, forward!, load_feature_artifact, load_model_artifact, save_as_jld2, save_feature_json, save_model_artifact
 using Flux: Chain, Dense, tanh
 using StatsBase: fit, ZScoreTransform
 using Test

@@ -1,4 +1,4 @@
-using EDDPotentials: get_specie_pairs, compute_specie_separations, gather_minsep_stats
+using EDDPotentials
 using CellBase, Test
 
 @testset "Minsep" begin

@@ -1,34 +1,5 @@
 using EDDPotentials
-using EDDPotentials:
-    train_lm!,
-    train_lm_batched!,
-    StructureContainer,
-    CellFeature,
-    FeatureStore,
-    nfeatures,
-    reinit,
-    train!,
-    create_ensemble,
-    predict_energy,
-    TrainedModel,
-    train_model,
-    predict,
-    EDDPCalculator,
-    save_model_artifact,
-    load_model_artifact,
-    load_model
-using EDDPotentials.Potential:
-    ManualFluxBackPropInterface,
-    LinearInterface,
-    AbstractNNInterface,
-    FluxInterface,
-    ginit,
-    compute_objectives,
-    compute_objectives_diff,
-    nparams,
-    setup_fj,
-    setup_fj_batched,
-    paramvector
+using EDDPotentials.Potential: ManualFluxBackPropInterface, LinearInterface, AbstractNNInterface, FluxInterface, ginit, compute_objectives, compute_objectives_diff, nparams, setup_fj, setup_fj_batched, paramvector
 using EDDPotentials.Training:
     levenberg_marquardt,
     levenberg_marquardt_batched
@@ -319,14 +290,14 @@ end
 
             @testset "predict on TrainedModel" begin
                 cell = sc_small.structures[1]
-                result = predict(base_tm, cell)
+                result = EDDPotentials.predict(base_tm, cell)
                 @test haskey(result, :energy)
                 @test haskey(result, :forces)
                 @test haskey(result, :stress)
                 @test isfinite(result.energy)
                 @test all(isfinite, result.forces)
                 @test all(isfinite, result.stress)
-                result_min = predict(base_tm, cell; forces=false, stress=false)
+                result_min = EDDPotentials.predict(base_tm, cell; forces=false, stress=false)
                 @test !haskey(result_min, :forces)
                 @test !haskey(result_min, :stress)
             end
@@ -334,7 +305,7 @@ end
             @testset "predict on EDDPCalculator" begin
                 calc = EDDPCalculator(base_tm)
                 cell = sc_small.structures[1]
-                result = predict(calc, cell)
+                result = EDDPotentials.predict(calc, cell)
                 @test haskey(result, :energy)
                 @test haskey(result, :forces)
                 @test isfinite(result.energy)
@@ -347,8 +318,8 @@ end
                     artifact = load_model_artifact(p)
                     calc = EDDPCalculator(artifact)
                     cell = sc_small.structures[1]
-                    energy_before = predict(base_tm, cell; forces=false, stress=false).energy
-                    energy_after = predict(calc, cell; forces=false, stress=false).energy
+                    energy_before = EDDPotentials.predict(base_tm, cell; forces=false, stress=false).energy
+                    energy_after = EDDPotentials.predict(calc, cell; forces=false, stress=false).energy
                     @test energy_before ≈ energy_after
                 end
             end

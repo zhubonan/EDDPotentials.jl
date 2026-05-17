@@ -1,4 +1,4 @@
-using EDDPotentials: model_structures
+using EDDPotentials
 using CellBase, Test, LinearAlgebra
 
 @testset "Model structures" begin

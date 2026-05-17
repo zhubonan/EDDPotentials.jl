@@ -2,14 +2,8 @@
 Tests for the hot-AIRSS protocol
 =#
 using EDDPotentials
-using EDDPotentials:
-    HotAIRSSOption,
-    HotAIRSSResult,
-    lj_baseline_calc,
-    eddp_energy
 using CellBase
 using Test
-using Unitful: ustrip
 
 # ─── Helper: create a simple LJ calculator ───
 

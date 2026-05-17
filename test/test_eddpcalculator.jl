@@ -1,28 +1,5 @@
 using EDDPotentials
-using EDDPotentials:
-    EDDPCalculator,
-    eddp_energy,
-    eddp_forces,
-    eddp_stress,
-    eddp_pressure,
-    eddp_pressure_gpa,
-    eddp_pressure_GPa,
-    nfeatures,
-    CoreRepulsion,
-    create_calculator,
-    predict,
-    eddp_energy_per_atom,
-    eddp_energy_std
-using EDDPotentials.Potential:
-    LinearInterface,
-    ManualFluxBackPropInterface,
-    EnsembleNNInterface,
-    save_model_artifact,
-    forward!,
-    feature_vector,
-    get_committee_forces,
-    get_committee_ferror
-using Flux: Chain, Dense, tanh
+using EDDPotentials.Potential: LinearInterface, ManualFluxBackPropInterface, EnsembleNNInterface, save_model_artifact, forward!, feature_vector, get_committee_forces, get_committee_ferror
 using CellBase
 using Test
 

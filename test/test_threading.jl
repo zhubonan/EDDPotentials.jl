@@ -1,17 +1,5 @@
 using EDDPotentials
-using EDDPotentials: train_lm_batched!
-using EDDPotentials.Potential:
-    ManualFluxBackPropInterface,
-    nparams,
-    setup_fj,
-    setup_fj_batched,
-    setup_fj_batched_threaded,
-    paramvector,
-    ThreadBufferPool,
-    compute_objectives,
-    compute_objectives_diff,
-    compute_objectives_threaded,
-    rmse_per_atom_threaded
+using EDDPotentials.Potential: ManualFluxBackPropInterface, nparams, setup_fj, setup_fj_batched, setup_fj_batched_threaded, paramvector, ThreadBufferPool, compute_objectives, compute_objectives_diff, compute_objectives_threaded, rmse_per_atom_threaded
 
 using Test
 using Flux

@@ -1,10 +1,7 @@
 using EDDPotentials
-using EDDPotentials: ExtraDimensionPenaltyModifier, AdditiveCalculatorModifier, VolumeConstraintModifier
-using EDDPotentials.Potential: LinearInterface
 using CellBase
 using Test
 using LinearAlgebra
-using Flux: Chain, Dense
 
 isdefined(Main, :_h2_cell) || include("utils.jl")
 

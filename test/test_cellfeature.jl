@@ -1,8 +1,4 @@
-using EDDPotentials: CellFeature, nfeatures
-using EDDPotentials.Potential: nfeatures_per_channel, nchannels, nbodyfeatures
-using EDDPotentials.Potential: feature_size, feature_names, suggest_rcut
-using EDDPotentials.Potential: two_body_channel, two_body_range, three_body_channel, three_body_range
-using EDDPotentials.Potential: spec_index, spec_symbol, lookup
+using EDDPotentials
 using Test
 
 

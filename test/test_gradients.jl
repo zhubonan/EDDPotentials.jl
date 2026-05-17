@@ -1,24 +1,6 @@
 using EDDPotentials
-using EDDPotentials:
-    CoreRepulsion,
-    nfeatures,
-    get_positions,
-    eddp_forces,
-    eddp_stress,
-    MetaCalculator,
-    eddp_energy,
-    get_cell
-using EDDPotentials.Potential:
-    compute_fv_gv,
-    ManualFluxBackPropInterface,
-    _fd_energy,
-    _fd_energy_vc,
-    _fd_strain,
-    _pair_rcut,
-    _make_core_repulsion
-using EDDPotentials: fd_desc, force_gradient, stress_gradient, test_finite_difference
+using EDDPotentials.Potential: compute_fv_gv, ManualFluxBackPropInterface, _fd_energy, _fd_energy_vc, _fd_strain, _pair_rcut, _make_core_repulsion
 using CellBase
-using CellBase: add_dimensions
 using LinearAlgebra
 using NLSolversBase
 using Test

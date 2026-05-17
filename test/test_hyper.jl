@@ -1,11 +1,4 @@
 using EDDPotentials
-using EDDPotentials:
-    scheduled_penalty_relax!, hyper_gen_relax, bP,
-    MetaCalculator, ExtraDimensionPenaltyModifier,
-    create_calculator, set_modifier_parameter!, get_modifier_parameter
-using EDDPotentials.Potential:
-    LinearInterface, ManualFluxBackPropInterface, EnsembleNNInterface, CellFeature, nfeatures,
-    add_dimensions
 using CellBase, Test, LinearAlgebra, Flux
 
 @testset "Hyper" begin

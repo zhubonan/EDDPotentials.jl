@@ -1,5 +1,4 @@
 using EDDPotentials
-using EDDPotentials: ComputedRecord, get_e_above_hull, PhaseDiagram
 using EDDPotentials.Analysis:
     find_simplex,
     get_coord,

@@ -1,18 +1,5 @@
 using EDDPotentials
-using EDDPotentials: CellFeature, nfeatures
-using EDDPotentials.Potential:
-    compute_fv_gv,
-    compute_fv!,
-    compute_fv_gv!,
-    get_workspace,
-    suggest_rcut,
-    evaluate_p2,
-    evaluate_p3,
-    evaluate_q3,
-    build_spline_table,
-    SplineTable,
-    fr,
-    reset!
+using EDDPotentials.Potential: fr, get_workspace, evaluate_p2, evaluate_p3, evaluate_q3, build_spline_table, SplineTable, compute_fv_gv, compute_fv!, compute_fv_gv!, suggest_rcut, reset!
 using CellBase
 using Random
 using Test

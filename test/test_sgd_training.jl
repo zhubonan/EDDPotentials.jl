@@ -1,24 +1,6 @@
 include("utils.jl")
 
 using EDDPotentials
-using EDDPotentials:
-    train_sgd!,
-    constant_lr,
-    step_decay_lr,
-    cosine_annealing_lr,
-    train!,
-    StructureContainer,
-    CellFeature,
-    FeatureStore,
-    nfeatures,
-    predict_energy,
-    reinit
-using EDDPotentials.Potential:
-    ManualFluxBackPropInterface,
-    FluxInterface,
-    ginit,
-    nparams,
-    paramvector
 using EDDPotentials.Training:
     _scatter_matrix,
     _hcat_batch

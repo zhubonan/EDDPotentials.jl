@@ -1,26 +1,5 @@
 using EDDPotentials
-using EDDPotentials:
-    RandomEmbeddedCellFeature,
-    FeatureStore,
-    StructureContainer,
-    MetaCalculator,
-    EDDPCalculator,
-    get_cell,
-    nfeatures,
-    eddp_energy,
-    eddp_enthalpy,
-    eddp_forces,
-    eddp_stress,
-    train!,
-    fd_desc,
-    stress_gradient
-using EDDPotentials.Potential:
-    ManualFluxBackPropInterface,
-    LinearInterface,
-    feature_vector,
-    ginit,
-    flux_mlp_model,
-    _need_calc
+using EDDPotentials.Potential: ManualFluxBackPropInterface, LinearInterface, feature_vector, ginit, flux_mlp_model, _need_calc
 using Test
 using Flux
 using CellBase: positions, species
