@@ -2,6 +2,13 @@
 Tests for the molecular dynamics module
 =#
 using EDDPotentials
+using EDDPotentials.Potential: AbstractCalc
+import EDDPotentials.Potential:
+    get_cell,
+    eddp_energy,
+    eddp_forces,
+    eddp_stress,
+    calculate!
 using CellBase
 using Test
 using Random
@@ -13,7 +20,7 @@ using LinearAlgebra
 Harmonic oscillator calculator: E = Σ_i 0.5 * k * |r_i - r0_i|²
 Forces: F = -k * (r - r0)
 """
-struct HarmonicCalc{T} <: EDDPotentials.AbstractCalc
+struct HarmonicCalc{T} <: AbstractCalc
     cell::Cell{T}
     k::T
     r0::Matrix{T}
@@ -21,22 +28,22 @@ end
 
 HarmonicCalc(cell::Cell; k=1.0) = HarmonicCalc(cell, Float64(k), copy(positions(cell)))
 
-EDDPotentials.get_cell(hc::HarmonicCalc) = hc.cell
+get_cell(hc::HarmonicCalc) = hc.cell
 
-function EDDPotentials.eddp_energy(hc::HarmonicCalc; kwargs...)
+function eddp_energy(hc::HarmonicCalc; kwargs...)
     pos = positions(hc.cell)
     0.5 * hc.k * sum(abs2, pos .- hc.r0)
 end
 
-function EDDPotentials.eddp_forces(hc::HarmonicCalc; kwargs...)
+function eddp_forces(hc::HarmonicCalc; kwargs...)
     -hc.k .* (positions(hc.cell) .- hc.r0)
 end
 
-function EDDPotentials.eddp_stress(hc::HarmonicCalc; kwargs...)
+function eddp_stress(hc::HarmonicCalc; kwargs...)
     zeros(3, 3)
 end
 
-function EDDPotentials.calculate!(hc::HarmonicCalc; kwargs...)
+function calculate!(hc::HarmonicCalc; kwargs...)
     hc
 end
 

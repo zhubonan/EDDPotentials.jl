@@ -513,7 +513,7 @@ The file `workdir/.eddp_builder` stores a unique identifier for reliable restart
 all_structures = load_structures(builder)
 
 # Compute features
-fc = FeatureContainer(cell_feature, all_structures)
+fc = FeatureStore(StructureContainer(all_structures), cell_feature)
 
 # Split into train/validation/test (default: 80%/10%/10%)
 fc_train, fc_val, fc_test = split(fc, train_split...)

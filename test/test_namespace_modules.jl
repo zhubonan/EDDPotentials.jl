@@ -44,8 +44,8 @@ using EDDPotentials
     @test parentmodule(EDDPotentials.update_metadata!) === EDDPotentials.Potential
     @test parentmodule(EDDPotentials.hyper_gen_relax) === EDDPotentials.Search
     @test parentmodule(EDDPotentials.progress_callback!) === EDDPotentials.Training
-    @test isdefined(EDDPotentials, :_run_rss_link)
-    @test parentmodule(EDDPotentials._run_rss_link) === EDDPotentials.Workflow
+    @test !isdefined(EDDPotentials, :_run_rss_link)
+    @test parentmodule(EDDPotentials.Workflow._run_rss_link) === EDDPotentials.Workflow
 
     mktempdir() do dir
         seed = joinpath(dir, "seed.cell")

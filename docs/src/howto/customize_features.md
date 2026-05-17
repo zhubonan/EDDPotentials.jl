@@ -157,7 +157,7 @@ feature_sets = [
 ]
 
 for (name, cf) in feature_sets
-    fc = FeatureContainer(cf, sc)
+    fc = FeatureStore(sc, cf)
     fc_train, fc_val = train_val_split(fc)
 
     chain = Chain(Dense(nfeatures(cf), 20, tanh_fast), Dense(20, 1))
@@ -241,4 +241,3 @@ nfeatures_per_channel(cf, 3)  # features per three-body channel
 nchannels(cf, 2)              # number of two-body channels
 nchannels(cf, 3)              # number of three-body channels
 ```
-

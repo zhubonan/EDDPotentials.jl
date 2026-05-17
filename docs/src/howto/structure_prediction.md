@@ -360,7 +360,7 @@ If DFT reveals systematic errors, retrain:
 all_structures = vcat(load_structures(builder, 0:5), dft_structures)
 
 # Retrain
-fc = FeatureContainer(cf, StructureContainer(all_structures))
+fc = FeatureStore(StructureContainer(all_structures), cf)
 # ... train new ensemble
 ```
 

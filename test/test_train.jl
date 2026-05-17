@@ -1,12 +1,7 @@
 using EDDPotentials
 using EDDPotentials:
-    ginit,
-    compute_objectives,
-    compute_objectives_diff,
-    levenberg_marquardt,
     train_lm!,
     train_lm_batched!,
-    levenberg_marquardt_batched,
     StructureContainer,
     CellFeature,
     FeatureStore,
@@ -27,10 +22,16 @@ using EDDPotentials.Potential:
     LinearInterface,
     AbstractNNInterface,
     FluxInterface,
+    ginit,
+    compute_objectives,
+    compute_objectives_diff,
     nparams,
     setup_fj,
     setup_fj_batched,
     paramvector
+using EDDPotentials.Training:
+    levenberg_marquardt,
+    levenberg_marquardt_batched
 
 using Test
 using Flux

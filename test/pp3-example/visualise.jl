@@ -27,7 +27,7 @@ begin
     bdir(x) = joinpath(builder.state.workdir, x)
     for (i, img) in enumerate(images)
         CellBase.write_cell(bdir("lj-pp3/lj-$(i).cell"), img)
-        outcell = EDDPotentials.run_pp3(bdir("lj-pp3/lj-$(i).cell"), bdir("Al"), nothing)
+        outcell = EDDPotentials.Workflow.run_pp3(bdir("lj-pp3/lj-$(i).cell"), bdir("Al"), nothing)
         push!(pp3_out, outcell.metadata[:enthalpy])
     end
 end

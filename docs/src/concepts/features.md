@@ -296,7 +296,7 @@ feature_sets = [
 for (name, cf) in feature_sets
     println("\n=== $name ($(nfeatures(cf)) features) ===")
 
-    fc = FeatureContainer(cf, sc)
+    fc = FeatureStore(sc, cf)
     fc_train, fc_val = train_val_split(fc)
 
     chain = Chain(Dense(nfeatures(cf), 20, tanh), Dense(20, 1))

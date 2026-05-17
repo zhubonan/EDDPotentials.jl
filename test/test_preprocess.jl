@@ -5,6 +5,11 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
 using StatsBase
 using Random
 using LinearAlgebra: norm
+using EDDPotentials.Training:
+    _parse_path_slice,
+    _python_slice_to_range,
+    _count_extxyz_frames,
+    _prepare_presplit
 
 function _rattled_family_sc()
     base = _h2o_cell()
@@ -331,27 +336,27 @@ end
 
 @testset "ExtXYZ @slice syntax" begin
     # Test helper functions directly
-    @test EDDPotentials._parse_path_slice("train.xyz@:2000") == ("train.xyz", ":2000")
-    @test EDDPotentials._parse_path_slice("train.xyz@-1000:") == ("train.xyz", "-1000:")
-    @test EDDPotentials._parse_path_slice("train.xyz@::2") == ("train.xyz", "::2")
-    @test EDDPotentials._parse_path_slice("train.xyz@100:500:3") == ("train.xyz", "100:500:3")
-    @test EDDPotentials._parse_path_slice("train.xyz") == ("train.xyz", nothing)
-    @test EDDPotentials._parse_path_slice("path@something.xyz") == ("path@something.xyz", nothing)
-    @test EDDPotentials._parse_path_slice("a@b.xyz@:10") == ("a@b.xyz", ":10")
+    @test _parse_path_slice("train.xyz@:2000") == ("train.xyz", ":2000")
+    @test _parse_path_slice("train.xyz@-1000:") == ("train.xyz", "-1000:")
+    @test _parse_path_slice("train.xyz@::2") == ("train.xyz", "::2")
+    @test _parse_path_slice("train.xyz@100:500:3") == ("train.xyz", "100:500:3")
+    @test _parse_path_slice("train.xyz") == ("train.xyz", nothing)
+    @test _parse_path_slice("path@something.xyz") == ("path@something.xyz", nothing)
+    @test _parse_path_slice("a@b.xyz@:10") == ("a@b.xyz", ":10")
 
     # Test _python_slice_to_range
     total = 20000
-    @test EDDPotentials._python_slice_to_range(":2000", total) == 1:2000
-    @test EDDPotentials._python_slice_to_range("-1000:", total) == 19001:20000
-    @test EDDPotentials._python_slice_to_range("::2", total) == 1:2:20000
-    @test EDDPotentials._python_slice_to_range("100:500:3", total) == 101:3:500
-    @test EDDPotentials._python_slice_to_range(":", total) == 1:20000
-    @test EDDPotentials._python_slice_to_range("::", total) == 1:20000
-    @test EDDPotentials._python_slice_to_range("::1", total) == 1:20000
-    @test EDDPotentials._python_slice_to_range("0:1", total) == 1:1
-    @test EDDPotentials._python_slice_to_range("-1:", total) == 20000:20000
-    @test EDDPotentials._python_slice_to_range(":-1", total) == 1:20000
-    @test EDDPotentials._python_slice_to_range("5:5", total) == 6:5  # empty range, python [5:5] = []
+    @test _python_slice_to_range(":2000", total) == 1:2000
+    @test _python_slice_to_range("-1000:", total) == 19001:20000
+    @test _python_slice_to_range("::2", total) == 1:2:20000
+    @test _python_slice_to_range("100:500:3", total) == 101:3:500
+    @test _python_slice_to_range(":", total) == 1:20000
+    @test _python_slice_to_range("::", total) == 1:20000
+    @test _python_slice_to_range("::1", total) == 1:20000
+    @test _python_slice_to_range("0:1", total) == 1:1
+    @test _python_slice_to_range("-1:", total) == 20000:20000
+    @test _python_slice_to_range(":-1", total) == 1:20000
+    @test _python_slice_to_range("5:5", total) == 6:5  # empty range, python [5:5] = []
 
     mktempdir() do tmpdir
         # Write a 4-frame extxyz file
@@ -368,7 +373,7 @@ end
         write(extxyz_path, frames)
 
         # Test _count_extxyz_frames
-        @test EDDPotentials._count_extxyz_frames(extxyz_path) == 4
+        @test _count_extxyz_frames(extxyz_path) == 4
 
         # Full load (no slice)
         sc_all = StructureContainer(extxyz_path)
@@ -494,7 +499,7 @@ end
     sc_val = StructureContainer([cell2], [-12.0], ["presplit-b"])
     cf = CellFeature(unique(species(cell1)); p2=[2, 3], p3=[2], q3=[1], rcut2=4.0, rcut3=3.5)
 
-    fcs = EDDPotentials._prepare_presplit(
+    fcs = _prepare_presplit(
         [sc_train, sc_val], cf;
         elemental_energies=Dict{Symbol,Float64}(),
         show_progress=false, nmax=500,

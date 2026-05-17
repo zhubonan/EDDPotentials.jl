@@ -104,7 +104,7 @@ model creation, and training in one call. By default (`verbose=true`) it prints
 a configuration summary and final RMSE/MAE statistics.
 
 For users who need fine-grained control over the training pipeline, the
-step-by-step API (`StructureContainer` → `FeatureContainer` → `split` → `train!`)
+step-by-step API (`StructureContainer` → `FeatureStore` → `split` → `train!`)
 is still fully available. See [Getting Started](getting_started.md) for both
 approaches.
 

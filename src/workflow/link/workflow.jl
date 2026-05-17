@@ -763,7 +763,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
                 Base.julia_cmd()...,
                 "--project=$(project_path)",
                 "-e",
-                "using EDDPotentials;EDDPotentials._run_rss_link()",
+                "using EDDPotentials;EDDPotentials.Workflow._run_rss_link()",
                 "--",
                 "--file",
                 "$(state.builder_file_path)",

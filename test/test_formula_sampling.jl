@@ -1,4 +1,11 @@
 using EDDPotentials
+using EDDPotentials.Workflow:
+    _inject_formula_directive,
+    _build_formula_pool,
+    _has_neutral_oxidation_state,
+    _import_known_structures!,
+    _formula_sampling_context,
+    _make_seed_text_transform
 using CellBase
 using Test
 
@@ -43,13 +50,13 @@ end
         #VARVOL=999
         #SLACK=0.25
         """
-        out = EDDPotentials._inject_formula_directive(seed, "SiO2")
+        out = _inject_formula_directive(seed, "SiO2")
         @test occursin(r"(?m)^#FORMULA=SiO2$", out)
         @test !occursin(r"(?m)^\\s*#SPECIES\\s*=", out)
         @test !occursin(r"(?m)^\\s*#NATOM\\s*=", out)
         @test !occursin(r"(?m)^\\s*#FORMULA\\s*=SiO$", out)
 
-        out_varvol = EDDPotentials._inject_formula_directive(seed, "Al2O3"; varvol=20.0)
+        out_varvol = _inject_formula_directive(seed, "Al2O3"; varvol=20.0)
         @test occursin(r"(?m)^#FORMULA=Al2O3$", out_varvol)
         @test occursin(r"(?m)^#VARVOL=20$", out_varvol)
         @test !occursin(r"(?m)^\\s*#VARVOL\\s*=999$", out_varvol)
@@ -81,7 +88,7 @@ end
                 ),
             )
 
-            forms = EDDPotentials._build_formula_pool(state, [:Li, :Ti, :O])
+            forms = _build_formula_pool(state, [:Li, :Ti, :O])
             @test !isempty(forms)
 
             lto = reduce_composition(Composition("Li2TiO3"))
@@ -91,7 +98,7 @@ end
 
             ox = Dict(:Li => [1], :Ti => [4], :O => [-2])
             @test all(forms) do f
-                EDDPotentials._has_neutral_oxidation_state(Composition(f), ox)
+                _has_neutral_oxidation_state(Composition(f), ox)
             end
         end
     end
@@ -111,7 +118,7 @@ end
                 seedfile_calc="dummy.cell",
                 workdir=temp,
             )
-            imported = EDDPotentials._import_known_structures!(state, outdir)
+            imported = _import_known_structures!(state, outdir)
             @test length(imported) == 1
             @test isfile(joinpath(outdir, "known-a.res"))
         end
@@ -132,11 +139,11 @@ end
                     "Sc" => 10.0,
                 ),
             )
-            ctx = EDDPotentials._formula_sampling_context(state, ["Al", "O", "Sc"])
+            ctx = _formula_sampling_context(state, ["Al", "O", "Sc"])
             @test ctx.varvol_by_formula["Al2O3"] == 20.0
             @test ctx.varvol_by_formula["Al2O3Sc"] == 30.0
 
-            transform = EDDPotentials._make_seed_text_transform(ctx)
+            transform = _make_seed_text_transform(ctx)
             out = transform("#SPECIES=Al,O,Sc\n#VARVOL=1\n")
             @test occursin(r"(?m)^#FORMULA=", out)
             @test occursin(r"(?m)^#VARVOL=(20|30)$", out)
@@ -234,7 +241,7 @@ end
                     "O" => 10.0,
                 ),
             )
-            @test_throws ErrorException EDDPotentials._formula_sampling_context(state, ["Al", "O", "Sc"])
+            @test_throws ErrorException _formula_sampling_context(state, ["Al", "O", "Sc"])
         end
     end
 
@@ -248,7 +255,7 @@ end
                 workdir=temp,
                 formula_sampling_enabled=true,
             )
-            @test_throws ErrorException EDDPotentials._formula_sampling_context(
+            @test_throws ErrorException _formula_sampling_context(
                 state,
                 ["Li", "Ta", "O", "Cl"],
             )

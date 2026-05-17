@@ -1,8 +1,5 @@
 using EDDPotentials
-using EDDPotentials:
-    compute_objectives,
-    compute_objectives_diff,
-    train_lm_batched!
+using EDDPotentials: train_lm_batched!
 using EDDPotentials.Potential:
     ManualFluxBackPropInterface,
     nparams,
@@ -11,6 +8,8 @@ using EDDPotentials.Potential:
     setup_fj_batched_threaded,
     paramvector,
     ThreadBufferPool,
+    compute_objectives,
+    compute_objectives_diff,
     compute_objectives_threaded,
     rmse_per_atom_threaded
 

@@ -9,15 +9,16 @@ using EDDPotentials:
     StressMetrics,
     LayerSaturationReport,
     AggregatedMetrics,
-    _extract_reference_energy,
-    _extract_reference_forces,
-    _extract_reference_stress,
-    _r2_score,
     energy_ae_per_atom,
     compare_energy,
     compare_forces,
     compare_stress,
     load_evaluation_data
+using EDDPotentials.Analysis:
+    _extract_reference_energy,
+    _extract_reference_forces,
+    _extract_reference_stress,
+    _r2_score
 using EDDPotentials.Potential: ManualFluxBackPropInterface, DenseGradient
 using CellBase
 using Test

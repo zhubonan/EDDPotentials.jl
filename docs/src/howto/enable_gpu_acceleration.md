@@ -65,7 +65,7 @@ import EDDPotentials: FluxInterface, train!, train_val_split
 EDDPotentials.USE_CUDA[] = true
 
 # Load data and create features
-fc = FeatureContainer(cf, sc)
+fc = FeatureStore(sc, cf)
 fc_train, fc_val = train_val_split(fc)
 
 # Create and train model (automatically uses GPU)

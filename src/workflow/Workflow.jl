@@ -10,14 +10,16 @@ import ..Potential:
     save_model_artifact,
     _make_core_repulsion
 using ..Training
+import ..Training: boltzmann
 using ..Search
-import ..Search: run_rss, hyper_gen_relax
+import ..Search: run_rss, hyper_gen_relax, _run_rss
 using ..Simulation
 import ..Simulation: step!
 import ..Potential:
     ensure_dir,
     get_label,
     stem,
+    swapext,
     update_metadata!
 import ..EDDPotentials: EDDPotentialsOption
 using Parameters

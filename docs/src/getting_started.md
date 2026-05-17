@@ -123,9 +123,9 @@ result = predict(calc, cell)
 ### Step 6: Evaluate on a Test Set
 
 ```julia
-# Create a FeatureContainer for a test dataset
+# Create a FeatureStore for a test dataset
 sc_test = StructureContainer(["test_data/*.res"])
-fc_test = FeatureContainer(sc_test, tm.feature_spec)
+fc_test = FeatureStore(sc_test, tm.feature_spec)
 
 # Standardize with training transforms
 standardize!(fc_test; xt=tm.train_results.fc.xt, yt=tm.train_results.fc.yt)
@@ -163,7 +163,7 @@ The `StructureContainer` supports `.res`, `.xyz`, and `.extxyz` files. Files wit
 cf = CellFeature([:C]; p2=2:12, p3=2:4, q3=2:4, rcut2=5.0, rcut3=4.0)
 
 # Compute feature vectors (threaded)
-fc = FeatureContainer(sc, cf; show_progress=true)
+fc = FeatureStore(sc, cf; show_progress=true)
 
 println("Features per atom: ", nfeatures(cf))
 ```
@@ -182,7 +182,7 @@ x_train, y_train = get_fit_data(fc_train)
 ### Step A4: Build and Train a Model
 
 ```julia
-using EDDPotentials.Potential: ManualFluxBackPropInterface
+using EDDPotentials.Potential: ManualFluxBackPropInterface, ginit
 using Flux: Chain, Dense
 
 # Build a neural network architecture
