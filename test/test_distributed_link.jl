@@ -53,6 +53,8 @@ end
             trainer.nmodels = 3
             distributed = EDDPotentials.DistributedLinkOption()
             distributed.worker_heartbeat_interval_seconds = 0.01
+            distributed.dft_env = Dict{String,Any}("OMP_NUM_THREADS" => "1")
+            distributed.training_env = Dict{String,Any}("OMP_NUM_THREADS" => 16)
             builder = _distributed_builder(temp; state, trainer, distributed)
             builder.state.builder_file_path = joinpath(temp, "link.toml")
             write(builder.state.builder_file_path, "")
@@ -61,6 +63,11 @@ end
             _write_generated_res(temp, ["calc-001.res", "calc-002.res"])
 
             crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            dft_cmd = EDDPotentials._distributed_dft_cmd(
+                builder,
+                Dict("mpinp" => 8, "crud_workdir" => crud_workdir),
+            )
+            @test "OMP_NUM_THREADS=1" in getfield(dft_cmd, :env)
             @test isdir(joinpath(crud_workdir, "hopper"))
             @test isdir(joinpath(crud_workdir, "good_castep"))
             @test isdir(joinpath(crud_workdir, "bad_castep"))
@@ -159,7 +166,7 @@ end
             @test !contains(train_cmd_text, "--slot-id")
             train_cmd_env = getfield(train_cmd, :env)
             @test "JULIA_NUM_THREADS=3" in train_cmd_env
-            @test "OMP_NUM_THREADS=1" in train_cmd_env
+            @test "OMP_NUM_THREADS=16" in train_cmd_env
             @test "EDDP_CUDA_DEVICE=0" in train_cmd_env
             model_path = joinpath(temp, EDDPotentials.TRAINING_DIR, "gen-0-model-abcd1234.json")
             mkpath(dirname(model_path))

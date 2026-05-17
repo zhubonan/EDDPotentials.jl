@@ -359,6 +359,10 @@ Options for the file-backed distributed link server/worker workflow.
     dft_crud_workdir::String = "crud-work"
     dft_worker_jobs::Int = 1
     training_worker_jobs::Int = 1
+    "Environment variables applied to distributed DFT child commands."
+    dft_env::Dict{String,Any} = Dict{String,Any}()
+    "Environment variables applied to distributed training child commands."
+    training_env::Dict{String,Any} = Dict{String,Any}()
     "Deprecated no-op retained for compatibility with slot-based distributed training configs."
     training_slot_stale_seconds::Float64 = 86400.0
     manage_worker_jobs::Bool = true

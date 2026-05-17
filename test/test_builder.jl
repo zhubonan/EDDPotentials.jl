@@ -107,6 +107,11 @@ end
         distributed.log_level = "debug"
         distributed.log_dir = "diag-logs"
         distributed.log_interval_seconds = 1.5
+        distributed.dft_env = Dict{String,Any}("OMP_NUM_THREADS" => "1")
+        distributed.training_env = Dict{String,Any}(
+            "OMP_NUM_THREADS" => 16,
+            "EDDP_USE_GPU" => false,
+        )
         opt_distributed = EDDPotentials.BuilderOption(
             state,
             cf,

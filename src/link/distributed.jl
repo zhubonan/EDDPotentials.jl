@@ -1150,6 +1150,15 @@ function _worker_stop_child!(proc, distributed::DistributedLinkOption)
     end
 end
 
+function _distributed_env_pairs(env::AbstractDict)
+    Pair{String,String}[String(key) => string(value) for (key, value) in pairs(env)]
+end
+
+function _apply_distributed_env(cmd::Cmd, env::AbstractDict)
+    isempty(env) && return cmd
+    addenv(cmd, _distributed_env_pairs(env)...)
+end
+
 function _worker_supervise_child!(
     bu::Builder,
     worker::WorkerState,
@@ -1267,6 +1276,11 @@ function _worker_supervise_child!(
     return ok
 end
 
+function _distributed_dft_cmd(bu::Builder, manifest)
+    cmd = Cmd(`crud.pl -mpinp $(Int(manifest["mpinp"]))`, dir=manifest["crud_workdir"])
+    _apply_distributed_env(cmd, bu.options.distributed.dft_env)
+end
+
 function _worker_run_dft!(bu::Builder, worker::WorkerState, control)
     phase_dir = control["phase_dir"]
     if _phase_stop_requested(control, phase_dir)
@@ -1305,7 +1319,7 @@ function _worker_run_dft!(bu::Builder, worker::WorkerState, control)
 
         throw(ArgumentError("Missing DFT manifest `$phase_dir`."))
     end
-    cmd = Cmd(`crud.pl -mpinp $(Int(manifest["mpinp"]))`, dir=manifest["crud_workdir"])
+    cmd = _distributed_dft_cmd(bu, manifest)
     advance_worker!(
         bu,
         worker,
@@ -1378,7 +1392,7 @@ function _distributed_training_cmd(
         end
         cmd = addenv(cmd, "EDDP_CUDA_DEVICE" => devices[device_index])
     end
-    cmd
+    _apply_distributed_env(cmd, bu.options.distributed.training_env)
 end
 
 function _worker_run_training!(bu::Builder, worker::WorkerState, control)

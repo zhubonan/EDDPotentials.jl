@@ -331,6 +331,12 @@ log_level = "info"        # debug, info, warn, or error
 log_dir = "logs"
 log_interval_seconds = 30.0
 
+[distributed.dft_env]
+OMP_NUM_THREADS = "1"
+
+[distributed.training_env]
+OMP_NUM_THREADS = "16"
+
 [scheduler]
 script = "distributed_worker_job.sh"
 type = "SLURM"                    # or "SGE"
@@ -339,6 +345,11 @@ type = "SLURM"                    # or "SGE"
 When `[distributed] enabled = true`, the normal DFT and external-training backends are
 overridden by the file-backed distributed link workflow. You do not need to set
 `trainer.external_mode = "distributed"` in this mode.
+
+Use `[distributed.dft_env]` and `[distributed.training_env]` when the scheduler
+allocation should be shared differently by each phase. For example, DFT workers
+typically launch MPI ranks through `crud.pl` and should keep `OMP_NUM_THREADS=1`,
+while training workers may use the full CPU allocation for threaded linear algebra.
 
 The scheduler script launches EDDP worker jobs. It must contain the placeholder
 `{{EDDP_DISTRIBUTED_WORKER_CMD}}`, which the server replaces with the correct Julia
