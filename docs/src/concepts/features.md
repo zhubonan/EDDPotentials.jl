@@ -115,7 +115,7 @@ using EDDPotentials
 cf = CellFeature([:C]; p2=[2, 3, 4], rcut2=4.0)
 
 # Inspect feature count per channel
-using EDDPotentials.EDDPotentialsCore: nfeatures_per_channel
+using EDDPotentials.Potential: nfeatures_per_channel
 println("Features per two-body channel: ", nfeatures_per_channel(cf, 2))  # 3
 
 # Get the feature range for a specific pair
@@ -160,7 +160,7 @@ using EDDPotentials
 # Three-body powers and cutoff are shared across all species triplets
 cf = CellFeature([:C]; p3=[2, 3, 4], q3=[1, 2], rcut3=3.5)
 
-using EDDPotentials.EDDPotentialsCore: nfeatures_per_channel
+using EDDPotentials.Potential: nfeatures_per_channel
 println("Features per three-body channel: ", nfeatures_per_channel(cf, 3))  # 6 (3p × 2q)
 ```
 

@@ -2,8 +2,9 @@ using Test
 using EDDPotentials
 using CellBase
 
-@testset "Core Module Namespace" begin
-    @test isdefined(EDDPotentials, :EDDPotentialsCore)
+@testset "Potential Module Namespace" begin
+    @test isdefined(EDDPotentials, :Potential)
+    @test !isdefined(EDDPotentials, :EDDPotentialsCore)
     @test :relax! in names(EDDPotentials)
     @test :read_castep in names(EDDPotentials)
     @test :read_res in names(EDDPotentials)
@@ -13,7 +14,7 @@ using CellBase
     @test :read_stru in names(EDDPotentials)
     @test :write_stru in names(EDDPotentials)
 
-    core = EDDPotentials.EDDPotentialsCore
+    core = EDDPotentials.Potential
     @test core.EDDPCalculator === EDDPotentials.EDDPCalculator
     @test core.CellFeature === EDDPotentials.CellFeature
     @test core.eddp_energy === EDDPotentials.eddp_energy

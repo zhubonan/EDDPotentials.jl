@@ -29,7 +29,7 @@ const _FORMAT_VERSION = 2
 
 _model_producer() = Dict(
     "package" => "EDDPotentials",
-    "module" => "EDDPotentialsCore",
+    "module" => "Potential",
     "julia_version" => string(VERSION),
 )
 

@@ -11,8 +11,8 @@ The primary user-facing type is [`CellFeature`](@ref), a parametric immutable st
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "core/feature/feature.jl",
-    "core/feature/cell.jl",
+    "potential/feature/feature.jl",
+    "potential/feature/cell.jl",
 ]
 ```
 
@@ -23,7 +23,7 @@ Functions for training models from feature vectors, evaluating accuracy, and bui
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "data/preprocessing.jl",
+    "training/data.jl",
     "training/training.jl",
     "training/lmsolve.jl",
     "training/lmsolve_batched.jl",
@@ -37,11 +37,11 @@ Neural network interfaces for energy prediction. [`ManualFluxBackPropInterface`]
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "core/nn/interface.jl",
-    "core/nn/linear.jl",
-    "core/nn/flux.jl",
-    "core/nn/manual_backprop.jl",
-    "core/nn/ensemble.jl",
+    "potential/nn/interface.jl",
+    "potential/nn/linear.jl",
+    "potential/nn/flux.jl",
+    "potential/nn/manual_backprop.jl",
+    "potential/nn/ensemble.jl",
 ]
 ```
 
@@ -52,9 +52,9 @@ Pages = [
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "core/calculator.jl",
-    "core/calculator/metacalculator.jl",
-    "core/calculator/eddpcalculator.jl",
+    "potential/calculator.jl",
+    "potential/calculator/metacalculator.jl",
+    "potential/calculator/eddpcalculator.jl",
 ]
 ```
 
@@ -65,9 +65,9 @@ Modifiers extend calculator behavior through pre/post-calculate hooks in the [`M
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "core/calculator/modifiers/abstract.jl",
-    "core/calculator/modifiers/dimension_penalty.jl",
-    "core/calculator/modifiers/additive_calc.jl",
+    "potential/calculator/modifiers/abstract.jl",
+    "potential/calculator/modifiers/dimension_penalty.jl",
+    "potential/calculator/modifiers/additive_calc.jl",
 ]
 ```
 
@@ -151,7 +151,7 @@ Functions for structure relaxation in extended (hyperdimensional) configuration 
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "workflow/hyper.jl",
+    "search/hyper.jl",
 ]
 ```
 
@@ -162,24 +162,24 @@ Functions for the iterative active-learning workflow: [`Builder`](@ref) configur
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "link/link.jl",
-    "link/options.jl",
-    "link/workflow.jl",
-    "link/analysis.jl",
-    "link/trainer.jl",
+    "workflow/link/link.jl",
+    "workflow/link/options.jl",
+    "workflow/link/workflow.jl",
+    "workflow/link/analysis.jl",
+    "workflow/link/trainer.jl",
 ]
 ```
 
-## Miscellaneous Tools
+## Miscellaneous Utilities
 
 Support utilities including serialization, plotting recipes, and file I/O helpers.
 
 ```@autodocs
 Modules = [EDDPotentials]
 Pages = [
-    "tools.jl",
+    "potential/utilities.jl",
     "analysis/records.jl",
-    "analysis/plotting/recipes.jl",
+    "analysis/plotting_recipes.jl",
     "analysis/lazy_res.jl",
 ]
 ```

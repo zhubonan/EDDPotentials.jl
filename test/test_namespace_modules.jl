@@ -4,15 +4,16 @@ using EDDPotentials
 @testset "Logical namespace modules" begin
     @test EDDPotentials.Potential.EDDPCalculator === EDDPotentials.EDDPCalculator
     @test EDDPotentials.Potential.CellFeature === EDDPotentials.CellFeature
-    @test EDDPotentials.Model.EDDPCalculator === EDDPotentials.EDDPCalculator
+    @test !isdefined(EDDPotentials, :Model)
 
-    @test EDDPotentials.Data.StructureContainer === EDDPotentials.StructureContainer
-    @test EDDPotentials.Data.FeatureStore === EDDPotentials.FeatureStore
-    @test EDDPotentials.Data.FeatureBatch === EDDPotentials.FeatureBatch
+    @test !isdefined(EDDPotentials, :Data)
 
     @test EDDPotentials.Training.train_model === EDDPotentials.train_model
     @test EDDPotentials.Training.TrainingResults === EDDPotentials.TrainingResults
     @test EDDPotentials.Training.TrainedModel === EDDPotentials.TrainedModel
+    @test EDDPotentials.Training.StructureContainer === EDDPotentials.StructureContainer
+    @test EDDPotentials.Training.FeatureStore === EDDPotentials.FeatureStore
+    @test EDDPotentials.Training.FeatureBatch === EDDPotentials.FeatureBatch
 
     @test EDDPotentials.Simulation.RelaxOption === EDDPotentials.RelaxOption
     @test EDDPotentials.Simulation.relax! === EDDPotentials.relax!
@@ -30,18 +31,19 @@ using EDDPotentials
     @test EDDPotentials.Analysis.PhaseDiagram === EDDPotentials.PhaseDiagram
     @test EDDPotentials.Analysis.read_shelx_record === EDDPotentials.read_shelx_record
 
-    @test EDDPotentials.Tools.update_metadata! === EDDPotentials.update_metadata!
-    @test EDDPotentials.Tools.ensure_dir === EDDPotentials.ensure_dir
-    @test EDDPotentials.Tools.progress_callback! === EDDPotentials.progress_callback!
+    @test !isdefined(EDDPotentials, :Tools)
+    @test EDDPotentials.Potential.update_metadata! === EDDPotentials.update_metadata!
+    @test EDDPotentials.Potential.ensure_dir === EDDPotentials.ensure_dir
+    @test EDDPotentials.Training.progress_callback! === EDDPotentials.progress_callback!
 
     @test parentmodule(EDDPotentials.TrainingResults) === EDDPotentials.Training
     @test parentmodule(EDDPotentials.HotAIRSSOption) === EDDPotentials.Search
     @test parentmodule(EDDPotentials.RssPruneOption) === EDDPotentials.Search
     @test parentmodule(EDDPotentials.Builder) === EDDPotentials.Workflow
     @test parentmodule(EDDPotentials.evaluate) === EDDPotentials.Analysis
-    @test parentmodule(EDDPotentials.update_metadata!) === EDDPotentials.Tools
+    @test parentmodule(EDDPotentials.update_metadata!) === EDDPotentials.Potential
     @test parentmodule(EDDPotentials.hyper_gen_relax) === EDDPotentials.Search
-    @test parentmodule(EDDPotentials.progress_callback!) === EDDPotentials.Tools
+    @test parentmodule(EDDPotentials.progress_callback!) === EDDPotentials.Training
     @test isdefined(EDDPotentials, :_run_rss_link)
     @test parentmodule(EDDPotentials._run_rss_link) === EDDPotentials.Workflow
 
@@ -55,14 +57,11 @@ using EDDPotentials
 
     for mod in (
         EDDPotentials.Potential,
-        EDDPotentials.Model,
-        EDDPotentials.Data,
         EDDPotentials.Training,
         EDDPotentials.Simulation,
         EDDPotentials.Search,
         EDDPotentials.Workflow,
         EDDPotentials.Analysis,
-        EDDPotentials.Tools,
     )
         @test all(name -> isdefined(mod, name), names(mod))
     end

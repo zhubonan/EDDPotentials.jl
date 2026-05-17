@@ -6,23 +6,23 @@ using Dates
 using JLD2
 using Glob
 using Printf
-using ..EDDPotentialsCore.NNLS: nnls
+using ..Potential.NNLS: nnls
 using NLSolversBase
 using ProgressMeter: Progress
 using Parameters
 using Printf
 using StatsBase: corspearman, mean, std
 using Flux: Dense, Chain
-using ..EDDPotentialsCore: leaky_tanh
+using ..Potential: leaky_tanh
 import Flux
 import Base
 import CellBase
 import Zygote
 using Logging
 using NonNegLeastSquares
-using ..EDDPotentialsCore: paramvector, save_model_artifact, ThreadBufferPool, rmse_per_atom_threaded,
+using ..Potential: paramvector, save_model_artifact, ThreadBufferPool, rmse_per_atom_threaded,
     nfeatures, EDDPCalculator, predict, nparams
-import ..EDDPotentialsCore: EnsembleNNInterface
+import ..Potential: EnsembleNNInterface
 
 
 const XT_NAME = "xt"
@@ -33,7 +33,7 @@ const FEATURESPEC_NAME = "cf"
 """
 Genreate a `Chain` based on a vector specifying the number of hidden nodes in each layer
 """
-function generate_chain(nfeature, nnodes; init=EDDPotentialsCore.ginit)
+function generate_chain(nfeature, nnodes; init=Potential.ginit)
     if length(nnodes) == 0
         return Chain(Dense(nfeature => 1; init))
     end
@@ -1797,11 +1797,11 @@ function train_lm_with_embedding!(
     end
     ctx = TrainingContext(itf, cf, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
     n_nn = length(p0_nn)
-    n_emb = EDDPotentialsCore._emb_param_count(cf)
+    n_emb = Potential._emb_param_count(cf)
     n_total = n_nn + n_emb
 
     # Combined initial parameter vector
-    p0 = vcat(p0_nn, EDDPotentialsCore._emb_param_vec(cf))
+    p0 = vcat(p0_nn, Potential._emb_param_vec(cf))
 
     train_natoms = [natoms(s) for s in structures]
     val_natoms = [natoms(s) for s in structures_val]
@@ -1827,7 +1827,7 @@ function train_lm_with_embedding!(
     end
 
     # Setup closures for training data
-    f!, j!, fj! = EDDPotentialsCore.setup_fj_with_embedding(
+    f!, j!, fj! = Potential.setup_fj_with_embedding(
         itf, structures, cf, y, weights; recompute_xt
     )
 
@@ -1836,7 +1836,7 @@ function train_lm_with_embedding!(
 
     callback = show_progress || (earlystop > 0) || checkpoint_every > 0 ? progress_tracker : nothing
 
-    opt_res = @timeit EDDPotentialsCore.to "lm solve with embedding" levenberg_marquardt(
+    opt_res = @timeit to "lm solve with embedding" levenberg_marquardt(
         od2,
         p0;
         show_trace=false,
@@ -1852,14 +1852,14 @@ function train_lm_with_embedding!(
     final_params = opt_res.minimizer
     final_nn = view(final_params, 1:n_nn)
     final_emb = view(final_params, n_nn+1:n_total)
-    EDDPotentialsCore.setparamvector!(itf, final_nn)
-    EDDPotentialsCore._emb_param_set!(cf, final_emb)
+    Potential.setparamvector!(itf, final_nn)
+    Potential._emb_param_set!(cf, final_emb)
 
     if normalize_embedding
-        EDDPotentialsCore._emb_normalize!(cf)
+        Potential._emb_normalize!(cf)
     end
 
-    opt_res, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf)), [map(x -> x[1], ctx.rec) map(x -> x[2], ctx.rec)], (f!, j!, fj!)
+    opt_res, vcat(paramvector(itf), Potential._emb_param_vec(cf)), [map(x -> x[1], ctx.rec) map(x -> x[2], ctx.rec)], (f!, j!, fj!)
 end
 
 """
@@ -1900,10 +1900,10 @@ function train_lm_batched_with_embedding!(
 
     ctx = TrainingContext(itf, cf, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
     n_nn = length(p0_nn)
-    n_emb = EDDPotentialsCore._emb_param_count(cf)
+    n_emb = Potential._emb_param_count(cf)
     n_total = n_nn + n_emb
 
-    p0 = vcat(p0_nn, EDDPotentialsCore._emb_param_vec(cf))
+    p0 = vcat(p0_nn, Potential._emb_param_vec(cf))
 
     train_natoms = [natoms(s) for s in structures]
     val_natoms = [natoms(s) for s in structures_val]
@@ -1925,17 +1925,17 @@ function train_lm_batched_with_embedding!(
         end
         progress_callback!(ctx, rmse_train, rmse_val, @sprintf(" (batch=%d)", batch_size))
         ctx.counter += 1
-        rmse_val, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf))
+        rmse_val, vcat(paramvector(itf), Potential._emb_param_vec(cf))
     end
 
     # Set up batched closures
-    fj_batch!, f_full! = EDDPotentialsCore.setup_fj_batched_with_embedding(
+    fj_batch!, f_full! = Potential.setup_fj_batched_with_embedding(
         itf, structures, cf, y, weights; recompute_xt
     )
 
     callback = show_progress || (earlystop > 0) || checkpoint_every > 0 ? progress_tracker : nothing
 
-    opt_res = @timeit EDDPotentialsCore.to "batched lm solve with embedding" levenberg_marquardt_batched(
+    opt_res = @timeit to "batched lm solve with embedding" levenberg_marquardt_batched(
         fj_batch!,
         f_full!,
         p0;
@@ -1957,14 +1957,14 @@ function train_lm_batched_with_embedding!(
     final_params = opt_res.minimizer
     final_nn = view(final_params, 1:n_nn)
     final_emb = view(final_params, n_nn+1:n_total)
-    EDDPotentialsCore.setparamvector!(itf, final_nn)
-    EDDPotentialsCore._emb_param_set!(cf, final_emb)
+    Potential.setparamvector!(itf, final_nn)
+    Potential._emb_param_set!(cf, final_emb)
 
     if normalize_embedding
-        EDDPotentialsCore._emb_normalize!(cf)
+        Potential._emb_normalize!(cf)
     end
 
-    opt_res, vcat(paramvector(itf), EDDPotentialsCore._emb_param_vec(cf)), [map(x -> x[1], ctx.rec) map(x -> x[2], ctx.rec)], (fj_batch!, f_full!)
+    opt_res, vcat(paramvector(itf), Potential._emb_param_vec(cf)), [map(x -> x[1], ctx.rec) map(x -> x[2], ctx.rec)], (fj_batch!, f_full!)
 end
 
 """
@@ -1979,7 +1979,7 @@ function rmse_per_atom_with_embedding(itf, structures, y, natoms_vec, cf, nls, w
     total_nat = 0
     for i in eachindex(structures)
         @timeit to "rmse: feature recompute" recompute_features!(workspaces[i].fvec, cf, structures[i], workspaces[i], nls[i])
-        @timeit to "rmse: forward!" out = EDDPotentialsCore.forward!(itf, workspaces[i].fvec)
+        @timeit to "rmse: forward!" out = Potential.forward!(itf, workspaces[i].fvec)
         pred = sum(out)
         total_sq += (pred - y[i])^2
         total_nat += natoms_vec[i]
@@ -1990,7 +1990,7 @@ end
 function rmse_per_atom_with_embedding(itf, structures, y, natoms_vec, cf)
     rcut = suggest_rcut(cf; shell=0.0)
     nls = [CellBase.NeighbourList(s, rcut, 500; savevec=true) for s in structures]
-    workspaces = [EDDPotentialsCore.get_workspace(cf, nl, false) for nl in nls]
+    workspaces = [Potential.get_workspace(cf, nl, false) for nl in nls]
     rmse_per_atom_with_embedding(itf, structures, y, natoms_vec, cf, nls, workspaces)
 end
 
@@ -1998,6 +1998,6 @@ end
 function _precompute_nl_workspace(structures, cf; nmax=500)
     rcut = suggest_rcut(cf; shell=0.0)
     nls = [CellBase.NeighbourList(s, rcut, nmax; savevec=true) for s in structures]
-    workspaces = [EDDPotentialsCore.get_workspace(cf, nl, false) for nl in nls]
+    workspaces = [Potential.get_workspace(cf, nl, false) for nl in nls]
     nls, workspaces
 end

@@ -17,7 +17,7 @@ using EDDPotentials:
     ginit,
     fd_desc,
     stress_gradient
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     ManualFluxBackPropInterface,
     LinearInterface,
     flux_mlp_model,
@@ -332,7 +332,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
     end
 
     @testset "Learnable Embedding Gradient" begin
-        using EDDPotentials.EDDPotentialsCore:
+        using EDDPotentials.Potential:
             grad_embedding!,
             recompute_features!,
             get_workspace,

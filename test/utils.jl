@@ -3,7 +3,7 @@ Common functions for helping tests
 =#
 using EDDPotentials
 using EDDPotentials: CellFeature, nfeatures, EDDPCalculator
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
+using EDDPotentials.Potential: ManualFluxBackPropInterface
 using CellBase
 using Random
 

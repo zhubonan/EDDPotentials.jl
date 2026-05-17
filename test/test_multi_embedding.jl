@@ -19,7 +19,7 @@ using EDDPotentials:
     ginit,
     fd_desc,
     stress_gradient
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     ManualFluxBackPropInterface,
     LinearInterface,
     flux_mlp_model,
@@ -190,7 +190,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
     end
 
     @testset "JSON serialization round-trip" begin
-        using EDDPotentials.EDDPotentialsCore: save_model_artifact, load_model_artifact
+        using EDDPotentials.Potential: save_model_artifact, load_model_artifact
 
         mcf = MultiRandomEmbeddedCellFeature(
             [:H, :O]; nembed=2, n_multi=2, seeds=[5, 6], p2=[2], p3=[2], q3=[2],

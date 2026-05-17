@@ -1,37 +1,34 @@
-module EDDPotentialsCore
+module Potential
 
 using TimerOutputs
+import ..EDDPotentials:
+    to,
+    enable_eddp_timer!,
+    disable_eddp_timer!,
+    reset_eddp_timer!
 using StatsBase: mean, std
 using Glob: glob
-
-const to = TimerOutput()
-# Default to have the timer disabled
-disable_timer!(to)
-
-"""
-    enable_eddp_timer!()
-
-Enable internal timing collection for EDDP operations.
-"""
-enable_eddp_timer!() = enable_timer!(to)
-"""
-    disable_eddp_timer!()
-
-Disable internal timing collection for EDDP operations.
-"""
-disable_eddp_timer!() = disable_timer!(to)
-"""
-    reset_eddp_timer!()
-
-Reset internal timing counters.
-"""
-reset_eddp_timer!() = reset_timer!(to)
+using CellBase:
+    reciprocal,
+    clip,
+    frac_pos,
+    rattle!,
+    reduce,
+    Composition
+using NLSolversBase
+using Printf
+using ProgressMeter: @showprogress
+using Base.Threads
+using JLD2
+using Dates
+using UUIDs
+import CellBase: write_res
 
 # Core evaluation stack
 # External and shared utilities
 include("constants.jl")
 include("nnls/nnls.jl")
-include("utils/utils.jl")
+include("utils.jl")
 
 # Feature generation and embedding
 include("feature/feature.jl")
@@ -49,11 +46,12 @@ include("calculator/eddpcalculator.jl")
 include("calculator/modifiers/modifiers.jl")
 include("calculator/metacalculator.jl")
 include("pairpot.jl")
+include("utilities.jl")
 
 # CellBase re-exports used by downstream workflows and callers
 export Lattice, reciprocal, cellmat, cellvecs, cellpar, wrap!, volume, frac_pos, lattice
-export displace!, clip, Cell, supercell
-export distance_matrix, laplacian_matrix, nmodules, find_modules
+export clip, Cell
+export distance_matrix
 export get_positions, set_positions!, set_cell!, set_cellmat!, remove_dimensions
 
 # Core calculator and feature API
@@ -73,11 +71,17 @@ export feature_names, two_body_channel, two_body_range, three_body_channel, thre
 export spec_index, spec_symbol, lookup
 export RandomEmbeddedCellFeature
 export MultiRandomEmbeddedCellFeature
+export AbstractNNInterface,
+    LinearInterface,
+    FluxInterface,
+    ManualFluxBackPropInterface,
+    EnsembleNNInterface
 export FeatureProto, feature_size, one_body_offset
 export ModelArtifact,
     FeatureArtifact,
     load_model,
     load_model_artifact,
+    load_from_jld2,
     save_model_artifact,
     load_feature_json,
     load_feature_artifact,
@@ -96,12 +100,26 @@ export MetaCalculator,
     get_modifier,
     get_modifier_parameter,
     set_modifier_parameter!
+export _ensure_dir,
+    allclose,
+    ensure_dir,
+    fd_desc,
+    force_gradient,
+    get_label,
+    gvec_index_transfer,
+    is_unique_fvec,
+    lj_baseline_calc,
+    lj_baseline_feature,
+    lj_baseline_model,
+    lj_baseline_weights,
+    lj_like_calc,
+    stem,
+    stress_gradient,
+    test_finite_difference,
+    update_metadata!,
+    write_res
 
 # Timer controls
 export enable_eddp_timer!, disable_eddp_timer!, reset_eddp_timer!
-
-function __init__()
-    reset_timer!(to)
-end
 
 end # module

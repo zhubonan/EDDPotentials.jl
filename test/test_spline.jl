@@ -1,6 +1,6 @@
 using EDDPotentials
 using EDDPotentials: CellFeature, nfeatures
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     compute_fv_gv,
     compute_fv!,
     compute_fv_gv!,
@@ -29,7 +29,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
         for r in [0.01, 0.5, 1.0, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5]
             fval = fr(r, rcut)
             direct = ntuple(i -> fval^powers[i], length(powers))
-            spline = Tuple(EDDPotentials.EDDPotentialsCore.evaluate_svector(tbl, Float64(r)))
+            spline = Tuple(EDDPotentials.Potential.evaluate_svector(tbl, Float64(r)))
             for i in eachindex(powers)
                 @test abs(spline[i] - direct[i]) < max(1e-8, abs(direct[i]) * 1e-11)
             end
@@ -39,7 +39,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
         for r in [4.9, 4.99, 4.999]
             fval = fr(r, rcut)
             direct = ntuple(i -> fval^powers[i], length(powers))
-            spline = Tuple(EDDPotentials.EDDPotentialsCore.evaluate_svector(tbl, Float64(r)))
+            spline = Tuple(EDDPotentials.Potential.evaluate_svector(tbl, Float64(r)))
             for i in eachindex(powers)
                 max_abs = max(max_abs, abs(spline[i] - direct[i]))
             end
@@ -49,7 +49,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
 
     @testset "feature vectors: spline vs direct (Float64 exponents)" begin
         cell = _h2o_cell()
-        geom_powers = EDDPotentials.EDDPotentialsCore.genp(2, 10, 8)
+        geom_powers = EDDPotentials.Potential.genp(2, 10, 8)
         cf = CellFeature([:H, :O]; p2=geom_powers, p3=geom_powers, q3=geom_powers, rcut2=5.0, rcut3=5.0)
 
         rcut = suggest_rcut(cf; shell=0.0)
@@ -73,7 +73,7 @@ isdefined(Main, :_h2_cell) || include("utils.jl")
 
     @testset "feature vectors: spline vs direct (multi-species)" begin
         cell = _lco_cell(rng=Random.MersenneTwister(5))
-        geom_powers = EDDPotentials.EDDPotentialsCore.genp(2, 8, 6)
+        geom_powers = EDDPotentials.Potential.genp(2, 8, 6)
         cf = CellFeature([:Li, :Co, :O]; p2=geom_powers, p3=geom_powers, q3=geom_powers, rcut2=4.0, rcut3=4.0)
 
         rcut = suggest_rcut(cf; shell=0.0)

@@ -6,74 +6,45 @@ Generated from the current runtime include graph. Experimental sources are inten
 - `EDDPotentials.jl`
 
 ## Runtime Modules
-- `EDDPotentials.jl`: `EDDPotentials`, `Potential`, `Model`, `Tools`, `Training`, `Search`, `Workflow`, `Analysis`
-- `core/EDDPotentialsCore.jl`: `EDDPotentialsCore`
-- `core/nnls/nnls.jl`: `NNLS`
-- `data/preprocessing.jl`: `Data`
+- `EDDPotentials.jl`: `EDDPotentials`
+- `analysis/Analysis.jl`: `Analysis`
+- `potential/Potential.jl`: `Potential`
+- `potential/nnls/nnls.jl`: `NNLS`
+- `search/Search.jl`: `Search`
 - `simulation/Simulation.jl`: `Simulation`
+- `training/Training.jl`: `Training`
+- `workflow/Workflow.jl`: `Workflow`
 
 ## Include Edges
-- `EDDPotentials.jl` -> `core/EDDPotentialsCore.jl`
-- `EDDPotentials.jl` -> `data/preprocessing.jl`
+- `EDDPotentials.jl` -> `potential/Potential.jl`
+- `EDDPotentials.jl` -> `training/Training.jl`
 - `EDDPotentials.jl` -> `simulation/Simulation.jl`
-- `EDDPotentials.jl` -> `tools.jl`
-- `EDDPotentials.jl` -> `training/context.jl`
-- `EDDPotentials.jl` -> `training/lmsolve.jl`
-- `EDDPotentials.jl` -> `training/lmsolve_batched.jl`
-- `EDDPotentials.jl` -> `training/sgd_training.jl`
-- `EDDPotentials.jl` -> `training/training.jl`
-- `EDDPotentials.jl` -> `search/buildcell.jl`
-- `EDDPotentials.jl` -> `search/transforms.jl`
-- `EDDPotentials.jl` -> `search/hot.jl`
-- `EDDPotentials.jl` -> `workflow/hyper.jl`
-- `EDDPotentials.jl` -> `search/rss.jl`
-- `EDDPotentials.jl` -> `search/minsep.jl`
-- `EDDPotentials.jl` -> `search/model_structures.jl`
-- `EDDPotentials.jl` -> `link/link.jl`
-- `EDDPotentials.jl` -> `workflow/hyper_builder.jl`
-- `EDDPotentials.jl` -> `analysis/evaluation.jl`
-- `EDDPotentials.jl` -> `analysis/records.jl`
-- `EDDPotentials.jl` -> `analysis/plotting/recipes.jl`
-- `EDDPotentials.jl` -> `analysis/lazy_res.jl`
-- `EDDPotentials.jl` -> `analysis/plotting.jl`
-- `core/EDDPotentialsCore.jl` -> `core/constants.jl`
-- `core/EDDPotentialsCore.jl` -> `core/nnls/nnls.jl`
-- `core/EDDPotentialsCore.jl` -> `core/utils/utils.jl`
-- `core/EDDPotentialsCore.jl` -> `core/feature/feature.jl`
-- `core/EDDPotentialsCore.jl` -> `core/embedding.jl`
-- `core/EDDPotentialsCore.jl` -> `core/embedding_rules.jl`
-- `core/EDDPotentialsCore.jl` -> `core/gradient/gradient.jl`
-- `core/EDDPotentialsCore.jl` -> `core/nn/interface.jl`
-- `core/EDDPotentialsCore.jl` -> `core/nntools.jl`
-- `core/EDDPotentialsCore.jl` -> `core/calculator.jl`
-- `core/EDDPotentialsCore.jl` -> `core/calculator/eddpcalculator.jl`
-- `core/EDDPotentialsCore.jl` -> `core/calculator/modifiers/modifiers.jl`
-- `core/EDDPotentialsCore.jl` -> `core/calculator/metacalculator.jl`
-- `core/EDDPotentialsCore.jl` -> `core/pairpot.jl`
-- `core/calculator/modifiers/modifiers.jl` -> `core/calculator/modifiers/abstract.jl`
-- `core/calculator/modifiers/modifiers.jl` -> `core/calculator/modifiers/dimension_penalty.jl`
-- `core/calculator/modifiers/modifiers.jl` -> `core/calculator/modifiers/volume_constraint.jl`
-- `core/calculator/modifiers/modifiers.jl` -> `core/calculator/modifiers/additive_calc.jl`
-- `core/feature/feature.jl` -> `core/feature/spline_table.jl`
-- `core/feature/feature.jl` -> `core/feature/cell.jl`
-- `core/feature/feature.jl` -> `core/feature/embedded.jl`
-- `core/feature/feature.jl` -> `core/feature/multi_embedded.jl`
-- `core/gradient/gradient.jl` -> `core/gradient/repulsive_core.jl`
-- `core/gradient/gradient.jl` -> `core/gradient/workspace.jl`
-- `core/nn/interface.jl` -> `core/nn/manual_backprop.jl`
-- `core/nn/interface.jl` -> `core/nn/linear.jl`
-- `core/nn/interface.jl` -> `core/nn/ensemble.jl`
-- `core/nn/interface.jl` -> `core/nn/flux.jl`
-- `core/nn/interface.jl` -> `core/nn/json_serialization.jl`
-- `link/link.jl` -> `link/options.jl`
-- `link/link.jl` -> `link/utils.jl`
-- `link/link.jl` -> `link/formula_sampling.jl`
-- `link/link.jl` -> `link/workflow.jl`
-- `link/link.jl` -> `link/trainer.jl`
-- `link/link.jl` -> `link/external.jl`
-- `link/link.jl` -> `link/data.jl`
-- `link/link.jl` -> `link/analysis.jl`
-- `link/link.jl` -> `link/client_server.jl`
+- `EDDPotentials.jl` -> `search/Search.jl`
+- `EDDPotentials.jl` -> `workflow/Workflow.jl`
+- `EDDPotentials.jl` -> `analysis/Analysis.jl`
+- `analysis/Analysis.jl` -> `analysis/evaluation.jl`
+- `analysis/Analysis.jl` -> `analysis/records.jl`
+- `analysis/Analysis.jl` -> `analysis/plotting_recipes.jl`
+- `analysis/Analysis.jl` -> `analysis/lazy_res.jl`
+- `analysis/Analysis.jl` -> `analysis/plotting.jl`
+- `workflow/Workflow.jl` -> `workflow/link/link.jl`
+- `workflow/Workflow.jl` -> `workflow/link/hyper_builder.jl`
+- `workflow/link/link.jl` -> `workflow/link/options.jl`
+- `workflow/link/link.jl` -> `workflow/link/utils.jl`
+- `workflow/link/link.jl` -> `workflow/link/formula_sampling.jl`
+- `workflow/link/link.jl` -> `workflow/link/workflow.jl`
+- `workflow/link/link.jl` -> `workflow/link/trainer.jl`
+- `workflow/link/link.jl` -> `workflow/link/external.jl`
+- `workflow/link/link.jl` -> `workflow/link/data.jl`
+- `workflow/link/link.jl` -> `workflow/link/analysis.jl`
+- `workflow/link/link.jl` -> `workflow/link/client_server.jl`
+- `search/Search.jl` -> `search/buildcell.jl`
+- `search/Search.jl` -> `search/transforms.jl`
+- `search/Search.jl` -> `search/hot.jl`
+- `search/Search.jl` -> `search/hyper.jl`
+- `search/Search.jl` -> `search/rss.jl`
+- `search/Search.jl` -> `search/minsep.jl`
+- `search/Search.jl` -> `search/model_structures.jl`
 - `simulation/Simulation.jl` -> `simulation/optimizer/abstract.jl`
 - `simulation/Simulation.jl` -> `simulation/optimizer/utils.jl`
 - `simulation/Simulation.jl` -> `simulation/optimizer/constraints.jl`
@@ -82,7 +53,43 @@ Generated from the current runtime include graph. Experimental sources are inten
 - `simulation/Simulation.jl` -> `simulation/opt.jl`
 - `simulation/Simulation.jl` -> `simulation/relax.jl`
 - `simulation/Simulation.jl` -> `simulation/md.jl`
+- `training/Training.jl` -> `training/data.jl`
+- `training/Training.jl` -> `training/context.jl`
+- `training/Training.jl` -> `training/lmsolve.jl`
+- `training/Training.jl` -> `training/lmsolve_batched.jl`
+- `training/Training.jl` -> `training/sgd_training.jl`
+- `training/Training.jl` -> `training/training.jl`
+- `potential/Potential.jl` -> `potential/constants.jl`
+- `potential/Potential.jl` -> `potential/nnls/nnls.jl`
+- `potential/Potential.jl` -> `potential/utils.jl`
+- `potential/Potential.jl` -> `potential/feature/feature.jl`
+- `potential/Potential.jl` -> `potential/embedding.jl`
+- `potential/Potential.jl` -> `potential/embedding_rules.jl`
+- `potential/Potential.jl` -> `potential/gradient/gradient.jl`
+- `potential/Potential.jl` -> `potential/nn/interface.jl`
+- `potential/Potential.jl` -> `potential/nntools.jl`
+- `potential/Potential.jl` -> `potential/calculator.jl`
+- `potential/Potential.jl` -> `potential/calculator/eddpcalculator.jl`
+- `potential/Potential.jl` -> `potential/calculator/modifiers/modifiers.jl`
+- `potential/Potential.jl` -> `potential/calculator/metacalculator.jl`
+- `potential/Potential.jl` -> `potential/pairpot.jl`
+- `potential/Potential.jl` -> `potential/utilities.jl`
+- `potential/calculator/modifiers/modifiers.jl` -> `potential/calculator/modifiers/abstract.jl`
+- `potential/calculator/modifiers/modifiers.jl` -> `potential/calculator/modifiers/dimension_penalty.jl`
+- `potential/calculator/modifiers/modifiers.jl` -> `potential/calculator/modifiers/volume_constraint.jl`
+- `potential/calculator/modifiers/modifiers.jl` -> `potential/calculator/modifiers/additive_calc.jl`
+- `potential/nn/interface.jl` -> `potential/nn/manual_backprop.jl`
+- `potential/nn/interface.jl` -> `potential/nn/linear.jl`
+- `potential/nn/interface.jl` -> `potential/nn/ensemble.jl`
+- `potential/nn/interface.jl` -> `potential/nn/flux.jl`
+- `potential/nn/interface.jl` -> `potential/nn/json_serialization.jl`
+- `potential/gradient/gradient.jl` -> `potential/gradient/repulsive_core.jl`
+- `potential/gradient/gradient.jl` -> `potential/gradient/workspace.jl`
+- `potential/feature/feature.jl` -> `potential/feature/spline_table.jl`
+- `potential/feature/feature.jl` -> `potential/feature/cell.jl`
+- `potential/feature/feature.jl` -> `potential/feature/embedded.jl`
+- `potential/feature/feature.jl` -> `potential/feature/multi_embedded.jl`
 
 ## Reachability
-- Runtime nodes reachable from `EDDPotentials.jl`: 70
+- Runtime nodes reachable from `EDDPotentials.jl`: 74
 - Orphans outside `experimental/`: none

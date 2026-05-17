@@ -3,7 +3,7 @@ using EDDPotentials:
     compute_objectives,
     compute_objectives_diff,
     train_lm_batched!
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     ManualFluxBackPropInterface,
     nparams,
     setup_fj,
@@ -37,7 +37,7 @@ using StatsBase
 
         @test length(pool.jtmps) == nslots
         @test length(pool.gchains) == nslots
-        @test pool.chain === EDDPotentials.EDDPotentialsCore.get_flux_model(model)
+        @test pool.chain === EDDPotentials.Potential.get_flux_model(model)
         @test length(pool.jtmps[1]) == nparams(model)
     end
 
@@ -62,16 +62,16 @@ using StatsBase
 
     @testset "_chunk_ranges" begin
         # Even division
-        chunks = EDDPotentials.EDDPotentialsCore._chunk_ranges(20; ngps=2)
+        chunks = EDDPotentials.Potential._chunk_ranges(20; ngps=2)
         @test sum(length, chunks) == 20
         @test all(c -> !isempty(c), chunks)
 
         # Uneven division — remainder chunk
-        chunks = EDDPotentials.EDDPotentialsCore._chunk_ranges(23; ngps=2)
+        chunks = EDDPotentials.Potential._chunk_ranges(23; ngps=2)
         @test sum(length, chunks) == 23
 
         # Too few data points — one element per chunk
-        chunks = EDDPotentials.EDDPotentialsCore._chunk_ranges(3; ngps=100)
+        chunks = EDDPotentials.Potential._chunk_ranges(3; ngps=100)
         @test length(chunks) == 3
         @test sum(length, chunks) == 3
     end
@@ -106,7 +106,7 @@ using StatsBase
                 )
                 # Give both models identical weights
                 p0 = paramvector(model_seq)
-                EDDPotentials.EDDPotentialsCore.setparamvector!(model_thr, p0)
+                EDDPotentials.Potential.setparamvector!(model_thr, p0)
 
                 fj_batch_seq!, f_full_seq! = setup_fj_batched(model_seq, data, y)
                 fj_batch_thr!, f_full_thr!, _ = setup_fj_batched_threaded(model_thr, data, y; ngps=2)
@@ -161,7 +161,7 @@ using StatsBase
             Chain(Dense(rand(1, nf), rand(1))),
         )
         p0 = paramvector(model_seq)
-        EDDPotentials.EDDPotentialsCore.setparamvector!(model_thr, p0)
+        EDDPotentials.Potential.setparamvector!(model_thr, p0)
 
         fj_seq!, _ = setup_fj_batched(model_seq, data, y, weights)
         fj_thr!, _, _ = setup_fj_batched_threaded(model_thr, data, y, weights; ngps=2)
@@ -193,10 +193,10 @@ using StatsBase
         compute_objectives_diff(f_seq, j_seq, model, data, y; jtmp=j_seq[1, :])
 
         # Re-set parameters and compute via the internal threaded function
-        EDDPotentials.EDDPotentialsCore.setparamvector!(model, p0)
+        EDDPotentials.Potential.setparamvector!(model, p0)
         f_thr = zeros(length(data))
         j_thr = zeros(length(data), nparams(model))
-        EDDPotentials.EDDPotentialsCore._compute_objectives_diff_threaded(
+        EDDPotentials.Potential._compute_objectives_diff_threaded(
             f_thr, j_thr, model, data, y; jtmp=j_thr[1, :], ngps=2,
         )
 
@@ -236,7 +236,7 @@ using StatsBase
         model_thr = ManualFluxBackPropInterface(
             Chain(Dense(rand(1, nf), rand(1))),
         )
-        EDDPotentials.EDDPotentialsCore.setparamvector!(model_thr, copy(p0))
+        EDDPotentials.Potential.setparamvector!(model_thr, copy(p0))
 
         train_lm_batched!(
             model_seq, data, y;

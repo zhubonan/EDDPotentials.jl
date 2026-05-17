@@ -1,5 +1,3 @@
-module Data
-
 using JLD2
 using StatsBase: fit, transform!, reconstruct!, ZScoreTransform
 using Random
@@ -17,7 +15,7 @@ using CellBase:
     reduce_composition,
     species,
     volume
-using ..EDDPotentialsCore:
+using ..Potential:
     AbstractCellFeatureSpec,
     CellFeature,
     GPaToeVAng,
@@ -1681,5 +1679,3 @@ function save_feature_store_streaming(
 
     return store, fs_val
 end
-
-end # module Data

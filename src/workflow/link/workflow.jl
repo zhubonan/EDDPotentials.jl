@@ -14,7 +14,7 @@ using YAML
 using TOML
 using ArgParse
 using Random
-using ..EDDPotentialsCore: CellEmbedding, EnsembleNNInterface, load_model_artifact
+using ..Potential: CellEmbedding, EnsembleNNInterface, load_model_artifact
 
 # Note: Utils functions will be available from parent module after include
 # using ensure_dir, input_structure_dir, output_structure_dir

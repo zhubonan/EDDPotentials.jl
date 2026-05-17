@@ -25,7 +25,7 @@ Pass `train_method="sgd"` to the standard `train!` function. All SGD keyword arg
 
 ```julia
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
+using EDDPotentials.Potential: ManualFluxBackPropInterface
 
 # Load and prepare data
 sc = StructureContainer(["data/*.res"])
@@ -160,7 +160,7 @@ The simplest configuration. Adam with default hyperparameters is a good starting
 
 ```julia
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
+using EDDPotentials.Potential: ManualFluxBackPropInterface
 
 sc = StructureContainer(["data/*.res"])
 cf = CellFeature([:Si, :O])
@@ -212,7 +212,7 @@ SGD training fits into the standard EDDP training and ensemble pipeline:
 
 ```julia
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface, nparams
+using EDDPotentials.Potential: ManualFluxBackPropInterface, nparams
 using EDDPotentials: create_ensemble
 
 # Prepare data

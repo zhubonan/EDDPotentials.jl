@@ -18,7 +18,7 @@ using EDDPotentials:
     compare_forces,
     compare_stress,
     load_evaluation_data
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface, DenseGradient
+using EDDPotentials.Potential: ManualFluxBackPropInterface, DenseGradient
 using CellBase
 using Test
 

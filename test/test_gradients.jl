@@ -13,7 +13,7 @@ using EDDPotentials:
     _fd_strain,
     _pair_rcut,
     _make_core_repulsion
-using EDDPotentials.EDDPotentialsCore: compute_fv_gv, ManualFluxBackPropInterface
+using EDDPotentials.Potential: compute_fv_gv, ManualFluxBackPropInterface
 using EDDPotentials: fd_desc, force_gradient, stress_gradient, test_finite_difference
 using CellBase
 using CellBase: add_dimensions

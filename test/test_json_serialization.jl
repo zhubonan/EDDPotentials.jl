@@ -1,6 +1,6 @@
 using EDDPotentials
 using EDDPotentials: EDDPCalculator, eddp_energy, feature_vector
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     BodyEmbedding,
     CellEmbedding,
     EnsembleNNInterface,

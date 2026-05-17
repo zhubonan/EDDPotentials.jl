@@ -1,495 +1,411 @@
 {
-  "entry": "EDDPotentials.jl",
-  "include_edges": [
+  "edges": [
     {
       "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "core/EDDPotentialsCore.jl"
+      "to": "potential/Potential.jl"
     },
     {
       "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "data/preprocessing.jl"
+      "to": "training/Training.jl"
     },
     {
       "from": "EDDPotentials.jl",
-      "kind": "include",
       "to": "simulation/Simulation.jl"
     },
     {
       "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "tools.jl"
+      "to": "search/Search.jl"
     },
     {
       "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "training/context.jl"
+      "to": "workflow/Workflow.jl"
     },
     {
       "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "training/lmsolve.jl"
+      "to": "analysis/Analysis.jl"
     },
     {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "training/lmsolve_batched.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "training/sgd_training.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "training/training.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "search/buildcell.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "search/transforms.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "search/hot.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "workflow/hyper.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "search/rss.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "search/minsep.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "search/model_structures.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "link/link.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "workflow/hyper_builder.jl"
-    },
-    {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
+      "from": "analysis/Analysis.jl",
       "to": "analysis/evaluation.jl"
     },
     {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
+      "from": "analysis/Analysis.jl",
       "to": "analysis/records.jl"
     },
     {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
-      "to": "analysis/plotting/recipes.jl"
+      "from": "analysis/Analysis.jl",
+      "to": "analysis/plotting_recipes.jl"
     },
     {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
+      "from": "analysis/Analysis.jl",
       "to": "analysis/lazy_res.jl"
     },
     {
-      "from": "EDDPotentials.jl",
-      "kind": "include",
+      "from": "analysis/Analysis.jl",
       "to": "analysis/plotting.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/constants.jl"
+      "from": "workflow/Workflow.jl",
+      "to": "workflow/link/link.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/nnls/nnls.jl"
+      "from": "workflow/Workflow.jl",
+      "to": "workflow/link/hyper_builder.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/utils/utils.jl"
+      "from": "workflow/link/link.jl",
+      "to": "workflow/link/options.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/feature/feature.jl"
+      "from": "workflow/link/link.jl",
+      "to": "workflow/link/utils.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/embedding.jl"
+      "from": "workflow/link/link.jl",
+      "to": "workflow/link/formula_sampling.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/embedding_rules.jl"
+      "from": "workflow/link/link.jl",
+      "to": "workflow/link/workflow.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/gradient/gradient.jl"
+      "from": "workflow/link/link.jl",
+      "to": "workflow/link/trainer.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/nn/interface.jl"
+      "from": "workflow/link/link.jl",
+      "to": "workflow/link/external.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/nntools.jl"
+      "from": "workflow/link/link.jl",
+      "to": "workflow/link/data.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/calculator.jl"
+      "from": "workflow/link/link.jl",
+      "to": "workflow/link/analysis.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/calculator/eddpcalculator.jl"
+      "from": "workflow/link/link.jl",
+      "to": "workflow/link/client_server.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/calculator/modifiers/modifiers.jl"
+      "from": "search/Search.jl",
+      "to": "search/buildcell.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/calculator/metacalculator.jl"
+      "from": "search/Search.jl",
+      "to": "search/transforms.jl"
     },
     {
-      "from": "core/EDDPotentialsCore.jl",
-      "kind": "include",
-      "to": "core/pairpot.jl"
+      "from": "search/Search.jl",
+      "to": "search/hot.jl"
     },
     {
-      "from": "core/calculator/modifiers/modifiers.jl",
-      "kind": "include",
-      "to": "core/calculator/modifiers/abstract.jl"
+      "from": "search/Search.jl",
+      "to": "search/hyper.jl"
     },
     {
-      "from": "core/calculator/modifiers/modifiers.jl",
-      "kind": "include",
-      "to": "core/calculator/modifiers/dimension_penalty.jl"
+      "from": "search/Search.jl",
+      "to": "search/rss.jl"
     },
     {
-      "from": "core/calculator/modifiers/modifiers.jl",
-      "kind": "include",
-      "to": "core/calculator/modifiers/volume_constraint.jl"
+      "from": "search/Search.jl",
+      "to": "search/minsep.jl"
     },
     {
-      "from": "core/calculator/modifiers/modifiers.jl",
-      "kind": "include",
-      "to": "core/calculator/modifiers/additive_calc.jl"
-    },
-    {
-      "from": "core/feature/feature.jl",
-      "kind": "include",
-      "to": "core/feature/spline_table.jl"
-    },
-    {
-      "from": "core/feature/feature.jl",
-      "kind": "include",
-      "to": "core/feature/cell.jl"
-    },
-    {
-      "from": "core/feature/feature.jl",
-      "kind": "include",
-      "to": "core/feature/embedded.jl"
-    },
-    {
-      "from": "core/feature/feature.jl",
-      "kind": "include",
-      "to": "core/feature/multi_embedded.jl"
-    },
-    {
-      "from": "core/gradient/gradient.jl",
-      "kind": "include",
-      "to": "core/gradient/repulsive_core.jl"
-    },
-    {
-      "from": "core/gradient/gradient.jl",
-      "kind": "include",
-      "to": "core/gradient/workspace.jl"
-    },
-    {
-      "from": "core/nn/interface.jl",
-      "kind": "include",
-      "to": "core/nn/manual_backprop.jl"
-    },
-    {
-      "from": "core/nn/interface.jl",
-      "kind": "include",
-      "to": "core/nn/linear.jl"
-    },
-    {
-      "from": "core/nn/interface.jl",
-      "kind": "include",
-      "to": "core/nn/ensemble.jl"
-    },
-    {
-      "from": "core/nn/interface.jl",
-      "kind": "include",
-      "to": "core/nn/flux.jl"
-    },
-    {
-      "from": "core/nn/interface.jl",
-      "kind": "include",
-      "to": "core/nn/json_serialization.jl"
-    },
-    {
-      "from": "link/link.jl",
-      "kind": "include",
-      "to": "link/options.jl"
-    },
-    {
-      "from": "link/link.jl",
-      "kind": "include",
-      "to": "link/utils.jl"
-    },
-    {
-      "from": "link/link.jl",
-      "kind": "include",
-      "to": "link/formula_sampling.jl"
-    },
-    {
-      "from": "link/link.jl",
-      "kind": "include",
-      "to": "link/workflow.jl"
-    },
-    {
-      "from": "link/link.jl",
-      "kind": "include",
-      "to": "link/trainer.jl"
-    },
-    {
-      "from": "link/link.jl",
-      "kind": "include",
-      "to": "link/external.jl"
-    },
-    {
-      "from": "link/link.jl",
-      "kind": "include",
-      "to": "link/data.jl"
-    },
-    {
-      "from": "link/link.jl",
-      "kind": "include",
-      "to": "link/analysis.jl"
-    },
-    {
-      "from": "link/link.jl",
-      "kind": "include",
-      "to": "link/client_server.jl"
+      "from": "search/Search.jl",
+      "to": "search/model_structures.jl"
     },
     {
       "from": "simulation/Simulation.jl",
-      "kind": "include",
       "to": "simulation/optimizer/abstract.jl"
     },
     {
       "from": "simulation/Simulation.jl",
-      "kind": "include",
       "to": "simulation/optimizer/utils.jl"
     },
     {
       "from": "simulation/Simulation.jl",
-      "kind": "include",
       "to": "simulation/optimizer/constraints.jl"
     },
     {
       "from": "simulation/Simulation.jl",
-      "kind": "include",
       "to": "simulation/optimizer/tpsd.jl"
     },
     {
       "from": "simulation/Simulation.jl",
-      "kind": "include",
       "to": "simulation/optimizer/fire.jl"
     },
     {
       "from": "simulation/Simulation.jl",
-      "kind": "include",
       "to": "simulation/opt.jl"
     },
     {
       "from": "simulation/Simulation.jl",
-      "kind": "include",
       "to": "simulation/relax.jl"
     },
     {
       "from": "simulation/Simulation.jl",
-      "kind": "include",
       "to": "simulation/md.jl"
+    },
+    {
+      "from": "training/Training.jl",
+      "to": "training/data.jl"
+    },
+    {
+      "from": "training/Training.jl",
+      "to": "training/context.jl"
+    },
+    {
+      "from": "training/Training.jl",
+      "to": "training/lmsolve.jl"
+    },
+    {
+      "from": "training/Training.jl",
+      "to": "training/lmsolve_batched.jl"
+    },
+    {
+      "from": "training/Training.jl",
+      "to": "training/sgd_training.jl"
+    },
+    {
+      "from": "training/Training.jl",
+      "to": "training/training.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/constants.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/nnls/nnls.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/utils.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/feature/feature.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/embedding.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/embedding_rules.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/gradient/gradient.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/nn/interface.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/nntools.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/calculator.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/calculator/eddpcalculator.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/calculator/modifiers/modifiers.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/calculator/metacalculator.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/pairpot.jl"
+    },
+    {
+      "from": "potential/Potential.jl",
+      "to": "potential/utilities.jl"
+    },
+    {
+      "from": "potential/calculator/modifiers/modifiers.jl",
+      "to": "potential/calculator/modifiers/abstract.jl"
+    },
+    {
+      "from": "potential/calculator/modifiers/modifiers.jl",
+      "to": "potential/calculator/modifiers/dimension_penalty.jl"
+    },
+    {
+      "from": "potential/calculator/modifiers/modifiers.jl",
+      "to": "potential/calculator/modifiers/volume_constraint.jl"
+    },
+    {
+      "from": "potential/calculator/modifiers/modifiers.jl",
+      "to": "potential/calculator/modifiers/additive_calc.jl"
+    },
+    {
+      "from": "potential/nn/interface.jl",
+      "to": "potential/nn/manual_backprop.jl"
+    },
+    {
+      "from": "potential/nn/interface.jl",
+      "to": "potential/nn/linear.jl"
+    },
+    {
+      "from": "potential/nn/interface.jl",
+      "to": "potential/nn/ensemble.jl"
+    },
+    {
+      "from": "potential/nn/interface.jl",
+      "to": "potential/nn/flux.jl"
+    },
+    {
+      "from": "potential/nn/interface.jl",
+      "to": "potential/nn/json_serialization.jl"
+    },
+    {
+      "from": "potential/gradient/gradient.jl",
+      "to": "potential/gradient/repulsive_core.jl"
+    },
+    {
+      "from": "potential/gradient/gradient.jl",
+      "to": "potential/gradient/workspace.jl"
+    },
+    {
+      "from": "potential/feature/feature.jl",
+      "to": "potential/feature/spline_table.jl"
+    },
+    {
+      "from": "potential/feature/feature.jl",
+      "to": "potential/feature/cell.jl"
+    },
+    {
+      "from": "potential/feature/feature.jl",
+      "to": "potential/feature/embedded.jl"
+    },
+    {
+      "from": "potential/feature/feature.jl",
+      "to": "potential/feature/multi_embedded.jl"
     }
   ],
-  "include_reachable": [
-    "EDDPotentials.jl",
-    "analysis/evaluation.jl",
-    "analysis/lazy_res.jl",
-    "analysis/plotting.jl",
-    "analysis/plotting/recipes.jl",
-    "analysis/records.jl",
-    "core/EDDPotentialsCore.jl",
-    "core/calculator.jl",
-    "core/calculator/eddpcalculator.jl",
-    "core/calculator/metacalculator.jl",
-    "core/calculator/modifiers/abstract.jl",
-    "core/calculator/modifiers/additive_calc.jl",
-    "core/calculator/modifiers/dimension_penalty.jl",
-    "core/calculator/modifiers/modifiers.jl",
-    "core/calculator/modifiers/volume_constraint.jl",
-    "core/constants.jl",
-    "core/embedding.jl",
-    "core/embedding_rules.jl",
-    "core/feature/cell.jl",
-    "core/feature/embedded.jl",
-    "core/feature/feature.jl",
-    "core/feature/multi_embedded.jl",
-    "core/feature/spline_table.jl",
-    "core/gradient/gradient.jl",
-    "core/gradient/repulsive_core.jl",
-    "core/gradient/workspace.jl",
-    "core/nn/ensemble.jl",
-    "core/nn/flux.jl",
-    "core/nn/interface.jl",
-    "core/nn/json_serialization.jl",
-    "core/nn/linear.jl",
-    "core/nn/manual_backprop.jl",
-    "core/nnls/nnls.jl",
-    "core/nntools.jl",
-    "core/pairpot.jl",
-    "core/utils/utils.jl",
-    "data/preprocessing.jl",
-    "link/analysis.jl",
-    "link/client_server.jl",
-    "link/data.jl",
-    "link/external.jl",
-    "link/formula_sampling.jl",
-    "link/link.jl",
-    "link/options.jl",
-    "link/trainer.jl",
-    "link/utils.jl",
-    "link/workflow.jl",
-    "search/buildcell.jl",
-    "search/hot.jl",
-    "search/minsep.jl",
-    "search/model_structures.jl",
-    "search/rss.jl",
-    "search/transforms.jl",
-    "simulation/Simulation.jl",
-    "simulation/md.jl",
-    "simulation/opt.jl",
-    "simulation/optimizer/abstract.jl",
-    "simulation/optimizer/constraints.jl",
-    "simulation/optimizer/fire.jl",
-    "simulation/optimizer/tpsd.jl",
-    "simulation/optimizer/utils.jl",
-    "simulation/relax.jl",
-    "tools.jl",
-    "training/context.jl",
-    "training/lmsolve.jl",
-    "training/lmsolve_batched.jl",
-    "training/sgd_training.jl",
-    "training/training.jl",
-    "workflow/hyper.jl",
-    "workflow/hyper_builder.jl"
-  ],
-  "modules": {
+  "entry": "EDDPotentials.jl",
+  "includes": {
     "EDDPotentials.jl": [
-      "EDDPotentials",
-      "Potential",
-      "Model",
-      "Tools",
-      "Training",
-      "Search",
-      "Workflow",
-      "Analysis"
+      "potential/Potential.jl",
+      "training/Training.jl",
+      "simulation/Simulation.jl",
+      "search/Search.jl",
+      "workflow/Workflow.jl",
+      "analysis/Analysis.jl"
+    ],
+    "analysis/Analysis.jl": [
+      "analysis/evaluation.jl",
+      "analysis/records.jl",
+      "analysis/plotting_recipes.jl",
+      "analysis/lazy_res.jl",
+      "analysis/plotting.jl"
     ],
     "analysis/evaluation.jl": [],
     "analysis/lazy_res.jl": [],
     "analysis/plotting.jl": [],
-    "analysis/plotting/recipes.jl": [],
+    "analysis/plotting_recipes.jl": [],
     "analysis/records.jl": [],
-    "core/EDDPotentialsCore.jl": [
-      "EDDPotentialsCore"
+    "potential/Potential.jl": [
+      "potential/constants.jl",
+      "potential/nnls/nnls.jl",
+      "potential/utils.jl",
+      "potential/feature/feature.jl",
+      "potential/embedding.jl",
+      "potential/embedding_rules.jl",
+      "potential/gradient/gradient.jl",
+      "potential/nn/interface.jl",
+      "potential/nntools.jl",
+      "potential/calculator.jl",
+      "potential/calculator/eddpcalculator.jl",
+      "potential/calculator/modifiers/modifiers.jl",
+      "potential/calculator/metacalculator.jl",
+      "potential/pairpot.jl",
+      "potential/utilities.jl"
     ],
-    "core/calculator.jl": [],
-    "core/calculator/eddpcalculator.jl": [],
-    "core/calculator/metacalculator.jl": [],
-    "core/calculator/modifiers/abstract.jl": [],
-    "core/calculator/modifiers/additive_calc.jl": [],
-    "core/calculator/modifiers/dimension_penalty.jl": [],
-    "core/calculator/modifiers/modifiers.jl": [],
-    "core/calculator/modifiers/volume_constraint.jl": [],
-    "core/constants.jl": [],
-    "core/embedding.jl": [],
-    "core/embedding_rules.jl": [],
-    "core/feature/cell.jl": [],
-    "core/feature/embedded.jl": [],
-    "core/feature/feature.jl": [],
-    "core/feature/multi_embedded.jl": [],
-    "core/feature/spline_table.jl": [],
-    "core/gradient/gradient.jl": [],
-    "core/gradient/repulsive_core.jl": [],
-    "core/gradient/workspace.jl": [],
-    "core/nn/ensemble.jl": [],
-    "core/nn/flux.jl": [],
-    "core/nn/interface.jl": [],
-    "core/nn/json_serialization.jl": [],
-    "core/nn/linear.jl": [],
-    "core/nn/manual_backprop.jl": [],
-    "core/nnls/nnls.jl": [
-      "NNLS"
+    "potential/calculator.jl": [],
+    "potential/calculator/eddpcalculator.jl": [],
+    "potential/calculator/metacalculator.jl": [],
+    "potential/calculator/modifiers/abstract.jl": [],
+    "potential/calculator/modifiers/additive_calc.jl": [],
+    "potential/calculator/modifiers/dimension_penalty.jl": [],
+    "potential/calculator/modifiers/modifiers.jl": [
+      "potential/calculator/modifiers/abstract.jl",
+      "potential/calculator/modifiers/dimension_penalty.jl",
+      "potential/calculator/modifiers/volume_constraint.jl",
+      "potential/calculator/modifiers/additive_calc.jl"
     ],
-    "core/nntools.jl": [],
-    "core/pairpot.jl": [],
-    "core/utils/utils.jl": [],
-    "data/preprocessing.jl": [
-      "Data"
+    "potential/calculator/modifiers/volume_constraint.jl": [],
+    "potential/constants.jl": [],
+    "potential/embedding.jl": [],
+    "potential/embedding_rules.jl": [],
+    "potential/feature/cell.jl": [],
+    "potential/feature/embedded.jl": [],
+    "potential/feature/feature.jl": [
+      "potential/feature/spline_table.jl",
+      "potential/feature/cell.jl",
+      "potential/feature/embedded.jl",
+      "potential/feature/multi_embedded.jl"
     ],
-    "link/analysis.jl": [],
-    "link/client_server.jl": [],
-    "link/data.jl": [],
-    "link/external.jl": [],
-    "link/formula_sampling.jl": [],
-    "link/link.jl": [],
-    "link/options.jl": [],
-    "link/trainer.jl": [],
-    "link/utils.jl": [],
-    "link/workflow.jl": [],
+    "potential/feature/multi_embedded.jl": [],
+    "potential/feature/spline_table.jl": [],
+    "potential/gradient/gradient.jl": [
+      "potential/gradient/repulsive_core.jl",
+      "potential/gradient/workspace.jl"
+    ],
+    "potential/gradient/repulsive_core.jl": [],
+    "potential/gradient/workspace.jl": [],
+    "potential/nn/ensemble.jl": [],
+    "potential/nn/flux.jl": [],
+    "potential/nn/interface.jl": [
+      "potential/nn/manual_backprop.jl",
+      "potential/nn/linear.jl",
+      "potential/nn/ensemble.jl",
+      "potential/nn/flux.jl",
+      "potential/nn/json_serialization.jl"
+    ],
+    "potential/nn/json_serialization.jl": [],
+    "potential/nn/linear.jl": [],
+    "potential/nn/manual_backprop.jl": [],
+    "potential/nnls/nnls.jl": [],
+    "potential/nntools.jl": [],
+    "potential/pairpot.jl": [],
+    "potential/utilities.jl": [],
+    "potential/utils.jl": [],
+    "search/Search.jl": [
+      "search/buildcell.jl",
+      "search/transforms.jl",
+      "search/hot.jl",
+      "search/hyper.jl",
+      "search/rss.jl",
+      "search/minsep.jl",
+      "search/model_structures.jl"
+    ],
     "search/buildcell.jl": [],
     "search/hot.jl": [],
+    "search/hyper.jl": [],
     "search/minsep.jl": [],
     "search/model_structures.jl": [],
     "search/rss.jl": [],
     "search/transforms.jl": [],
     "simulation/Simulation.jl": [
-      "Simulation"
+      "simulation/optimizer/abstract.jl",
+      "simulation/optimizer/utils.jl",
+      "simulation/optimizer/constraints.jl",
+      "simulation/optimizer/tpsd.jl",
+      "simulation/optimizer/fire.jl",
+      "simulation/opt.jl",
+      "simulation/relax.jl",
+      "simulation/md.jl"
     ],
     "simulation/md.jl": [],
     "simulation/opt.jl": [],
@@ -499,65 +415,116 @@
     "simulation/optimizer/tpsd.jl": [],
     "simulation/optimizer/utils.jl": [],
     "simulation/relax.jl": [],
-    "tools.jl": [],
+    "training/Training.jl": [
+      "training/data.jl",
+      "training/context.jl",
+      "training/lmsolve.jl",
+      "training/lmsolve_batched.jl",
+      "training/sgd_training.jl",
+      "training/training.jl"
+    ],
     "training/context.jl": [],
+    "training/data.jl": [],
     "training/lmsolve.jl": [],
     "training/lmsolve_batched.jl": [],
     "training/sgd_training.jl": [],
     "training/training.jl": [],
-    "workflow/hyper.jl": [],
-    "workflow/hyper_builder.jl": []
+    "workflow/Workflow.jl": [
+      "workflow/link/link.jl",
+      "workflow/link/hyper_builder.jl"
+    ],
+    "workflow/link/analysis.jl": [],
+    "workflow/link/client_server.jl": [],
+    "workflow/link/data.jl": [],
+    "workflow/link/external.jl": [],
+    "workflow/link/formula_sampling.jl": [],
+    "workflow/link/hyper_builder.jl": [],
+    "workflow/link/link.jl": [
+      "workflow/link/options.jl",
+      "workflow/link/utils.jl",
+      "workflow/link/formula_sampling.jl",
+      "workflow/link/workflow.jl",
+      "workflow/link/trainer.jl",
+      "workflow/link/external.jl",
+      "workflow/link/data.jl",
+      "workflow/link/analysis.jl",
+      "workflow/link/client_server.jl"
+    ],
+    "workflow/link/options.jl": [],
+    "workflow/link/trainer.jl": [],
+    "workflow/link/utils.jl": [],
+    "workflow/link/workflow.jl": []
   },
-  "nodes": [
+  "modules": {
+    "EDDPotentials.jl": [
+      "EDDPotentials"
+    ],
+    "analysis/Analysis.jl": [
+      "Analysis"
+    ],
+    "potential/Potential.jl": [
+      "Potential"
+    ],
+    "potential/nnls/nnls.jl": [
+      "NNLS"
+    ],
+    "search/Search.jl": [
+      "Search"
+    ],
+    "simulation/Simulation.jl": [
+      "Simulation"
+    ],
+    "training/Training.jl": [
+      "Training"
+    ],
+    "workflow/Workflow.jl": [
+      "Workflow"
+    ]
+  },
+  "orphans": [],
+  "reachable": [
     "EDDPotentials.jl",
+    "analysis/Analysis.jl",
     "analysis/evaluation.jl",
     "analysis/lazy_res.jl",
     "analysis/plotting.jl",
-    "analysis/plotting/recipes.jl",
+    "analysis/plotting_recipes.jl",
     "analysis/records.jl",
-    "core/EDDPotentialsCore.jl",
-    "core/calculator.jl",
-    "core/calculator/eddpcalculator.jl",
-    "core/calculator/metacalculator.jl",
-    "core/calculator/modifiers/abstract.jl",
-    "core/calculator/modifiers/additive_calc.jl",
-    "core/calculator/modifiers/dimension_penalty.jl",
-    "core/calculator/modifiers/modifiers.jl",
-    "core/calculator/modifiers/volume_constraint.jl",
-    "core/constants.jl",
-    "core/embedding.jl",
-    "core/embedding_rules.jl",
-    "core/feature/cell.jl",
-    "core/feature/embedded.jl",
-    "core/feature/feature.jl",
-    "core/feature/multi_embedded.jl",
-    "core/feature/spline_table.jl",
-    "core/gradient/gradient.jl",
-    "core/gradient/repulsive_core.jl",
-    "core/gradient/workspace.jl",
-    "core/nn/ensemble.jl",
-    "core/nn/flux.jl",
-    "core/nn/interface.jl",
-    "core/nn/json_serialization.jl",
-    "core/nn/linear.jl",
-    "core/nn/manual_backprop.jl",
-    "core/nnls/nnls.jl",
-    "core/nntools.jl",
-    "core/pairpot.jl",
-    "core/utils/utils.jl",
-    "data/preprocessing.jl",
-    "link/analysis.jl",
-    "link/client_server.jl",
-    "link/data.jl",
-    "link/external.jl",
-    "link/formula_sampling.jl",
-    "link/link.jl",
-    "link/options.jl",
-    "link/trainer.jl",
-    "link/utils.jl",
-    "link/workflow.jl",
+    "potential/Potential.jl",
+    "potential/calculator.jl",
+    "potential/calculator/eddpcalculator.jl",
+    "potential/calculator/metacalculator.jl",
+    "potential/calculator/modifiers/abstract.jl",
+    "potential/calculator/modifiers/additive_calc.jl",
+    "potential/calculator/modifiers/dimension_penalty.jl",
+    "potential/calculator/modifiers/modifiers.jl",
+    "potential/calculator/modifiers/volume_constraint.jl",
+    "potential/constants.jl",
+    "potential/embedding.jl",
+    "potential/embedding_rules.jl",
+    "potential/feature/cell.jl",
+    "potential/feature/embedded.jl",
+    "potential/feature/feature.jl",
+    "potential/feature/multi_embedded.jl",
+    "potential/feature/spline_table.jl",
+    "potential/gradient/gradient.jl",
+    "potential/gradient/repulsive_core.jl",
+    "potential/gradient/workspace.jl",
+    "potential/nn/ensemble.jl",
+    "potential/nn/flux.jl",
+    "potential/nn/interface.jl",
+    "potential/nn/json_serialization.jl",
+    "potential/nn/linear.jl",
+    "potential/nn/manual_backprop.jl",
+    "potential/nnls/nnls.jl",
+    "potential/nntools.jl",
+    "potential/pairpot.jl",
+    "potential/utilities.jl",
+    "potential/utils.jl",
+    "search/Search.jl",
     "search/buildcell.jl",
     "search/hot.jl",
+    "search/hyper.jl",
     "search/minsep.jl",
     "search/model_structures.jl",
     "search/rss.jl",
@@ -571,14 +538,24 @@
     "simulation/optimizer/tpsd.jl",
     "simulation/optimizer/utils.jl",
     "simulation/relax.jl",
-    "tools.jl",
+    "training/Training.jl",
     "training/context.jl",
+    "training/data.jl",
     "training/lmsolve.jl",
     "training/lmsolve_batched.jl",
     "training/sgd_training.jl",
     "training/training.jl",
-    "workflow/hyper.jl",
-    "workflow/hyper_builder.jl"
-  ],
-  "orphans": []
+    "workflow/Workflow.jl",
+    "workflow/link/analysis.jl",
+    "workflow/link/client_server.jl",
+    "workflow/link/data.jl",
+    "workflow/link/external.jl",
+    "workflow/link/formula_sampling.jl",
+    "workflow/link/hyper_builder.jl",
+    "workflow/link/link.jl",
+    "workflow/link/options.jl",
+    "workflow/link/trainer.jl",
+    "workflow/link/utils.jl",
+    "workflow/link/workflow.jl"
+  ]
 }

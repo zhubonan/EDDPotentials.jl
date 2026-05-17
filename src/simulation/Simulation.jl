@@ -1,11 +1,11 @@
 module Simulation
 
-using ..EDDPotentialsCore
+using ..Potential
 using Printf
 import CellBase
 using CellBase: nions, positions, species, masses, cellmat, remove_dimensions
 import ..EDDPotentials: EDDPotentialsOption
-import ..EDDPotentialsCore:
+import ..Potential:
     get_cellmat,
     eVAngToGPa,
     get_modifier_parameter,

@@ -16,7 +16,7 @@ using EDDPotentials:
     ginit,
     _scatter_matrix,
     _hcat_batch
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     ManualFluxBackPropInterface,
     FluxInterface,
     nparams,

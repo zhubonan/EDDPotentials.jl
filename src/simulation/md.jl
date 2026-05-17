@@ -12,7 +12,7 @@ using Random
 using LinearAlgebra
 using Printf
 using Unitful: ustrip
-using ..EDDPotentialsCore: get_cell, eddp_energy, eddp_forces, eddp_stress
+using ..Potential: get_cell, eddp_energy, eddp_forces, eddp_stress
 
 # ─────────────────────────────────────────────────────────────
 # Constants

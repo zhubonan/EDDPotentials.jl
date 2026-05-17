@@ -1,5 +1,5 @@
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     LinearInterface,
     ManualFluxBackPropInterface,
     FluxInterface,
@@ -39,7 +39,7 @@ isdefined(Main, :allclose) || include("utils.jl")
     end
 
     @testset "Flux" begin
-        l = FluxInterface(Dense(10 => 1; init=EDDPotentialsCore.glorot_uniform_f64))
+        l = FluxInterface(Dense(10 => 1; init=Potential.glorot_uniform_f64))
         x = rand(10, 2)
 
         @test size(forward!(l, x)) == (1, 2)

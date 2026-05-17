@@ -22,7 +22,7 @@ using EDDPotentials:
     save_model_artifact,
     load_model_artifact,
     load_model
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     ManualFluxBackPropInterface,
     LinearInterface,
     AbstractNNInterface,
@@ -73,7 +73,7 @@ function _train_parent_sets(tm)
 end
 
 @testset "Training" begin
-    @testset "Tools" begin
+    @testset "NN objectives" begin
         Random.seed!(1234)
         nf = 1000
         data = vcat([rand(nf, 3) for _ = 1:10], [rand(nf, 2) for _ = 1:10])

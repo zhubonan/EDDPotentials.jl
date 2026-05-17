@@ -12,7 +12,7 @@ using Random
 using StatsBase: mean
 using Flux
 using Zygote: withgradient
-using ..EDDPotentialsCore:
+using ..Potential:
     AbstractNNInterface,
     get_flux_model,
     transformed_inp,
@@ -22,8 +22,8 @@ using ..EDDPotentialsCore:
     forward!,
     ThreadBufferPool,
     rmse_per_atom_threaded
-using ..EDDPotentialsCore: to
-using ..EDDPotentialsCore: save_model_artifact
+using ..EDDPotentials: to
+using ..Potential: save_model_artifact
 using Base.Threads: nthreads
 using TimerOutputs
 

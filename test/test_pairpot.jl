@@ -1,5 +1,5 @@
 using EDDPotentials
-using EDDPotentials.EDDPotentialsCore:
+using EDDPotentials.Potential:
     PairpotCalc, PairpotWorkspace, build_lj_spec,
     _repulsion, _grepulsion, e_lj
 using CellBase, Test, LinearAlgebra

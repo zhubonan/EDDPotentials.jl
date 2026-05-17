@@ -182,7 +182,7 @@ x_train, y_train = get_fit_data(fc_train)
 ### Step A4: Build and Train a Model
 
 ```julia
-using EDDPotentials.EDDPotentialsCore: ManualFluxBackPropInterface
+using EDDPotentials.Potential: ManualFluxBackPropInterface
 using Flux: Chain, Dense
 
 # Build a neural network architecture
