@@ -342,8 +342,7 @@ end
             @test isfile(joinpath(crud_workdir, "calc.param"))
             @test count(endswith(".res"), readdir(joinpath(crud_workdir, "hopper"))) == 2
 
-            EDDPotentials.write_worker_heartbeat!(
-                builder,
+            snapshot_worker = EDDPotentials.WorkerState(
                 "worker-1";
                 state="DFT_RUNNING",
                 phase="dft",
@@ -352,10 +351,63 @@ end
                 child_pid=123,
                 message="testing",
             )
+            EDDPotentials.write_worker_heartbeat!(builder, snapshot_worker)
             states = EDDPotentials.read_worker_states(builder)
             @test length(states) == 1
             @test states[1]["worker_id"] == "worker-1"
             @test states[1]["state"] == "DFT_RUNNING"
+            @test_throws ArgumentError EDDPotentials.WorkerState(
+                "worker-bad-state";
+                state="NOT_A_STATE",
+                phase="dft",
+            )
+            @test_throws ArgumentError EDDPotentials.WorkerState(
+                "worker-bad-phase";
+                state="DFT_RUNNING",
+                phase="training",
+            )
+
+            transition_worker = EDDPotentials.WorkerState("worker-transition"; iteration=0)
+            EDDPotentials.advance_worker!(
+                builder,
+                transition_worker,
+                EDDPotentials.WORKER_WAIT;
+                phase="dft",
+                iteration=0,
+                epoch=2,
+                run_id="transition-test",
+            )
+            EDDPotentials.advance_worker!(
+                builder,
+                transition_worker,
+                EDDPotentials.WORKER_DFT_RUNNING;
+                phase="dft",
+            )
+            EDDPotentials.advance_worker!(
+                builder,
+                transition_worker,
+                EDDPotentials.WORKER_DFT_DONE;
+                phase="dft",
+            )
+            @test transition_worker.state == "DFT_DONE"
+            EDDPotentials.write_worker_heartbeat!(
+                builder,
+                transition_worker;
+                message="refresh only",
+            )
+            @test transition_worker.state == "DFT_DONE"
+            @test transition_worker.message == "refresh only"
+            @test_throws MethodError EDDPotentials.write_worker_heartbeat!(
+                builder,
+                transition_worker;
+                state="IDLE",
+            )
+            @test_throws ArgumentError EDDPotentials.advance_worker!(
+                builder,
+                transition_worker,
+                EDDPotentials.WORKER_DFT_RUNNING;
+                phase="dft",
+            )
 
             training_phase = EDDPotentials.server_prepare_training_phase!(builder, 0)
             @test isfile(joinpath(training_phase, "READY"))
@@ -383,8 +435,6 @@ end
             @test "JULIA_NUM_THREADS=3" in train_cmd_env
             @test "OMP_NUM_THREADS=1" in train_cmd_env
             @test "EDDP_CUDA_DEVICE=0" in train_cmd_env
-            @test_throws ArgumentError EDDPotentials.training_slot_model_path(builder, 0, 1)
-            @test_throws ArgumentError EDDPotentials.worker_claim_training_slot!(builder, 0, "worker-1")
             model_path = joinpath(temp, EDDPotentials.TRAINING_DIR, "gen-0-model-abcd1234.json")
             mkpath(dirname(model_path))
             write(model_path, "{}")
@@ -575,6 +625,25 @@ end
                 "iteration" => 0,
                 "epoch" => 1,
                 "run_id" => "child-test",
+            )
+            EDDPotentials.advance_worker!(
+                builder,
+                worker,
+                EDDPotentials.WORKER_WAIT;
+                phase="training",
+                iteration=0,
+                epoch=1,
+                run_id="child-test",
+            )
+            EDDPotentials.advance_worker!(
+                builder,
+                worker,
+                EDDPotentials.WORKER_TRAINING_RUNNING;
+                phase="training",
+                iteration=0,
+                epoch=1,
+                run_id="child-test",
+                model_path="model.json",
             )
             cmd = Cmd([Base.julia_cmd()..., "--startup-file=no", "-e", "sleep(0.2)"])
             redirect_stderr(devnull) do
@@ -833,6 +902,15 @@ end
                 "epoch" => 1,
                 "run_id" => "stop-test",
                 "status" => "running",
+            )
+            EDDPotentials.advance_worker!(
+                builder,
+                worker,
+                EDDPotentials.WORKER_WAIT;
+                phase="training",
+                iteration=0,
+                epoch=1,
+                run_id="stop-test",
             )
             @test EDDPotentials._worker_run_training!(builder, worker, control)
             states = EDDPotentials.read_worker_states(builder)

@@ -241,16 +241,12 @@ export Builder,
     split_then_featurize, diagnose_formula_sampling
 export link_distributed,
     distributed_worker,
-    distributed_train_slot,
+    advance_worker!,
     write_worker_heartbeat!,
     read_worker_states,
     server_prepare_dft_phase!,
     server_collect_dft_results!,
-    server_prepare_training_phase!,
-    worker_claim_training_slot!,
-    worker_mark_training_slot_done!,
-    worker_mark_training_slot_failed!,
-    training_slot_model_path
+    server_prepare_training_phase!
 export rmse_per_atom, mae_per_atom, max_ae_per_atom
 export TrainedModel, train_model, predict
 export nfeatures

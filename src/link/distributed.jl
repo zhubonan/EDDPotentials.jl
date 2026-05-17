@@ -292,6 +292,109 @@ function _write_phase_event(phase_dir, worker_id, kind, data=Dict{String,Any}())
     _write_json(joinpath(event_dir, name), payload)
 end
 
+@enum WorkerMachineState begin
+    WORKER_BOOT
+    WORKER_IDLE
+    WORKER_WAIT
+    WORKER_DFT_RUNNING
+    WORKER_DFT_DONE
+    WORKER_DFT_FAILED
+    WORKER_TRAINING_RUNNING
+    WORKER_TRAINING_DONE
+    WORKER_STOPPING_CHILD
+    WORKER_STOPPED
+    WORKER_EXIT
+end
+
+const WORKER_STATE_STRINGS = Dict(
+    WORKER_BOOT => "BOOT",
+    WORKER_IDLE => "IDLE",
+    WORKER_WAIT => "WAIT",
+    WORKER_DFT_RUNNING => "DFT_RUNNING",
+    WORKER_DFT_DONE => "DFT_DONE",
+    WORKER_DFT_FAILED => "DFT_FAILED",
+    WORKER_TRAINING_RUNNING => "TRAINING_RUNNING",
+    WORKER_TRAINING_DONE => "TRAINING_DONE",
+    WORKER_STOPPING_CHILD => "STOPPING_CHILD",
+    WORKER_STOPPED => "STOPPED",
+    WORKER_EXIT => "EXIT",
+)
+
+const WORKER_STATE_BY_STRING = Dict(value => key for (key, value) in WORKER_STATE_STRINGS)
+
+const WORKER_TRANSITIONS = Dict(
+    WORKER_BOOT => Set([WORKER_IDLE, WORKER_WAIT, WORKER_EXIT]),
+    WORKER_IDLE => Set([WORKER_WAIT, WORKER_EXIT]),
+    WORKER_WAIT => Set([
+        WORKER_IDLE,
+        WORKER_DFT_RUNNING,
+        WORKER_DFT_FAILED,
+        WORKER_TRAINING_RUNNING,
+        WORKER_STOPPED,
+        WORKER_EXIT,
+    ]),
+    WORKER_DFT_RUNNING => Set([
+        WORKER_STOPPING_CHILD,
+        WORKER_DFT_DONE,
+        WORKER_STOPPED,
+        WORKER_DFT_FAILED,
+        WORKER_EXIT,
+    ]),
+    WORKER_TRAINING_RUNNING => Set([
+        WORKER_STOPPING_CHILD,
+        WORKER_TRAINING_DONE,
+        WORKER_STOPPED,
+        WORKER_EXIT,
+    ]),
+    WORKER_STOPPING_CHILD => Set([WORKER_STOPPED, WORKER_EXIT]),
+    WORKER_DFT_DONE => Set([WORKER_WAIT, WORKER_IDLE, WORKER_EXIT]),
+    WORKER_TRAINING_DONE => Set([WORKER_WAIT, WORKER_IDLE, WORKER_EXIT]),
+    WORKER_STOPPED => Set([WORKER_WAIT, WORKER_IDLE, WORKER_EXIT]),
+    WORKER_DFT_FAILED => Set([WORKER_WAIT, WORKER_IDLE, WORKER_EXIT]),
+    WORKER_EXIT => Set([WORKER_EXIT]),
+)
+
+function _worker_state_string(state::WorkerMachineState)
+    WORKER_STATE_STRINGS[state]
+end
+
+function _parse_worker_state(state::WorkerMachineState)
+    state
+end
+
+function _parse_worker_state(state)
+    text = String(state)
+    parsed = get(WORKER_STATE_BY_STRING, text, nothing)
+    parsed === nothing || return parsed
+    expected = join(sort(collect(keys(WORKER_STATE_BY_STRING))), ", ")
+    throw(ArgumentError("Invalid distributed worker state `$text`; expected one of $expected."))
+end
+
+function _validate_worker_phase(state::WorkerMachineState, phase)
+    phase_text = String(phase)
+    if state in (WORKER_DFT_RUNNING, WORKER_DFT_DONE, WORKER_DFT_FAILED)
+        phase_text == "dft" ||
+            throw(ArgumentError("Worker state `$(_worker_state_string(state))` requires phase `dft`, got `$phase_text`."))
+    elseif state in (WORKER_TRAINING_RUNNING, WORKER_TRAINING_DONE)
+        phase_text == "training" ||
+            throw(ArgumentError("Worker state `$(_worker_state_string(state))` requires phase `training`, got `$phase_text`."))
+    elseif state in (WORKER_STOPPING_CHILD, WORKER_STOPPED)
+        phase_text in ("dft", "training") ||
+            throw(ArgumentError("Worker state `$(_worker_state_string(state))` requires phase `dft` or `training`, got `$phase_text`."))
+    end
+    return true
+end
+
+function _valid_worker_transition(from::WorkerMachineState, to::WorkerMachineState)
+    from == to && return true
+    return to in get(WORKER_TRANSITIONS, from, Set{WorkerMachineState}())
+end
+
+function _worker_state_is_active(state)
+    parsed = _parse_worker_state(state)
+    return parsed in (WORKER_DFT_RUNNING, WORKER_TRAINING_RUNNING, WORKER_STOPPING_CHILD)
+end
+
 mutable struct WorkerState
     worker_id::String
     state::String
@@ -317,9 +420,11 @@ function WorkerState(
     model_path=nothing,
     message::AbstractString="",
 )
+    parsed_state = _parse_worker_state(state)
+    _validate_worker_phase(parsed_state, phase)
     return WorkerState(
         String(worker_id),
-        String(state),
+        _worker_state_string(parsed_state),
         String(phase),
         iteration,
         epoch,
@@ -333,8 +438,8 @@ end
 
 function _update_worker_state!(
     worker::WorkerState;
-    state::AbstractString=worker.state,
-    phase::AbstractString=worker.phase,
+    state=worker.state,
+    phase=worker.phase,
     iteration::Int=worker.iteration,
     epoch::Int=worker.epoch,
     run_id::AbstractString=worker.run_id,
@@ -343,7 +448,9 @@ function _update_worker_state!(
     model_path=worker.model_path,
     message::AbstractString=worker.message,
 )
-    worker.state = String(state)
+    parsed_state = _parse_worker_state(state)
+    _validate_worker_phase(parsed_state, phase)
+    worker.state = _worker_state_string(parsed_state)
     worker.phase = String(phase)
     worker.iteration = iteration
     worker.epoch = epoch
@@ -366,12 +473,10 @@ function _worker_log(
     @logmsg level message _group = DISTRIBUTED_LOG_GROUP role = "worker" worker_id = worker.worker_id state = worker.state phase = worker.phase iteration = worker.iteration epoch = worker.epoch waiting next_action kwargs...
 end
 
-function write_worker_heartbeat!(
+function _write_worker_heartbeat_payload!(
     bu::Builder,
-    worker::WorkerState;
-    kwargs...,
+    worker::WorkerState,
 )
-    _update_worker_state!(worker; kwargs...)
     updated_at = _timestamp()
     payload = Dict{String,Any}(
         "worker_id" => worker.worker_id,
@@ -393,13 +498,73 @@ function write_worker_heartbeat!(
     _write_json(_worker_state_path(bu, worker.worker_id), payload)
 end
 
+function advance_worker!(
+    bu::Builder,
+    worker::WorkerState,
+    next_state;
+    phase=worker.phase,
+    iteration::Int=worker.iteration,
+    epoch::Int=worker.epoch,
+    run_id::AbstractString=worker.run_id,
+    child_pid=worker.child_pid,
+    claim=worker.claim,
+    model_path=worker.model_path,
+    message::AbstractString=worker.message,
+)
+    from_state = _parse_worker_state(worker.state)
+    to_state = _parse_worker_state(next_state)
+    if !_valid_worker_transition(from_state, to_state)
+        throw(
+            ArgumentError(
+                "Invalid distributed worker transition `$(_worker_state_string(from_state))` -> `$(_worker_state_string(to_state))`.",
+            ),
+        )
+    end
+    _update_worker_state!(
+        worker;
+        state=to_state,
+        phase,
+        iteration,
+        epoch,
+        run_id,
+        child_pid,
+        claim,
+        model_path,
+        message,
+    )
+    _write_worker_heartbeat_payload!(bu, worker)
+    _worker_log(
+        Logging.Debug,
+        "distributed link worker state advanced",
+        worker;
+        from_state=_worker_state_string(from_state),
+        to_state=_worker_state_string(to_state),
+    )
+    return worker
+end
+
 function write_worker_heartbeat!(
     bu::Builder,
-    worker_id::AbstractString;
-    kwargs...,
+    worker::WorkerState;
+    run_id::AbstractString=worker.run_id,
+    child_pid=worker.child_pid,
+    claim=worker.claim,
+    model_path=worker.model_path,
+    message::AbstractString=worker.message,
 )
-    worker = WorkerState(worker_id; iteration=bu.state.iteration)
-    write_worker_heartbeat!(bu, worker; kwargs...)
+    _update_worker_state!(
+        worker;
+        state=worker.state,
+        phase=worker.phase,
+        iteration=worker.iteration,
+        epoch=worker.epoch,
+        run_id,
+        child_pid,
+        claim,
+        model_path,
+        message,
+    )
+    _write_worker_heartbeat_payload!(bu, worker)
 end
 
 function read_worker_states(bu::Builder)
@@ -586,11 +751,12 @@ function _worker_active_for_control(state, control)
     get(state, "phase", "") == get(control, "phase", "") || return false
     Int(get(state, "iteration", -1)) == Int(get(control, "iteration", -2)) || return false
     Int(get(state, "epoch", -1)) == Int(get(control, "epoch", -2)) || return false
-    return get(state, "state", "") in (
-        "DFT_RUNNING",
-        "TRAINING_RUNNING",
-        "STOPPING_CHILD",
-    )
+    try
+        return _worker_state_is_active(get(state, "state", ""))
+    catch err
+        err isa ArgumentError || rethrow()
+        return false
+    end
 end
 
 function _server_wait_for_workers_stopped!(bu::Builder, control)
@@ -1001,9 +1167,10 @@ function _worker_supervise_child!(
     iteration = Int(get(control, "iteration", bu.state.iteration))
     epoch = Int(get(control, "epoch", 0))
     run_id = string(get(control, "run_id", ""))
-    _update_worker_state!(
-        worker;
-        state,
+    advance_worker!(
+        bu,
+        worker,
+        state;
         phase,
         iteration,
         epoch,
@@ -1041,7 +1208,7 @@ function _worker_supervise_child!(
             last_heartbeat = time()
         end
         if _worker_stop_requested(bu, control, phase_dir, worker.worker_id)
-            write_worker_heartbeat!(bu, worker; state="STOPPING_CHILD", message="stop requested")
+            advance_worker!(bu, worker, WORKER_STOPPING_CHILD; message="stop requested")
             runtime_seconds = round(time() - started; digits=3)
             _worker_log(
                 Logging.Warn,
@@ -1103,10 +1270,10 @@ end
 function _worker_run_dft!(bu::Builder, worker::WorkerState, control)
     phase_dir = control["phase_dir"]
     if _phase_stop_requested(control, phase_dir)
-        write_worker_heartbeat!(
+        advance_worker!(
             bu,
-            worker;
-            state="STOPPED",
+            worker,
+            WORKER_STOPPED;
             phase="dft",
             iteration=Int(control["iteration"]),
             epoch=Int(control["epoch"]),
@@ -1121,9 +1288,10 @@ function _worker_run_dft!(bu::Builder, worker::WorkerState, control)
     end
     manifest = _read_json(_phase_manifest_path(phase_dir))
     if manifest === nothing
-        _update_worker_state!(
-            worker;
-            state="DFT_FAILED",
+        advance_worker!(
+            bu,
+            worker,
+            WORKER_DFT_FAILED;
             phase="dft",
             iteration=Int(control["iteration"]),
             epoch=Int(control["epoch"]),
@@ -1131,15 +1299,17 @@ function _worker_run_dft!(bu::Builder, worker::WorkerState, control)
             child_pid=nothing,
             claim=nothing,
             model_path=nothing,
+            message="missing DFT manifest",
         )
         _worker_log(Logging.Error, "missing DFT manifest", worker; next_action="throw", phase_dir)
 
         throw(ArgumentError("Missing DFT manifest `$phase_dir`."))
     end
     cmd = Cmd(`crud.pl -mpinp $(Int(manifest["mpinp"]))`, dir=manifest["crud_workdir"])
-    _update_worker_state!(
-        worker;
-        state="DFT_RUNNING",
+    advance_worker!(
+        bu,
+        worker,
+        WORKER_DFT_RUNNING;
         phase="dft",
         iteration=Int(control["iteration"]),
         epoch=Int(control["epoch"]),
@@ -1147,14 +1317,15 @@ function _worker_run_dft!(bu::Builder, worker::WorkerState, control)
         child_pid=nothing,
         claim=nothing,
         model_path=nothing,
+        message="DFT child starting",
     )
     _worker_log(Logging.Info, "distributed link DFT child starting", worker; next_action="launch_crud", crud_workdir=manifest["crud_workdir"])
 
-    ok = _worker_supervise_child!(bu, worker, control, phase_dir, cmd; state="DFT_RUNNING")
-    write_worker_heartbeat!(
+    ok = _worker_supervise_child!(bu, worker, control, phase_dir, cmd; state=WORKER_DFT_RUNNING)
+    advance_worker!(
         bu,
-        worker;
-        state=ok ? "DFT_DONE" : "STOPPED",
+        worker,
+        ok ? WORKER_DFT_DONE : WORKER_STOPPED;
         phase="dft",
         iteration=Int(control["iteration"]),
         epoch=Int(control["epoch"]),
@@ -1210,43 +1381,14 @@ function _distributed_training_cmd(
     cmd
 end
 
-function _deprecated_training_slot_api(name::AbstractString)
-    throw(
-        ArgumentError(
-            "`$name` is deprecated because distributed training no longer uses model slots. " *
-            "Use `distributed_worker` or the standard `run_trainer` UUID model workflow instead.",
-        ),
-    )
-end
-
-function distributed_train_slot()
-    _deprecated_training_slot_api("distributed_train_slot")
-end
-
-function training_slot_model_path(args...; kwargs...)
-    _deprecated_training_slot_api("training_slot_model_path")
-end
-
-function worker_claim_training_slot!(args...; kwargs...)
-    _deprecated_training_slot_api("worker_claim_training_slot!")
-end
-
-function worker_mark_training_slot_done!(args...; kwargs...)
-    _deprecated_training_slot_api("worker_mark_training_slot_done!")
-end
-
-function worker_mark_training_slot_failed!(args...; kwargs...)
-    _deprecated_training_slot_api("worker_mark_training_slot_failed!")
-end
-
 function _worker_run_training!(bu::Builder, worker::WorkerState, control)
     iter = Int(control["iteration"])
     phase_dir = control["phase_dir"]
     if _phase_stop_requested(control, phase_dir)
-        write_worker_heartbeat!(
+        advance_worker!(
             bu,
-            worker;
-            state="STOPPED",
+            worker,
+            WORKER_STOPPED;
             phase="training",
             iteration=iter,
             epoch=Int(control["epoch"]),
@@ -1259,10 +1401,10 @@ function _worker_run_training!(bu::Builder, worker::WorkerState, control)
         _worker_log(Logging.Info, "distributed link training phase already stopping", worker; next_action="poll_control")
         return true
     end
-    write_worker_heartbeat!(
+    advance_worker!(
         bu,
-        worker;
-        state="TRAINING_RUNNING",
+        worker,
+        WORKER_TRAINING_RUNNING;
         phase="training",
         iteration=iter,
         epoch=Int(control["epoch"]),
@@ -1273,7 +1415,6 @@ function _worker_run_training!(bu::Builder, worker::WorkerState, control)
         child_pid=nothing,
     )
     cmd = _distributed_training_cmd(bu, iter, worker.worker_id, phase_dir)
-    _update_worker_state!(worker; state="TRAINING_RUNNING", message="")
     _worker_log(Logging.Info, "distributed link training child starting", worker; next_action="supervise_child")
 
     ok = _worker_supervise_child!(
@@ -1282,32 +1423,43 @@ function _worker_run_training!(bu::Builder, worker::WorkerState, control)
         control,
         phase_dir,
         cmd;
-        state="TRAINING_RUNNING",
+        state=WORKER_TRAINING_RUNNING,
         claim=nothing,
         model_path=nothing,
     )
     if ok
         _write_phase_event(phase_dir, worker.worker_id, "train-done")
-        _update_worker_state!(worker; state="TRAINING_DONE", message="")
+        advance_worker!(
+            bu,
+            worker,
+            WORKER_TRAINING_DONE;
+            phase="training",
+            iteration=iter,
+            epoch=Int(control["epoch"]),
+            claim=nothing,
+            model_path=nothing,
+            message="training child finished",
+            run_id=string(control["run_id"]),
+            child_pid=nothing,
+        )
         _worker_log(Logging.Info, "distributed link training child done", worker; next_action="poll_control", models_found=num_existing_models(bu))
     else
         _write_phase_event(phase_dir, worker.worker_id, "train-stopped")
-        _update_worker_state!(worker; state="STOPPED", message="")
+        advance_worker!(
+            bu,
+            worker,
+            WORKER_STOPPED;
+            phase="training",
+            iteration=iter,
+            epoch=Int(control["epoch"]),
+            claim=nothing,
+            model_path=nothing,
+            message="training child stopped",
+            run_id=string(control["run_id"]),
+            child_pid=nothing,
+        )
         _worker_log(Logging.Info, "distributed link training child stopped", worker; next_action="poll_control", models_found=num_existing_models(bu))
     end
-    write_worker_heartbeat!(
-        bu,
-        worker;
-        state=ok ? "TRAINING_DONE" : "STOPPED",
-        phase="training",
-        iteration=iter,
-        epoch=Int(control["epoch"]),
-        claim=nothing,
-        model_path=nothing,
-        message=ok ? "training child finished" : "training child stopped",
-        run_id=string(control["run_id"]),
-        child_pid=nothing,
-    )
     return ok
 end
 
@@ -1332,10 +1484,10 @@ function _worker_handle_control!(
     phase = string(control["phase"])
     epoch = Int(control["epoch"])
     control_key = (bu.state.iteration, epoch)
-    write_worker_heartbeat!(
+    advance_worker!(
         bu,
-        worker;
-        state="WAIT",
+        worker,
+        WORKER_WAIT;
         phase,
         iteration=bu.state.iteration,
         epoch,
@@ -1353,7 +1505,7 @@ function _worker_handle_control!(
     )
     if phase == "dft"
         if control_key in handled_dft_controls
-            write_worker_heartbeat!(bu, worker; state="IDLE", message="DFT control already handled")
+            advance_worker!(bu, worker, WORKER_IDLE; message="DFT control already handled")
             _worker_log(Logging.Debug, "distributed link DFT control already handled", worker; waiting=true, next_action="poll_control")
         end
         control_key in handled_dft_controls && return true
@@ -1363,15 +1515,15 @@ function _worker_handle_control!(
     elseif phase == "training"
         return _worker_run_training!(bu, worker, control)
     elseif phase == "shutdown"
-        write_worker_heartbeat!(bu, worker; state="EXIT", message="shutdown control received")
+        advance_worker!(bu, worker, WORKER_EXIT; message="shutdown control received")
         _worker_log(Logging.Info, "distributed link shutdown control received", worker; next_action="exit")
 
         return :shutdown
     else
-        write_worker_heartbeat!(
+        advance_worker!(
             bu,
-            worker;
-            state="IDLE",
+            worker,
+            WORKER_IDLE;
             phase,
             iteration=bu.state.iteration,
             epoch=Int(get(control, "epoch", 0)),
@@ -1395,10 +1547,10 @@ function distributed_worker(file::AbstractString; worker_id::AbstractString="", 
         last_idle_diag = 0.0
         while true
             if _worker_shutdown_requested(bu)
-                write_worker_heartbeat!(
+                advance_worker!(
                     bu,
-                    worker;
-                    state="EXIT",
+                    worker,
+                    WORKER_EXIT;
                     phase="shutdown",
                     iteration=bu.state.iteration,
                     message="shutdown requested",
@@ -1412,10 +1564,10 @@ function distributed_worker(file::AbstractString; worker_id::AbstractString="", 
             end
             control = _read_control(bu)
             if control === nothing
-                write_worker_heartbeat!(
+                advance_worker!(
                     bu,
-                    worker;
-                    state="IDLE",
+                    worker,
+                    WORKER_IDLE;
                     phase="",
                     iteration=bu.state.iteration,
                     epoch=0,
