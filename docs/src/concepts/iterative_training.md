@@ -185,7 +185,7 @@ workdir = "."                    # All outputs go here
 seedfile = "C-SEARCH.cell"       # buildcell input for RSS
 seedfile_calc = "C.cell"         # CASTEP .cell/.param base name
 
-dft_mode = "crud"                # "crud", "disp-castep", "mock", etc.
+dft_mode = "crud"                # local modes: "crud", "acrud", "pp3", "mock"
 
 # Elemental energies (MUST be pseudoatomic energies)
 [state.elemental_energies]
@@ -288,11 +288,14 @@ dft_mode = "crud"
    - Runs CASTEP when .res files appear
    - Moves results to `good_castep/`
 
-2. **"crud-queue"**: CASTEP via job scheduler (SLURM)
+2. **"acrud"**: ASE-backed local calculation runner
 
-3. **"mock"**: Dummy calculator for testing (random energies)
+3. **"pp3"**: Local PP3 pair-potential calculations
 
-4. **"disp-castep"**: Distributed CASTEP via DISP package
+4. **"mock"**: Dummy calculator for testing (random energies)
+
+Legacy scheduler-backed local DFT modes such as `crud-queue` and `disp-castep`
+have been superseded by distributed link mode.
 
 ### Distributed Link Mode
 
@@ -612,10 +615,9 @@ Inside the `crud-work` folder, there three folders.
 
 Multiple crud.pl instances run simultaneously, each taking structures from hopper (atomic `mv` guarantees unique selection).
 
-On a cluster, use either `crud-queue` for the legacy scheduler-backed DFT runner or
-enable `[distributed]` for the file-backed distributed link workflow. In distributed link mode the
-server prepares the shared `crud-work/genN/hopper/` directory, and worker jobs
-launch `crud.pl` when the server publishes the DFT phase.
+On a cluster, enable `[distributed]` for the file-backed distributed link workflow.
+In distributed link mode the server prepares the shared `crud-work/genN/hopper/`
+directory, and worker jobs launch `crud.pl` when the server publishes the DFT phase.
 
 
 ### Data Management

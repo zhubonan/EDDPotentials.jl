@@ -23,6 +23,5 @@ model = EDDP.ManualFluxBackPropInterface
 # n_initial=100,
 # mpinp=2,
 # n_parallel=1,
-# relax_extra_opts=Dict{Symbol, Any}(:categories=>["24-core", "4-core"], :priority=>100),
-# dft_mode="disp-castep"
+# dft_mode="crud"
 # )

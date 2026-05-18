@@ -157,7 +157,7 @@ This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
 
 - **[AIRSS](https://www.mtg.msm.cam.ac.uk/Codes/AIRSS):** *Ab initio* random structure searching toolkit
 - **[CASTEP](http://www.castep.org):** Plane-wave DFT code for training data generation
-- **[DISP](https://zhubonan.github.io/disp):** Distributed structure prediction on computing clusters
+- **Distributed link:** File-backed worker coordination for scheduler-managed DFT and training jobs
 - **[Phonopy](https://phonopy.github.io/phonopy/):** Phonon calculations (Python interface)
 
 ## Citation

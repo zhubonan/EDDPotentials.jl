@@ -40,7 +40,9 @@ training_mode = "linear"
 energy_threshold = 100
 nmodels = 8
 n_nodes = [2]
-external = false
+external = true
+external_mode = "local"
+num_workers = 1
 show_progress = false
 boltzmann_kt = 5
 # Training method: "lm" (default), "lm_batched", or "sgd"

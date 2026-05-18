@@ -31,10 +31,11 @@ to perform various actions during the construction of the potentials.
 - `build_timeout`: Timeout in seconds for each `buildcell` process during generation 0 bulk structure generation.
 - `shake_amp`: The amplitude of atomic displacements for shaking relaxed structures.
 - `shake_cell_amp`: The amplitude of cell deformations for shaking relaxed structures.
-- `n_parallel`: Deprecated.
+- `n_parallel`: Deprecated; retained for compatibility with older configs.
 - `mpinp`: The number of MPI tasks to run (e.g. the number of cores) for `crud.pl`.
 - `n_initial`: The number of initial structures to be generated (for generation 0). 
-- `dft_mode`: The model of running DFT calculations. The current available options are:crud, acrud, crud-queue, disp-castep, pp3.
+- `dft_mode`: The model for local DFT calculations. Supported local options are `mock`, `pp3`, `crud`, and `acrud`.
+  Scheduler-backed local DFT modes such as `crud-queue` and `disp-castep` are superseded by the distributed backend.
 - `dft_kwargs`: The key word arguments to be used for the function that runs the DFT calculations.
 - `rss_pressure_gpa`: The external pressure used when running random structure searching.
 - `rss_pressure_gpa_range`: The range of the pressure used when running random structure searching.
@@ -49,8 +50,7 @@ to perform various actions during the construction of the potentials.
 - `ensemble_std_max`: The maximum ensemble standard deviation for valid structures during random structure searching.
   Can be used to exclude pathological structures.
 - `run_walk_forward`: Whether to run the walk-forward test or not.
-- `project_prefix_override`: Override the prefix of the project. Used for `disp-castep` runner only.
-- `project_prefix`: The prefix of the project. Used for `disp-castep` runner only.
+- `project_prefix_override`: Deprecated project prefix override retained for compatibility with older configs.
 - `builder_file_path`: Path to this builder file. This field will re automatically filled.
 - `relax`: Options for performing relaxations of the generated structures.
 - `elemental_energies`: The energies of elements species. It is **very important** to specify them for multi-composition searches.
@@ -83,7 +83,7 @@ to perform various actions during the construction of the potentials.
     n_parallel::Int = 1
     mpinp::Int = 2
     n_initial::Int = 1000
-    dft_mode::String = "crud-queue"
+    dft_mode::String = "crud"
     dft_kwargs::Dict{String,Any} = Dict{String,Any}()
     rss_pressure_gpa::Float64 = 0.1
     rss_pressure_gpa_range::Union{Nothing,Vector{Float64}} = nothing
@@ -145,7 +145,7 @@ abstract type AbstractTrainer end
 - `train_split`: The split ratios for the training set, in the order [train, validation, test].
 - `respect_shakes`: Keep rattled/unrattled `-shake-N` families in the same split when preparing datasets.
 - `use_validation_for_ensemble`: Whether to use the validation set for ensemble building.
-- `save_each_model`: Whether to save each trained model during the training (deprecated, only used for multi-thread training which is not efficient).
+- `save_each_model`: Deprecated no-op retained for compatibility with older configs.
 - `p`: The power for computing the loss function for the Levernberg-Marquardt algorithm.
 - `keep_best`: Whether to keep the best model during the training using the Levernberg-Marquardt algorithm.
 - `log_file`: The file to store the training log.
@@ -153,10 +153,10 @@ abstract type AbstractTrainer end
 - `num_workers`: The number of workers to use for training.
 - `num_threads_per_worker`: The number of threads to use for each worker.
 - `type`: The type of potential to be trained. Currently, only `nn` and `nn_multi` are supported.
-- `external`: Whether to launch external Julia processes for training.
-- `external_mode`: External training backend. `local` launches local Julia worker processes;
-  `submit` renders `scheduler.script` with `{{EDDP_TRAIN_CMD}}` and submits it as a
-  scheduler array job.
+- `external`: Whether to launch external Julia processes for training. Link workflows require this to be true;
+  `false` is retained only for compatibility with older configs and direct trainer calls.
+- `external_mode`: External training backend. `local` launches local Julia worker processes.
+  Scheduler-submitted local training modes are superseded by the distributed backend.
 - `external_wait`: Whether to poll for trained model artifacts after command submission.
 - `external_poll_interval`: Seconds between model-artifact polling checks.
 - `external_timeout`: Maximum seconds to wait for external model artifacts. `0` means no timeout.
@@ -182,6 +182,7 @@ abstract type AbstractTrainer end
     train_split::Vector{Float64} = [0.8, 0.1, 0.1]
     respect_shakes::Bool = false
     use_validation_for_ensemble::Bool = true
+    "Deprecated no-op retained for compatibility with older configs."
     save_each_model::Bool = true
     p::Float64 = 1.25
     keep_best::Bool = true
@@ -190,7 +191,7 @@ abstract type AbstractTrainer end
     num_workers::Int = 1
     num_threads_per_worker::Int = 1
     external = true
-    "External training backend: `local` or `submit`."
+    "External training backend. Link workflows support `local`; scheduler-managed workers use the distributed backend."
     external_mode::String = "local"
     "Poll for trained model artifacts after submitting external commands."
     external_wait::Bool = true

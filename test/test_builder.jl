@@ -11,8 +11,6 @@ using EDDPotentials.Workflow:
     run_dft_phase!,
     run_training_phase!,
     load_training_data,
-    _render_training_job_script,
-    _training_submit_cmd,
     _required_models_for_ensemble,
     _generate_random_structures,
     _models_ready_for_ensemble
@@ -141,15 +139,8 @@ end
         test_to_from_toml(opt_distributed)
     end
 
-    @testset "Training scheduler script rendering" begin
+    @testset "Local backend rejects obsolete execution modes" begin
         mktempdir() do temp
-            script = joinpath(temp, "train_job.sh")
-            open(script, "w") do io
-                println(io, "#!/bin/bash")
-                println(io, "#SBATCH --job-name=eddp-train")
-                println(io, "{{EDDP_TRAIN_CMD}}")
-            end
-
             state = EDDPotentials.BuilderState(
                 seedfile="seed.cell",
                 seedfile_calc="calc.cell",
@@ -158,51 +149,78 @@ end
             cf = EDDPotentials.CellFeatureConfig(elements=["H"])
             rss = EDDPotentials.RssSetting()
             trainer = EDDPotentials.TrainingOption()
-            trainer.external_mode = "submit"
-            scheduler = EDDPotentials.SchedulerConfig(
-                script=script,
-                njobs=4,
-                type="SLURM",
-                submit_jobs=false,
-            )
-            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, scheduler)
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing)
+
+            trainer.external = false
             builder = Builder(opt)
-            builder.state.builder_file_path = joinpath(temp, "link.toml")
-            EDDPotentials.save_builder(builder.state.builder_file_path, builder)
-
-            workdir = joinpath(temp, "training-work", "gen0")
-            rendered_script =
-                _render_training_job_script(builder, scheduler, workdir)
-            rendered = read(rendered_script, String)
-
-            @test !contains(rendered, "{{EDDP_TRAIN_CMD}}")
-            @test contains(rendered, "EDDPotentials.run_trainer()")
-            @test contains(rendered, "--id \"\$WORKER_ID\"")
-            @test contains(rendered, "SLURM_ARRAY_TASK_ID")
-
-            slurm_cmd = _training_submit_cmd(scheduler, workdir)
-            @test contains(string(slurm_cmd), "sbatch")
-            @test contains(string(slurm_cmd), "--array=1-4")
-            @test contains(string(slurm_cmd), "job.sh")
-
-            sge_scheduler = EDDPotentials.SchedulerConfig(
-                script=script,
-                njobs=4,
-                type="SGE",
-                submit_jobs=false,
-            )
-            sge_cmd = _training_submit_cmd(sge_scheduler, workdir)
-            @test contains(string(sge_cmd), "qsub")
-            @test contains(string(sge_cmd), "1-4")
-            @test contains(string(sge_cmd), "-cwd")
-
-            bad_script = joinpath(temp, "bad_train_job.sh")
-            write(bad_script, "#!/bin/bash\n")
-            bad_scheduler = EDDPotentials.SchedulerConfig(script=bad_script, type="SLURM")
-            @test_throws ArgumentError _render_training_job_script(
+            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
                 builder,
-                bad_scheduler,
-                workdir,
+                LocalLinkBackend(),
+            )
+
+            trainer.external = true
+            trainer.external_mode = "submit"
+            builder = Builder(opt)
+            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
+                builder,
+                LocalLinkBackend(),
+            )
+
+            trainer.external_mode = "command"
+            builder = Builder(opt)
+            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
+                builder,
+                LocalLinkBackend(),
+            )
+
+            trainer.external_mode = "local"
+            state.dft_mode = "crud-queue"
+            builder = Builder(opt)
+            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
+                builder,
+                LocalLinkBackend(),
+            )
+
+            state.dft_mode = "disp-castep"
+            builder = Builder(opt)
+            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
+                builder,
+                LocalLinkBackend(),
+            )
+
+            state.dft_mode = "crud"
+            trainer.external = false
+            builder = Builder(opt)
+            @test_throws ArgumentError run_training_phase!(
+                LocalLinkBackend(),
+                builder,
+                0,
+            )
+
+            trainer.external = true
+            trainer.external_mode = "submit"
+            builder = Builder(opt)
+            @test_throws ArgumentError run_training_phase!(
+                LocalLinkBackend(),
+                builder,
+                0,
+            )
+
+            trainer.external_mode = "local"
+            state.dft_mode = "crud-queue"
+            builder = Builder(opt)
+            @test_throws ArgumentError run_dft_phase!(
+                LocalLinkBackend(),
+                builder,
+                0,
+            )
+
+            state.dft_mode = "disp-castep"
+            builder = Builder(opt)
+            @test_throws ArgumentError run_dft_phase!(
+                LocalLinkBackend(),
+                builder,
+                0,
             )
         end
     end
@@ -256,6 +274,8 @@ end
         trainer.external = true
         trainer.external_completion_ratio = 0.5
             @test _required_models_for_ensemble(trainer) == 5
+        trainer.external = false
+        @test _required_models_for_ensemble(trainer) == 5
     end
 
     @testset "Workflow artifact readiness skips completed phases" begin
@@ -270,7 +290,6 @@ end
             cf = EDDPotentials.CellFeatureConfig(elements=["H"])
             trainer = EDDPotentials.TrainingOption()
             trainer.nmodels = 2
-            trainer.external = false
             builder = Builder(
                 EDDPotentials.BuilderOption(
                     state,

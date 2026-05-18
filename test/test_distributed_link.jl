@@ -168,6 +168,16 @@ end
             @test "JULIA_NUM_THREADS=3" in train_cmd_env
             @test "OMP_NUM_THREADS=16" in train_cmd_env
             @test "EDDP_CUDA_DEVICE=0" in train_cmd_env
+            distributed.training_env = Dict{String,Any}()
+            train_cmd_without_omp = EDDPotentials._distributed_training_cmd(
+                builder,
+                0,
+                "worker-1",
+                training_phase,
+            )
+            train_cmd_without_omp_env = getfield(train_cmd_without_omp, :env)
+            @test "JULIA_NUM_THREADS=3" in train_cmd_without_omp_env
+            @test !any(startswith("OMP_NUM_THREADS="), train_cmd_without_omp_env)
             model_path = joinpath(temp, EDDPotentials.TRAINING_DIR, "gen-0-model-abcd1234.json")
             mkpath(dirname(model_path))
             write(model_path, "{}")

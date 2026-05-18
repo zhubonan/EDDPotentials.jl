@@ -20,8 +20,8 @@ A recent pre-print explaining more applications of the model can found here: htt
 - Perform geometry optimization using trained models. 
 - Interface to other package for property calculations.
 - Automated workflows for automated potential building and crystal structure prediction.
-  - Training data generation using standard scheduler queue system.
-  - Training data generation through [DISP](https://github.com/zhubonan/disp).
+  - Training data generation using local calculators or distributed worker jobs.
+  - Scheduler-managed DFT and training through the distributed link backend.
 - Analysis and visualisation for potential quality verification and convergence.
 
 ## Internal architecture
@@ -41,4 +41,4 @@ See `docs/architecture/dependency_baseline.md` for the current layout summary.
 - [airss](https://www.mtg.msm.cam.ac.uk/Codes/AIRSS) - *ab initio* random structure (AIRSS) is used for building random structure through the `buildcell` program included in the bundle.
 - [eddp](https://www.mtg.msm.cam.ac.uk/Codes/EDDP) - The Fortran EDDPotentials code. EDDPotentials.jl provides limited interoperability with the eddp fortran package. Although directly loading models trained by eddp is not implemented, the training datasets are compatible as both use the AIRSS-style SHELX format.
 - [CASTEP](http://www.castep.org) - A plane-wave DFT code used for efficient generation of training datasets, although in principle any atomistic modelling package that calculates total energy of a given structure is supported.
-- [disp](https://zhubonan.github.io/disp) - Distributed structure prediction (DISP) package can be used to schedule and run data generation tasks (e.g. DFT calculations) on multiple remote computing clusters. 
+- Distributed link backend - File-backed worker coordination for scheduler-managed DFT and training jobs on shared filesystems.
