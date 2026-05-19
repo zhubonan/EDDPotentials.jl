@@ -330,6 +330,41 @@ function train_sgd!(
     kwargs...,
 )
 
+    _training_startup_header(;
+        routine="train_sgd!",
+        itf,
+        nparameters=nparams(itf),
+        train_samples=length(x),
+        validation_samples=length(x_val),
+        log_file,
+        options=merge(
+            (;
+                optimizer,
+                lr,
+                lr_schedule,
+                momentum,
+                batch_size,
+                max_epochs,
+                earlystop,
+                keep_best,
+                show_progress,
+                log_file,
+                shuffle_seed,
+                pow,
+                weights,
+                beta,
+                eps,
+                weight_decay,
+                grad_clip,
+                checkpoint_every,
+                checkpoint_prefix,
+                feature_spec,
+                elemental_energies,
+            ),
+            NamedTuple(kwargs),
+        ),
+    )
+
     # --- GPU dispatch ---
     if parentmodule(@__MODULE__).USE_CUDA[]
         return parentmodule(@__MODULE__).train_sgd_gpu!(itf, x, y;

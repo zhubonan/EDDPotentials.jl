@@ -19,32 +19,62 @@ struct LevenbergMarquardt <: Optimizer end
 Base.summary(::LevenbergMarquardt) = "Levenberg-Marquardt"
 
 """
-    _solve_normal_full!(delta_x, JJ, rhs, solver)
+    _apply_damping_full!(JJ, lambda, DtD, mode)
+
+Add LM damping to the full-batch normal matrix in-place.
+
+# Modes
+- `:fletcher`       — `JJ + λ·diag(DtD)` (current default)
+- `:fletcher_floor` — `JJ + λ·diag(max(1, DtD))` (Fortran `forge` style)
+"""
+function _apply_damping_full!(JJ, lambda, DtD, mode::Symbol)
+    if mode === :fletcher
+        @simd for i in eachindex(DtD)
+            @inbounds JJ[i, i] += lambda * DtD[i]
+        end
+    elseif mode === :fletcher_floor
+        floor = one(eltype(DtD))
+        @simd for i in eachindex(DtD)
+            @inbounds JJ[i, i] += lambda * max(floor, DtD[i])
+        end
+    else
+        throw(ArgumentError("Unknown damping_mode: $mode. Use :fletcher or :fletcher_floor."))
+    end
+    JJ
+end
+
+"""
+    _solve_normal_full!(delta_x, JJ, rhs, solver) -> Bool
 
 Solve the damped normal equations `JJ * delta_x = rhs` for the full LM solver.
+Returns `true` when the solve succeeds. A failed `:cholesky` factorisation
+returns `false` so the LM loop can increase `lambda` and retry.
 
 # Solvers
 - `:direct`    — LU decomposition via `\\`
-- `:cholesky`  — Cholesky factorisation (fast, requires positive-definite JJ)
+- `:cholesky`  — strict Cholesky factorisation; failure rejects the LM step
 - `:qr`        — QR decomposition (robust for ill-conditioned systems)
 """
 function _solve_normal_full!(delta_x, JJ, rhs, solver::Symbol)
     if solver === :direct
         delta_x .= JJ \ rhs
+        return true
     elseif solver === :cholesky
         try
             C = cholesky!(Hermitian(JJ))
             ldiv!(delta_x, C, rhs)
-        catch
-            delta_x .= JJ \ rhs
+            return true
+        catch err
+            err isa PosDefException || rethrow()
+            return false
         end
     elseif solver === :qr
         F = qr(JJ)
         ldiv!(delta_x, F, rhs)
+        return true
     else
         throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, or :qr."))
     end
-    delta_x
 end
 """
     `levenberg_marquardt(f, g, initial_x; <keyword arguments>`
@@ -70,6 +100,8 @@ Comp & Applied Math).
 * `show_trace::Bool=false`: print a status summary on each iteration if true
 * `keep_best`: If true, return the best solution instead of that of the last iteration. If callback is supplied, use the best value from it.
 * `lower,upper=[]`: bound solution to these limits
+* `damping_mode::Symbol=:fletcher`: damping strategy (`:fletcher`, `:fletcher_floor`)
+* `solver::Symbol=:cholesky`: linear solver (`:direct`, `:cholesky`, `:qr`)
 """
 
 # I think a smarter way to do this *might* be to create a type similar to `OnceDifferentiable`
@@ -99,8 +131,12 @@ function levenberg_marquardt(
     callback=nothing,
     keep_best=true,
     earlystop=0,
+    damping_mode::Symbol=:fletcher,
     solver::Symbol=:cholesky,
 ) where {T}
+
+    damping_mode in (:fletcher, :fletcher_floor) ||
+        throw(ArgumentError("Unknown damping_mode: $damping_mode. Use :fletcher or :fletcher_floor."))
 
     # First evaluation
     value_jacobian!!(df, initial_x)
@@ -228,18 +264,22 @@ function levenberg_marquardt(
         @timeit to "JJ1" J2 .= sqrt.(wt) .* J
         @timeit to "JJ2" JJ = transpose(J2) * J2
 
-        # Add the diagonal term without constructing the full matrix out
-        @simd for i = 1:n
-            @inbounds JJ[i, i] += lambda * DtD[i]
-        end
+        # Add the diagonal damping term without constructing a full matrix.
+        _apply_damping_full!(JJ, lambda, DtD, damping_mode)
 
         #n_buffer is delta C, JJ is g compared to Mark's code
         # This computes the right hand side term of the equation above
         mul!(n_buffer, transpose(J), wt .* value(df))
         rmul!(n_buffer, -1)   # Fast inplace update, better than n_buffer .*= -1 !!!
 
-        # Solve the matrix equation (A*x == B)
-        @timeit to "matinv" _solve_normal_full!(v, JJ, n_buffer, solver)
+        # Solve the matrix equation (A*x == B). Strict Cholesky failure rejects
+        # the step and retries later with a stronger damping parameter.
+        solve_ok = @timeit to "matinv" _solve_normal_full!(v, JJ, n_buffer, solver)
+        if !solve_ok
+            lambda = min(max(lambda_increase * lambda, MIN_LAMBDA), MAX_LAMBDA)
+            iterCt += 1
+            continue
+        end
 
 
         # Geodesic acceleration part - can leave out for now

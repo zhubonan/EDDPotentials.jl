@@ -2,7 +2,9 @@ using EDDPotentials
 using EDDPotentials.Potential: ManualFluxBackPropInterface, LinearInterface, AbstractNNInterface, FluxInterface, ginit, compute_objectives, compute_objectives_diff, nparams, setup_fj, setup_fj_batched, paramvector
 using EDDPotentials.Training:
     levenberg_marquardt,
-    levenberg_marquardt_batched
+    levenberg_marquardt_batched,
+    _apply_damping_full!,
+    _solve_normal_full!
 
 using Test
 using Flux
@@ -44,7 +46,330 @@ function _train_parent_sets(tm)
     )
 end
 
+function _capture_training_stdout(f)
+    mktemp() do _, io
+        redirect_stdout(io) do
+            f()
+        end
+        seekstart(io)
+        read(io, String)
+    end
+end
+
+function _assert_training_startup_header(text, routine, log_file; extras=String[])
+    @test occursin("==== Training Startup ====", text)
+    @test occursin("routine = $routine", text)
+    @test occursin("model_type = ", text)
+    @test occursin("target_parameters = ", text)
+    @test occursin("train_samples = ", text)
+    @test occursin("validation_samples = ", text)
+    @test occursin("julia_threads = ", text)
+    @test occursin("options:", text)
+    for extra in extras
+        @test occursin(extra, text)
+    end
+    log_text = read(log_file, String)
+    @test occursin("routine = $routine", log_text)
+    for extra in extras
+        @test occursin(extra, log_text)
+    end
+end
+
 @testset "Training" begin
+    @testset "Full LM damping modes" begin
+        JJ = [2.0 0.1; 0.1 3.0]
+        DtD = [0.25, 4.0]
+
+        JJ_fletcher = copy(JJ)
+        _apply_damping_full!(JJ_fletcher, 10.0, DtD, :fletcher)
+        @test JJ_fletcher[1, 1] == 4.5
+        @test JJ_fletcher[2, 2] == 43.0
+        @test JJ_fletcher[1, 2] == JJ[1, 2]
+
+        JJ_floor = copy(JJ)
+        _apply_damping_full!(JJ_floor, 10.0, DtD, :fletcher_floor)
+        @test JJ_floor[1, 1] == 12.0
+        @test JJ_floor[2, 2] == 43.0
+        @test JJ_floor[1, 2] == JJ[1, 2]
+
+        @test_throws ArgumentError _apply_damping_full!(copy(JJ), 10.0, DtD, :unknown)
+    end
+
+    @testset "Full LM strict Cholesky" begin
+        A = [0.0 1.0; 1.0 0.0]
+        rhs = [1.0, 2.0]
+
+        delta_chol = fill(-99.0, 2)
+        @test !_solve_normal_full!(delta_chol, copy(A), rhs, :cholesky)
+        @test delta_chol == fill(-99.0, 2)
+
+        delta_direct = zeros(2)
+        @test _solve_normal_full!(delta_direct, copy(A), rhs, :direct)
+        @test delta_direct ≈ [2.0, 1.0]
+
+        delta_qr = zeros(2)
+        @test _solve_normal_full!(delta_qr, copy(A), rhs, :qr)
+        @test delta_qr ≈ [2.0, 1.0]
+
+        function f_rankdef!(fvec, p)
+            fvec[1] = p[1] - 1.0
+            fvec
+        end
+        function j_rankdef!(jmat, p)
+            jmat[1, 1] = 1.0
+            jmat[1, 2] = 0.0
+            jmat
+        end
+        function fj_rankdef!(fvec, jmat, p)
+            f_rankdef!(fvec, p)
+            j_rankdef!(jmat, p)
+            fvec, jmat
+        end
+        p0 = [0.0, 5.0]
+        od = OnceDifferentiable(
+            f_rankdef!,
+            j_rankdef!,
+            fj_rankdef!,
+            p0,
+            zeros(1),
+            inplace=true,
+        )
+        opt_res = levenberg_marquardt(
+            od,
+            p0;
+            lambda=0.0,
+            maxIter=3,
+            earlystop=0,
+            keep_best=false,
+            damping_mode=:fletcher_floor,
+            solver=:cholesky,
+        )
+        @test opt_res.minimizer[1] ≈ 1.0 atol = 1e-8
+    end
+
+    @testset "Training startup headers" begin
+        Random.seed!(1234)
+        nf = 4
+        data = [rand(nf, 2), rand(nf, 3), rand(nf, 2), rand(nf, 3)]
+        y = rand(length(data))
+
+        mktempdir() do dir
+            lm_log = joinpath(dir, "lm.log")
+            model = ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
+            lm_out = _capture_training_stdout() do
+                train_lm!(
+                    model,
+                    data,
+                    y;
+                    max_epochs=1,
+                    earlystop=0,
+                    show_progress=false,
+                    log_file=lm_log,
+                    g_tol=1e-9,
+                )
+            end
+            _assert_training_startup_header(
+                lm_out,
+                "train_lm!",
+                lm_log;
+                extras=[
+                    "max_epochs = 1",
+                    "show_progress = false",
+                    "g_tol = 1.0e-9",
+                    "solver = :cholesky",
+                ],
+            )
+
+            lm_floor_log = joinpath(dir, "lm-floor.log")
+            model = ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
+            lm_floor_out = _capture_training_stdout() do
+                train_lm!(
+                    model,
+                    data,
+                    y;
+                    max_epochs=1,
+                    earlystop=0,
+                    show_progress=false,
+                    log_file=lm_floor_log,
+                    damping_mode=:fletcher_floor,
+                )
+            end
+            _assert_training_startup_header(
+                lm_floor_out,
+                "train_lm!",
+                lm_floor_log;
+                extras=[
+                    "damping_mode = :fletcher_floor",
+                    "lambda = 100000.0",
+                ],
+            )
+
+            lm_floor_override_log = joinpath(dir, "lm-floor-override.log")
+            model = ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
+            lm_floor_override_out = _capture_training_stdout() do
+                train_lm!(
+                    model,
+                    data,
+                    y;
+                    max_epochs=1,
+                    earlystop=0,
+                    show_progress=false,
+                    log_file=lm_floor_override_log,
+                    damping_mode=:fletcher_floor,
+                    lambda=123.0,
+                )
+            end
+            _assert_training_startup_header(
+                lm_floor_override_out,
+                "train_lm!",
+                lm_floor_override_log;
+                extras=[
+                    "damping_mode = :fletcher_floor",
+                    "lambda = 123.0",
+                ],
+            )
+
+            batched_log = joinpath(dir, "batched.log")
+            model = ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
+            batched_out = _capture_training_stdout() do
+                train_lm_batched!(
+                    model,
+                    data,
+                    y;
+                    batch_size=length(data),
+                    max_epochs=1,
+                    earlystop=0,
+                    show_progress=false,
+                    threaded=false,
+                    log_file=batched_log,
+                    x_tol=1e-8,
+                )
+            end
+            _assert_training_startup_header(
+                batched_out,
+                "train_lm_batched!",
+                batched_log;
+                extras=[
+                    "batch_size = 4",
+                    "threaded = false",
+                    "x_tol = 1.0e-8",
+                ],
+            )
+
+            sgd_log = joinpath(dir, "sgd.log")
+            model = ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
+            sgd_out = _capture_training_stdout() do
+                train_sgd!(
+                    model,
+                    data,
+                    y;
+                    batch_size=2,
+                    max_epochs=1,
+                    earlystop=0,
+                    show_progress=false,
+                    log_file=sgd_log,
+                    startup_marker=:sgd_header,
+                )
+            end
+            _assert_training_startup_header(
+                sgd_out,
+                "train_sgd!",
+                sgd_log;
+                extras=[
+                    "batch_size = 2",
+                    "optimizer = :adam",
+                    "startup_marker = :sgd_header",
+                ],
+            )
+
+            structures = [_h2o_cell(), deepcopy(_h2o_cell())]
+            y_emb = rand(length(structures))
+            cf = RandomEmbeddedCellFeature([:H, :O]; nembed=2, seed=11, p2=[2], p3=[2], q3=[2])
+            model = ManualFluxBackPropInterface(Chain(Dense(rand(1, nfeatures(cf)), rand(1))))
+
+            emb_log = joinpath(dir, "embedding.log")
+            emb_out = _capture_training_stdout() do
+                EDDPotentials.Training.train_lm_with_embedding!(
+                    model,
+                    structures,
+                    cf,
+                    y_emb;
+                    max_epochs=1,
+                    earlystop=0,
+                    show_progress=false,
+                    log_file=emb_log,
+                    normalize_embedding=true,
+                    damping_mode=:fletcher_floor,
+                )
+            end
+            _assert_training_startup_header(
+                emb_out,
+                "train_lm_with_embedding!",
+                emb_log;
+                extras=[
+                    "normalize_embedding = true",
+                    "max_epochs = 1",
+                    "damping_mode = :fletcher_floor",
+                    "lambda = 100000.0",
+                ],
+            )
+
+            cf_override = RandomEmbeddedCellFeature([:H, :O]; nembed=2, seed=13, p2=[2], p3=[2], q3=[2])
+            model = ManualFluxBackPropInterface(Chain(Dense(rand(1, nfeatures(cf_override)), rand(1))))
+            emb_override_log = joinpath(dir, "embedding-override.log")
+            emb_override_out = _capture_training_stdout() do
+                EDDPotentials.Training.train_lm_with_embedding!(
+                    model,
+                    structures,
+                    cf_override,
+                    y_emb;
+                    max_epochs=1,
+                    earlystop=0,
+                    show_progress=false,
+                    log_file=emb_override_log,
+                    damping_mode=:fletcher_floor,
+                    lambda=123.0,
+                )
+            end
+            _assert_training_startup_header(
+                emb_override_out,
+                "train_lm_with_embedding!",
+                emb_override_log;
+                extras=[
+                    "damping_mode = :fletcher_floor",
+                    "lambda = 123.0",
+                ],
+            )
+
+            cf_batched = RandomEmbeddedCellFeature([:H, :O]; nembed=2, seed=12, p2=[2], p3=[2], q3=[2])
+            model = ManualFluxBackPropInterface(Chain(Dense(rand(1, nfeatures(cf_batched)), rand(1))))
+            emb_batched_log = joinpath(dir, "embedding-batched.log")
+            emb_batched_out = _capture_training_stdout() do
+                EDDPotentials.Training.train_lm_batched_with_embedding!(
+                    model,
+                    structures,
+                    cf_batched,
+                    y_emb;
+                    batch_size=length(structures),
+                    max_epochs=1,
+                    earlystop=0,
+                    show_progress=false,
+                    log_file=emb_batched_log,
+                    solver=:direct,
+                )
+            end
+            _assert_training_startup_header(
+                emb_batched_out,
+                "train_lm_batched_with_embedding!",
+                emb_batched_log;
+                extras=[
+                    "batch_size = 2",
+                    "solver = :direct",
+                ],
+            )
+        end
+    end
+
     @testset "NN objectives" begin
         Random.seed!(1234)
         nf = 1000
@@ -91,7 +416,7 @@ end
             zeros(eltype(data[1]), length(data)),
             inplace=true,
         )
-        opt_res = levenberg_marquardt(od2, p0; show_trace=false)
+        opt_res = levenberg_marquardt(od2, p0; show_trace=false, damping_mode=:fletcher_floor, solver=:cholesky)
 
         j!(jmat, opt_res.minimizer)
         @test all(isapprox.(jmat, 0.0, atol=1e-6))
@@ -101,7 +426,7 @@ end
         model =
             ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
 
-        train_lm!(model, data, y;)
+        train_lm!(model, data, y; damping_mode=:fletcher_floor, solver=:direct)
         out = model(data[2])
         # Check we have successfully performed the fit
         @test sum(out) ≈ y[2] atol = 1e-5
