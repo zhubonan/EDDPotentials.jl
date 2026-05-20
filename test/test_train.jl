@@ -4,12 +4,14 @@ using EDDPotentials.Training:
     levenberg_marquardt,
     levenberg_marquardt_batched,
     _apply_damping_full!,
+    _cg_solve_full!,
     _solve_normal_full!
 
 using Test
 using Flux
 using StatsBase
 using NLSolversBase
+using LinearAlgebra
 using Random
 
 isdefined(Main, :datadir) || include("utils.jl")
@@ -147,6 +149,139 @@ end
         @test opt_res.minimizer[1] ≈ 1.0 atol = 1e-8
     end
 
+    @testset "Full LM CG solver" begin
+        J = [1.0 0.0; 0.0 2.0; 1.0 1.0]
+        wt = ones(3)
+        DtD = vec(sum(abs2, J; dims=1))
+        rhs = [1.0, 2.0]
+        lambda = 0.5
+        A = transpose(J) * J + lambda * Diagonal(DtD)
+
+        delta_cg = zeros(2)
+        tmp = zeros(3)
+        Ap = zeros(2)
+        r = zeros(2)
+        z = zeros(2)
+        pvec = zeros(2)
+        M = zeros(2)
+        damping_diag = zeros(2)
+
+        @test _cg_solve_full!(
+            delta_cg,
+            J,
+            wt,
+            lambda,
+            DtD,
+            rhs,
+            tmp,
+            Ap,
+            r,
+            z,
+            pvec,
+            M,
+            damping_diag;
+            damping_mode=:fletcher,
+            maxiter=20,
+            tol=1e-10,
+        )
+        @test delta_cg ≈ A \ rhs atol = 1e-8
+
+        J_floor = [0.5 0.0; 0.0 2.0]
+        DtD_floor = vec(sum(abs2, J_floor; dims=1))
+        rhs_floor = [1.0, 2.0]
+        floor_lambda = 10.0
+        A_floor = transpose(J_floor) * J_floor +
+                  floor_lambda * Diagonal(max.(one(eltype(DtD_floor)), DtD_floor))
+        fill!(delta_cg, 0.0)
+        tmp_floor = zeros(2)
+        @test _cg_solve_full!(
+            delta_cg,
+            J_floor,
+            ones(2),
+            floor_lambda,
+            DtD_floor,
+            rhs_floor,
+            tmp_floor,
+            Ap,
+            r,
+            z,
+            pvec,
+            M,
+            damping_diag;
+            damping_mode=:fletcher_floor,
+            maxiter=20,
+            tol=1e-10,
+        )
+        @test delta_cg ≈ A_floor \ rhs_floor atol = 1e-8
+
+        fill!(delta_cg, 0.0)
+        @test !_cg_solve_full!(
+            delta_cg,
+            J,
+            wt,
+            -2.0,
+            DtD,
+            rhs,
+            tmp,
+            Ap,
+            r,
+            z,
+            pvec,
+            M,
+            damping_diag;
+            damping_mode=:fletcher,
+            maxiter=20,
+            tol=1e-10,
+        )
+
+        function f_linear!(fvec, p)
+            fvec[1] = p[1] - 1.0
+            fvec[2] = 2.0 * p[2] + 1.0
+            fvec
+        end
+        function j_linear!(jmat, p)
+            jmat[1, 1] = 1.0
+            jmat[1, 2] = 0.0
+            jmat[2, 1] = 0.0
+            jmat[2, 2] = 2.0
+            jmat
+        end
+        function fj_linear!(fvec, jmat, p)
+            f_linear!(fvec, p)
+            j_linear!(jmat, p)
+            fvec, jmat
+        end
+        p0 = [0.0, 0.0]
+        od = OnceDifferentiable(
+            f_linear!,
+            j_linear!,
+            fj_linear!,
+            p0,
+            zeros(2),
+            inplace=true,
+        )
+        opt_res = levenberg_marquardt(
+            od,
+            p0;
+            maxIter=10,
+            earlystop=0,
+            keep_best=false,
+            solver=:cg,
+            cg_tol=1e-10,
+            cg_maxiter=20,
+        )
+        @test opt_res.minimizer ≈ [1.0, -0.5] atol = 1e-6
+
+        err = try
+            levenberg_marquardt(od, p0; solver=:unknown)
+            nothing
+        catch err
+            err
+        end
+        @test err isa ArgumentError
+        @test occursin(":cg", sprint(showerror, err))
+    end
+
     @testset "Training startup headers" begin
         Random.seed!(1234)
         nf = 4
@@ -180,6 +315,33 @@ end
                 ],
             )
 
+            lm_cg_log = joinpath(dir, "lm-cg.log")
+            model = ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
+            lm_cg_out = _capture_training_stdout() do
+                train_lm!(
+                    model,
+                    data,
+                    y;
+                    max_epochs=1,
+                    earlystop=0,
+                    show_progress=false,
+                    log_file=lm_cg_log,
+                    solver=:cg,
+                    cg_tol=1e-5,
+                    cg_maxiter=10,
+                )
+            end
+            _assert_training_startup_header(
+                lm_cg_out,
+                "train_lm!",
+                lm_cg_log;
+                extras=[
+                    "solver = :cg",
+                    "cg_tol = 1.0e-5",
+                    "cg_maxiter = 10",
+                ],
+            )
+
             lm_floor_log = joinpath(dir, "lm-floor.log")
             model = ManualFluxBackPropInterface(Chain(Dense(rand(1, nf), rand(1))))
             lm_floor_out = _capture_training_stdout() do
@@ -192,6 +354,7 @@ end
                     show_progress=false,
                     log_file=lm_floor_log,
                     damping_mode=:fletcher_floor,
+                    solver=:cg,
                 )
             end
             _assert_training_startup_header(
@@ -200,6 +363,7 @@ end
                 lm_floor_log;
                 extras=[
                     "damping_mode = :fletcher_floor",
+                    "solver = :cg",
                     "lambda = 100000.0",
                 ],
             )
