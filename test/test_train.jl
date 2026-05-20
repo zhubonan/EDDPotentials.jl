@@ -3,9 +3,12 @@ using EDDPotentials.Potential: ManualFluxBackPropInterface, LinearInterface, Abs
 using EDDPotentials.Training:
     levenberg_marquardt,
     levenberg_marquardt_batched,
+    CGSolveStats,
     _apply_damping_full!,
+    _adaptive_cg_tol,
     _cg_solve_full!,
-    _solve_normal_full!
+    _solve_normal_full!,
+    _weighted_jtr_neg!
 
 using Test
 using Flux
@@ -97,6 +100,22 @@ end
         @test_throws ArgumentError _apply_damping_full!(copy(JJ), 10.0, DtD, :unknown)
     end
 
+    @testset "Full LM helper utilities" begin
+        J = [1.0 2.0; 3.0 4.0; -1.0 0.5]
+        wt = [0.5, 2.0, 3.0]
+        r = [4.0, -1.0, 2.0]
+        rhs = zeros(2)
+        tmp = zeros(3)
+        _weighted_jtr_neg!(rhs, J, wt, r, tmp)
+        @test rhs ≈ -transpose(J) * (wt .* r)
+
+        @test _adaptive_cg_tol(1e-6, 1e-2, 10.0, 10.0, true, Float64) ≈ 1e-2
+        tighter = _adaptive_cg_tol(1e-6, 1e-2, 1e-6, 10.0, true, Float64)
+        @test 1e-6 <= tighter <= 1e-2
+        @test tighter < 1e-2
+        @test _adaptive_cg_tol(1e-6, 1e-2, 10.0, 10.0, false, Float64) ≈ 1e-6
+    end
+
     @testset "Full LM strict Cholesky" begin
         A = [0.0 1.0; 1.0 0.0]
         rhs = [1.0, 2.0]
@@ -106,8 +125,10 @@ end
         @test delta_chol == fill(-99.0, 2)
 
         delta_direct = zeros(2)
-        @test _solve_normal_full!(delta_direct, copy(A), rhs, :direct)
+        A_direct = copy(A)
+        @test _solve_normal_full!(delta_direct, A_direct, rhs, :direct)
         @test delta_direct ≈ [2.0, 1.0]
+        @test A_direct == A
 
         delta_qr = zeros(2)
         @test _solve_normal_full!(delta_qr, copy(A), rhs, :qr)
@@ -165,6 +186,7 @@ end
         pvec = zeros(2)
         M = zeros(2)
         damping_diag = zeros(2)
+        stats = CGSolveStats()
 
         @test _cg_solve_full!(
             delta_cg,
@@ -183,8 +205,12 @@ end
             damping_mode=:fletcher,
             maxiter=20,
             tol=1e-10,
+            stats=stats,
         )
         @test delta_cg ≈ A \ rhs atol = 1e-8
+        @test stats.converged
+        @test 0 < stats.iterations <= 20
+        @test stats.relres <= 1e-10
 
         J_floor = [0.5 0.0; 0.0 2.0]
         DtD_floor = vec(sum(abs2, J_floor; dims=1))
@@ -269,6 +295,7 @@ end
             solver=:cg,
             cg_tol=1e-10,
             cg_maxiter=20,
+            cg_adaptive_tol=false,
         )
         @test opt_res.minimizer ≈ [1.0, -0.5] atol = 1e-6
 
@@ -280,6 +307,92 @@ end
         end
         @test err isa ArgumentError
         @test occursin(":cg", sprint(showerror, err))
+        @test_throws ArgumentError levenberg_marquardt(od, p0; solver=:cg, cg_tol=1e-3, cg_tol_max=1e-4)
+    end
+
+    @testset "Full LM convergence edge cases" begin
+        function f_exact!(fvec, p)
+            fvec[1] = p[1] - 1.0
+            fvec[2] = p[2] + 2.0
+            fvec
+        end
+        function j_exact!(jmat, p)
+            jmat[1, 1] = 1.0
+            jmat[1, 2] = 0.0
+            jmat[2, 1] = 0.0
+            jmat[2, 2] = 1.0
+            jmat
+        end
+        function fj_exact!(fvec, jmat, p)
+            f_exact!(fvec, p)
+            j_exact!(jmat, p)
+            fvec, jmat
+        end
+
+        for solver in (:direct, :cholesky, :qr, :cg)
+            p_exact = [1.0, -2.0]
+            od = OnceDifferentiable(
+                f_exact!,
+                j_exact!,
+                fj_exact!,
+                p_exact,
+                zeros(2),
+                inplace=true,
+            )
+            opt_res = levenberg_marquardt(
+                od,
+                p_exact;
+                maxIter=5,
+                earlystop=0,
+                keep_best=false,
+                solver,
+                p=1.25,
+                cg_adaptive_tol=false,
+            )
+            @test opt_res.iterations == 1
+            @test opt_res.g_converged
+            @test opt_res.x_converged
+            @test opt_res.minimizer ≈ p_exact
+        end
+
+        function f_trace!(fvec, p)
+            fvec[1] = p[1] - 1.0
+            fvec
+        end
+        function j_trace!(jmat, p)
+            jmat[1, 1] = 1.0
+            jmat
+        end
+        function fj_trace!(fvec, jmat, p)
+            f_trace!(fvec, p)
+            j_trace!(jmat, p)
+            fvec, jmat
+        end
+        p0 = [0.0]
+        od_trace = OnceDifferentiable(
+            f_trace!,
+            j_trace!,
+            fj_trace!,
+            p0,
+            zeros(1),
+            inplace=true,
+        )
+        traced = Ref{Any}()
+        _capture_training_stdout() do
+            traced[] = levenberg_marquardt(
+                od_trace,
+                p0;
+                maxIter=2,
+                earlystop=0,
+                keep_best=false,
+                show_trace=true,
+            )
+        end
+        @test length(traced[].trace) == 3
+        dx1 = traced[].trace[2].metadata["dx"]
+        dx2 = traced[].trace[3].metadata["dx"]
+        @test dx1 !== dx2
+        @test dx1 != dx2
     end
 
     @testset "Training startup headers" begin
@@ -416,6 +529,7 @@ end
                 extras=[
                     "batch_size = 4",
                     "threaded = false",
+                    "solver = :cholesky",
                     "x_tol = 1.0e-8",
                 ],
             )
@@ -760,6 +874,43 @@ end
                 @test tm.val_results isa TrainingResults
                 @test tm.test_results isa TrainingResults
                 @test length(tm.test_results.fc) > 0
+            end
+
+            @testset "full LM default solver" begin
+                out = _capture_training_stdout() do
+                    train_model(
+                        small_path,
+                        cf;
+                        train_method=:lm,
+                        val_ratio=0.2,
+                        test_ratio=0.2,
+                        nnodes=[3],
+                        max_epochs=1,
+                        earlystop=0,
+                        show_progress=false,
+                        verbose=false,
+                    )
+                end
+                @test occursin("solver = :cholesky", out)
+            end
+
+            @testset "batched LM default solver" begin
+                out = _capture_training_stdout() do
+                    train_model(
+                        small_path,
+                        cf;
+                        train_method=:lm_batched,
+                        val_ratio=0.2,
+                        test_ratio=0.2,
+                        nnodes=[3],
+                        max_epochs=1,
+                        earlystop=0,
+                        show_progress=false,
+                        verbose=false,
+                    )
+                end
+                @test occursin("routine = train_lm_batched!", out)
+                @test occursin("solver = :cholesky", out)
             end
 
             @testset "from StructureContainer" begin

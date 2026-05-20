@@ -460,7 +460,7 @@ function _train_lm_batched!(
     threaded::Bool=(Threads.nthreads() > 1),
     damping_mode::Symbol=:fletcher,
     attempts_per_step::Int=1,
-    solver::Symbol=:direct,
+    solver::Symbol=:cholesky,
     batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing,
     checkpoint_every::Int=0,
     checkpoint_prefix::AbstractString="",
@@ -1321,8 +1321,9 @@ evaluation results on all three splits are bundled into the returned
 # Levenberg-Marquardt (`:lm` and `:lm_batched`)
 
 - `p::Float64=1.25`: LM damping parameter.
-- `solver::Symbol=:direct`: linear solver for the LM step. Full and batched LM
-  support `:direct`, `:cholesky`, `:cg`, and `:qr`.
+- `solver=nothing`: linear solver for the LM step. Defaults to `:cholesky` for
+  both full and batched LM. Full and batched LM support `:direct`, `:cholesky`,
+  `:cg`, and `:qr`.
 - `damping_mode::Symbol=:fletcher`: damping strategy. Full LM supports
   `:fletcher` and `:fletcher_floor`; batched LM supports `:fletcher`,
   `:standard`, and `:adaptive`.
@@ -1377,7 +1378,7 @@ function train_model(
     weights=nothing,
     # LM (used by :lm and :lm_batched)
     p::Float64=1.25,
-    solver::Symbol=:direct,
+    solver::Union{Symbol,Nothing}=nothing,
     # LM batched
     batch_size::Int=512,
     shuffle_seed::Int=42,
@@ -1422,9 +1423,11 @@ function train_model(
             (; batch_size, max_epochs, earlystop))
     end
 
+    solver_to_use = isnothing(solver) ? :cholesky : solver
+
     train!(itf, fc_train, fc_val; train_method, show_progress,
         max_epochs, earlystop, keep_best, log_file, weights,
-        p, solver, batch_size, shuffle_seed, threaded, damping_mode,
+        p, solver=solver_to_use, batch_size, shuffle_seed, threaded, damping_mode,
         attempts_per_step, batch_ranges, optimizer, lr, lr_schedule,
         momentum, pow, beta, eps, weight_decay, grad_clip,
         checkpoint_every, checkpoint_prefix, kwargs...)
@@ -2012,7 +2015,7 @@ function train_lm_batched_with_embedding!(
     shuffle_seed=42,
     damping_mode::Symbol=:fletcher,
     attempts_per_step::Int=1,
-    solver::Symbol=:direct,
+    solver::Symbol=:cholesky,
     checkpoint_every::Int=0,
     checkpoint_prefix::AbstractString="",
     elemental_energies::Dict=Dict{Symbol,Float64}(),

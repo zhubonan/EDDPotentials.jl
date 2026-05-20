@@ -149,7 +149,7 @@ end
 Solve the damped normal equations `JJ * delta_x = rhs` using the specified method.
 
 # Solvers
-- `:direct`    — LU decomposition via `\\` (default)
+- `:direct`    — LU decomposition via `\\`
 - `:cholesky`  — Cholesky factorisation (fast, requires positive-definite JJ)
 - `:qr`        — QR decomposition (robust for ill-conditioned systems)
 """
@@ -241,7 +241,7 @@ function levenberg_marquardt_batched(
     good_step_quality::Real=0.75,
     damping_mode::Symbol=:fletcher,
     attempts_per_step::Int=1,
-    solver::Symbol=:direct,
+    solver::Symbol=:cholesky,
     show_trace::Bool=false,
     callback=nothing,
     keep_best=true,
