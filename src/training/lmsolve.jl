@@ -43,6 +43,97 @@ function _apply_damping_full!(JJ, lambda, DtD, mode::Symbol)
     JJ
 end
 
+function _damping_diagonal_full!(damping_diag, DtD, mode::Symbol)
+    if mode === :fletcher
+        copyto!(damping_diag, DtD)
+    elseif mode === :fletcher_floor
+        floor = one(eltype(DtD))
+        @simd for i in eachindex(DtD)
+            @inbounds damping_diag[i] = max(floor, DtD[i])
+        end
+    else
+        throw(ArgumentError("Unknown damping_mode: $mode. Use :fletcher or :fletcher_floor."))
+    end
+    damping_diag
+end
+
+"""
+    _cg_solve_full!(delta_x, J, wt, lambda, DtD, rhs, tmp, Ap, r, z, p, M, damping_diag; kwargs...) -> Bool
+
+Solve `(J'WJ + λ·diag(d)) * delta_x = rhs` with matrix-free preconditioned CG.
+
+Returns `true` only when CG converges. Returns `false` on invalid Jacobi
+preconditioner entries, non-finite arithmetic, non-positive curvature, or
+max-iteration non-convergence.
+"""
+function _cg_solve_full!(
+    delta_x,
+    J,
+    wt,
+    lambda,
+    DtD,
+    rhs,
+    tmp,
+    Ap,
+    r,
+    z,
+    p,
+    M,
+    damping_diag;
+    damping_mode::Symbol=:fletcher,
+    maxiter::Int=500,
+    tol::Real=1e-6,
+)
+    maxiter > 0 || return false
+
+    _damping_diagonal_full!(damping_diag, DtD, damping_mode)
+    @. M = DtD + lambda * damping_diag
+    for value in M
+        (isfinite(value) && value > zero(value)) || return false
+    end
+
+    fill!(delta_x, zero(eltype(delta_x)))
+    copyto!(r, rhs)
+    rhs_norm = norm(rhs)
+    isfinite(rhs_norm) || return false
+    rhs_norm == 0 && return true
+
+    @. z = r / M
+    copyto!(p, z)
+    rho = dot(r, z)
+    (isfinite(rho) && rho > zero(rho)) || return false
+
+    for _ in 1:maxiter
+        mul!(tmp, J, p)
+        @. tmp = wt * tmp
+        mul!(Ap, transpose(J), tmp)
+        @. Ap += lambda * damping_diag * p
+
+        pAp = dot(p, Ap)
+        (isfinite(pAp) && pAp > zero(pAp)) || return false
+
+        alpha = rho / pAp
+        isfinite(alpha) || return false
+        @. delta_x += alpha * p
+        @. r -= alpha * Ap
+
+        r_norm = norm(r)
+        isfinite(r_norm) || return false
+        r_norm <= tol * rhs_norm && return true
+
+        @. z = r / M
+        rho_next = dot(r, z)
+        (isfinite(rho_next) && rho_next > zero(rho_next)) || return false
+
+        beta = rho_next / rho
+        isfinite(beta) || return false
+        @. p = z + beta * p
+        rho = rho_next
+    end
+
+    return false
+end
+
 """
     _solve_normal_full!(delta_x, JJ, rhs, solver) -> Bool
 
@@ -53,6 +144,7 @@ returns `false` so the LM loop can increase `lambda` and retry.
 # Solvers
 - `:direct`    — LU decomposition via `\\`
 - `:cholesky`  — strict Cholesky factorisation; failure rejects the LM step
+- `:cg`        — matrix-free preconditioned CG (handled outside this dense helper)
 - `:qr`        — QR decomposition (robust for ill-conditioned systems)
 """
 function _solve_normal_full!(delta_x, JJ, rhs, solver::Symbol)
@@ -72,8 +164,10 @@ function _solve_normal_full!(delta_x, JJ, rhs, solver::Symbol)
         F = qr(JJ)
         ldiv!(delta_x, F, rhs)
         return true
+    elseif solver === :cg
+        throw(ArgumentError("solver=:cg is matrix-free in full LM; use _cg_solve_full! instead."))
     else
-        throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, or :qr."))
+        throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, :cg, or :qr."))
     end
 end
 """
@@ -101,7 +195,9 @@ Comp & Applied Math).
 * `keep_best`: If true, return the best solution instead of that of the last iteration. If callback is supplied, use the best value from it.
 * `lower,upper=[]`: bound solution to these limits
 * `damping_mode::Symbol=:fletcher`: damping strategy (`:fletcher`, `:fletcher_floor`)
-* `solver::Symbol=:cholesky`: linear solver (`:direct`, `:cholesky`, `:qr`)
+* `solver::Symbol=:cholesky`: linear solver (`:direct`, `:cholesky`, `:cg`, `:qr`)
+* `cg_tol::Real=1e-6`: relative residual tolerance for `solver=:cg`
+* `cg_maxiter::Integer=500`: maximum CG iterations for `solver=:cg`
 """
 
 # I think a smarter way to do this *might* be to create a type similar to `OnceDifferentiable`
@@ -133,10 +229,16 @@ function levenberg_marquardt(
     earlystop=0,
     damping_mode::Symbol=:fletcher,
     solver::Symbol=:cholesky,
+    cg_tol::Real=1e-6,
+    cg_maxiter::Int=500,
 ) where {T}
 
     damping_mode in (:fletcher, :fletcher_floor) ||
         throw(ArgumentError("Unknown damping_mode: $damping_mode. Use :fletcher or :fletcher_floor."))
+    solver in (:direct, :cholesky, :cg, :qr) ||
+        throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, :cg, or :qr."))
+    cg_maxiter > 0 || throw(ArgumentError("cg_maxiter must be positive, got $cg_maxiter"))
+    cg_tol > 0 || throw(ArgumentError("cg_tol must be positive, got $cg_tol"))
 
     # First evaluation
     value_jacobian!!(df, initial_x)
@@ -188,11 +290,19 @@ function levenberg_marquardt(
     # Create buffers
     n = length(x)
     m = length(trial_f)
-    JJ = Matrix{T}(undef, n, n)
+    use_cg_solver = solver === :cg
+    JJ = use_cg_solver ? Matrix{T}(undef, 0, 0) : Matrix{T}(undef, n, n)
     n_buffer = Vector{T}(undef, n)
     Jdelta_buffer = similar(value(df))
     val_rmse = T[]
     DtD = zeros(T, n)
+    cg_tmp = Vector{T}(undef, m)
+    cg_Ap = Vector{T}(undef, n)
+    cg_r = Vector{T}(undef, n)
+    cg_z = Vector{T}(undef, n)
+    cg_p = Vector{T}(undef, n)
+    cg_M = Vector{T}(undef, n)
+    cg_damping_diag = Vector{T}(undef, n)
 
     # Initialised weights
     wt = ones(T, m)
@@ -206,7 +316,7 @@ function levenberg_marquardt(
 
     # and an alias for the jacobian
     J = @timeit to "jacobian" jacobian(df)
-    J2 = copy(J)
+    J2 = use_cg_solver ? Matrix{T}(undef, 0, 0) : copy(J)
 
     dir_deriv = Array{T}(undef, m)
     v = Array{T}(undef, n)
@@ -260,13 +370,6 @@ function levenberg_marquardt(
         #@timeit to "mul!(JJ)" mul!(JJ, transpose(J .* wt), J)
         #@timeit to "ATWA! (mul!(JJ))" ATWA!(JJ, J, wt)
 
-        # Embed the weights into the jacobian matrix - equivalent to JTAJ
-        @timeit to "JJ1" J2 .= sqrt.(wt) .* J
-        @timeit to "JJ2" JJ = transpose(J2) * J2
-
-        # Add the diagonal damping term without constructing a full matrix.
-        _apply_damping_full!(JJ, lambda, DtD, damping_mode)
-
         #n_buffer is delta C, JJ is g compared to Mark's code
         # This computes the right hand side term of the equation above
         mul!(n_buffer, transpose(J), wt .* value(df))
@@ -274,7 +377,34 @@ function levenberg_marquardt(
 
         # Solve the matrix equation (A*x == B). Strict Cholesky failure rejects
         # the step and retries later with a stronger damping parameter.
-        solve_ok = @timeit to "matinv" _solve_normal_full!(v, JJ, n_buffer, solver)
+        solve_ok = if use_cg_solver
+            @timeit to "cg solve" _cg_solve_full!(
+                v,
+                J,
+                wt,
+                lambda,
+                DtD,
+                n_buffer,
+                cg_tmp,
+                cg_Ap,
+                cg_r,
+                cg_z,
+                cg_p,
+                cg_M,
+                cg_damping_diag;
+                damping_mode,
+                maxiter=cg_maxiter,
+                tol=cg_tol,
+            )
+        else
+            # Embed the weights into the jacobian matrix - equivalent to JTAJ
+            @timeit to "JJ1" J2 .= sqrt.(wt) .* J
+            @timeit to "JJ2" JJ = transpose(J2) * J2
+
+            # Add the diagonal damping term without constructing a full matrix.
+            _apply_damping_full!(JJ, lambda, DtD, damping_mode)
+            @timeit to "matinv" _solve_normal_full!(v, JJ, n_buffer, solver)
+        end
         if !solve_ok
             lambda = min(max(lambda_increase * lambda, MIN_LAMBDA), MAX_LAMBDA)
             iterCt += 1

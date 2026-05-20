@@ -270,8 +270,10 @@ fitting potential energy surfaces.
 - `damping_mode=:fletcher`: Damping strategy. Full LM supports `:fletcher` and
   `:fletcher_floor`; batched LM supports `:fletcher`, `:standard`, and `:adaptive`.
 - `attempts_per_step=1`: Number of LM attempts per batch step (batched mode)
-- `solver=:cholesky`: Linear solver. Full LM supports `:direct`, `:cholesky`, and
-  `:qr`; batched LM additionally supports `:cg`.
+- `solver=:cholesky`: Linear solver. Full and batched LM support `:direct`,
+  `:cholesky`, `:cg`, and `:qr`.
+- `cg_tol=1e-6`, `cg_maxiter=500`: Full-LM matrix-free CG controls when
+  `solver=:cg`.
 - `lambda=10`: Initial full-LM damping. For full LM with
   `damping_mode=:fletcher_floor`, EDDP training wrappers use `lambda=1e5`
   unless this keyword is explicitly provided.
@@ -1319,8 +1321,8 @@ evaluation results on all three splits are bundled into the returned
 # Levenberg-Marquardt (`:lm` and `:lm_batched`)
 
 - `p::Float64=1.25`: LM damping parameter.
-- `solver::Symbol=:direct`: linear solver for the LM step. Full LM supports
-  `:direct`, `:cholesky`, and `:qr`; batched LM additionally supports `:cg`.
+- `solver::Symbol=:direct`: linear solver for the LM step. Full and batched LM
+  support `:direct`, `:cholesky`, `:cg`, and `:qr`.
 - `damping_mode::Symbol=:fletcher`: damping strategy. Full LM supports
   `:fletcher` and `:fletcher_floor`; batched LM supports `:fletcher`,
   `:standard`, and `:adaptive`.
@@ -1847,7 +1849,10 @@ parameter vector `[nn_params; vec(cf.embedding)]` is optimized jointly.
 - `recompute_xt=false`: Recompute feature standardization each iteration
 - `damping_mode::Symbol=:fletcher`: full LM damping strategy (`:fletcher`,
   `:fletcher_floor`)
-- `solver::Symbol=:cholesky`: full LM linear solver (`:direct`, `:cholesky`, `:qr`)
+- `solver::Symbol=:cholesky`: full LM linear solver (`:direct`, `:cholesky`,
+  `:cg`, `:qr`)
+- `cg_tol=1e-6`, `cg_maxiter=500`: full-LM matrix-free CG controls when
+  `solver=:cg`
 - `lambda=10`: Initial damping. With `damping_mode=:fletcher_floor`, this
   wrapper uses `lambda=1e5` unless explicitly provided.
 - Remaining kwargs passed to `levenberg_marquardt`
