@@ -706,6 +706,24 @@ function _dft_result_counts(crud_workdir)
     return good, bad
 end
 
+function _dft_phase_status(crud_workdir)
+    good, bad = _dft_result_counts(crud_workdir)
+    queued = length(glob_allow_abs(joinpath(crud_workdir, "hopper", "*.res")))
+    active = length(glob_allow_abs(joinpath(crud_workdir, "*.res")))
+    castep_files = glob_allow_abs(joinpath(crud_workdir, "*.castep"))
+    latest_castep_mtime = isempty(castep_files) ? nothing : maximum(mtime, castep_files)
+    latest_castep_age =
+        latest_castep_mtime === nothing ? nothing : max(0.0, time() - latest_castep_mtime)
+    return (;
+        good,
+        bad,
+        queued,
+        active,
+        latest_castep_mtime,
+        latest_castep_age,
+    )
+end
+
 function server_collect_dft_results!(bu::Builder, iter::Int=bu.state.iteration)
     phase_dir = _phase_dir(bu, iter, "dft")
     manifest = _read_json(_phase_manifest_path(phase_dir))
@@ -784,23 +802,42 @@ function _server_wait_for_dft!(bu::Builder, phase_dir)
     crud_workdir = manifest["crud_workdir"]
     input_count = Int(manifest["input_count"])
     required_success = _required_dft_success(manifest)
-    max_bad = _max_dft_bad(manifest)
     last_diag = 0.0
     while true
-        good, bad = _dft_result_counts(crud_workdir)
+        status = _dft_phase_status(crud_workdir)
+        (; good, bad, queued, active, latest_castep_age) = status
+        dft_stale_seconds = bu.options.distributed.dft_stale_seconds
+        root_jobs_stale =
+            active > 0 &&
+            latest_castep_age !== nothing &&
+            latest_castep_age > dft_stale_seconds
         if _log_interval_due(last_diag, bu)
-            @info "distributed link waiting for DFT results" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_DFT" phase = "dft" iteration = Int(manifest["iteration"]) waiting = true next_action = "wait_for_dft_results" good bad required_success input_count
+            @info "distributed link waiting for DFT results" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_DFT" phase = "dft" iteration = Int(manifest["iteration"]) waiting = true next_action = "wait_for_dft_results" good bad queued active required_success input_count dft_stale_seconds latest_castep_age
             last_diag = time()
         end
-        if good >= required_success
-            @info "distributed link DFT threshold reached" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_READY" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "request_phase_stop" good bad required_success input_count
+        if should_stop(bu)
+            @warn "STOP requested while waiting for DFT" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "STOPPING" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "abort_phase" good bad queued active required_success input_count
+
+            _server_abort_phase!(bu, phase_dir, "STOP requested while waiting for DFT.")
+            return :stopped
+        end
+        if queued > 0 || (active > 0 && !root_jobs_stale)
+            sleep(bu.options.distributed.control_poll_interval_seconds)
+            continue
+        end
+        if root_jobs_stale
+            @warn "distributed link DFT root jobs stale" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_STALE" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "request_phase_stop" good bad queued active required_success input_count dft_stale_seconds latest_castep_age
 
             _server_request_phase_stop!(bu, phase_dir)
+        end
+        if good >= required_success
+            @info "distributed link DFT threshold reached" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_READY" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "advance_workflow" good bad queued active required_success input_count
+
             return good, bad
-        elseif bad > max_bad || good + bad >= input_count
+        else
             _touch_marker(joinpath(phase_dir, "FAILED"))
             bad_ratio = input_count == 0 ? 0.0 : bad / input_count
-            @error "distributed link DFT failed" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_FAILED" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "throw" good bad required_success input_count bad_ratio
+            @error "distributed link DFT failed" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_FAILED" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "throw" good bad queued active required_success input_count bad_ratio
 
             throw(
                 ErrorException(
@@ -808,13 +845,6 @@ function _server_wait_for_dft!(bu::Builder, phase_dir)
                 ),
             )
         end
-        if should_stop(bu)
-            @warn "STOP requested while waiting for DFT" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "STOPPING" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "abort_phase" good bad required_success input_count
-
-            _server_abort_phase!(bu, phase_dir, "STOP requested while waiting for DFT.")
-            return :stopped
-        end
-        sleep(bu.options.distributed.control_poll_interval_seconds)
     end
 end
 

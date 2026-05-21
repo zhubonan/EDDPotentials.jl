@@ -358,6 +358,8 @@ Options for the file-backed distributed link server/worker workflow.
     worker_child_grace_seconds::Float64 = 60.0
     worker_child_kill_seconds::Float64 = 30.0
     dft_crud_workdir::String = "crud-work"
+    "Seconds after which top-level DFT `.castep` output is considered stale."
+    dft_stale_seconds::Float64 = 300.0
     dft_worker_jobs::Int = 1
     training_worker_jobs::Int = 1
     "Environment variables applied to distributed DFT child commands."

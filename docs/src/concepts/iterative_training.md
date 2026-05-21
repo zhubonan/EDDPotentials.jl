@@ -324,6 +324,7 @@ manage_worker_jobs = true
 dft_worker_jobs = 16
 training_worker_jobs = 8
 dft_crud_workdir = "crud-work"
+dft_stale_seconds = 300.0
 control_poll_interval_seconds = 10.0
 worker_heartbeat_interval_seconds = 30.0
 worker_child_grace_seconds = 300.0
@@ -378,7 +379,7 @@ The server then:
 1. Generates structures into `genN/`.
 2. Prepares `crud-work/genN/hopper/`, `good_castep/`, and `bad_castep/`.
 3. Manages DFT worker jobs when `manage_worker_jobs = true`, rendering scripts and submitting only when `scheduler.submit_jobs = true`.
-4. Stops DFT workers after enough calculations reach `good_castep/` or `bad_castep/`.
+4. Waits for `hopper/` to empty and for active root `.res` jobs to finish, treating root jobs as stale when top-level `.castep` output is older than `dft_stale_seconds`.
 5. Publishes successful results into `genN-dft/`.
 6. Writes `training/gen-N-dataset.jld2`.
 7. Manages training workers, which write UUID-named model artifacts until enough models are available.

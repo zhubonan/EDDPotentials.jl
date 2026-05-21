@@ -425,6 +425,7 @@ end
             crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
             good_dir = joinpath(crud_workdir, "good_castep")
             bad_dir = joinpath(crud_workdir, "bad_castep")
+            hopper_dir = joinpath(crud_workdir, "hopper")
             for i = 1:7
                 write(joinpath(good_dir, "good-$i.res"), "TITL test\nEND\n")
             end
@@ -435,7 +436,71 @@ end
             sleep(0.05)
             @test !istaskdone(task)
             write(joinpath(good_dir, "good-8.res"), "TITL test\nEND\n")
+            sleep(0.05)
+            @test !istaskdone(task)
+
+            for file in filter(endswith(".res"), readdir(hopper_dir; join=true))
+                rm(file)
+            end
+            write(joinpath(crud_workdir, "calc-running.res"), "TITL test\nEND\n")
+            sleep(0.05)
+            @test !istaskdone(task)
+
+            write(joinpath(crud_workdir, "calc-running.castep"), "running\n")
+            sleep(0.05)
+            @test !istaskdone(task)
+
+            distributed.dft_stale_seconds = 0.0
             @test fetch(task) == (8, 1)
+            @test isfile(joinpath(phase_dir, "STOP"))
+        end
+    end
+
+    @testset "DFT terminal failure waits for drained queue" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.per_generation_threshold = 0.8
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.control_poll_interval_seconds = 0.01
+            builder = _distributed_builder(temp; state, distributed)
+
+            _write_minimal_castep_inputs(temp)
+            _write_generated_res(
+                temp,
+                ["calc-$(lpad(string(i), 3, '0')).res" for i = 1:10],
+            )
+
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            good_dir = joinpath(crud_workdir, "good_castep")
+            bad_dir = joinpath(crud_workdir, "bad_castep")
+            hopper_dir = joinpath(crud_workdir, "hopper")
+            for i = 1:7
+                write(joinpath(good_dir, "good-$i.res"), "TITL test\nEND\n")
+            end
+            for i = 1:3
+                write(joinpath(bad_dir, "bad-$i.res"), "TITL test\nEND\n")
+            end
+
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
+            task = @async try
+                EDDPotentials._server_wait_for_dft!(builder, phase_dir)
+            catch err
+                err
+            end
+            sleep(0.05)
+            @test !istaskdone(task)
+
+            for file in filter(endswith(".res"), readdir(hopper_dir; join=true))
+                rm(file)
+            end
+            err = fetch(task)
+            @test err isa ErrorException
+            @test contains(err.msg, "Too many failed DFT calculations")
+            @test isfile(joinpath(phase_dir, "FAILED"))
         end
     end
 
@@ -462,6 +527,7 @@ end
                 joinpath(gen0, "calc-001.res"),
                 joinpath(crud_workdir, "good_castep", "calc-001.res"),
             )
+            rm(joinpath(crud_workdir, "hopper", "calc-001.res"))
 
             phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
             redirect_stderr(devnull) do
@@ -477,6 +543,8 @@ end
             @test contains(dft_log, "id=")
             @test contains(dft_log, "good=")
             @test contains(dft_log, "bad=")
+            @test contains(dft_log, "queued=")
+            @test contains(dft_log, "active=")
             @test contains(dft_log, "required_success=")
             @test contains(dft_log, "input_count=")
             @test !contains(dft_log, "distributed link DFT poll")
@@ -524,6 +592,20 @@ end
             phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
             @test EDDPotentials._server_wait_for_dft!(builder, phase_dir) == :stopped
             @test isfile(joinpath(phase_dir, "ABORTED.json"))
+            rm(joinpath(temp, "STOP"))
+
+            EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            crud_workdir = joinpath(temp, "crud-work", "gen0")
+            for file in filter(endswith(".res"), readdir(joinpath(crud_workdir, "hopper"); join=true))
+                rm(file)
+            end
+            write(joinpath(crud_workdir, "stale.res"), "TITL test\nEND\n")
+            write(joinpath(crud_workdir, "stale.castep"), "running\n")
+            distributed.dft_stale_seconds = 0.0
+            touch(joinpath(temp, "STOP"))
+            @test EDDPotentials._server_wait_for_dft!(builder, phase_dir) == :stopped
+            @test isfile(joinpath(phase_dir, "ABORTED.json"))
+            @test !isfile(joinpath(phase_dir, "FAILED"))
             rm(joinpath(temp, "STOP"))
 
             training_phase = EDDPotentials.server_prepare_training_phase!(builder, 0)
@@ -581,6 +663,7 @@ end
                 joinpath(gen0, "calc-001.res"),
                 joinpath(temp, "crud-work", "gen0", "good_castep", "calc-001.res"),
             )
+            rm(joinpath(temp, "crud-work", "gen0", "hopper", "calc-001.res"))
             @test EDDPotentials.server_run_dft_phase!(builder, 0) == :ok
             @test isfile(joinpath(EDDPotentials.output_structure_dir(temp, 0), "calc-001.res"))
             @test isfile(joinpath(phase_dir, "DONE"))
