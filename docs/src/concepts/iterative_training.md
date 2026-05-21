@@ -398,6 +398,12 @@ Then run long-lived workers manually or through your own job script:
 julia --project=. -e 'using EDDPotentials; EDDPotentials.distributed_worker()' -- --file link.toml --worker-id 1
 ```
 
+For manual GPU workers, pass explicit numeric `--worker-id` values so
+`trainer.cuda_visible_devices` can distribute training subprocesses across
+devices deterministically. Scheduler-launched cluster workers normally rely on
+the scheduler or cgroup environment for GPU binding; their default diagnostic
+log id uses the SLURM job id plus the worker process id.
+
 Worker status is written to:
 
 ```
@@ -410,7 +416,7 @@ dedicated log files:
 
 ```
 .eddp-distributed/logs/server-<pid>.log
-.eddp-distributed/logs/worker-<worker-id>.log
+.eddp-distributed/logs/trainer-<slurm-job-id>-<pid>.log
 ```
 
 Set `log_level` to the minimum level to emit. For example, `"debug"`

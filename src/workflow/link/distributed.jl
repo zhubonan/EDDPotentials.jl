@@ -242,6 +242,25 @@ end
 
 _server_id() = string(getpid())
 
+function _distributed_worker_task_id()
+    for key in ("SLURM_JOB_ID", "SGE_TASK_ID")
+        value = get(ENV, key, "")
+        isempty(value) || return value
+    end
+    value = get(ENV, "WORKER_ID", "")
+    isempty(value) || return value
+    return "NA"
+end
+
+_default_distributed_worker_id() = "$(_distributed_worker_task_id())-$(getpid())"
+
+function _distributed_worker_id(worker_id::AbstractString)
+    isempty(worker_id) && return _default_distributed_worker_id()
+    task_id = _distributed_worker_task_id()
+    worker_id == task_id && return "$(worker_id)-$(getpid())"
+    return String(worker_id)
+end
+
 function _log_interval_due(last_emit::Float64, bu::Builder)
     return time() - last_emit >= bu.options.distributed.log_interval_seconds
 end
@@ -1079,7 +1098,7 @@ function _worker_base_cmd(bu::Builder)
 end
 
 function _worker_job_payload(bu::Builder)
-    worker_id_line = "WORKER_ID=\"\${SLURM_ARRAY_TASK_ID:-\${SGE_TASK_ID:-1}}\""
+    worker_id_line = "WORKER_ID=\"\${SLURM_JOB_ID:-\${SGE_TASK_ID:-NA}}\""
     worker_cmd = _command_string(_worker_base_cmd(bu)) * " --worker-id \"\$WORKER_ID\""
     worker_id_line * "\n" * worker_cmd
 end
@@ -1579,8 +1598,8 @@ end
 
 function distributed_worker(file::AbstractString; worker_id::AbstractString="", once::Bool=false)
     bu = Builder(file)
-    isempty(worker_id) && (worker_id = get(ENV, "WORKER_ID", string(getpid())))
-    _with_distributed_logger(bu; role="worker", id=worker_id) do
+    worker_id = _distributed_worker_id(worker_id)
+    _with_distributed_logger(bu; role="trainer", id=worker_id) do
         worker = WorkerState(worker_id; state="BOOT", iteration=bu.state.iteration)
         _worker_log(Logging.Info, "distributed link worker boot", worker; next_action="poll_control")
 

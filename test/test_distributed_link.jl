@@ -296,7 +296,7 @@ end
                 result, read(err_io, String)
             end
             @test result == false
-            log_path = joinpath(temp, ".eddp-distributed", "logs", "worker-idle-worker.log")
+            log_path = joinpath(temp, ".eddp-distributed", "logs", "trainer-idle-worker.log")
             text = read(log_path, String)
             @test contains(text, "distributed link worker idle")
             @test contains(text, "timestamp=")
@@ -307,6 +307,30 @@ end
             @test contains(text, "waiting=true")
             @test contains(text, "next_action=poll_control")
             @test contains(err_text, "distributed link worker idle")
+
+            withenv("SLURM_JOB_ID" => "17", "WORKER_ID" => nothing) do
+                redirect_stderr(devnull) do
+                    @test EDDPotentials.distributed_worker(link_path; once=true) == false
+                end
+            end
+            log_dir = joinpath(temp, ".eddp-distributed", "logs")
+            trainer_logs = filter(
+                name -> startswith(name, "trainer-17-") && endswith(name, ".log"),
+                readdir(log_dir),
+            )
+            @test length(trainer_logs) == 1
+            @test contains(read(joinpath(log_dir, only(trainer_logs)), String), "id=17-")
+
+            withenv("SLURM_JOB_ID" => nothing, "SGE_TASK_ID" => nothing, "WORKER_ID" => nothing) do
+                redirect_stderr(devnull) do
+                    @test EDDPotentials.distributed_worker(link_path; once=true) == false
+                end
+            end
+            na_logs = filter(
+                name -> startswith(name, "trainer-NA-") && endswith(name, ".log"),
+                readdir(log_dir),
+            )
+            @test length(na_logs) == 1
         end
     end
 
@@ -708,7 +732,7 @@ end
             @test !contains(text, "{{EDDP_DISTRIBUTED_WORKER_CMD}}")
             @test contains(text, "EDDPotentials.distributed_worker()")
             @test contains(text, "--worker-id \"\$WORKER_ID\"")
-            @test contains(text, "SLURM_ARRAY_TASK_ID")
+            @test contains(text, "SLURM_JOB_ID")
             @test EDDPotentials._server_submit_workers(builder, 0) == ""
 
             distributed.manage_worker_jobs = true
