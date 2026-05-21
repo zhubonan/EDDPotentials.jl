@@ -404,6 +404,10 @@ devices deterministically. Scheduler-launched cluster workers normally rely on
 the scheduler or cgroup environment for GPU binding; their default diagnostic
 log id uses the SLURM job id plus the worker process id.
 
+Worker ids are process identities used for heartbeat files, per-worker STOP
+files, and diagnostic events. The server does not assign phase work by numeric
+worker slot; it only needs each live worker to publish a unique, stable id.
+
 Worker status is written to:
 
 ```
