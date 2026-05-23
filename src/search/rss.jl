@@ -185,6 +185,14 @@ function build_and_relax(
         phase1_frac = relax_option.hyper_phase1_fraction
         pressure_gpa = relax_option.external_pressure[1]
         trace = relax_option.verbose
+        relax_fn = Simulation._method_to_native_fn(relax_option.method)
+        optimizer_kwargs = (
+            f_tol=relax_option.force_threshold,
+            s_tol=relax_option.stress_threshold,
+            e_tol=relax_option.energy_threshold,
+            maxstep=relax_option.maxstep,
+            step_constraints=relax_option.step_constraints,
+        )
 
         cell = CellBase.add_dimensions(cell, ndim)
         source = EDDPCalculator(cell, cf, ensemble; nmax,
@@ -204,7 +212,7 @@ function build_and_relax(
         p1_ramp = relax_option.hyper_dynamic_alpha ? true : false
         scheduled_penalty_relax!(metacalc_pos;
             schedule_every, max_iterations=phase1_iters,
-            alpha_start=phase1_alpha, relax_fn=opt_fire, trace,
+            alpha_start=phase1_alpha, relax_fn, relax_kwargs=optimizer_kwargs, trace,
             ramp_alpha=p1_ramp,
             alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,
             max_alpha=relax_option.hyper_max_alpha,
@@ -217,8 +225,8 @@ function build_and_relax(
         metacalc_full = MetaCalculator(source, [penalty])
         scheduled_penalty_relax!(metacalc_full;
             schedule_every, max_iterations=phase2_iters,
-            alpha_start, relax_fn=opt_fire, trace,
-            relax_kwargs=(relax_cell=true, ext_pressure=P_ext),
+            alpha_start, relax_fn, trace,
+            relax_kwargs=(; optimizer_kwargs..., relax_cell=true, ext_pressure=P_ext),
             ramp_alpha=relax_option.hyper_ramp_alpha,
             alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,
             max_alpha=relax_option.hyper_max_alpha,
@@ -260,7 +268,14 @@ function build_and_relax(
         md_dt = get(hot_kwargs, :md_timestep, Float64(0.5))
         relax_cell = get(hot_kwargs, :relax_cell, true)
         hot_opts = HotAIRSSOption(
-            cycles, 200, 1e-2, 1e-1, 1e-5, "tpsd", relax_cell, [0.0],
+            cycles,
+            relax_option.iterations,
+            relax_option.force_threshold,
+            relax_option.stress_threshold,
+            relax_option.energy_threshold,
+            relax_option.method,
+            relax_cell,
+            relax_option.external_pressure,
             md_steps, md_temp, md_dt, "langevin", 0.01, 50.0, nothing, false)
         hot_airss!(re.calc, hot_opts)
         return result
@@ -358,7 +373,7 @@ function _run_rss(
             cf;
             max_err,
             init_structure_transform,
-            relax_option,
+            relax_option=_relax_option,
             core_size,
             elemental_energies,
             relax_mode,

@@ -204,6 +204,9 @@ end
     # Also test multirelax! on Relax object
     output = multirelax!(relax)
     @test output isa EDDPotentials.RelaxResult
+
+    fire_output = relax!(calc; method="fire", verbose=true, iterations=5)
+    @test fire_output isa EDDPotentials.RelaxResult
 end
 
 @testset "Opt" begin

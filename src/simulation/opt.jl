@@ -46,6 +46,9 @@ function opt_tpsd(
         step_constraints=collect(step_constraints),
     )
 
+    if trajectory == ""
+        trajectory = nothing
+    end
     wrapped_callback = isnothing(callback) && isnothing(trajectory) ? nothing : () -> begin
         isnothing(trajectory) || push!(trajectory, deepcopy(get_cell(vc)))
         isnothing(callback) || callback()
@@ -112,7 +115,9 @@ function opt_fire(
         cell_damping,
         step_constraints=collect(step_constraints),
     )
-
+    if trajectory == ""
+        trajectory = nothing
+    end
     wrapped_callback = isnothing(callback) && isnothing(trajectory) ? nothing : () -> begin
         isnothing(trajectory) || push!(trajectory, deepcopy(get_cell(vc)))
         isnothing(callback) || callback()

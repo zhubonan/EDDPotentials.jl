@@ -1,0 +1,195 @@
+[cf]   # This section contains the settings of the descriptor
+geometry_sequence = true    # Use geometry sequence for the polynomial power
+elements = ["Li", "Ta", "O", "Cl"]            # The elements included for the potential
+p2 = [2, 10, 8]             # The powers for the two-body terms, from 2 to 10 with 5 polynomials
+rcut2 = 5.0                 # Cut off radius for the two-body terms
+rcut3 = 5.0                 # Cut off radius for the two-body terms
+p3 = [2, 10, 6]             # The powers for the three-body terms, from 2 to 10 with 5 polynomials
+q3 = [2, 10, 6]             # The powers for the three-body terms, from 2 to 10 with 5 polynomials
+
+[trainer]  # This section contains the settings for the trainer, e.g. how we should train the potential
+num_workers = 8     # The number of workers to use for local/non-distributed training
+num_threads_per_worker = 8  # Julia threads used by each distributed training worker
+nmodels = 128       # The number of model that should be build for constructing the ensemble model, use of a smaller value is also acceptable
+external = true     # Distributed link workers run training in external Julia child processes
+external_completion_ratio = 0.9  # Fraction of models required before distributed training stops
+train_method="lm"
+#batch_size=1000
+log_file = "train-log"
+
+[trainer.training_kwargs]
+solver = "cg"
+
+
+[scheduler]
+script = "./distributed_worker_job.sh"   # Job script used to launch distributed link workers
+type = "SLURM"      # Name of the queue system, at the moment only slurm is supported
+njobs = 24          # Fallback array size; distributed.dft_worker_jobs/training_worker_jobs choose phase sizes
+submit_jobs = true  # Let the distributed link server submit worker arrays
+
+[distributed]
+enabled = true
+coordination_dir = ".eddp-distributed"
+manage_worker_jobs = false
+dft_worker_jobs = 24
+training_worker_jobs = 8
+dft_crud_workdir = "crud-work"
+control_poll_interval_seconds = 10.0
+worker_poll_interval_seconds = 10.0
+worker_heartbeat_interval_seconds = 30.0
+worker_child_grace_seconds = 300.0
+worker_child_kill_seconds = 30.0
+log_enabled = true
+log_level = "info"
+log_dir = "logs"
+log_interval_seconds = 30.0
+
+[distributed.dft_env]
+OMP_NUM_THREADS = "1"
+
+[distributed.training_env]
+OMP_NUM_THREADS = "8"
+JULIA_NUM_THREADS = "8"
+
+
+[rss]
+seedfile = "LiTaOCl-SAMPLING.cell"    #  Seedfile for random structure searching using the potential built
+core_size = 0.5                # Size of the hard-core to prevent atoms from overlapping each other. Set to a value smaller than typical bond length
+pressure_gpa = 0.1         # External pressure when running geometry optimisation. Set a positive value to avoid overly empty unit cells
+
+# Formula sampling
+formula_sampling_enabled = true
+formula_target_atom_volumes = {"Cl" = 15, "Li"= 10, "O"=15, "Ta" = 25}
+[rss.formula_oxidation_states]
+Cl = [-1]
+O = [-2]
+Ta = [5]
+Li = [1]
+
+
+
+[state]
+per_generation = 1000           # Number of structures per generation
+max_iterations = 10            # Maximum number of iterations
+workdir = "."                  # Working directory
+seedfile_calc = "LiTaOCl.cell"       # Seed file containing the settings for running DFT calculation
+
+dft_mode = "crud-queue"              # Use crud.pl through the queue, the other options is crud-queue which will use a job.sh file to launch crud process in the queue
+n_initial = 1000                # Number of initial (generation 0) structures
+shake_per_minima = 5           # Number of shaken structures generated for each (eddp) relaxed structure
+mpinp = 8
+
+[state.rss]
+seedfile = ["LiTaOCl-SEARCH.cell"]     # Name of the seed for random structure generation when building the potential
+nprocs = 16                # Number of processes running random structure generation and relaxation during the building process
+core_size = 1.2                # Size of the hard-core to prevent atoms from overlapping each other. Set to a value smaller than typical bond length
+pressure_gpa = 1.0         # External pressure when running geometry optimisation. Set a positive value to avoid overlly empty unit cells
+
+# Formula sampling
+formula_sampling_enabled = true
+formula_target_atom_volumes = {"Cl" = 15, "Li"= 10, "O"=15, "Ta" = 25}
+
+[state.rss.formula_oxidation_states]
+Cl = [-1]
+O = [-2]
+Ta = [5]
+Li = [1]
+
+
+    # Pre-computed elemented energies from pseudoatomic energies, only applicable for QC5 CASTEP OTFG potential
+    [state.elemental_energies]
+        H = -12.2292
+        He = -77.1595
+        Li = -194.8254
+        Be = -374.3464
+        B = -75.5214
+        C = -147.4951
+        N = -262.7878
+        O = -429.6372
+        F = -657.6459
+        Ne = -953.2878
+        Na = -1290.283
+        Mg = -1685.3108
+        Al = -105.9163
+        Si = -163.1827
+        P = -213.0629
+        S = -298.6303
+        Cl = -419.6842
+        Ar = -598.5525
+        K = -774.6065
+        Ca = -1001.0651
+        Sc = -1271.1359
+        Ti = -1590.0527
+        V = -1943.7179
+        Cr = -2360.3318
+        Mn = -2071.0211
+        Fe = -849.8554
+        Co = -1082.1879
+        Ni = -1353.8437
+        Cu = -1673.6962
+        Zn = -2029.9879
+        Ga = -2095.7997
+        Ge = -2477.6873
+        As = -2895.1392
+        Se = -3359.8932
+        Br = -515.662
+        Kr = -621.9404
+        Rb = -689.2529
+        Sr = -874.6894
+        Y = -1067.3846
+        Zr = -1285.5038
+        Nb = -1565.9063
+        Mo = -1858.2655
+        Tc = -2203.7543
+        Ru = -2593.9319
+        Rh = -3032.4412
+        Pd = -3535.8645
+        Ag = -4078.4268
+        Cd = -4669.6629
+        In = -1715.1758
+        Sn = -2041.7334
+        Sb = -2377.6253
+        Te = -565.3089
+        I = -789.1684
+        Xe = -695.1442
+        Cs = -772.6223
+        Ba = -1055.5367
+        La = -1062.4031
+        Ce = -1178.1605
+        Pr = -1360.5746
+        Nd = -1631.8789
+        Pm = -1943.0289
+        Sm = -2175.3757
+        Eu = -2537.6589
+        Gd = -2987.6184
+        Tb = -3442.4015
+        Dy = -3902.5985
+        Ho = -4429.0406
+        Er = -4991.0825
+        Tm = -5607.2773
+        Yb = -6261.4261
+        Lu = -6959.1655
+        Hf = -7705.1387
+        Ta = -8482.9254
+        W = -9306.0811
+        Re = -10194.0497
+        Os = -11115.6862
+        Ir = -12110.4163
+        Pt = -13134.5719
+        Au = -14246.2716
+        Hg = -4280.9137
+        Tl = -4809.9582
+        Pb = -5384.7994
+        Bi = -2120.5817
+        Po = -2432.6872
+        At = -2780.8904
+        Rn = -3155.8777
+        Fr = -1187.1543
+        Ra = -1280.28
+        Ac = -1190.3688
+        Th = -1397.3751
+        Pa = -1480.3925
+        U = -1674.8191
+
+    [state.dft_kwargs]   # These are key word arguments passed to the DFT calculation launchers
+    mpinp = 8            # Each crud.pl script launches CASTEP calculation with this number of cores
