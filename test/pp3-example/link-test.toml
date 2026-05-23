@@ -1,11 +1,13 @@
 [state]
-seedfile = "Al.cell"
 seedfile_calc = "Al.cell"
 dft_mode = "pp3"
 per_generation = 10
 n_initial = 50
 max_iterations = 2
-rss_external = false
+
+[state.rss]
+seedfile = "Al.cell"
+external = false
 # Relaxation mode: "standard" (default), "hyperspace", or "hot"
 relax_mode = "standard"
 # Hot-AIRSS options
@@ -15,7 +17,7 @@ hot_md_steps = 1000
 hot_md_timestep = 0.5
 hot_relax_cell = true
 
-    [state.relax]
+    [state.rss.relax]
     force_threshold = 1e-3
 
 [cf]
@@ -29,8 +31,6 @@ geometry_sequence = true
 
 [rss]
 max = 100
-packed = false
-ensemble_std_max = -1
     [rss.relax]
     force_threshold = 1e-3
 

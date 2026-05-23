@@ -182,10 +182,11 @@ buildcell_nprocs = 8             # Parallel buildcell jobs for generation 0
 build_timeout = 60.0             # Seconds allowed per buildcell launch
 
 workdir = "."                    # All outputs go here
-seedfile = "C-SEARCH.cell"       # buildcell input for RSS
 seedfile_calc = "C.cell"         # CASTEP .cell/.param base name
-
 dft_mode = "crud"                # local modes: "crud", "acrud", "pp3", "mock"
+
+[state.rss]
+seedfile = "C-SEARCH.cell"       # buildcell input for RSS
 
 # Elemental energies (MUST be pseudoatomic energies)
 [state.elemental_energies]
@@ -250,17 +251,19 @@ train_split = [0.8, 0.1, 0.1]    # [train, validation, test] ratios
 
 ```toml
 [state]
-rss_pressure_gpa = 1.0           # Positive pressure prevents empty cells
-core_size = 1.2                  # Hard-core radius (< bond length)
 buildcell_nprocs = 16            # Parallel buildcell jobs for generation 0
-rss_nprocs = 16                  # Parallel RSS processes
+
+[state.rss]
+pressure_gpa = 1.0               # Positive pressure prevents empty cells
+core_size = 1.2                  # Hard-core radius (< bond length)
+nprocs = 16                      # Parallel RSS processes
 
 # Uncertainty filters
 ensemble_std_min = -1.0          # Minimum uncertainty (-1 disables)
-ensemble_std_max = 0.2           # Maximum uncertainty
+ensemble_std_max = -1.0          # Maximum uncertainty (-1 disables)
 
 # Optional RSS output pruning for single-composition searches
-[state.rss_prune]
+[state.rss.prune]
 enabled = true                   # Disabled by default
 pool_size = 100                  # Relaxed candidates per pruning pool
 keep_fraction = 0.10             # Keep lowest-energy unique 10%
@@ -268,9 +271,9 @@ dedup_tol = 0.10                 # Fingerprint-distance duplicate threshold
 ```
 
 **Explanation:**
-- **rss_pressure_gpa**: 0.5-2.0 GPa reduces holes in structures
+- **state.rss.pressure_gpa**: 0.5-2.0 GPa reduces holes in structures
 - **core_size**: Set below typical bond length to prevent overlap
-- **ensemble_std filters**: Keep structures where models disagree
+- **ensemble_std filters**: Disabled by default (`-1`); set min/max thresholds to keep structures where models disagree
 - **rss_prune**: Buffers accepted relaxed structures, ranks by predicted enthalpy per atom, removes fingerprint duplicates, and writes only the low-energy unique subset. `per_generation` remains the number of written structures, so pruning may relax more raw candidates internally.
 - **single-composition only**: Pruning is disabled automatically for formula-sampling/random-composition workflows; multi-instance `link!` workers prune independently and log pool diagnostics to their `rss-process-*` stderr logs.
 
@@ -686,6 +689,7 @@ Use this when you want to sample from a pre-generated pool of reduced formulas, 
 # Import known structures into gen0 before random generation
 known_structure_dir = "known_structures"
 
+[state.rss]
 # Enable formula-space sampling
 formula_sampling_enabled = true
 
@@ -698,7 +702,7 @@ formula_max_reduced_formula_coeff = 6
 # Keep only charge-neutral formulas under allowed oxidation states
 formula_require_charge_neutral = true
 
-[state.formula_oxidation_states]
+[state.rss.formula_oxidation_states]
 Li = [1]
 Ta = [5]
 O = [-2]

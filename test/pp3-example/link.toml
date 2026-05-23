@@ -1,11 +1,13 @@
 [state]
-seedfile = "Al.cell"
 seedfile_calc = "Al.cell"
 dft_mode = "pp3"
 per_generation = 25
 n_initial = 50
 max_iterations = 5
-rss_external = false
+
+[state.rss]
+seedfile = "Al.cell"
+external = false
 
 [cf]
 elements = ["Al"]
@@ -18,7 +20,6 @@ geometry_sequence = true
 
 [rss]
 max = 100
-packed = false
 
 [trainer]
 log_file = "train-log"

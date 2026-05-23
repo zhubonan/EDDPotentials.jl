@@ -193,13 +193,13 @@ println("Standard 3D energy: ", eddp_energy(source_3d))
 
 ## Configuring via link.toml
 
-For `link!` / RSS workflows, hyperspace settings live under `state.relax`:
+For `link!` / RSS workflows, hyperspace settings live under `state.rss.relax`:
 
 ```toml
-[state]
+[state.rss]
 relax_mode = "hyperspace"
 
-    [state.relax]
+    [state.rss.relax]
     hyper_ndim = 3
     hyper_alpha_start = 1e-4
     hyper_schedule_every = 50

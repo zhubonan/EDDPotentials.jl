@@ -3,104 +3,33 @@ using GarishPrint
 import ..Potential: CellFeature, fr, gfr
 
 """
-    BuilderState
+    RssSetting
 
-    Holder of the state of the builder object used for the `link!` function
-to perform various actions during the construction of the potentials.
-    May be specified using a configuration file (`link.toml`) under the field
-`state`.
-
-## Attributes
-
-- `seedfile`: Name of the seed file used for random structure generation. calculation. 
-  may be specified by passing a sequence. Its content is passed to the `buildcell` program.
-- `seedfile_weights`: Weights for randomly selecting each `seedfile` when multiple 
-  seed files are used. Can be useful for setting the ratio of binary/ternary structures for
-  a multi-composition search.
-- `seedfile_calc`: The seed file needed for performing DFT calculations through the `crud.pl`
-  (or equivalent) runners. A `cell` file should be a passed and a corresponding `param` should
-  also exist when using CASTEP.
-- `interation`: The main iteration number of the builder. Will be updated based on the exists of
-  the trained models.
-- `workdir`: Path to the working directory.
-- `max_iterations`: The maximum number of iteration to be performed for building the potential.
-- `per_generation`: Number of structures to write for each generation. When RSS pruning is enabled,
-  more raw structures may be generated/relaxed internally to reach this kept-output count.
-- `shake_per_generation`: The number of shaken structure for **each** relaxed structure to be generated.
-- `buildcell_nprocs`: Number of concurrent `buildcell` processes to use during generation 0 bulk structure generation.
-- `build_timeout`: Timeout in seconds for each `buildcell` process during generation 0 bulk structure generation.
-- `shake_amp`: The amplitude of atomic displacements for shaking relaxed structures.
-- `shake_cell_amp`: The amplitude of cell deformations for shaking relaxed structures.
-- `n_parallel`: Deprecated; retained for compatibility with older configs.
-- `mpinp`: The number of MPI tasks to run (e.g. the number of cores) for `crud.pl`.
-- `n_initial`: The number of initial structures to be generated (for generation 0). 
-- `dft_mode`: The model for local DFT calculations. Supported local options are `mock`, `pp3`, `crud`, and `acrud`.
-  Scheduler-backed local DFT modes such as `crud-queue` and `disp-castep` are superseded by the distributed backend.
-- `dft_kwargs`: The key word arguments to be used for the function that runs the DFT calculations.
-- `rss_pressure_gpa`: The external pressure used when running random structure searching.
-- `rss_pressure_gpa_range`: The range of the pressure used when running random structure searching.
-- `rss_niggli_reduce`: Perform niggli reduce for the generated-relaxed structures.
-- `rss_nprocs`: The number of processes to use for generating/relaxing random structures.
-- `rss_external`: Whether to run the random structure searching in separate Julia processes.
-- `rss_num_threads`: The number of threads to used for launched Julia processes.
-- `rss_prune`: Optional pruning for generated relaxed structures before writing training inputs.
-- `core_size`: Size of the soft sphere core. Note that the repulsion kick-in at about 3/4 of the core size.
-- `ensemble_std_min`: The minimum ensemble standard deviation for valid structures during random structure searching.
-  Can be used to exclude structures that are already well-described by the potential.
-- `ensemble_std_max`: The maximum ensemble standard deviation for valid structures during random structure searching.
-  Can be used to exclude pathological structures.
-- `run_walk_forward`: Whether to run the walk-forward test or not.
-- `project_prefix_override`: Deprecated project prefix override retained for compatibility with older configs.
-- `builder_file_path`: Path to this builder file. This field will re automatically filled.
-- `relax`: Options for performing relaxations of the generated structures.
-- `elemental_energies`: The energies of elements species. It is **very important** to specify them for multi-composition searches.
-   The reference energies may be obtained via *atom-in-a-large-cell* calculations or total energies of the pseudo atom calculation.
-   The latter is printed in the `.castep` file for the on-the-fly generated potentials of CASTEP.
-- `known_structure_dir`: Directory (relative to `workdir` if not absolute) containing known structures for generation 0.
-  Files with `.res` are copied directly; `.cell` files are converted to `.res`.
-- `formula_sampling_enabled`: Enable composition-space sampling by injecting `#FORMULA=...` into buildcell seed text.
-- `formula_max_reduced_formula_coeff`: Maximum per-element coefficient in reduced-formula enumeration (e.g. `Li2TiO3` has max coeff `3`).
-- `formula_list`: Optional explicit formula list (reduced and deduplicated) to sample from.
-- `formula_target_atom_volumes`: Optional per-element target volumes used to derive `#VARVOL=...`
-  automatically from the reduced formula by summing one entry per species present.
-- `formula_oxidation_states`: Optional allowed oxidation states map for formula filtering (e.g. `Li=[1], O=[-2]`).
-- `formula_require_charge_neutral`: If true, keep only formulas that can be charge-neutral under `formula_oxidation_states`.
+Options for random structure searching. `BuilderState.rss` controls in-loop RSS
+generation for `link!`; top-level `BuilderOption.rss` controls out-of-loop
+production `run_rss(builder)` searches.
 """
-@option mutable struct BuilderState <: EDDPotentialsOption
-    seedfile::Union{String,Vector{String}}
-    seedfile_weights::Vector{Float64} = [1.0]
-    seedfile_calc::String
-    iteration::Int = 0
-    workdir::String = "."
-    max_iterations::Int = 5
-    per_generation::Int = 100
-    per_generation_threshold::Float64 = 0.7
-    shake_per_minima::Int = 10
-    buildcell_nprocs::Int = 1
-    build_timeout::Float64 = 60.0
-    shake_amp::Float64 = 0.02
-    shake_cell_amp::Float64 = 0.02
-    n_parallel::Int = 1
-    mpinp::Int = 2
-    n_initial::Int = 1000
-    dft_mode::String = "crud"
-    dft_kwargs::Dict{String,Any} = Dict{String,Any}()
-    rss_pressure_gpa::Float64 = 0.1
-    rss_pressure_gpa_range::Union{Nothing,Vector{Float64}} = nothing
-    rss_niggli_reduce::Bool = true
-    rss_nprocs::Int = 2
-    rss_external::Bool = true
-    rss_num_threads::Int = 1
-    rss_prune::RssPruneOption = RssPruneOption()
-    core_size::Union{Float64,Dict{String,Float64}} = 0.5
-    ensemble_std_min::Float64 = 0.0
+@option mutable struct RssSetting <: EDDPotentialsOption
+    packed::Bool = false
+    seedfile::Union{String,Vector{String}} = "null"
+    seedfile_weights::Vector{Float64} = Float64[1.0]
+    ensemble_id::Int = -1
+    max::Int = 1000
+    subfolder_name::String = "search"
+    show_progress::Bool = true
     ensemble_std_max::Float64 = -1.0
-    run_walk_forward::Bool = true
-    project_prefix_override::String = ""
-    builder_file_path::String = ""
+    ensemble_std_min::Float64 = -1.0
+    eng_threshold::Float64 = -1.0
+    niggli_reduce_output::Bool = true
+    max_err::Int = 10
+    pressure_gpa::Float64 = 0.01
+    pressure_gpa_range::Union{Nothing,Vector{Float64}} = nothing
+    external::Bool = true
+    nprocs::Int = 2
+    num_threads::Int = 1
+    core_size::Union{Float64,Dict{String,Float64}} = 0.5
     relax::RelaxOption = RelaxOption()
-    elemental_energies = Dict{String,Any}()
-    known_structure_dir::String = "known_structures"
+    prune::RssPruneOption = RssPruneOption()
     formula_sampling_enabled::Bool = false
     formula_max_reduced_formula_coeff::Int = 6
     formula_list::Vector{String} = String[]
@@ -118,6 +47,126 @@ to perform various actions during the construction of the potentials.
     "MD timestep (fs) for hot-AIRSS mode"
     hot_md_timestep::Float64 = 0.5
     "Allow cell relaxation during hot-AIRSS"
+    hot_relax_cell::Bool = true
+end
+
+_default_state_rss() = RssSetting()
+
+"""
+    BuilderState
+
+    Holder of the state of the builder object used for the `link!` function
+to perform various actions during the construction of the potentials.
+    May be specified using a configuration file (`link.toml`) under the field
+`state`.
+
+## Attributes
+
+- `seedfile_calc`: The seed file needed for performing DFT calculations through the `crud.pl`
+  (or equivalent) runners. A `cell` file should be a passed and a corresponding `param` should
+  also exist when using CASTEP.
+- `rss`: In-loop RSS/buildcell generation settings, including seedfile, formula sampling,
+  uncertainty filters, relaxation mode, hot-AIRSS settings, core size, pruning, and RSS
+  subprocess controls.
+- `interation`: The main iteration number of the builder. Will be updated based on the exists of
+  the trained models.
+- `workdir`: Path to the working directory.
+- `max_iterations`: The maximum number of iteration to be performed for building the potential.
+- `per_generation`: Number of structures to write for each generation. When RSS pruning is enabled,
+  more raw structures may be generated/relaxed internally to reach this kept-output count.
+- `shake_per_generation`: The number of shaken structure for **each** relaxed structure to be generated.
+- `buildcell_nprocs`: Number of concurrent `buildcell` processes to use during generation 0 bulk structure generation.
+- `build_timeout`: Timeout in seconds for each `buildcell` process during generation 0 bulk structure generation.
+- `shake_amp`: The amplitude of atomic displacements for shaking relaxed structures.
+- `shake_cell_amp`: The amplitude of cell deformations for shaking relaxed structures.
+- `n_parallel`: Deprecated; retained for compatibility with older configs.
+- `mpinp`: The number of MPI tasks to run (e.g. the number of cores) for `crud.pl`.
+- `n_initial`: The number of initial structures to be generated (for generation 0). 
+- `dft_mode`: The model for local DFT calculations. Supported local options are `mock`, `pp3`, `crud`, and `acrud`.
+  Scheduler-backed local DFT modes such as `crud-queue` and `disp-castep` are superseded by the distributed backend.
+- `dft_kwargs`: The key word arguments to be used for the function that runs the DFT calculations.
+- `run_walk_forward`: Whether to run the walk-forward test or not.
+- `project_prefix_override`: Deprecated project prefix override retained for compatibility with older configs.
+- `builder_file_path`: Path to this builder file. This field will re automatically filled.
+- `elemental_energies`: The energies of elements species. It is **very important** to specify them for multi-composition searches.
+   The reference energies may be obtained via *atom-in-a-large-cell* calculations or total energies of the pseudo atom calculation.
+   The latter is printed in the `.castep` file for the on-the-fly generated potentials of CASTEP.
+- `known_structure_dir`: Directory (relative to `workdir` if not absolute) containing known structures for generation 0.
+  Files with `.res` are copied directly; `.cell` files are converted to `.res`.
+- Legacy flat RSS fields are retained only for old TOML compatibility; prefer `[state.rss]`.
+"""
+@option mutable struct BuilderState <: EDDPotentialsOption
+    seedfile_calc::String
+    rss::RssSetting = _default_state_rss()
+    iteration::Int = 0
+    workdir::String = "."
+    max_iterations::Int = 5
+    per_generation::Int = 100
+    per_generation_threshold::Float64 = 0.7
+    shake_per_minima::Int = 10
+    buildcell_nprocs::Int = 1
+    build_timeout::Float64 = 60.0
+    shake_amp::Float64 = 0.02
+    shake_cell_amp::Float64 = 0.02
+    n_parallel::Int = 1
+    mpinp::Int = 2
+    n_initial::Int = 1000
+    dft_mode::String = "crud"
+    dft_kwargs::Dict{String,Any} = Dict{String,Any}()
+    "Deprecated: use `rss.seedfile`."
+    seedfile::Maybe{Union{String,Vector{String}}} = nothing
+    "Deprecated: use `rss.seedfile_weights`."
+    seedfile_weights::Vector{Float64} = Float64[1.0]
+    "Deprecated: use `rss.pressure_gpa`."
+    rss_pressure_gpa::Float64 = 0.01
+    "Deprecated: use `rss.pressure_gpa_range`."
+    rss_pressure_gpa_range::Union{Nothing,Vector{Float64}} = nothing
+    "Deprecated: use `rss.niggli_reduce_output`."
+    rss_niggli_reduce::Bool = true
+    "Deprecated: use `rss.nprocs`."
+    rss_nprocs::Int = 2
+    "Deprecated: use `rss.external`."
+    rss_external::Bool = true
+    "Deprecated: use `rss.num_threads`."
+    rss_num_threads::Int = 1
+    "Deprecated: use `rss.prune`."
+    rss_prune::RssPruneOption = RssPruneOption()
+    "Deprecated: use `rss.core_size`."
+    core_size::Union{Float64,Dict{String,Float64}} = 0.5
+    "Deprecated: use `rss.ensemble_std_min`."
+    ensemble_std_min::Float64 = -1.0
+    "Deprecated: use `rss.ensemble_std_max`."
+    ensemble_std_max::Float64 = -1.0
+    run_walk_forward::Bool = true
+    project_prefix_override::String = ""
+    builder_file_path::String = ""
+    "Deprecated: use `rss.relax`."
+    relax::RelaxOption = RelaxOption()
+    elemental_energies = Dict{String,Any}()
+    known_structure_dir::String = "known_structures"
+    "Deprecated: use `rss.formula_sampling_enabled`."
+    formula_sampling_enabled::Bool = false
+    "Deprecated: use `rss.formula_max_reduced_formula_coeff`."
+    formula_max_reduced_formula_coeff::Int = 6
+    "Deprecated: use `rss.formula_list`."
+    formula_list::Vector{String} = String[]
+    "Deprecated: use `rss.formula_target_atom_volumes`."
+    formula_target_atom_volumes::Dict{String,Float64} = Dict{String,Float64}()
+    "Deprecated: use `rss.formula_oxidation_states`."
+    formula_oxidation_states::Dict{String,Vector{Int}} = Dict{String,Vector{Int}}()
+    "Deprecated: use `rss.formula_require_charge_neutral`."
+    formula_require_charge_neutral::Bool = true
+    "Deprecated: use `rss.relax_mode`."
+    relax_mode::String = "standard"
+    "Deprecated: use `rss.hot_n_rounds`."
+    hot_n_rounds::Int = 10
+    "Deprecated: use `rss.hot_md_temperature`."
+    hot_md_temperature::Float64 = 300.0
+    "Deprecated: use `rss.hot_md_steps`."
+    hot_md_steps::Int = 1000
+    "Deprecated: use `rss.hot_md_timestep`."
+    hot_md_timestep::Float64 = 0.5
+    "Deprecated: use `rss.hot_relax_cell`."
     hot_relax_cell::Bool = true
     use_synthetic_force_data::Bool = false
     synthetic_force_n::Int = 1
@@ -220,49 +269,6 @@ abstract type AbstractTrainer end
     weight_decay::Float64 = 0.0
     "Gradient clipping threshold (0.0 = no clipping)"
     grad_clip::Float64 = 1.0
-end
-
-
-"""
-    RssSetting
-
-    Options for running random structure searching.
-
-## Attributes
-
-- `packed`: Whether to pack the structures into a single file or not.
-- `seedfile`: Name of the seed file used for random structure generation. May be specified by passing a sequence. Its content is passed to the `buildcell` program.
-- `seedfile_weights`: Weights for randomly selecting each `seedfile` when multiple seed files are used. Can be useful for setting the ratio of binary/ternary structures for a multi-composition search.
-- `ensemble_id`: The ID of the ensemble to be used for random structure searching, default is to use the last ensemble.
-- `max`: The maximum number of structures to write for random structure searching. When pruning is
-  enabled, more raw structures may be generated/relaxed internally to reach this kept-output count.
-- `subfolder_name`: The name of the subfolder to store the generated structures.
-- `show_progress`: Whether to show the progress of the random structure searching.
-- `ensemble_std_max`: The maximum ensemble standard deviation for valid structures during random structure searching. Can be used to exclude pathological structures.
-- `ensemble_std_min`: The minimum ensemble standard deviation for valid structures during random structure searching. Can be used to exclude structures that are already well-described by the potential.
-- `eng_threshold`: The threshold for filtering structures based on their energy (per atom) referenced against the lowest energy structure.
-- `niggli_reduce_output`: Whether to perform niggli reduce for the generated-relaxed structures.
-- `max_err`: The maximum number of errors to be tolerated during random structure searching.
-- `pressure_gpa`: The external pressure used (GPa) when running random structure searching.
-- `relax`: Options for performing relaxations of the generated structures.
-- `prune`: Optional pruning for generated relaxed structures before writing search output.
-"""
-@option mutable struct RssSetting <: EDDPotentialsOption
-    packed::Bool = true
-    seedfile::Union{String,Vector{String}} = "null"
-    seedfile_weights::Vector{Float64} = Float64[1.0]
-    ensemble_id::Int = -1
-    max::Int = 1000
-    subfolder_name::String = "search"
-    show_progress::Bool = true
-    ensemble_std_max::Float64 = 0.2
-    ensemble_std_min::Float64 = -1.0
-    eng_threshold::Float64 = -1.0
-    niggli_reduce_output::Bool = true
-    max_err::Int = 10
-    pressure_gpa::Float64 = 0.01
-    relax::RelaxOption = RelaxOption()
-    prune::RssPruneOption = RssPruneOption()
 end
 
 

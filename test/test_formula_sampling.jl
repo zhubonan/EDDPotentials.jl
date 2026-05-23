@@ -128,15 +128,17 @@ end
         mktempdir() do temp
             write(joinpath(temp, "seed.cell"), "#NFORM=1\n")
             state = EDDPotentials.BuilderState(
-                seedfile="seed.cell",
                 seedfile_calc="dummy.cell",
                 workdir=temp,
-                formula_sampling_enabled=true,
-                formula_list=["Al2O3", "Al2O3Sc"],
-                formula_target_atom_volumes=Dict(
-                    "Al" => 10.0,
-                    "O" => 10.0,
-                    "Sc" => 10.0,
+                rss=EDDPotentials.RssSetting(
+                    seedfile="seed.cell",
+                    formula_sampling_enabled=true,
+                    formula_list=["Al2O3", "Al2O3Sc"],
+                    formula_target_atom_volumes=Dict(
+                        "Al" => 10.0,
+                        "O" => 10.0,
+                        "Sc" => 10.0,
+                    ),
                 ),
             )
             ctx = _formula_sampling_context(state, ["Al", "O", "Sc"])
@@ -147,6 +149,25 @@ end
             out = transform("#SPECIES=Al,O,Sc\n#VARVOL=1\n")
             @test occursin(r"(?m)^#FORMULA=", out)
             @test occursin(r"(?m)^#VARVOL=(20|30)$", out)
+        end
+    end
+
+    @testset "Production RSS Formula Context" begin
+        mktempdir() do temp
+            write(joinpath(temp, "prod.cell"), "#SPECIES=Al,O\n#NFORM=1\n")
+            rss = EDDPotentials.RssSetting(
+                seedfile="prod.cell",
+                formula_sampling_enabled=true,
+                formula_list=["Al2O3"],
+                formula_target_atom_volumes=Dict("Al" => 10.0, "O" => 10.0),
+            )
+            ctx = _formula_sampling_context(temp, rss, ["Al", "O"])
+            @test ctx.formulas == ["Al2O3"]
+            transform = _make_seed_text_transform(ctx)
+            out = transform("#SPECIES=Al,O\n#VARVOL=1\n")
+            @test occursin(r"(?m)^#FORMULA=Al2O3$", out)
+            @test occursin(r"(?m)^#VARVOL=20$", out)
+            @test !occursin(r"(?m)^\\s*#SPECIES\\s*=", out)
         end
     end
 

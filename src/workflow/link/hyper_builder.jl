@@ -12,7 +12,7 @@ function hyper_get_calc(cell, bu::Builder; alpha=1e-3)
         bu.cf,
         load_ensemble(bu);
         nmax=500,
-        core_repulsion=CoreRepulsion(bu.state.core_size),
+        core_repulsion=CoreRepulsion(bu.state.rss.core_size),
         elemental_energies=bu.state.elemental_energies,
     )
     penalty = ExtraDimensionPenaltyModifier(alpha; start_dim=4)

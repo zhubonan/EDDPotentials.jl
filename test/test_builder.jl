@@ -97,14 +97,24 @@ end
 
 
 
-        state = EDDPotentials.BuilderState(seedfile="seed.cell", seedfile_calc="calc.cell")
-        state.rss_prune.enabled = true
-        state.rss_prune.pool_size = 25
-        state.rss_prune.keep_fraction = 0.2
+        state = EDDPotentials.BuilderState(
+            seedfile_calc="calc.cell",
+            rss=EDDPotentials.RssSetting(
+                seedfile="seed.cell",
+                pressure_gpa=1.0,
+                nprocs=4,
+                ensemble_std_max=0.2,
+                formula_sampling_enabled=true,
+                formula_list=["H2"],
+            ),
+        )
+        state.rss.prune.enabled = true
+        state.rss.prune.pool_size = 25
+        state.rss.prune.keep_fraction = 0.2
 
         cf = EDDPotentials.CellFeatureConfig(elements=["H"])
 
-        rss = EDDPotentials.RssSetting()
+        rss = EDDPotentials.RssSetting(seedfile="prod.cell")
         rss.prune.enabled = true
         rss.prune.pool_size = 50
         rss.prune.keep_fraction = 0.3
@@ -113,6 +123,11 @@ end
         test_to_from_toml(opt)
 
         builder = Builder(opt)
+        @test builder.state.rss.ensemble_std_min == -1.0
+        @test EDDPotentials.RssSetting().packed == false
+        @test EDDPotentials.RssSetting().pressure_gpa == 0.01
+        @test EDDPotentials.RssSetting().ensemble_std_min == -1.0
+        @test EDDPotentials.RssSetting().ensemble_std_max == -1.0
         test_to_from_toml_builder(builder)
 
         distributed = EDDPotentials.DistributedLinkOption()
@@ -137,6 +152,114 @@ end
             distributed,
         )
         test_to_from_toml(opt_distributed)
+    end
+
+    @testset "Legacy flat RSS settings migrate to state.rss" begin
+        state = EDDPotentials.BuilderState(
+            seedfile="legacy.cell",
+            seedfile_calc="calc.cell",
+            rss_pressure_gpa=2.0,
+            rss_external=false,
+            rss_nprocs=3,
+            rss_num_threads=2,
+            core_size=1.2,
+            ensemble_std_min=0.01,
+            ensemble_std_max=0.2,
+            formula_sampling_enabled=true,
+            formula_list=["H2"],
+            relax_mode="hot",
+            hot_n_rounds=4,
+        )
+        cf = EDDPotentials.CellFeatureConfig(elements=["H"])
+        opt = EDDPotentials.BuilderOption(
+            state,
+            cf,
+            nothing,
+            EDDPotentials.RssSetting(),
+            EDDPotentials.TrainingOption(),
+            nothing,
+        )
+        builder = @test_logs (
+            :warn,
+            r"Deprecated flat BuilderState RSS settings were used",
+        ) match_mode=:any Builder(opt)
+        @test builder.state.rss.seedfile == "legacy.cell"
+        @test builder.state.rss.pressure_gpa == 2.0
+        @test builder.state.rss.external == false
+        @test builder.state.rss.nprocs == 3
+        @test builder.state.rss.num_threads == 2
+        @test builder.state.rss.core_size == 1.2
+        @test builder.state.rss.ensemble_std_min == 0.01
+        @test builder.state.rss.ensemble_std_max == 0.2
+        @test builder.state.rss.formula_sampling_enabled
+        @test builder.state.rss.formula_list == ["H2"]
+        @test builder.state.rss.relax_mode == "hot"
+        @test builder.state.rss.hot_n_rounds == 4
+        @test builder.rss.seedfile == "legacy.cell"
+        @test builder.rss.core_size == 0.5
+        @test !builder.rss.formula_sampling_enabled
+        @test isempty(builder.rss.formula_list)
+        @test builder.rss.relax_mode == "standard"
+    end
+
+    @testset "Nested state.rss preserves explicit values from TOML" begin
+        mktempdir() do temp
+            path = joinpath(temp, "link.toml")
+            write(
+                path,
+                """
+                [state]
+                seedfile_calc = "calc.cell"
+
+                [state.rss]
+                seedfile = "seed.cell"
+                pressure_gpa = 0.01
+                ensemble_std_min = -1.0
+                ensemble_std_max = 0.2
+
+                [cf]
+                elements = ["H"]
+
+                [rss]
+                seedfile = "prod.cell"
+
+                [trainer]
+                """,
+            )
+            builder = Builder(path)
+            @test builder.state.rss.pressure_gpa == 0.01
+            @test builder.state.rss.ensemble_std_min == -1.0
+            @test builder.state.rss.ensemble_std_max == 0.2
+        end
+    end
+
+    @testset "Default-valued flat RSS keys warn from TOML" begin
+        mktempdir() do temp
+            path = joinpath(temp, "link.toml")
+            write(
+                path,
+                """
+                [state]
+                seedfile_calc = "calc.cell"
+                rss_nprocs = 2
+
+                [state.rss]
+                seedfile = "seed.cell"
+
+                [cf]
+                elements = ["H"]
+
+                [rss]
+                seedfile = "prod.cell"
+
+                [trainer]
+                """,
+            )
+            @test_logs (
+                :warn,
+                r"Deprecated flat BuilderState RSS settings were used",
+            ) match_mode=:any Builder(path)
+        end
     end
 
     @testset "Local backend rejects obsolete execution modes" begin

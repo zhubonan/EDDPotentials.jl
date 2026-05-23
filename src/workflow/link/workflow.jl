@@ -36,13 +36,155 @@ mutable struct Builder
     options::BuilderOption
 end
 
+_rss_seedfile_paths(workdir::AbstractString, rs::RssSetting) =
+    joinpath.(Ref(workdir), _seedfiles(rs.seedfile))
+
+function _config_equal(a, b)
+    typeof(a) == typeof(b) || return false
+    if a isa AbstractArray || a isa AbstractDict || a isa AbstractString ||
+       a isa Number || a isa Bool || a === nothing || a isa Symbol
+        return a == b
+    end
+    T = typeof(a)
+    isstructtype(T) || return a == b
+    all(name -> _config_equal(getfield(a, name), getfield(b, name)), fieldnames(T))
+end
+
+function _migrate_legacy_rss_field!(
+    rs::RssSetting,
+    field::Symbol,
+    legacy_value,
+    legacy_default,
+    rss_default::RssSetting,
+)
+    _config_equal(legacy_value, legacy_default) && return false
+    _config_equal(getfield(rs, field), getfield(rss_default, field)) || return false
+    setfield!(rs, field, deepcopy(legacy_value))
+    return true
+end
+
+const _LEGACY_STATE_RSS_FIELDS = Set(String[
+    "seedfile",
+    "seedfile_weights",
+    "rss_pressure_gpa",
+    "rss_pressure_gpa_range",
+    "rss_niggli_reduce",
+    "rss_nprocs",
+    "rss_external",
+    "rss_num_threads",
+    "rss_prune",
+    "core_size",
+    "ensemble_std_min",
+    "ensemble_std_max",
+    "relax",
+    "formula_sampling_enabled",
+    "formula_max_reduced_formula_coeff",
+    "formula_list",
+    "formula_target_atom_volumes",
+    "formula_oxidation_states",
+    "formula_require_charge_neutral",
+    "relax_mode",
+    "hot_n_rounds",
+    "hot_md_temperature",
+    "hot_md_steps",
+    "hot_md_timestep",
+    "hot_relax_cell",
+])
+
+function _state_config_dict(config::AbstractDict)
+    state = get(config, "state", nothing)
+    state isa AbstractDict ? state : Dict{String,Any}()
+end
+
+function _legacy_state_rss_fields(config::AbstractDict)
+    state = _state_config_dict(config)
+    String[k for k in keys(state) if k in _LEGACY_STATE_RSS_FIELDS]
+end
+
+function _migrate_legacy_state_rss!(
+    state::BuilderState;
+    legacy_fields=String[],
+)
+    rs = state.rss
+    default_rs = _default_state_rss()
+    migrated = false
+    deprecated_fields = String[legacy_fields...]
+
+    if state.seedfile !== nothing
+        push!(deprecated_fields, "seedfile")
+        if rs.seedfile == default_rs.seedfile
+            rs.seedfile = deepcopy(state.seedfile)
+            migrated = true
+        end
+    end
+
+    mappings = (
+        (:seedfile_weights, :seedfile_weights, Float64[1.0]),
+        (:rss_pressure_gpa, :pressure_gpa, 0.01),
+        (:rss_pressure_gpa_range, :pressure_gpa_range, nothing),
+        (:rss_niggli_reduce, :niggli_reduce_output, true),
+        (:rss_nprocs, :nprocs, 2),
+        (:rss_external, :external, true),
+        (:rss_num_threads, :num_threads, 1),
+        (:rss_prune, :prune, RssPruneOption()),
+        (:core_size, :core_size, 0.5),
+        (:ensemble_std_min, :ensemble_std_min, -1.0),
+        (:ensemble_std_max, :ensemble_std_max, -1.0),
+        (:relax, :relax, RelaxOption()),
+        (:formula_sampling_enabled, :formula_sampling_enabled, false),
+        (:formula_max_reduced_formula_coeff, :formula_max_reduced_formula_coeff, 6),
+        (:formula_list, :formula_list, String[]),
+        (:formula_target_atom_volumes, :formula_target_atom_volumes, Dict{String,Float64}()),
+        (:formula_oxidation_states, :formula_oxidation_states, Dict{String,Vector{Int}}()),
+        (:formula_require_charge_neutral, :formula_require_charge_neutral, true),
+        (:relax_mode, :relax_mode, "standard"),
+        (:hot_n_rounds, :hot_n_rounds, 10),
+        (:hot_md_temperature, :hot_md_temperature, 300.0),
+        (:hot_md_steps, :hot_md_steps, 1000),
+        (:hot_md_timestep, :hot_md_timestep, 0.5),
+        (:hot_relax_cell, :hot_relax_cell, true),
+    )
+    for (legacy_field, rss_field, legacy_default) in mappings
+        legacy_value = getfield(state, legacy_field)
+        if !_config_equal(legacy_value, legacy_default)
+            push!(deprecated_fields, string(legacy_field))
+            migrated |= _migrate_legacy_rss_field!(
+                rs,
+                rss_field,
+                legacy_value,
+                legacy_default,
+                default_rs,
+            )
+        end
+    end
+
+    if !isempty(deprecated_fields)
+        unique!(deprecated_fields)
+        @warn "Deprecated flat BuilderState RSS settings were used; move them under [state.rss]." fields=join(deprecated_fields, ", ") migrated=migrated
+    end
+    return state
+end
+
+function _rss_hot_kwargs(rs::RssSetting)
+    (; n_rounds=rs.hot_n_rounds, md_temperature=rs.hot_md_temperature,
+        md_steps=rs.hot_md_steps, md_timestep=rs.hot_md_timestep,
+        relax_cell=rs.hot_relax_cell)
+end
+
 
 """
     Builder(options::BuilderOption)
 
 Create a new `Builder` object with the given options.
 """
-function Builder(options::BuilderOption)
+function Builder(
+    options::BuilderOption;
+    legacy_state_rss_fields=String[],
+)
+    _migrate_legacy_state_rss!(
+        options.state;
+        legacy_fields=legacy_state_rss_fields,
+    )
     cf = CellFeature(options.cf)
     if options.cf_embedding !== nothing
         embed = CellEmbedding(cf, options.cf_embedding.n, options.cf_embedding.m)
@@ -56,7 +198,7 @@ function Builder(options::BuilderOption)
 
     # Populate some default fields
     if builder.rss.seedfile == "null"
-        builder.rss.seedfile = builder.state.seedfile
+        builder.rss.seedfile = builder.state.rss.seedfile
         @warn "Using seed file: $(builder.rss.seedfile)"
     end
 
@@ -126,22 +268,27 @@ cf_embedding:
 function Builder(str::AbstractString="link.toml")
     @info "Loading from file $(str)"
 
+    config_dict = Dict{String,Any}()
     if endswith(str, ".toml")
+        config_dict = TOML.parsefile(str)
         builder_opts = from_toml(BuilderOption, str)
     else
-        dict = YAML.load_file(str; dicttype=Dict{String,Any})
+        config_dict = YAML.load_file(str; dicttype=Dict{String,Any})
         # Save converted TOML if requested
         toml = splitext(str)[1] * ".toml"
         if !isfile(toml)
             @info "Saving converted TOML configuration at $toml."
             open(toml, "w") do io
-                TOML.print(io, dict)
+                TOML.print(io, config_dict)
             end
         end
-        builder_opts = from_dict(BuilderOption, dict)
+        builder_opts = from_dict(BuilderOption, config_dict)
     end
 
-    builder = Builder(builder_opts)
+    builder = Builder(
+        builder_opts;
+        legacy_state_rss_fields=_legacy_state_rss_fields(config_dict),
+    )
 
     # Adjust the workdir to be that relative to the yaml file
     paths = splitpath(str)
@@ -178,7 +325,7 @@ function Base.show(io::IO, m::MIME"text/plain", bu::Builder)
     println(io, "Builder:")
     println(io, "  Working directory: $(bu.state.workdir) ($(abspath(bu.state.workdir)))")
     println(io, "  Iteration: $(bu.state.iteration)")
-    println(io, "  Seed file: $(bu.state.seedfile)")
+    println(io, "  Seed file: $(bu.state.rss.seedfile)")
     println("\nState: ")
     show(io, m, bu.state)
     println("\nTrainer: ")
@@ -195,7 +342,7 @@ function Base.show(io::IO, bu::Builder)
     println(io, "Builder:")
     println(io, "  Working directory: $(bu.state.workdir) ($(abspath(bu.state.workdir)))")
     println(io, "  Iteration: $(bu.state.iteration)")
-    println(io, "  Seed file: $(bu.state.seedfile)")
+    println(io, "  Seed file: $(bu.state.rss.seedfile)")
 end
 
 
@@ -482,7 +629,7 @@ function _require_builder_file_path!(bu::Builder)
 end
 
 function _uses_subprocesses(bu::Builder, ::LocalLinkBackend)
-    return bu.state.rss_external ||
+    return bu.state.rss.external ||
            bu.trainer.external
 end
 
@@ -512,8 +659,8 @@ function _validate_local_backend_modes!(bu::Builder)
 end
 
 function validate_builder_for_link!(bu::Builder, backend::AbstractLinkBackend)
-    bu.state.rss_nprocs >= 1 ||
-        throw(ArgumentError("state.rss_nprocs must be >= 1."))
+    bu.state.rss.nprocs >= 1 ||
+        throw(ArgumentError("state.rss.nprocs must be >= 1."))
     0.0 < bu.state.per_generation_threshold <= 1.0 ||
         throw(ArgumentError("state.per_generation_threshold must be in the interval (0, 1]."))
     backend isa LocalLinkBackend && _validate_local_backend_modes!(bu)
@@ -689,8 +836,10 @@ function _generate_random_structures(bu::Builder, iter)
         @info "Skipping structure generation for iteration $iter; found $ndata existing structures."
         return :ok
     end
-    (; seedfile, seedfile_weights, workdir, buildcell_nprocs, build_timeout) = bu.state
-    formula_ctx = _formula_sampling_context(bu.state, bu.cfopt.elements)
+    (; workdir, buildcell_nprocs, build_timeout) = bu.state
+    rs = bu.state.rss
+    (; seedfile_weights) = rs
+    formula_ctx = _formula_sampling_context(workdir, rs, bu.cfopt.elements)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
 
     if iter == 0
@@ -723,7 +872,7 @@ function _generate_random_structures(bu::Builder, iter)
         if nstruct > 0
             @info "Generating $(nstruct) initial training structures with $(buildcell_nprocs) buildcell process(es)."
             build_random_structures(
-                joinpath.(workdir, seedfile),
+                _rss_seedfile_paths(workdir, rs),
                 outdir;
                 seedfile_weights,
                 n=nstruct,
@@ -737,7 +886,7 @@ function _generate_random_structures(bu::Builder, iter)
         nstruct = required - ndata
         if nstruct > 0
             # Launch external processes or internal RSS
-            result = if bu.state.rss_external
+            result = if bu.state.rss.external
                 _launch_rss_external(bu, iter, nstruct)
             else
                 _launch_rss_internal(bu, iter, nstruct)
@@ -768,10 +917,11 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
     _require_builder_file_path!(bu)
 
     # Distribute the workloads
-    bu.state.rss_nprocs >= 1 ||
-        throw(ArgumentError("state.rss_nprocs must be >= 1."))
-    nstruct_per_proc = max(1, ceil(Int, nstruct / bu.state.rss_nprocs))
-    nstructs = fill(nstruct_per_proc, bu.state.rss_nprocs)
+    rs = bu.state.rss
+    rs.nprocs >= 1 ||
+        throw(ArgumentError("state.rss.nprocs must be >= 1."))
+    nstruct_per_proc = max(1, ceil(Int, nstruct / rs.nprocs))
+    nstructs = fill(nstruct_per_proc, rs.nprocs)
 
     # Launch external processes
     state = bu.state
@@ -792,34 +942,34 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
                 "--num",
                 "$(num)",
                 "--pressure",
-                "$(state.rss_pressure_gpa)",
+                "$(rs.pressure_gpa)",
                 "--outdir",
                 "$(outdir)",
                 "--relax-mode",
-                "$(state.relax_mode)",
+                "$(rs.relax_mode)",
             ]);
-            julia_threads=state.rss_num_threads,
+            julia_threads=rs.num_threads,
         ) for num in nstructs
     ]
 
     # Apply random pressure range
-    if !isnothing(state.rss_pressure_gpa_range) && !isempty(state.rss_pressure_gpa_range)
+    if !isnothing(rs.pressure_gpa_range) && !isempty(rs.pressure_gpa_range)
         # Add pressure ranges
-        a, b = state.rss_pressure_gpa_range
+        a, b = rs.pressure_gpa_range
         for i in eachindex(cmds)
             cmds[i] = add_threads_env(
                 Cmd([cmds[i]..., "--pressure-range", "$(a),$(b)"]);
-                julia_threads=state.rss_num_threads,
+                julia_threads=rs.num_threads,
             )
         end
     end
 
-    @info "Subprocess launch command: $(Cmd([cmds[1]...])) for $(state.rss_nprocs) process"
+    @info "Subprocess launch command: $(Cmd([cmds[1]...])) for $(rs.nprocs) process"
 
     # Launch processes
     tasks = Task[]
     processes = []
-    for i = 1:state.rss_nprocs
+    for i = 1:rs.nprocs
         proc = run(
             pipeline(cmds[i], stdout="rss-process-$i-stdout", stderr="rss-process-$i");
             wait=false,
@@ -857,22 +1007,22 @@ end
 
 
 """
-    _populate_hyper_option(state::BuilderState; verbose::Bool=true) -> RelaxOption
+    _populate_hyper_option(rs::RssSetting; verbose::Bool=true) -> RelaxOption
 
-Create a RelaxOption from the BuilderState. `state.relax` is the single source
+Create a RelaxOption from the RSS setting. `rss.relax` is the single source
 of hyperspace relaxation parameters.
 """
-function _populate_hyper_option(state; verbose::Bool=true)
-    opt = deepcopy(state.relax)
+function _populate_hyper_option(rs::RssSetting; verbose::Bool=true)
+    opt = deepcopy(rs.relax)
     opt.verbose = verbose
-    if state.relax_mode == "hyperspace" && opt.hyper_ndim <= 0
+    if rs.relax_mode == "hyperspace" && opt.hyper_ndim <= 0
         opt.hyper_ndim = 3
     end
     opt
 end
 
-_normalized_relax_mode(state, opt) =
-    state.relax_mode == "hyperspace" || opt.hyper_ndim > 0 ? "hyperspace" : state.relax_mode
+_normalized_relax_mode(rs::RssSetting, opt) =
+    rs.relax_mode == "hyperspace" || opt.hyper_ndim > 0 ? "hyperspace" : rs.relax_mode
 
 
 """
@@ -881,43 +1031,42 @@ _normalized_relax_mode(state, opt) =
 Run RSS generation internally within the current process.
 """
 function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
-    @info "Generating $(nstruct) training structures for iteration $iter ($(bu.state.relax_mode) mode)."
+    rs = bu.state.rss
+    @info "Generating $(nstruct) training structures for iteration $iter ($(rs.relax_mode) mode)."
     ensemble = load_ensemble(bu, iter - 1)
     state = bu.state
     outdir = joinpath(state.workdir, "gen$(iter)")
     ensure_dir(outdir)
 
-    (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max) = state
-    _relax_option = _populate_hyper_option(state)
-    relax_mode = _normalized_relax_mode(state, _relax_option)
-    formula_ctx = _formula_sampling_context(state, bu.cfopt.elements)
+    (; seedfile_weights, ensemble_std_min, ensemble_std_max) = rs
+    _relax_option = _populate_hyper_option(rs)
+    relax_mode = _normalized_relax_mode(rs, _relax_option)
+    formula_ctx = _formula_sampling_context(state.workdir, rs, bu.cfopt.elements)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
-    hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
-        md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
-        relax_cell=state.hot_relax_cell)
+    hot_kwargs = _rss_hot_kwargs(rs)
 
-        _run_rss(
-            joinpath.(Ref(state.workdir), seedfile),
-            ensemble,
-            bu.cf;
+    _run_rss(
+        _rss_seedfile_paths(state.workdir, rs),
+        ensemble,
+        bu.cf;
         show_progress=true,
         max=nstruct,
-        core_size=state.core_size,
+        core_size=rs.core_size,
         outdir,
         ensemble_std_max=ensemble_std_max,
         ensemble_std_min=ensemble_std_min,
         packed=false,
-        niggli_reduce_output=state.rss_niggli_reduce,
-        max_err=10,
-        pressure_gpa=state.rss_pressure_gpa,
-        pressure_gpa_range=state.rss_pressure_gpa_range,
+        niggli_reduce_output=rs.niggli_reduce_output,
+        max_err=rs.max_err,
+        pressure_gpa=rs.pressure_gpa,
+        pressure_gpa_range=rs.pressure_gpa_range,
         seedfile_weights,
         relax_option=_relax_option,
         elemental_energies=make_symbol_keys(state.elemental_energies),
         relax_mode,
         hot_kwargs,
         seed_text_transform,
-        prune_option=state.rss_prune,
+        prune_option=rs.prune,
         prune_random_composition=formula_ctx !== nothing,
     )
     return :ok
@@ -941,19 +1090,16 @@ function run_rss(builder::Builder)
     end
 
     ensure_dir(searchdir)
-    (; seedfile, seedfile_weights) = rs
+    (; seedfile_weights) = rs
     state = builder.state
-    _relax_option = deepcopy(rs.relax)
-    _relax_option.verbose = state.rss_nprocs > 0
-    _relax_mode = _normalized_relax_mode(state, _relax_option)
-    formula_ctx = _formula_sampling_context(state, builder.cfopt.elements; seedfile=seedfile)
+    _relax_option = _populate_hyper_option(rs; verbose=rs.nprocs > 0)
+    _relax_mode = _normalized_relax_mode(rs, _relax_option)
+    formula_ctx = _formula_sampling_context(state.workdir, rs, builder.cfopt.elements; seedfile=rs.seedfile)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
-    hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
-        md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
-        relax_cell=state.hot_relax_cell)
+    hot_kwargs = _rss_hot_kwargs(rs)
 
     _run_rss(
-        joinpath.(Ref(builder.state.workdir), seedfile),
+        _rss_seedfile_paths(builder.state.workdir, rs),
         ensemble,
         builder.cf;
         show_progress=rs.show_progress,
@@ -965,6 +1111,7 @@ function run_rss(builder::Builder)
         niggli_reduce_output=rs.niggli_reduce_output,
         max_err=rs.max_err,
         pressure_gpa=rs.pressure_gpa,
+        pressure_gpa_range=rs.pressure_gpa_range,
         seedfile_weights,
         relax_option=_relax_option,
         elemental_energies=make_symbol_keys(state.elemental_energies),
@@ -973,6 +1120,7 @@ function run_rss(builder::Builder)
         seed_text_transform,
         prune_option=rs.prune,
         prune_random_composition=formula_ctx !== nothing,
+        eng_threshold=rs.eng_threshold,
     )
 end
 
@@ -1022,7 +1170,7 @@ function _run_rss_link()
         help = "Range of the pressure"
         "--relax-mode"
         help = "Relaxation mode: standard, hyperspace, or hot"
-        default = "standard"
+        default = nothing
     end
 
     args = parse_args(s)
@@ -1032,49 +1180,51 @@ function _run_rss_link()
     # Load the ensemble file of the "last" iteration
     ensemble = load_ensemble(bu, bu.state.iteration - 1)
 
+    state = bu.state
+    rs = state.rss
+
     if args["pressure"] !== nothing
         pressure_gpa = parse(Float64, args["pressure"])
     else
-        pressure_gpa = 0.001
+        pressure_gpa = rs.pressure_gpa
     end
 
     if args["pressure-range"] !== nothing
         pressure_gpa_range = map(x -> parse(Float64, x), split(args["pressure-range"], ","))
     else
-        pressure_gpa_range = nothing
+        pressure_gpa_range = rs.pressure_gpa_range
     end
 
-    relax_mode = args["relax-mode"]
-    state = bu.state
-    _relax_option = deepcopy(state.relax)
-    _relax_option.verbose = true
-    relax_mode = _normalized_relax_mode(state, _relax_option)
-    formula_ctx = _formula_sampling_context(state, bu.cfopt.elements)
+    relax_mode_override = args["relax-mode"]
+    _relax_option = _populate_hyper_option(rs; verbose=true)
+    relax_mode = isnothing(relax_mode_override) ?
+                 _normalized_relax_mode(rs, _relax_option) :
+                 relax_mode_override
+    formula_ctx = _formula_sampling_context(state.workdir, rs, bu.cfopt.elements)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
-    hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
-        md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
-        relax_cell=state.hot_relax_cell)
+    hot_kwargs = _rss_hot_kwargs(rs)
 
-    (; seedfile, seedfile_weights) = state
+    (; seedfile_weights) = rs
     _run_rss(
-        joinpath.(Ref(state.workdir), seedfile),
+        _rss_seedfile_paths(state.workdir, rs),
         ensemble,
         bu.cf;
-        core_size=state.core_size,
-        ensemble_std_max=state.ensemble_std_max,
-        ensemble_std_min=state.ensemble_std_min,
+        core_size=rs.core_size,
+        ensemble_std_max=rs.ensemble_std_max,
+        ensemble_std_min=rs.ensemble_std_min,
         max=args["num"],
         outdir=args["outdir"],
         pressure_gpa,
         pressure_gpa_range,
         seedfile_weights,
-        niggli_reduce_output=state.rss_niggli_reduce,
+        niggli_reduce_output=rs.niggli_reduce_output,
+        max_err=rs.max_err,
         relax_option=_relax_option,
         elemental_energies=make_symbol_keys(state.elemental_energies),
         relax_mode,
         hot_kwargs,
         seed_text_transform,
-        prune_option=state.rss_prune,
+        prune_option=rs.prune,
         prune_random_composition=formula_ctx !== nothing,
     )
 end

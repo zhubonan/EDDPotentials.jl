@@ -115,7 +115,6 @@ EDDPotentials workflow configuration:
 ```toml
 [state]
 workdir = "CN-link"
-seedfile = "CN-SEARCH.cell"
 seedfile_calc = "CN.cell"
 max_iterations = 5
 n_initial = 500
@@ -123,6 +122,9 @@ per_generation = 100
 shake_per_minima = 5
 buildcell_nprocs = 8
 dft_mode = "crud"
+
+[state.rss]
+seedfile = "CN-SEARCH.cell"
 
 [state.dft_kwargs]
 mpinp = 8
@@ -146,6 +148,8 @@ num_workers = 8
 [rss]
 max = 1000
 subfolder_name = "search"
+# Defaults: unpacked `.res` output, pressure_gpa = 0.01,
+# ensemble_std_min = -1.0, ensemble_std_max = -1.0.
 ```
 
 Adjust parallelization based on available resources.
@@ -227,7 +231,12 @@ run_rss(builder)
 
 ## Data Management: Packed SHELX Format
 
-AIRSS outputs individual `.res` files. For large searches (10k+ structures), use packed format:
+AIRSS outputs individual `.res` files by default. For large searches (10k+ structures), enable packed output:
+
+```toml
+[rss]
+packed = true
+```
 
 ### Packing Multiple Files
 
@@ -317,7 +326,7 @@ Threshold (0.01-0.1) defines similarity by comparing sorted bond lengths.
 
 For single-composition EDDP searches, the same idea can be applied during RSS
 instead of only as a post-processing step. Enable `[rss.prune]` for production
-`run_rss`, or `[state.rss_prune]` for structures generated during `link!`:
+`run_rss`, or `[state.rss.prune]` for structures generated during `link!`:
 
 ```toml
 [rss.prune]
@@ -408,7 +417,7 @@ parallel -j 64 julia -e "run_search()" ::: {1..1000}
 
 ### Storage Management
 
-- Use packed SHELX format (reduces inodes)
+- Use packed SHELX format (`[rss] packed = true`) to reduce inodes
 - Compress intermediate results: `gzip *.res`
 - Archive generation data after convergence
 - Keep only final ensemble for production
