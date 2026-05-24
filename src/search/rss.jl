@@ -183,23 +183,20 @@ function build_and_relax(
         target_iterations = Simulation._hyper_max_iterations(relax_option)
         phase1_alpha = relax_option.hyper_phase1_alpha
         phase1_frac = relax_option.hyper_phase1_fraction
-        pressure_gpa = relax_option.external_pressure[1]
         trace = relax_option.verbose
         relax_fn = Simulation._method_to_native_fn(relax_option.method)
-        optimizer_kwargs = (
-            f_tol=relax_option.force_threshold,
-            s_tol=relax_option.stress_threshold,
-            e_tol=relax_option.energy_threshold,
-            maxstep=relax_option.maxstep,
-            step_constraints=relax_option.step_constraints,
+        optimizer_kwargs = Simulation._optimizer_kwargs(
+            relax_option;
+            relax_cell_override=false,
+            include_itermax=false,
+            include_logging=false,
         )
 
         cell = CellBase.add_dimensions(cell, ndim)
         source = EDDPCalculator(cell, cf, ensemble; nmax,
             core_repulsion=_make_core_repulsion(core_size), elemental_energies)
         penalty = ExtraDimensionPenaltyModifier(alpha_start; start_dim=4)
-        p_clamped = GPaToeVAng(max(pressure_gpa, 0.1))
-        P_ext = [p_clamped 0 0; 0 p_clamped 0; 0 0 p_clamped]
+        P_ext = Simulation._external_stress_matrix_internal(relax_option.external_pressure)
 
         phase1_iters = round(Int, target_iterations * phase1_frac)
         phase2_iters = target_iterations - phase1_iters
@@ -276,7 +273,11 @@ function build_and_relax(
             relax_option.method,
             relax_cell,
             relax_option.external_pressure,
-            md_steps, md_temp, md_dt, "langevin", 0.01, 50.0, nothing, false)
+            md_steps, md_temp, md_dt, "langevin", 0.01, 50.0, nothing, false,
+            relax_option.maxstep,
+            relax_option.maxstrain,
+            relax_option.cell_damping,
+            deepcopy(relax_option.optimizer_kwargs))
         hot_airss!(re.calc, hot_opts)
         return result
 

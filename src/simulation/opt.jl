@@ -8,6 +8,10 @@ using LinearAlgebra
 
 Optimize a structure using the native TPSD optimizer and return the optimizer
 state. Check convergence with `converged(opt, vc)`.
+
+`s_tol` and `ext_pressure` use native stress units (eV/Å³). High-level callers
+should prefer `relax!`/`RelaxOption`, where stress tolerances and external
+pressure are specified in GPa and converted before entering the optimizer.
 """
 function opt_tpsd(
     vc::AbstractCalc;
@@ -18,6 +22,7 @@ function opt_tpsd(
     trace=0,
     α_tol=1e-10,
     maxstep=0.2,
+    maxstrain=0.02,
     relax_cell=false,
     ext_pressure=zeros(3, 3),
     cell_damping=0.1,
@@ -38,6 +43,7 @@ function opt_tpsd(
         itermax,
         α_tol,
         maxstep,
+        maxstrain,
         log_level,
         keep_trajectory=keep_trajectory,
         relax_cell,
@@ -63,6 +69,10 @@ end
 
 Optimize a structure using the native FIRE optimizer and return the optimizer
 state. This exposes detailed convergence/trajectory data for downstream tools.
+
+`s_tol` and `ext_pressure` use native stress units (eV/Å³). High-level callers
+should prefer `relax!`/`RelaxOption`, where stress tolerances and external
+pressure are specified in GPa and converted before entering the optimizer.
 """
 function opt_fire(
     vc::AbstractCalc;
@@ -71,6 +81,7 @@ function opt_fire(
     e_tol=1e-5,
     itermax=1000,
     maxstep=0.2,
+    maxstrain=0.02,
     dt=0.1,
     dtmax=1.0,
     Nmin=5,
@@ -97,6 +108,7 @@ function opt_fire(
     opt = NativeFIRE(;
         dt,
         maxstep,
+        maxstrain,
         dtmax,
         Nmin,
         finc,

@@ -8,7 +8,8 @@ import ..Potential:
     glob_allow_abs,
     load_model_artifact,
     save_model_artifact,
-    _make_core_repulsion
+    _make_core_repulsion,
+    GPaToeVAng
 using ..Training
 import ..Training: boltzmann
 using ..Search

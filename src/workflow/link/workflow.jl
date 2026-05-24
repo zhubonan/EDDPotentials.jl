@@ -1007,14 +1007,14 @@ end
 
 
 """
-    _populate_hyper_option(rs::RssSetting; verbose::Bool=true) -> RelaxOption
+    _populate_hyper_option(rs::RssSetting; verbose=nothing) -> RelaxOption
 
 Create a RelaxOption from the RSS setting. `rss.relax` is the single source
 of hyperspace relaxation parameters.
 """
-function _populate_hyper_option(rs::RssSetting; verbose::Bool=true)
+function _populate_hyper_option(rs::RssSetting; verbose=nothing)
     opt = deepcopy(rs.relax)
-    opt.verbose = verbose
+    verbose === nothing || (opt.verbose = verbose)
     if rs.relax_mode == "hyperspace" && opt.hyper_ndim <= 0
         opt.hyper_ndim = 3
     end
@@ -1092,7 +1092,7 @@ function run_rss(builder::Builder)
     ensure_dir(searchdir)
     (; seedfile_weights) = rs
     state = builder.state
-    _relax_option = _populate_hyper_option(rs; verbose=rs.nprocs > 0)
+    _relax_option = _populate_hyper_option(rs)
     _relax_mode = _normalized_relax_mode(rs, _relax_option)
     formula_ctx = _formula_sampling_context(state.workdir, rs, builder.cfopt.elements; seedfile=rs.seedfile)
     seed_text_transform = _make_seed_text_transform(formula_ctx)

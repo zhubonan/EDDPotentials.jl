@@ -2,7 +2,7 @@ using Printf
 using StatsBase: mean
 
 function bP(press_gpa)
-    p = GPaToeVAng(max(press_gpa, 0.1))
+    p = GPaToeVAng(press_gpa)
     [p 0 0; 0 p 0; 0 0 p]
 end
 

@@ -9,6 +9,18 @@ Relaxation of a structure
 using Printf
 using Configurations
 
+"""
+    RelaxOption
+
+High-level relaxation options used by `Relax`, `relax!`, RSS, and hot-AIRSS.
+
+Unit convention:
+- `force_threshold` and `maxstep` use eV/Å and Å.
+- `stress_threshold` and `external_pressure` use GPa.
+- Native optimizer kwargs passed through `optimizer_kwargs` keep native units;
+  in particular `s_tol`/`ext_pressure` are not accepted there and must be set
+  through the high-level fields above.
+"""
 @option mutable struct RelaxOption <: EDDPotentialsOption
     method::String = "tpsd"
     energy_threshold::Float64 = 1e-5
@@ -20,6 +32,9 @@ using Configurations
     verbose::Bool = false
     iterations::Int = 1000
     maxstep::Float64 = 0.2
+    maxstrain::Float64 = 0.02
+    cell_damping::Float64 = 0.1
+    optimizer_kwargs::Dict{String,Any} = Dict{String,Any}()
     step_constraints::Vector{Any} = Any[]
     trajectory_file::String = ""
     hyper_ndim::Int = 0
@@ -86,13 +101,167 @@ precompile(Base.show, (Base.TTY, MIME"text/plain", Relax))
 Map a RelaxOption method string to a native optimizer function for hyperspace relaxation.
 """
 function _method_to_native_fn(method::String)
-    if method in ("tpsd", "TPSD")
+    method_lc = lowercase(method)
+    if method_lc == "tpsd"
         return opt_tpsd
-    elseif method in ("fire", "FIRE")
+    elseif method_lc == "fire"
         return opt_fire
     else
-        return opt_tpsd
+        throw(ArgumentError("Unknown relaxation method: $method"))
     end
+end
+
+const _RELAX_OPTION_ALIASES = Dict{Symbol,Symbol}(
+    :f_tol => :force_threshold,
+    :s_tol => :stress_threshold,
+    :e_tol => :energy_threshold,
+    :itermax => :iterations,
+    :max_iterations => :iterations,
+)
+
+const _RELAX_METHOD_KWARG_ALIASES = Dict{Symbol,Symbol}(
+    :alpha_tol => :α_tol,
+    :nmin => :Nmin,
+)
+
+const _RELAX_METHOD_KWARGS = Set{Symbol}([
+    :dt,
+    :dtmax,
+    :Nmin,
+    :nmin,
+    :finc,
+    :fdec,
+    :astart,
+    :fa,
+    :downhill_check,
+    :α_tol,
+    :alpha_tol,
+])
+
+const _COMMON_NATIVE_OPTIMIZER_KWARGS = Set{Symbol}([
+    :f_tol,
+    :s_tol,
+    :e_tol,
+    :itermax,
+    :trace,
+    :verbose,
+    :maxstep,
+    :maxstrain,
+    :relax_cell,
+    :ext_pressure,
+    :cell_damping,
+    :callback,
+    :keep_trajectory,
+    :trajectory,
+    :step_constraints,
+])
+
+_kw_symbol(key::Symbol) = key
+_kw_symbol(key::AbstractString) = Symbol(key)
+_kw_symbol(key) = Symbol(key)
+
+function _canonical_relax_kwargs(kwargs)
+    data = Dict{Symbol,Any}(Symbol(k) => v for (k, v) in pairs(kwargs))
+
+    for (alias, canonical) in _RELAX_OPTION_ALIASES
+        haskey(data, alias) || continue
+        value = pop!(data, alias)
+        if haskey(data, canonical) && data[canonical] != value
+            throw(ArgumentError("Conflicting relaxation options `$alias` and `$canonical`"))
+        end
+        data[canonical] = value
+    end
+
+    method_kwargs = Dict{String,Any}()
+    if haskey(data, :optimizer_kwargs)
+        existing = pop!(data, :optimizer_kwargs)
+        existing isa AbstractDict ||
+            throw(ArgumentError("optimizer_kwargs must be a dictionary"))
+        for (key, value) in pairs(existing)
+            method_kwargs[string(_kw_symbol(key))] = value
+        end
+    end
+
+    for key in collect(keys(data))
+        key in _RELAX_METHOD_KWARGS || continue
+        normalized = get(_RELAX_METHOD_KWARG_ALIASES, key, key)
+        strkey = string(normalized)
+        value = pop!(data, key)
+        if haskey(method_kwargs, strkey) && method_kwargs[strkey] != value
+            throw(ArgumentError("Conflicting optimizer_kwargs value for `$strkey`"))
+        end
+        method_kwargs[strkey] = value
+    end
+
+    if !isempty(method_kwargs)
+        data[:optimizer_kwargs] = method_kwargs
+    end
+
+    (; data...)
+end
+
+function _normalized_method_kwargs(opts::RelaxOption)
+    out = Dict{Symbol,Any}()
+    for (key, value) in pairs(opts.optimizer_kwargs)
+        sym = get(_RELAX_METHOD_KWARG_ALIASES, _kw_symbol(key), _kw_symbol(key))
+        sym in _COMMON_NATIVE_OPTIMIZER_KWARGS &&
+            throw(ArgumentError("`optimizer_kwargs` contains common relaxation option `$sym`; set it directly on RelaxOption"))
+        if haskey(out, sym) && out[sym] != value
+            throw(ArgumentError("Conflicting optimizer_kwargs value for `$sym`"))
+        end
+        out[sym] = value
+    end
+    out
+end
+
+function _optimizer_kwargs(
+    opts::RelaxOption;
+    itermax_override=nothing,
+    verbose_override=nothing,
+    trajectory=nothing,
+    callback=nothing,
+    relax_cell_override=nothing,
+    ext_pressure_override=nothing,
+    include_itermax=true,
+    include_logging=true,
+)
+    method_lc = lowercase(opts.method)
+    method_lc in ("tpsd", "fire") ||
+        throw(ArgumentError("Unknown relaxation method: $(opts.method)"))
+
+    verbose_value = verbose_override === nothing ? opts.verbose : verbose_override
+    relax_cell_value = relax_cell_override === nothing ? opts.relax_cell : relax_cell_override
+    ext_pressure_value = ext_pressure_override === nothing ?
+                         _external_stress_matrix_internal(opts.external_pressure) :
+                         ext_pressure_override
+
+    kwargs = Dict{Symbol,Any}(
+        :f_tol => opts.force_threshold,
+        :s_tol => GPaToeVAng(opts.stress_threshold),
+        :e_tol => opts.energy_threshold,
+        :maxstep => opts.maxstep,
+        :maxstrain => opts.maxstrain,
+        :relax_cell => relax_cell_value,
+        :ext_pressure => ext_pressure_value,
+        :cell_damping => opts.cell_damping,
+        :keep_trajectory => opts.keep_trajectory,
+        :step_constraints => opts.step_constraints,
+    )
+    if include_itermax
+        kwargs[:itermax] = itermax_override === nothing ? opts.iterations : itermax_override
+    end
+    if include_logging
+        if method_lc == "tpsd"
+            kwargs[:trace] = verbose_value ? 1 : 0
+        else
+            kwargs[:verbose] = verbose_value
+        end
+    end
+    trajectory === nothing || (kwargs[:trajectory] = trajectory)
+    callback === nothing || (kwargs[:callback] = callback)
+
+    merge!(kwargs, _normalized_method_kwargs(opts))
+    (; kwargs...)
 end
 
 """
@@ -116,7 +285,7 @@ Supports `EDDPCalculator` and `MetaCalculator` (extracts source).
 """
 function _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
     relax_fn = _method_to_native_fn(opts.method)
-    smat = external_stress_matrix(opts.external_pressure)
+    smat = _external_stress_matrix_internal(opts.external_pressure)
 
     if calc isa MetaCalculator
         return _relax_hyper!(calc.source, opts)
@@ -133,20 +302,18 @@ function _relax_hyper!(calc::AbstractCalc, opts::RelaxOption)
     ])
     max_iter = _hyper_max_iterations(opts)
     parentmod = parentmodule(@__MODULE__)
+    relax_kwargs = _optimizer_kwargs(opts;
+        ext_pressure_override=smat,
+        include_itermax=false,
+        include_logging=false,
+    )
+
     parentmod.scheduled_penalty_relax!(metacalc;
         schedule_every=opts.hyper_schedule_every,
         max_iterations=max_iter,
         alpha_start=opts.hyper_alpha_start,
         relax_fn,
-        relax_kwargs=(
-            relax_cell=opts.relax_cell,
-            ext_pressure=smat,
-            step_constraints=opts.step_constraints,
-            f_tol=opts.force_threshold,
-            s_tol=opts.stress_threshold,
-            e_tol=opts.energy_threshold,
-            maxstep=opts.maxstep,
-        ),
+        relax_kwargs,
         alpha_ramp_factor=opts.hyper_alpha_ramp_factor,
         max_alpha=opts.hyper_max_alpha,
         pos_tol=opts.hyper_pos_tol,
@@ -197,9 +364,11 @@ function _relax_hyper_finalize!(metacalc, opts)
 end
 
 """
-    stress_matrix(vector=AbstractVector)
+    external_stress_matrix(vector::AbstractVector)
 
-Build a external stress matrix from vector inputs.
+Expand a scalar or six-component stress vector into a 3x3 symmetric matrix.
+This helper is unit-neutral. `RelaxOption.external_pressure` values are GPa
+and are converted to native eV/Å³ by `_optimizer_kwargs`.
 """
 function external_stress_matrix(vector::AbstractVector)
     @assert length(vector) in [6, 1] "Expect a vector with length 6 or 1"
@@ -216,6 +385,9 @@ function external_stress_matrix(vector::AbstractVector)
     end
 end
 external_pressure_matrix(x::Real) = external_stress_matrix([x])
+
+_external_stress_matrix_internal(vector::AbstractVector) =
+    GPaToeVAng.(external_stress_matrix(vector))
 
 
 """
@@ -252,27 +424,15 @@ end
 Perform relaxation for a `Relax` object.
 """
 function relax!(re::Relax)
-    (; method, energy_threshold, force_threshold, stress_threshold) = re.options
-    (; external_pressure, relax_cell, keep_trajectory, verbose, maxstep, step_constraints) = re.options
-    (; iterations) = re.options
+    (; relax_cell) = re.options
     calc = re.calc
 
-    smat = external_stress_matrix(external_pressure)
-    relax_fn = _method_to_native_fn(method)
-
-    opt = relax_fn(calc;
-        f_tol=force_threshold,
-        s_tol=stress_threshold,
-        e_tol=energy_threshold,
-        itermax=iterations,
-        maxstep=maxstep,
-        trace=verbose,
-        relax_cell=relax_cell,
-        ext_pressure=smat,
-        keep_trajectory=keep_trajectory,
-        trajectory=keep_trajectory ? re.trajectory : nothing,
-        step_constraints=step_constraints,
+    relax_fn = _method_to_native_fn(re.options.method)
+    optimizer_kwargs = _optimizer_kwargs(re.options;
+        trajectory=re.options.keep_trajectory ? re.trajectory : nothing,
     )
+
+    opt = relax_fn(calc; optimizer_kwargs...)
 
     E = eddp_energy(calc)
     F = _projected_forces(opt, calc)
@@ -293,7 +453,8 @@ function relax!(re::Relax)
 end
 
 function (re::Relax)(;kwargs...) 
-    for (key, value) in kwargs
+    normalized = _canonical_relax_kwargs(kwargs)
+    for (key, value) in pairs(normalized)
         setproperty!(re.options, key, value)
     end
     relax!(re)
@@ -310,7 +471,7 @@ When `hyper_ndim > 0` is passed as a keyword argument, hyperspace relaxation
 is performed instead of standard relaxation.
 """
 function relax!(calc::AbstractCalc; multi=true, relax_cell=true, method="tpsd", kwargs...)
-    opts = RelaxOption(; method, relax_cell, kwargs...)
+    opts = RelaxOption(; method, relax_cell, _canonical_relax_kwargs(kwargs)...)
     if opts.hyper_ndim > 0
         return _relax_hyper!(calc, opts)
     end

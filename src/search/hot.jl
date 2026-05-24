@@ -28,12 +28,13 @@ minimum.
 **Relaxation phase:**
 - `relax_itermax::Int` — max iterations per relaxation phase (default 200)
 - `relax_f_tol::Float64` — force convergence tolerance in eV/Å (default 1e-2)
-- `relax_s_tol::Float64` — stress convergence tolerance (default 1e-1)
+- `relax_s_tol::Float64` — stress convergence tolerance in GPa (default 1e-1)
 - `relax_e_tol::Float64` — energy convergence tolerance in eV (default 1e-5)
 - `relax_method::String` — "tpsd" or "fire" (default "tpsd")
 - `relax_cell::Bool` — enable cell relaxation via optimizer's relax_cell parameter (default true)
 - `external_pressure::Vector{Float64}` — external pressure (default [0.0]).
   Convention follows `RelaxOption.external_pressure`.
+- `relax_optimizer_kwargs::Dict{String,Any}` — method-specific native optimizer controls.
 
 **MD phase:**
 - `md_steps::Int` — MD steps per cycle (default 50)
@@ -68,6 +69,11 @@ minimum.
     md_seed::Union{Int,Nothing} = nothing
     # Output
     verbose::Bool = false
+    # Additional relaxation controls
+    relax_maxstep::Float64 = 0.2
+    relax_maxstrain::Float64 = 0.02
+    relax_cell_damping::Float64 = 0.1
+    relax_optimizer_kwargs::Dict{String,Any} = Dict{String,Any}()
 end
 
 """
@@ -131,32 +137,27 @@ _raw_calc(calc::AbstractCalc) = calc
 function _run_relax!(relax_calc::AbstractCalc, opts::HotAIRSSOption)
     iter_count = Ref(0)
     cb = () -> (iter_count[] += 1)
+    relax_opts = RelaxOption(
+        method=opts.relax_method,
+        force_threshold=opts.relax_f_tol,
+        stress_threshold=opts.relax_s_tol,
+        energy_threshold=opts.relax_e_tol,
+        iterations=opts.relax_itermax,
+        maxstep=opts.relax_maxstep,
+        maxstrain=opts.relax_maxstrain,
+        relax_cell=opts.relax_cell,
+        external_pressure=opts.external_pressure,
+        cell_damping=opts.relax_cell_damping,
+        verbose=opts.verbose,
+        optimizer_kwargs=deepcopy(opts.relax_optimizer_kwargs),
+    )
+    kwargs = Simulation._optimizer_kwargs(relax_opts; callback=cb)
 
     if opts.relax_method == "tpsd"
-        opt = opt_tpsd(
-            relax_calc;
-            f_tol=opts.relax_f_tol,
-            s_tol=opts.relax_s_tol,
-            e_tol=opts.relax_e_tol,
-            itermax=opts.relax_itermax,
-            trace=opts.verbose ? 1 : 0,
-            callback=cb,
-            relax_cell=opts.relax_cell,
-            ext_pressure=external_stress_matrix(opts.external_pressure),
-        )
+        opt = opt_tpsd(relax_calc; kwargs...)
         conv = converged(opt, relax_calc)
     elseif opts.relax_method == "fire"
-        fire_opt = opt_fire(
-            relax_calc;
-            f_tol=opts.relax_f_tol,
-            s_tol=opts.relax_s_tol,
-            e_tol=opts.relax_e_tol,
-            itermax=opts.relax_itermax,
-            verbose=opts.verbose,
-            callback=cb,
-            relax_cell=opts.relax_cell,
-            ext_pressure=external_stress_matrix(opts.external_pressure),
-        )
+        fire_opt = opt_fire(relax_calc; kwargs...)
         conv = converged(fire_opt, relax_calc)
     else
         throw(ArgumentError("Unknown relax method: $(opts.relax_method)"))
@@ -280,7 +281,7 @@ function hot_airss!(calc::AbstractCalc, opts::HotAIRSSOption; callback=nothing)
     fmax = maximum(norm.(eachcol(forces)))
     smax = 0.0
     if opts.relax_cell
-        stress = eddp_stress(md_calc)
+        stress = eddp_stress(md_calc) .- Simulation._external_stress_matrix_internal(opts.external_pressure)
         smax = maximum(abs.(eVAngToGPa.(stress)))
     end
 

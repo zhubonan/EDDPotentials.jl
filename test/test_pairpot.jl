@@ -32,6 +32,18 @@ using CellBase, Test, LinearAlgebra
         @test s ≈ s' atol=1e-10
     end
 
+    @testset "LJ stress is volume-normalized" begin
+        spec = build_lj_spec(((:Ar,:Ar), 3.4); epsilon=0.01, cutoff=12.0)
+        cell1 = Cell(Lattice(15,15,15), [:Ar,:Ar], [0 4.0; 0 0.0; 0 0])
+        cell2 = Cell(Lattice(30,30,30), [:Ar,:Ar], [0 4.0; 0 0.0; 0 0])
+        calc1 = PairpotCalc(cell1, PairpotWorkspace(cell1, spec); nl=NeighbourList(cell1, 12.0; savevec=true))
+        calc2 = PairpotCalc(cell2, PairpotWorkspace(cell2, spec); nl=NeighbourList(cell2, 12.0; savevec=true))
+
+        s1 = eddp_stress(calc1)
+        s2 = eddp_stress(calc2)
+        @test s2 ≈ s1 .* (15.0^3 / 30.0^3) atol=1e-12
+    end
+
     @testset "LJ force FD" begin
         cell = Cell(Lattice(15,15,15), [:Ar,:Ar], [0 3.5; 0 0.0; 0 0])
         spec = build_lj_spec(((:Ar,:Ar), 3.4); epsilon=0.01, cutoff=12.0)

@@ -16,6 +16,8 @@ using CellBase, Test, LinearAlgebra, Flux
         p = bP(1.0)
         @test p[1,1] ≈ p[2,2] ≈ p[3,3]
         @test p[1,2] ≈ 0 atol=1e-15
+        @test bP(0.0) ≈ zeros(3, 3)
+        @test all(diag(bP(-1.0)) .< 0)
     end
 
     @testset "scheduled_penalty_relax! basic" begin

@@ -111,6 +111,11 @@ end
         state.rss.prune.enabled = true
         state.rss.prune.pool_size = 25
         state.rss.prune.keep_fraction = 0.2
+        state.rss.relax.method = "fire"
+        state.rss.relax.optimizer_kwargs = Dict{String,Any}(
+            "dt" => 0.05,
+            "downhill_check" => true,
+        )
 
         cf = EDDPotentials.CellFeatureConfig(elements=["H"])
 
@@ -118,6 +123,7 @@ end
         rss.prune.enabled = true
         rss.prune.pool_size = 50
         rss.prune.keep_fraction = 0.3
+        rss.relax.optimizer_kwargs = Dict{String,Any}("alpha_tol" => 1e-9)
 
         opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, EDDPotentials.TrainingOption(), nothing)
         test_to_from_toml(opt)

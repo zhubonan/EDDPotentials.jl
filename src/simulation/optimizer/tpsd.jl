@@ -14,13 +14,15 @@ and bypasses Optim.jl overhead for improved performance.
 
 # Parameters
 - `f_tol::T = 1e-4`: Force convergence tolerance (max force magnitude)
-- `s_tol::T = 1e-6`: Stress convergence tolerance (max stress component)
+- `s_tol::T = 1e-6`: Stress convergence tolerance in eV/Å³ (max stress component)
 - `e_tol::T = 1e-5`: Energy convergence tolerance (energy change per atom)
 - `itermax::Int = 1000`: Maximum iterations
 - `α_tol::T = 1e-10`: Minimum step size (alpha) tolerance
-- `maxstep::T = 0.2`: Maximum displacement per iteration (Euclidean norm)
+- `maxstep::T = 0.2`: Maximum per-atom displacement per iteration
+- `maxstrain::T = 0.02`: Maximum cell strain component per iteration
 - `log_level::Symbol = :standard`: Logging verbosity (`:minimal`, `:standard`, `:detailed`)
 - `keep_trajectory::Bool = false`: Store optimization trajectory
+- `ext_pressure::Matrix{Float64}`: External stress in eV/Å³
 
 # Algorithm
 Uses the Barzilai-Borwein (1988) two-point step size formula:
@@ -62,6 +64,7 @@ Native TPSD typically achieves 20-40% speedup compared to Optim.jl version.
 
     # Step size limiting
     maxstep::Float64 = 0.2
+    maxstrain::Float64 = 0.02
 
     # Cell relaxation
     relax_cell::Bool = false
@@ -129,7 +132,7 @@ function step!(opt::NativeTPSD, calc::AbstractCalc)
     g = -vec(F)  # gradient = -force (steepest descent)
     if opt.relax_cell
         S_eff = _projected_stress(opt, calc)
-        g_cell = -opt.cell_damping * 10 .* vec(S_eff)  # steepest descent direction
+        g_cell = vec(_cell_gradient_from_stress(opt, calc, S_eff))
         g = vcat(g, g_cell)
     end
 
@@ -154,10 +157,7 @@ function step!(opt::NativeTPSD, calc::AbstractCalc)
 
     dr = opt.α .* g
     apply_step_constraints!(opt.step_constraints, opt, calc, dr)
-    norm_dr = sqrt(dot(dr, dr))
-    if norm_dr > opt.maxstep
-        dr .*= opt.maxstep / norm_dr
-    end
+    _limit_augmented_step!(opt, calc, dr)
     apply_step_constraints!(opt.step_constraints, opt, calc, dr)
     x_new = x - dr
 
