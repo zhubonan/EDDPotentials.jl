@@ -137,6 +137,21 @@ end
         _test_forces_fd(calc)
     end
 
+    @testset "Ensemble transient gradient cleanup" begin
+        nnitfs = (
+            ManualFluxBackPropInterface(
+                Chain(Dense(rand(5, nfeatures(cf))), Dense(rand(1, 5))),
+            ),
+        )
+        nnitf = EnsembleNNInterface(nnitfs, [1.0])
+        calc = EDDPCalculator(cell, cf, nnitf; core=nothing)
+        eddp_forces(calc)
+        @test !isempty(nnitf.models[1].gchains)
+
+        clear_transient_gradients!(nnitf)
+        @test isempty(nnitf.models[1].gchains)
+    end
+
     @testset "Linear" begin
         nnitf = LinearInterface(rand(nfeatures(cf)))
         calc = EDDPCalculator(cell, cf, nnitf; core=nothing)

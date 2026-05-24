@@ -41,6 +41,11 @@ function backward!(itf::EnsembleNNInterface, args...; kwargs...)
     end
 end
 
+function clear_transient_gradients!(itf::EnsembleNNInterface)
+    foreach(clear_transient_gradients!, itf.models)
+    itf
+end
+
 function gradinp!(gvec, itf::EnsembleNNInterface; tmpg=copy(gvec))
     fill!(tmpg, 0)
     fill!(gvec, 0)
