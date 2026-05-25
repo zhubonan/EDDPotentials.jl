@@ -1,5 +1,6 @@
 using LinearAlgebra
 using EDDPotentials
+using EDDPotentials.Potential: CellEmbedding, _need_calc, flux_mlp_model, setparamvector!
 using Unitful
 isdefined(Main, :_h2_cell) || include("utils.jl")
 using Test

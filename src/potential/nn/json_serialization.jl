@@ -443,6 +443,7 @@ function _model_to_data(
         "metadata" => _json_compatible(metadata),
         "xt" => _transform_to_data(model.xt),
         "yt" => _transform_to_data(model.yt),
+        "gradient_cache_size" => model.gradient_cache_size,
         "layers" => [_layer_to_data(layer) for layer in model.chain.layers],
     )
 end
@@ -480,6 +481,7 @@ function _submodel_to_data(model::ManualFluxBackPropInterface)
         "interface_type" => "manual_flux_backprop",
         "xt" => _transform_to_data(model.xt),
         "yt" => _transform_to_data(model.yt),
+        "gradient_cache_size" => model.gradient_cache_size,
         "layers" => [_layer_to_data(layer) for layer in model.chain.layers],
     )
 end
@@ -499,6 +501,7 @@ function _submodel_from_data(data, feature_spec)
             chain;
             xt=_transform_from_data(get(data, "xt", nothing)),
             yt=_transform_from_data(get(data, "yt", nothing)),
+            gradient_cache_size=Int(get(data, "gradient_cache_size", 8)),
         )
     end
     throw(ArgumentError("Unsupported ensemble submodel interface_type `$interface_type`."))
@@ -521,6 +524,7 @@ function _model_from_data(data)
             chain;
             xt=_transform_from_data(get(data, "xt", nothing)),
             yt=_transform_from_data(get(data, "yt", nothing)),
+            gradient_cache_size=Int(get(data, "gradient_cache_size", 8)),
         )
     elseif interface_type == "ensemble"
         models = [
