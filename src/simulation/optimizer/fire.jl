@@ -214,6 +214,9 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
     apply_step_constraints!(opt.step_constraints, opt, calc, dr)
     _limit_augmented_step!(opt, calc, dr)
     apply_step_constraints!(opt.step_constraints, opt, calc, dr)
+    if dt_trial > 0.0
+        vel_trial .= dr ./ dt_trial
+    end
 
     x_new = x + dr
     _writeback_positions!(opt, calc, x_new)
@@ -259,11 +262,6 @@ end
 Check if FIRE optimization has converged.
 """
 function converged(opt::NativeFIRE, calc::AbstractCalc)
-    if opt.iteration == 0
-        return false
-    end
-
-    # Check using utility function
     return check_convergence(opt, calc)
 end
 

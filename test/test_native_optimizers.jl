@@ -249,6 +249,18 @@ calculate!(calc::UphillCellCalc; kwargs...) = calc
             @test d > 4.0 && d < 6.0  # should relax to near rc/2 ≈ 4.0
         end
 
+        @testset "Already Converged Does Not Step" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = StressOnlyCalc(cell, zeros(3, 3))
+            pos0 = copy(get_positions(calc))
+
+            opt = opt_tpsd(calc; f_tol=1e-12)
+
+            @test converged(opt, calc)
+            @test opt.iteration == 0
+            @test get_positions(calc) ≈ pos0
+        end
+
         @testset "Reset Functionality" begin
             cell = _h2_cell(10.0, 1.0)
             calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
@@ -331,6 +343,31 @@ calculate!(calc::UphillCellCalc; kwargs...) = calc
             pos = get_positions(final_cell)
             d = norm(pos[:, 1] - pos[:, 2])
             @test d > 4.0 && d < 6.0  # near rc/2 ≈ 4.0
+        end
+
+        @testset "Already Converged Does Not Step" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = StressOnlyCalc(cell, zeros(3, 3))
+            pos0 = copy(get_positions(calc))
+
+            opt = opt_fire(calc; f_tol=1e-12, verbose=false)
+
+            @test converged(opt, calc)
+            @test opt.iteration == 0
+            @test get_positions(calc) ≈ pos0
+        end
+
+        @testset "Velocity Tracks Clipped Step" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
+            pos0 = copy(get_positions(calc))
+            opt = NativeFIRE(dt=1.0, maxstep=1e-4, log_level=:minimal)
+
+            step!(opt, calc)
+
+            actual_step = vec(get_positions(calc) - pos0)
+            @test maximum(norm.(eachcol(get_positions(calc) - pos0))) <= opt.maxstep + 1e-12
+            @test opt.vel ≈ actual_step ./ opt.dt atol=1e-12
         end
 
         @testset "Velocity Reset" begin

@@ -178,11 +178,6 @@ end
 Check if TPSD optimization has converged.
 """
 function converged(opt::NativeTPSD, calc::AbstractCalc)
-    if opt.iteration == 0
-        return false
-    end
-
-    # Check using utility function
     return check_convergence(opt, calc)
 end
 
