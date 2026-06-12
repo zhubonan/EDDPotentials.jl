@@ -46,17 +46,6 @@ end
         @test opts.relax_cell == false
     end
 
-    @testset "Relax optimizer kwargs" begin
-        opts = HotAIRSSOption(;
-            relax_method="fire",
-            relax_maxstep=0.1,
-            relax_optimizer_kwargs=Dict{String,Any}("dt" => 0.05, "downhill_check" => true),
-        )
-        @test opts.relax_maxstep == 0.1
-        @test opts.relax_optimizer_kwargs["dt"] == 0.05
-        @test opts.relax_optimizer_kwargs["downhill_check"] == true
-    end
-
     @testset "Basic run" begin
         calc = _make_lj_calc()
         result = hot_airss!(calc;

@@ -2,10 +2,6 @@
 
 using LinearAlgebra
 
-function _cell_volume(calc::AbstractCalc)
-    abs(det(get_cellmat(calc)[1:3, 1:3]))
-end
-
 function _augmented_x(opt::AbstractOptimizer, calc::AbstractCalc)
     pos = get_positions(calc)
     x = vec(pos)
@@ -41,20 +37,11 @@ function _writeback_positions!(opt::AbstractOptimizer, calc::AbstractCalc, x_new
         proposed_pos = scaled_pos + delta_pos
         if hasproperty(opt, :step_constraints)
             apply_cartesian_position_constraints!(opt.step_constraints, opt, calc, pos, proposed_pos)
-            apply_direct_position_constraints!(opt.step_constraints, opt, calc, scaled_pos, proposed_pos)
         end
         set_positions!(calc, proposed_pos)
     else
         set_positions!(calc, pos_new)
     end
-end
-
-function _restore_cell_state!(calc::AbstractCalc, cellmat_old::AbstractMatrix, positions_old::AbstractMatrix)
-    cellmat_new = copy(get_cellmat(calc))
-    cellmat_new[1:3, 1:3] .= cellmat_old[1:3, 1:3]
-    set_cellmat!(calc, cellmat_new; scale_positions=false)
-    set_positions!(calc, positions_old)
-    nothing
 end
 
 function _projected_forces(opt::AbstractOptimizer, calc::AbstractCalc; kwargs...)
@@ -71,62 +58,6 @@ function _projected_stress(opt::AbstractOptimizer, calc::AbstractCalc)
         apply_stress_constraints!(opt.step_constraints, opt, calc, S)
     end
     S
-end
-
-function _cell_gradient_from_stress(opt::AbstractOptimizer, calc::AbstractCalc, S_eff::AbstractMatrix)
-    H = get_cellmat(calc)[1:3, 1:3]
-    -opt.cell_damping * _cell_volume(calc) .* (S_eff * inv(H)')
-end
-
-function _cell_force_from_stress(opt::AbstractOptimizer, calc::AbstractCalc, S_eff::AbstractMatrix)
-    -_cell_gradient_from_stress(opt, calc, S_eff)
-end
-
-function _limit_augmented_step!(opt::AbstractOptimizer, calc::AbstractCalc, dr::AbstractVector)
-    pos = get_positions(calc)
-    D, nat = size(pos)
-    ionic = reshape(view(dr, 1:(D * nat)), D, nat)
-    for i in 1:nat
-        n = norm(view(ionic, :, i))
-        if n > opt.maxstep
-            @views ionic[:, i] .*= opt.maxstep / n
-        end
-    end
-
-    if opt.relax_cell && hasproperty(opt, :maxstrain)
-        cell_step = reshape(view(dr, (D * nat + 1):length(dr)), 3, 3)
-        H = get_cellmat(calc)[1:3, 1:3]
-        strain = cell_step / H
-        strain = 0.5 .* (strain .+ transpose(strain))
-        max_strain = maximum(abs.(_strain_to_voigt(strain)))
-        if max_strain > opt.maxstrain
-            cell_step .*= opt.maxstrain / max_strain
-        end
-    end
-    dr
-end
-
-function _is_hydrostatic_pressure(P::AbstractMatrix; atol=1e-12)
-    offdiag = copy(P)
-    offdiag[diagind(offdiag)] .= 0.0
-    maximum(abs.(offdiag)) <= atol || return false
-    diagvals = diag(P)
-    maximum(abs.(diagvals .- diagvals[1])) <= atol
-end
-
-function _optimizer_objective(opt::AbstractOptimizer, calc::AbstractCalc; forces=false, rebuild_nl=true)
-    E = eddp_energy(calc; forces, rebuild_nl)
-    if opt.relax_cell && any(!iszero, opt.ext_pressure)
-        _is_hydrostatic_pressure(opt.ext_pressure) ||
-            throw(ArgumentError("downhill_check with relax_cell=true only supports hydrostatic external pressure"))
-        P = tr(opt.ext_pressure) / 3
-        return E + P * _cell_volume(calc)
-    end
-    E
-end
-
-function _downhill_tolerance(opt::AbstractOptimizer, objective)
-    max(opt.e_tol, sqrt(eps(Float64)) * max(1.0, abs(float(objective))))
 end
 
 function check_convergence(opt::AbstractOptimizer, calc::AbstractCalc)

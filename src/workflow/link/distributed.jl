@@ -242,25 +242,6 @@ end
 
 _server_id() = string(getpid())
 
-function _distributed_worker_task_id()
-    for key in ("SLURM_JOB_ID", "SGE_TASK_ID")
-        value = get(ENV, key, "")
-        isempty(value) || return value
-    end
-    value = get(ENV, "WORKER_ID", "")
-    isempty(value) || return value
-    return "NA"
-end
-
-_default_distributed_worker_id() = "$(_distributed_worker_task_id())-$(getpid())"
-
-function _distributed_worker_id(worker_id::AbstractString)
-    isempty(worker_id) && return _default_distributed_worker_id()
-    task_id = _distributed_worker_task_id()
-    worker_id == task_id && return "$(worker_id)-$(getpid())"
-    return String(worker_id)
-end
-
 function _log_interval_due(last_emit::Float64, bu::Builder)
     return time() - last_emit >= bu.options.distributed.log_interval_seconds
 end
@@ -725,24 +706,6 @@ function _dft_result_counts(crud_workdir)
     return good, bad
 end
 
-function _dft_phase_status(crud_workdir)
-    good, bad = _dft_result_counts(crud_workdir)
-    queued = length(glob_allow_abs(joinpath(crud_workdir, "hopper", "*.res")))
-    active = length(glob_allow_abs(joinpath(crud_workdir, "*.res")))
-    castep_files = glob_allow_abs(joinpath(crud_workdir, "*.castep"))
-    latest_castep_mtime = isempty(castep_files) ? nothing : maximum(mtime, castep_files)
-    latest_castep_age =
-        latest_castep_mtime === nothing ? nothing : max(0.0, time() - latest_castep_mtime)
-    return (;
-        good,
-        bad,
-        queued,
-        active,
-        latest_castep_mtime,
-        latest_castep_age,
-    )
-end
-
 function server_collect_dft_results!(bu::Builder, iter::Int=bu.state.iteration)
     phase_dir = _phase_dir(bu, iter, "dft")
     manifest = _read_json(_phase_manifest_path(phase_dir))
@@ -821,42 +784,23 @@ function _server_wait_for_dft!(bu::Builder, phase_dir)
     crud_workdir = manifest["crud_workdir"]
     input_count = Int(manifest["input_count"])
     required_success = _required_dft_success(manifest)
+    max_bad = _max_dft_bad(manifest)
     last_diag = 0.0
     while true
-        status = _dft_phase_status(crud_workdir)
-        (; good, bad, queued, active, latest_castep_age) = status
-        dft_stale_seconds = bu.options.distributed.dft_stale_seconds
-        root_jobs_stale =
-            active > 0 &&
-            latest_castep_age !== nothing &&
-            latest_castep_age > dft_stale_seconds
+        good, bad = _dft_result_counts(crud_workdir)
         if _log_interval_due(last_diag, bu)
-            @info "distributed link waiting for DFT results" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_DFT" phase = "dft" iteration = Int(manifest["iteration"]) waiting = true next_action = "wait_for_dft_results" good bad queued active required_success input_count dft_stale_seconds latest_castep_age
+            @info "distributed link waiting for DFT results" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_DFT" phase = "dft" iteration = Int(manifest["iteration"]) waiting = true next_action = "wait_for_dft_results" good bad required_success input_count
             last_diag = time()
         end
-        if should_stop(bu)
-            @warn "STOP requested while waiting for DFT" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "STOPPING" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "abort_phase" good bad queued active required_success input_count
-
-            _server_abort_phase!(bu, phase_dir, "STOP requested while waiting for DFT.")
-            return :stopped
-        end
-        if queued > 0 || (active > 0 && !root_jobs_stale)
-            sleep(bu.options.distributed.control_poll_interval_seconds)
-            continue
-        end
-        if root_jobs_stale
-            @warn "distributed link DFT root jobs stale" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_STALE" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "request_phase_stop" good bad queued active required_success input_count dft_stale_seconds latest_castep_age
+        if good >= required_success
+            @info "distributed link DFT threshold reached" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_READY" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "request_phase_stop" good bad required_success input_count
 
             _server_request_phase_stop!(bu, phase_dir)
-        end
-        if good >= required_success
-            @info "distributed link DFT threshold reached" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_READY" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "advance_workflow" good bad queued active required_success input_count
-
             return good, bad
-        else
+        elseif bad > max_bad || good + bad >= input_count
             _touch_marker(joinpath(phase_dir, "FAILED"))
             bad_ratio = input_count == 0 ? 0.0 : bad / input_count
-            @error "distributed link DFT failed" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_FAILED" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "throw" good bad queued active required_success input_count bad_ratio
+            @error "distributed link DFT failed" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_FAILED" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "throw" good bad required_success input_count bad_ratio
 
             throw(
                 ErrorException(
@@ -864,6 +808,13 @@ function _server_wait_for_dft!(bu::Builder, phase_dir)
                 ),
             )
         end
+        if should_stop(bu)
+            @warn "STOP requested while waiting for DFT" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "STOPPING" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "abort_phase" good bad required_success input_count
+
+            _server_abort_phase!(bu, phase_dir, "STOP requested while waiting for DFT.")
+            return :stopped
+        end
+        sleep(bu.options.distributed.control_poll_interval_seconds)
     end
 end
 
@@ -886,6 +837,7 @@ function _server_run_dft_phase_impl!(bu::Builder, iter::Int=bu.state.iteration)
         phase_dir,
         extra=Dict("dft" => manifest),
     )
+    _server_submit_workers(bu, "dft", iter)
     @info "distributed link DFT phase waiting" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_DFT" phase = "dft" iteration = iter epoch = Int(control["epoch"]) waiting = true next_action = "wait_for_dft_results"
 
     result = try
@@ -1027,6 +979,7 @@ function _server_run_training_phase_impl!(bu::Builder, iter::Int=bu.state.iterat
         phase_dir,
         extra=Dict("training" => manifest),
     )
+    _server_submit_workers(bu, "training", iter)
     @info "distributed link training phase waiting" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_TRAINING" phase = "training" iteration = iter epoch = Int(control["epoch"]) waiting = true next_action = "wait_for_models"
 
     result = try
@@ -1072,9 +1025,6 @@ end
 
 function run_link_workflow!(builder::Builder, backend::DistributedLinkBackend)
     _with_distributed_logger(builder; role="server", id=_server_id()) do
-        validate_builder_for_link!(builder, backend)
-        _server_clear_shutdown!(builder)
-        _server_submit_workers(builder, builder.state.iteration)
         invoke(run_link_workflow!, Tuple{Builder,AbstractLinkBackend}, builder, backend)
     end
 end
@@ -1098,7 +1048,7 @@ function _worker_base_cmd(bu::Builder)
 end
 
 function _worker_job_payload(bu::Builder)
-    worker_id_line = "WORKER_ID=\"\${SLURM_JOB_ID:-\${SGE_TASK_ID:-NA}}\""
+    worker_id_line = "WORKER_ID=\"\${SLURM_ARRAY_TASK_ID:-\${SGE_TASK_ID:-1}}\""
     worker_cmd = _command_string(_worker_base_cmd(bu)) * " --worker-id \"\$WORKER_ID\""
     worker_id_line * "\n" * worker_cmd
 end
@@ -1119,17 +1069,20 @@ function _render_distributed_worker_job_script(bu::Builder, scheduler::Scheduler
     return script_path
 end
 
-function _server_submit_workers(bu::Builder, iter::Int=bu.state.iteration)
+function _server_submit_workers(bu::Builder, phase::AbstractString, iter::Int)
     scheduler = bu.options.scheduler
     scheduler === nothing && return ""
-    workdir = joinpath(_coordination_root(bu), "submit", "gen$(iter)-workers")
+    workdir = joinpath(_coordination_root(bu), "submit", "gen$(iter)-$(phase)")
     _render_distributed_worker_job_script(bu, scheduler, workdir)
     bu.options.distributed.manage_worker_jobs || return ""
     scheduler.submit_jobs || return ""
-    nworkers = max(
-        bu.options.distributed.dft_worker_jobs,
-        bu.options.distributed.training_worker_jobs,
-    )
+    nworkers = if phase == "dft"
+        bu.options.distributed.dft_worker_jobs
+    elseif phase == "training"
+        bu.options.distributed.training_worker_jobs
+    else
+        scheduler.njobs
+    end
     distributed_scheduler = SchedulerConfig(
         scheduler.script,
         max(1, nworkers),
@@ -1598,8 +1551,8 @@ end
 
 function distributed_worker(file::AbstractString; worker_id::AbstractString="", once::Bool=false)
     bu = Builder(file)
-    worker_id = _distributed_worker_id(worker_id)
-    _with_distributed_logger(bu; role="trainer", id=worker_id) do
+    isempty(worker_id) && (worker_id = get(ENV, "WORKER_ID", string(getpid())))
+    _with_distributed_logger(bu; role="worker", id=worker_id) do
         worker = WorkerState(worker_id; state="BOOT", iteration=bu.state.iteration)
         _worker_log(Logging.Info, "distributed link worker boot", worker; next_action="poll_control")
 

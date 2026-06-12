@@ -1,4 +1,9 @@
-# Hyperdimensional Relaxation
+# Experimental Hyperdimensional Relaxation
+
+!!! warning "Experimental"
+    Hyperdimensional relaxation is experimental. Use it for exploration and
+    method development, and validate resulting structures carefully with
+    standard 3D relaxation and reference calculations.
 
 EDDPotentials supports **hyperdimensional relaxation** — an approach where
 extra spatial dimensions are temporarily added to a structure, and the penalty
@@ -59,9 +64,9 @@ results, dnorm = scheduled_penalty_relax!(calc;
 
 ## Using `hyper_gen_relax`
 
-There are two workflows for calling `hyper_gen_relax`: one using a [`Builder`](@ref)
+There are two workflows for calling `hyper_gen_relax`: one using a `Builder`
 configuration (for the automated active-learning pipeline), and one using an
-[`EDDPCalculator`](@ref) directly (for standalone use with pre-trained models).
+`EDDPCalculator` directly (for standalone use with pre-trained models).
 
 ### Builder Workflow
 
@@ -109,7 +114,7 @@ results, dnorm = hyper_gen_relax(calc, cell;
 )
 ```
 
-This overload uses [`create_calculator`](@ref) internally to bind the model
+This overload uses `create_calculator` internally to bind the model
 to the hyperdimensional cell with the appropriate modifier pipeline
 (`ExtraDimensionPenaltyModifier`).
 
@@ -193,13 +198,13 @@ println("Standard 3D energy: ", eddp_energy(source_3d))
 
 ## Configuring via link.toml
 
-For `link!` / RSS workflows, hyperspace settings live under `state.rss.relax`:
+For `link!` / RSS workflows, hyperspace settings live under `state.relax`:
 
 ```toml
-[state.rss]
+[state]
 relax_mode = "hyperspace"
 
-    [state.rss.relax]
+    [state.relax]
     hyper_ndim = 3
     hyper_alpha_start = 1e-4
     hyper_schedule_every = 50
@@ -234,12 +239,9 @@ scheduled_penalty_relax!(metacalc;
 ## API Reference
 
 ```@docs
-hyper_get_calc
-hyper_gen_relax
-scheduled_penalty_relax!
-_get_penalty_schedule
-ExtraDimensionPenaltyModifier
-MetaCalculator
-get_modifier_parameter
-set_modifier_parameter!
+EDDPotentials.Workflow.hyper_get_calc
+EDDPotentials.Workflow.hyper_gen_relax
+EDDPotentials.Search.scheduled_penalty_relax!
+EDDPotentials.Potential.get_modifier_parameter
+EDDPotentials.Potential.set_modifier_parameter!
 ```

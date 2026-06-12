@@ -3,7 +3,6 @@ using EDDPotentials
 using CellBase
 using LinearAlgebra
 using Unitful: ustrip
-import EDDPotentials.Potential: get_cell, eddp_energy, eddp_forces, eddp_stress, calculate!, GPaToeVAng
 
 # Import test utilities
 isdefined(Main, :_h2_cell) || include("utils.jl")
@@ -19,16 +18,6 @@ eddp_energy(calc::StressOnlyCalc; kwargs...) = 0.0
 eddp_forces(calc::StressOnlyCalc; kwargs...) = zeros(3, length(calc.cell))
 eddp_stress(calc::StressOnlyCalc; kwargs...) = copy(calc.stress)
 calculate!(calc::StressOnlyCalc; kwargs...) = calc
-
-mutable struct UphillCellCalc <: AbstractCalc
-    cell::Cell
-end
-
-get_cell(calc::UphillCellCalc) = calc.cell
-eddp_energy(calc::UphillCellCalc; kwargs...) = sum(get_cellmat(calc)[1:3, 1:3])
-eddp_forces(calc::UphillCellCalc; kwargs...) = zeros(3, length(calc.cell))
-eddp_stress(calc::UphillCellCalc; kwargs...) = Matrix{Float64}(I, 3, 3)
-calculate!(calc::UphillCellCalc; kwargs...) = calc
 
 @testset "Native Optimizers" begin
 
@@ -249,18 +238,6 @@ calculate!(calc::UphillCellCalc; kwargs...) = calc
             @test d > 4.0 && d < 6.0  # should relax to near rc/2 ≈ 4.0
         end
 
-        @testset "Already Converged Does Not Step" begin
-            cell = _h2_cell(10.0, 1.0)
-            calc = StressOnlyCalc(cell, zeros(3, 3))
-            pos0 = copy(get_positions(calc))
-
-            opt = opt_tpsd(calc; f_tol=1e-12)
-
-            @test converged(opt, calc)
-            @test opt.iteration == 0
-            @test get_positions(calc) ≈ pos0
-        end
-
         @testset "Reset Functionality" begin
             cell = _h2_cell(10.0, 1.0)
             calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
@@ -345,31 +322,6 @@ calculate!(calc::UphillCellCalc; kwargs...) = calc
             @test d > 4.0 && d < 6.0  # near rc/2 ≈ 4.0
         end
 
-        @testset "Already Converged Does Not Step" begin
-            cell = _h2_cell(10.0, 1.0)
-            calc = StressOnlyCalc(cell, zeros(3, 3))
-            pos0 = copy(get_positions(calc))
-
-            opt = opt_fire(calc; f_tol=1e-12, verbose=false)
-
-            @test converged(opt, calc)
-            @test opt.iteration == 0
-            @test get_positions(calc) ≈ pos0
-        end
-
-        @testset "Velocity Tracks Clipped Step" begin
-            cell = _h2_cell(10.0, 1.0)
-            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
-            pos0 = copy(get_positions(calc))
-            opt = NativeFIRE(dt=1.0, maxstep=1e-4, log_level=:minimal)
-
-            step!(opt, calc)
-
-            actual_step = vec(get_positions(calc) - pos0)
-            @test maximum(norm.(eachcol(get_positions(calc) - pos0))) <= opt.maxstep + 1e-12
-            @test opt.vel ≈ actual_step ./ opt.dt atol=1e-12
-        end
-
         @testset "Velocity Reset" begin
             # Test that velocity builds up during optimization
             cell = _h2_cell(10.0, 1.0)
@@ -412,59 +364,6 @@ calculate!(calc::UphillCellCalc; kwargs...) = calc
             # Should still converge with downhill check
             @test converged(opt, calc)
             @test opt.iteration < 500
-        end
-
-        @testset "Downhill Check Rejects Uphill Trial" begin
-            cell = _h2_cell(10.0, 1.0)
-            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
-            opt = NativeFIRE(
-                f_tol=1e-8,
-                maxstep=0.5,
-                itermax=80,
-                downhill_check=true,
-                log_level=:minimal,
-            )
-
-            energies = [EDDPotentials.eddp_energy(calc)]
-            for _ = 1:80
-                step!(opt, calc)
-                push!(energies, EDDPotentials.eddp_energy(calc))
-            end
-
-            @test all(diff(energies) .<= 1e-10)
-        end
-
-        @testset "Downhill Check Restores Variable Cell Exactly" begin
-            cell = _h2_cell(10.0, 1.0)
-            calc = UphillCellCalc(cell)
-            H0 = copy(get_cellmat(calc))
-            pos0 = copy(get_positions(calc))
-            opt = NativeFIRE(
-                dt=0.2,
-                maxstep=0.5,
-                maxstrain=0.05,
-                relax_cell=true,
-                cell_damping=1.0,
-                downhill_check=true,
-                log_level=:minimal,
-            )
-
-            step!(opt, calc)
-
-            @test get_cellmat(calc) ≈ H0 atol=1e-12
-            @test get_positions(calc) ≈ pos0 atol=1e-12
-            @test norm(opt.vel) == 0.0
-            @test opt.dt ≈ 0.1
-        end
-
-        @testset "First Step Keeps Initial dt" begin
-            cell = _h2_cell(10.0, 1.0)
-            calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
-            opt = NativeFIRE(dt=0.1, maxstep=0.5, log_level=:minimal)
-
-            step!(opt, calc)
-
-            @test opt.dt ≈ 0.1
         end
 
         @testset "Reset Functionality" begin
@@ -588,60 +487,6 @@ calculate!(calc::UphillCellCalc; kwargs...) = calc
         )
         @test result.relax.options.step_constraints[1] isa FixAtoms
         @test get_positions(calc)[:, 1] ≈ pos0[:, 1]
-    end
-
-    @testset "RelaxOption optimizer kwargs and aliases" begin
-        opts = RelaxOption(
-            method="fire",
-            stress_threshold=0.1,
-            external_pressure=[10.0],
-            optimizer_kwargs=Dict{String,Any}("dt" => 0.05, "downhill_check" => true),
-        )
-        kwargs = EDDPotentials.Simulation._optimizer_kwargs(opts)
-        @test kwargs.s_tol ≈ GPaToeVAng(0.1)
-        @test kwargs.ext_pressure ≈ GPaToeVAng(10.0) .* Matrix{Float64}(I, 3, 3)
-        @test kwargs.dt == 0.05
-        @test kwargs.downhill_check == true
-
-        opts6 = RelaxOption(method="tpsd", external_pressure=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
-        kwargs6 = EDDPotentials.Simulation._optimizer_kwargs(opts6)
-        @test kwargs6.ext_pressure ≈ GPaToeVAng.([1.0 2.0 3.0; 2.0 4.0 5.0; 3.0 5.0 6.0])
-    end
-
-    @testset "relax! external_pressure uses GPa" begin
-        cell = _h2_cell(10.0, 1.0)
-        stress = GPaToeVAng(10.0) .* Matrix{Float64}(I, 3, 3)
-        calc = StressOnlyCalc(cell, stress)
-        result = relax!(calc;
-            multi=false,
-            relax_cell=true,
-            method="tpsd",
-            external_pressure=[10.0],
-            stress_threshold=0.1,
-            force_threshold=1e-12,
-            iterations=1,
-        )
-        @test result.converged
-        @test result.smax ≈ 0.0 atol=1e-12
-    end
-
-    @testset "relax! optimizer kwargs passthrough" begin
-        cell = _h2_cell(10.0, 1.0)
-        calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
-        result = relax!(calc;
-            multi=false,
-            relax_cell=false,
-            method="fire",
-            itermax=3,
-            f_tol=1e-3,
-            maxstep=0.1,
-            dt=0.05,
-            downhill_check=true,
-        )
-        @test result.relax.options.iterations == 3
-        @test result.relax.options.force_threshold == 1e-3
-        @test result.relax.options.optimizer_kwargs["dt"] == 0.05
-        @test result.relax.options.optimizer_kwargs["downhill_check"] == true
     end
 
     @testset "Variable Cell" begin

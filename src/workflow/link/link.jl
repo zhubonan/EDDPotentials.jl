@@ -15,7 +15,7 @@ The link module is organized into focused submodules:
 - **options.jl**: Configuration types and options
 - **trainer.jl**: Training orchestration and model creation
 - **utils.jl**: Shared utilities (constants, directory management, UUID)
-- **external.jl**: External DFT calculator integrations (PP3, CRUD, ACRUD, mock)
+- **external.jl**: External DFT calculator integrations (DISP, PP3, CRUD, etc.)
 - **workflow.jl**: Builder struct and workflow orchestration (link!, step!)
 - **data.jl**: Data loading and management
 - **analysis.jl**: Analysis and reporting tools

@@ -1,6 +1,5 @@
 using LinearAlgebra
 using EDDPotentials
-using EDDPotentials.Potential: CellEmbedding, _need_calc, flux_mlp_model, setparamvector!
 using Unitful
 isdefined(Main, :_h2_cell) || include("utils.jl")
 using Test
@@ -138,21 +137,6 @@ end
         _test_forces_fd(calc)
     end
 
-    @testset "Ensemble transient gradient cleanup" begin
-        nnitfs = (
-            ManualFluxBackPropInterface(
-                Chain(Dense(rand(5, nfeatures(cf))), Dense(rand(1, 5))),
-            ),
-        )
-        nnitf = EnsembleNNInterface(nnitfs, [1.0])
-        calc = EDDPCalculator(cell, cf, nnitf; core=nothing)
-        eddp_forces(calc)
-        @test !isempty(nnitf.models[1].gchains)
-
-        clear_transient_gradients!(nnitf)
-        @test isempty(nnitf.models[1].gchains)
-    end
-
     @testset "Linear" begin
         nnitf = LinearInterface(rand(nfeatures(cf)))
         calc = EDDPCalculator(cell, cf, nnitf; core=nothing)
@@ -220,9 +204,6 @@ end
     # Also test multirelax! on Relax object
     output = multirelax!(relax)
     @test output isa EDDPotentials.RelaxResult
-
-    fire_output = relax!(calc; method="fire", verbose=true, iterations=5)
-    @test fire_output isa EDDPotentials.RelaxResult
 end
 
 @testset "Opt" begin

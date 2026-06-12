@@ -291,17 +291,14 @@ mutable struct ManualFluxBackPropInterface{T,G,X,Z} <: AbstractNNInterface
     last_id::Int
     xt::X
     yt::Z
-    gradient_cache_size::Int
 end
 
 
 get_flux_model(itf::ManualFluxBackPropInterface) = itf.chain
 
-function ManualFluxBackPropInterface(chain::Chain; xt=nothing, yt=nothing, gradient_cache_size::Int=8)
-    gradient_cache_size >= 1 ||
-        throw(ArgumentError("gradient_cache_size must be >= 1, got $gradient_cache_size."))
+function ManualFluxBackPropInterface(chain::Chain; xt=nothing, yt=nothing)
     g = ChainGradients(chain, 1)
-    ManualFluxBackPropInterface(chain, typeof(g)[], 1, xt, yt, gradient_cache_size)
+    ManualFluxBackPropInterface(chain, typeof(g)[], 1, xt, yt)
 end
 
 function Base.show(io::IO, m::MIME"text/plain", x::ManualFluxBackPropInterface)
@@ -316,19 +313,14 @@ Select the ChainGradients with the right size
 function _get_or_create_chaingradients(itf, inp)
     bsize = size(inp, 2)
     idx = findfirst(x -> x.n == bsize, itf.gchains)
+    # Create the ChainGradients of the desired size on-the-fly
     if isnothing(idx)
         cgtmp = ChainGradients(itf.chain, bsize)
-        pushfirst!(itf.gchains, cgtmp)
-        while length(itf.gchains) > itf.gradient_cache_size
-            pop!(itf.gchains)
-        end
-    elseif idx != 1
-        cgtmp = itf.gchains[idx]
-        deleteat!(itf.gchains, idx)
-        pushfirst!(itf.gchains, cgtmp)
+        push!(itf.gchains, cgtmp)
+        idx = length(itf.gchains)
     end
-    cg = itf.gchains[1]
-    itf.last_id = 1
+    cg = itf.gchains[idx]
+    itf.last_id = idx
     cg
 end
 
@@ -435,10 +427,9 @@ function ManualFluxBackPropInterface(
     σ=leaky_tanh,
     σs=nothing,
     embedding=nothing,
-    gradient_cache_size::Int=8,
 )
     chain = flux_mlp_model(T, cf, nodes...; init, σ, σs, embedding)
-    ManualFluxBackPropInterface(chain; xt, yt, gradient_cache_size)
+    ManualFluxBackPropInterface(chain; xt, yt)
 end
 
 ManualFluxBackPropInterface(
@@ -459,7 +450,6 @@ function save_as_jld2(f::Union{JLD2.JLDFile,JLD2.Group}, obj::ManualFluxBackProp
     f["chain"] = obj.chain
     f["xt"] = obj.xt
     f["yt"] = obj.yt
-    f["gradient_cache_size"] = obj.gradient_cache_size
     f["is_manual_flux_itf"] = true
     f
 end
@@ -477,7 +467,6 @@ function load_from_jld2(
     chain = f["chain"]
     xt = f["xt"]
     yt = f["yt"]
-    gradient_cache_size = "gradient_cache_size" in keys(f) ? Int(f["gradient_cache_size"]) : 8
     # Ignore legacy apply_xt key if present
-    ManualFluxBackPropInterface(chain; xt, yt, gradient_cache_size)
+    ManualFluxBackPropInterface(chain; xt, yt)
 end

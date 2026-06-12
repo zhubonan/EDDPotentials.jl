@@ -8,7 +8,6 @@ import ..EDDPotentials: EDDPotentialsOption
 import ..Potential:
     get_cellmat,
     eVAngToGPa,
-    GPaToeVAng,
     get_modifier_parameter,
     set_modifier_parameter!
 

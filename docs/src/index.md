@@ -7,11 +7,13 @@ A [Julia](https://julialang.org/) package for [Ephemeral Data Derived Potentials
 
 **New users:** Start with [Getting Started](getting_started.md)
 
+**Current state:** [Package Status](status.md)
+
 **Learn concepts:** [What is EDDP?](concepts/what_is_eddp.md) | [Understanding Features](concepts/features.md) | [Iterative Training](concepts/iterative_training.md)
 
 **Step-by-step tutorial:** [AIRSS Workflow](tutorials/airss_workflow.md)
 
-**Common tasks:** [Customize Features](howto/customize_features.md) | [Structure Prediction](howto/structure_prediction.md) | [Train with Force Data](howto/force_training.md) | [Phonon Calculations](howto/run_phonon_calculations.md) | [Hyperdimensional Relaxation](howto/hyperdimensional_relaxation.md)
+**Common tasks:** [Customize Features](howto/customize_features.md) | [Structure Prediction](howto/structure_prediction.md) | [Train with Force Data](howto/force_training.md) | [Phonon Calculations](howto/run_phonon_calculations.md) | [Experimental Hyperdimensional Relaxation](howto/hyperdimensional_relaxation.md)
 
 ## What is EDDP?
 
@@ -134,6 +136,8 @@ This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
 
 **[Getting Started](getting_started.md)** - Quick introduction and first example
 
+**[Package Status](status.md)** - Current maturity, supported workflows, and known limits
+
 **Tutorials** - Learning-oriented guides
 - [AIRSS Workflow](tutorials/airss_workflow.md): Complete structure prediction workflow
 
@@ -144,7 +148,7 @@ This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
 - [Enable GPU Acceleration](howto/enable_gpu_acceleration.md): Training speedup
 - [Batched LM Training](howto/batched_lm_training.md): Stochastic LM for large datasets
 - [SGD/Adam Training](howto/sgd_training.md): Mini-batch SGD and Adam optimizers
-- [Hyperdimensional Relaxation](howto/hyperdimensional_relaxation.md): Extra-dimensional structure optimization
+- [Hyperdimensional Relaxation](howto/hyperdimensional_relaxation.md): Experimental extra-dimensional structure optimization
 
 **Concepts** - Understanding-oriented explanations
 - [What is EDDP?](concepts/what_is_eddp.md): Design philosophy and use cases
@@ -157,7 +161,7 @@ This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
 
 - **[AIRSS](https://www.mtg.msm.cam.ac.uk/Codes/AIRSS):** *Ab initio* random structure searching toolkit
 - **[CASTEP](http://www.castep.org):** Plane-wave DFT code for training data generation
-- **Distributed link:** File-backed worker coordination for scheduler-managed DFT and training jobs
+- **[DISP](https://zhubonan.github.io/disp):** Distributed structure prediction on computing clusters
 - **[Phonopy](https://phonopy.github.io/phonopy/):** Phonon calculations (Python interface)
 
 ## Citation

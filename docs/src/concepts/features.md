@@ -262,7 +262,7 @@ println("Total: ", nfeatures(cf))  # 17
 
 ### Do's
 
-✓ Start with default CellFeature. See [`CellFeatureConfig`](@ref)
+✓ Start with default `CellFeature`. See `CellFeatureConfig`
 ✓ Always use three-body features
 ✓ Check cutoff captures relevant neighbors
 ✓ Match cutoff to training data

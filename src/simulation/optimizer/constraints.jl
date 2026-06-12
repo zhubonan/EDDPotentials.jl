@@ -541,19 +541,3 @@ function apply_cartesian_position_constraints!(constraints, opt::AbstractOptimiz
     pos_new .= pos_old .+ reshape(dx, D, nat)
     pos_new
 end
-
-function apply_direct_position_constraints!(constraints, opt::AbstractOptimizer, calc::AbstractCalc, pos_old::AbstractMatrix, pos_new::AbstractMatrix)
-    isempty(constraints) && return pos_new
-    D, nat = size(pos_old)
-    dx = vec(copy(pos_new .- pos_old))
-    for constraint in constraints
-        if constraint isa FixScaled ||
-                (constraint isa FixRelative && constraint.coordinate === :direct) ||
-                (constraint isa FixRigidGroup && constraint.coordinate === :direct) ||
-                (constraint isa FixLinearIonic && constraint.coordinate === :direct)
-            constrain_step!(constraint, opt, calc, dx)
-        end
-    end
-    pos_new .= pos_old .+ reshape(dx, D, nat)
-    pos_new
-end

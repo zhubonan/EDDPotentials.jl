@@ -183,20 +183,15 @@ function build_and_relax(
         target_iterations = Simulation._hyper_max_iterations(relax_option)
         phase1_alpha = relax_option.hyper_phase1_alpha
         phase1_frac = relax_option.hyper_phase1_fraction
+        pressure_gpa = relax_option.external_pressure[1]
         trace = relax_option.verbose
-        relax_fn = Simulation._method_to_native_fn(relax_option.method)
-        optimizer_kwargs = Simulation._optimizer_kwargs(
-            relax_option;
-            relax_cell_override=false,
-            include_itermax=false,
-            include_logging=false,
-        )
 
         cell = CellBase.add_dimensions(cell, ndim)
         source = EDDPCalculator(cell, cf, ensemble; nmax,
             core_repulsion=_make_core_repulsion(core_size), elemental_energies)
         penalty = ExtraDimensionPenaltyModifier(alpha_start; start_dim=4)
-        P_ext = Simulation._external_stress_matrix_internal(relax_option.external_pressure)
+        p_clamped = GPaToeVAng(max(pressure_gpa, 0.1))
+        P_ext = [p_clamped 0 0; 0 p_clamped 0; 0 0 p_clamped]
 
         phase1_iters = round(Int, target_iterations * phase1_frac)
         phase2_iters = target_iterations - phase1_iters
@@ -209,7 +204,7 @@ function build_and_relax(
         p1_ramp = relax_option.hyper_dynamic_alpha ? true : false
         scheduled_penalty_relax!(metacalc_pos;
             schedule_every, max_iterations=phase1_iters,
-            alpha_start=phase1_alpha, relax_fn, relax_kwargs=optimizer_kwargs, trace,
+            alpha_start=phase1_alpha, relax_fn=opt_fire, trace,
             ramp_alpha=p1_ramp,
             alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,
             max_alpha=relax_option.hyper_max_alpha,
@@ -222,8 +217,8 @@ function build_and_relax(
         metacalc_full = MetaCalculator(source, [penalty])
         scheduled_penalty_relax!(metacalc_full;
             schedule_every, max_iterations=phase2_iters,
-            alpha_start, relax_fn, trace,
-            relax_kwargs=(; optimizer_kwargs..., relax_cell=true, ext_pressure=P_ext),
+            alpha_start, relax_fn=opt_fire, trace,
+            relax_kwargs=(relax_cell=true, ext_pressure=P_ext),
             ramp_alpha=relax_option.hyper_ramp_alpha,
             alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,
             max_alpha=relax_option.hyper_max_alpha,
@@ -265,19 +260,8 @@ function build_and_relax(
         md_dt = get(hot_kwargs, :md_timestep, Float64(0.5))
         relax_cell = get(hot_kwargs, :relax_cell, true)
         hot_opts = HotAIRSSOption(
-            cycles,
-            relax_option.iterations,
-            relax_option.force_threshold,
-            relax_option.stress_threshold,
-            relax_option.energy_threshold,
-            relax_option.method,
-            relax_cell,
-            relax_option.external_pressure,
-            md_steps, md_temp, md_dt, "langevin", 0.01, 50.0, nothing, false,
-            relax_option.maxstep,
-            relax_option.maxstrain,
-            relax_option.cell_damping,
-            deepcopy(relax_option.optimizer_kwargs))
+            cycles, 200, 1e-2, 1e-1, 1e-5, "tpsd", relax_cell, [0.0],
+            md_steps, md_temp, md_dt, "langevin", 0.01, 50.0, nothing, false)
         hot_airss!(re.calc, hot_opts)
         return result
 
@@ -368,126 +352,122 @@ function _run_rss(
         # Apply the external pressure setting
         _relax_option.external_pressure = Float64[_pressure_gpa]
         # Build the random structure and relax it
-        try
-            res = build_and_relax_one(
-                this_seed,
-                ensemble,
-                cf;
-                max_err,
-                init_structure_transform,
-                relax_option=_relax_option,
-                core_size,
-                elemental_energies,
-                relax_mode,
-                hot_kwargs,
-                seed_text_transform,
-            )
+        res = build_and_relax_one(
+            this_seed,
+            ensemble,
+            cf;
+            max_err,
+            init_structure_transform,
+            relax_option,
+            core_size,
+            elemental_energies,
+            relax_mode,
+            hot_kwargs,
+            seed_text_transform,
+        )
 
-            calc = res.relax.calc
+        calc = res.relax.calc
 
-            # Check for ensemble error and act
-            # This prunes structure that we are too confident, e.g. nothing to learn from
-            if ensemble_std_min > 0.0 || ensemble_std_max > 0.0
-                estd = eddp_energy_std(calc) / length(get_cell(calc))
-                if ensemble_std_min > 0.0 && estd < ensemble_std_min
-                    @info "Ensemble standard deviation $(estd) is too small ($(ensemble_std_min))!"
-                    continue
-                end
-                if ensemble_std_max > 0.0 && estd > ensemble_std_max
-                    @info "Ensemble standard deviation $(estd) is too large ($(ensemble_std_max))!"
-                    continue
-                end
+        # Check for ensemble error and act
+        # This prunes structure that we are too confident, e.g. nothing to learn from
+        if ensemble_std_min > 0.0 || ensemble_std_max > 0.0
+            estd = eddp_energy_std(calc) / length(get_cell(calc))
+            if ensemble_std_min > 0.0 && estd < ensemble_std_min
+                @info "Ensemble standard deviation $(estd) is too small ($(ensemble_std_min))!"
+                continue
             end
-
-            # Check if the final energy is low enough
-            # Use this with case as pathological structures may prevent normal
-            # structures being accepted. Ideally use it with `ensemble_std_min`.
-            if eng_threshold > 0
-                if check_energy_threshold!(composition_engmin, calc, eng_threshold) == false
-                    continue
-                end
+            if ensemble_std_max > 0.0 && estd > ensemble_std_max
+                @info "Ensemble standard deviation $(estd) is too large ($(ensemble_std_max))!"
+                continue
             end
+        end
 
-            # Update the label of the structure
-            label = get_label(stem(this_seed))
-            update_metadata!(calc, label)
-
-            # Write output file
-            cell = get_cell(calc)
-            # Run niggli reduction - skip the loop if failed.
-            if niggli_reduce_output
-                try
-                    cell = niggli_reduce_cell(cell)
-                catch err
-                    continue
-                end
+        # Check if the final energy is low enough
+        # Use this with case as pathological structures may prevent normal
+        # structures being accepted. Ideally use it with `ensemble_std_min`.
+        if eng_threshold > 0
+            if check_energy_threshold!(composition_engmin, calc, eng_threshold) == false
+                continue
             end
+        end
 
-            cand = _rss_candidate(cell)
-            if pruning_enabled
-                if pool_comp === nothing
-                    pool_comp = cand.comp
-                elseif cand.comp != pool_comp
-                    if !prune_disabled_warned
-                        @warn "RSS pruning disabled because multiple reduced compositions were detected in the candidate pool."
-                        prune_disabled_warned = true
-                    end
-                    written = _rss_write_candidates!(
-                        pool,
-                        outdir,
-                        packed,
-                        packed_outfile,
-                        mode,
-                        max - nkept,
-                    )
-                    nkept += written
-                    if show_progress
-                        for _ = 1:written
-                            ProgressMeter.next!(pmeter)
-                        end
-                    end
-                    empty!(pool)
-                    empty!(stats_history)
-                    pool_comp = nothing
-                    pruning_enabled = false
-                end
+        # Update the label of the structure
+        label = get_label(stem(this_seed))
+        update_metadata!(calc, label)
+
+        # Write output file
+        cell = get_cell(calc)
+        # Run niggli reduction - skip the loop if failed.
+        if niggli_reduce_output
+            try
+                cell = niggli_reduce_cell(cell)
+            catch err
+                continue
             end
+        end
 
-            if pruning_enabled
-                push!(pool, cand)
-                push!(stats_history, (; mean=_rss_pool_mean(pool), median=_rss_pool_median(pool)))
-                reason, should_flush = _rss_should_flush(pool, stats_history, prune_option)
-                if should_flush
-                    remaining = max - nkept
-                    selected, duplicates = _rss_select_pruned(pool, prune_option, remaining)
-                    written = _rss_write_candidates!(
-                        selected,
-                        outdir,
-                        packed,
-                        packed_outfile,
-                        mode,
-                        remaining,
-                    )
-                    nkept += written
-                    _rss_log_flush(pool, selected, duplicates, written, nkept, reason)
-                    if show_progress
-                        for _ = 1:written
-                            ProgressMeter.next!(pmeter)
-                        end
-                    end
-                    empty!(pool)
-                    empty!(stats_history)
-                    pool_comp = nothing
+        cand = _rss_candidate(cell)
+        if pruning_enabled
+            if pool_comp === nothing
+                pool_comp = cand.comp
+            elseif cand.comp != pool_comp
+                if !prune_disabled_warned
+                    @warn "RSS pruning disabled because multiple reduced compositions were detected in the candidate pool."
+                    prune_disabled_warned = true
                 end
-            elseif nkept < max
-                written = _rss_write_candidate(cand, outdir, packed, packed_outfile, mode)
+                written = _rss_write_candidates!(
+                    pool,
+                    outdir,
+                    packed,
+                    packed_outfile,
+                    mode,
+                    max - nkept,
+                )
                 nkept += written
                 if show_progress
-                    ProgressMeter.next!(pmeter)
+                    for _ = 1:written
+                        ProgressMeter.next!(pmeter)
+                    end
                 end
+                empty!(pool)
+                empty!(stats_history)
+                pool_comp = nothing
+                pruning_enabled = false
             end
-        finally
-            clear_transient_gradients!(ensemble)
+        end
+
+        if pruning_enabled
+            push!(pool, cand)
+            push!(stats_history, (; mean=_rss_pool_mean(pool), median=_rss_pool_median(pool)))
+            reason, should_flush = _rss_should_flush(pool, stats_history, prune_option)
+            if should_flush
+                remaining = max - nkept
+                selected, duplicates = _rss_select_pruned(pool, prune_option, remaining)
+                written = _rss_write_candidates!(
+                    selected,
+                    outdir,
+                    packed,
+                    packed_outfile,
+                    mode,
+                    remaining,
+                )
+                nkept += written
+                _rss_log_flush(pool, selected, duplicates, written, nkept, reason)
+                if show_progress
+                    for _ = 1:written
+                        ProgressMeter.next!(pmeter)
+                    end
+                end
+                empty!(pool)
+                empty!(stats_history)
+                pool_comp = nothing
+            end
+        elseif nkept < max
+            written = _rss_write_candidate(cand, outdir, packed, packed_outfile, mode)
+            nkept += written
+            if show_progress
+                ProgressMeter.next!(pmeter)
+            end
         end
     end
 end
@@ -528,7 +508,6 @@ function build_and_relax_one(
                 seed_text_transform,
             )
         catch err
-            clear_transient_gradients!(ensemble)
             isa(err, InterruptException) && throw(err)
             if typeof(err) <: ProcessFailedException
                 @warn " `buildcell` failed to make the structure"

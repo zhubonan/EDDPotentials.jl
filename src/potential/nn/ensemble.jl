@@ -5,7 +5,7 @@ import Base
 
 Weighted ensemble of multiple `AbstractNNInterface` models. The forward pass
 computes `sum(w_i * model_i(input) for i in 1:length(models))`. Weights are
-typically obtained via non-negative least squares ([`create_ensemble`](@ref)).
+typically obtained via non-negative least squares (`create_ensemble`).
 
 Ensemble predictions are more robust than single-model predictions and provide
 uncertainty estimates via [`eddp_energy_std`](@ref).
@@ -39,11 +39,6 @@ function backward!(itf::EnsembleNNInterface, args...; kwargs...)
     for model in itf.models
         backward!(model, args...; kwargs...)
     end
-end
-
-function clear_transient_gradients!(itf::EnsembleNNInterface)
-    foreach(clear_transient_gradients!, itf.models)
-    itf
 end
 
 function gradinp!(gvec, itf::EnsembleNNInterface; tmpg=copy(gvec))

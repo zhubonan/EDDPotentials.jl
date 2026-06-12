@@ -122,8 +122,7 @@ end
 
 function eddp_stress(calc::PairpotCalc; kwargs...)
     calculate!(calc)
-    H = CellBase.cellmat(get_cell(calc))[1:3, 1:3]
-    calc.workspace.stress ./ abs(det(H))
+    calc.workspace.stress
 end
 
 get_positions(calc::PairpotCalc) = get_positions(calc.cell)
@@ -235,3 +234,4 @@ function pairpot_energy_forces(workspace::PairpotWorkspace{T, S}, cell, nl) wher
     workspace.energy = energy
     energy, forces, stress
 end
+

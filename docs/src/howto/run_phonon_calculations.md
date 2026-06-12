@@ -79,7 +79,7 @@ relaxed_structure = get_cell(calc)
 println("Relaxed volume: ", volume(relaxed_structure), " Å³")
 ```
 
-**Important**: Use variable cell relaxation (`relax_cell=true` in [`opt_tpsd`](@ref) or [`opt_fire`](@ref)) to ensure the lattice parameters are at equilibrium. Fixed-cell relaxation can give incorrect phonon frequencies.
+**Important**: Use variable cell relaxation (`relax_cell=true` in `opt_tpsd` or `opt_fire`) to ensure the lattice parameters are at equilibrium. Fixed-cell relaxation can give incorrect phonon frequencies.
 
 ## Step 2: Run Finite Displacement
 

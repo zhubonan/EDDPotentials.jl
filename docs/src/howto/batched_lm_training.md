@@ -181,9 +181,8 @@ Controls how the damped normal equations `(J'J + λ·D)·Δx = -J'f` are solved.
 
 | Solver | Method | Characteristics |
 |---|---|---|
-| `:direct` | LU decomposition via `\` | Balanced speed and robustness. Works for all matrices. |
-| `:cholesky` (default) | Cholesky factorisation | Faster for well-conditioned positive-definite systems. A failed factorisation rejects the solve attempt and increases damping. |
-| `:cg` | Matrix-free preconditioned conjugate gradient | Avoids dense normal-equation solves on larger batches when requested. |
+| `:direct` (default) | LU decomposition via `\` | Balanced speed and robustness. Works for all matrices. |
+| `:cholesky` | Cholesky factorisation | Faster for well-conditioned positive-definite systems. Falls back to `:direct` if the matrix is not positive-definite. |
 | `:qr` | QR decomposition | Most robust for ill-conditioned systems. Slower but more numerically stable. |
 
 ```julia
@@ -219,7 +218,7 @@ solver = "cholesky"
 | `earlystop` | 50 | Epochs without improvement before stopping (`0` = disabled) |
 | `damping_mode` | `:fletcher` | Damping strategy (`:standard`, `:fletcher`, `:adaptive`) |
 | `attempts_per_step` | 1 | Retries per batch on rejected steps |
-| `solver` | `:cholesky` | Linear solver (`:direct`, `:cholesky`, `:cg`, `:qr`) |
+| `solver` | `:direct` | Linear solver (`:direct`, `:cholesky`, `:qr`) |
 | `p` | 1.25 | Reweighting power |
 | `keep_best` | `true` | Keep best validation parameters |
 | `lambda` | 10 | Initial damping parameter |

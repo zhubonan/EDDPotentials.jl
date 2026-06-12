@@ -19,251 +19,32 @@ struct LevenbergMarquardt <: Optimizer end
 Base.summary(::LevenbergMarquardt) = "Levenberg-Marquardt"
 
 """
-    _apply_damping_full!(JJ, lambda, DtD, mode)
-
-Add LM damping to the full-batch normal matrix in-place.
-
-# Modes
-- `:fletcher`       — `JJ + λ·diag(DtD)` (current default)
-- `:fletcher_floor` — `JJ + λ·diag(max(1, DtD))` (Fortran `forge` style)
-"""
-function _apply_damping_full!(JJ, lambda, DtD, mode::Symbol)
-    if mode === :fletcher
-        @simd for i in eachindex(DtD)
-            @inbounds JJ[i, i] += lambda * DtD[i]
-        end
-    elseif mode === :fletcher_floor
-        floor = one(eltype(DtD))
-        @simd for i in eachindex(DtD)
-            @inbounds JJ[i, i] += lambda * max(floor, DtD[i])
-        end
-    else
-        throw(ArgumentError("Unknown damping_mode: $mode. Use :fletcher or :fletcher_floor."))
-    end
-    JJ
-end
-
-function _damping_diagonal_full!(damping_diag, DtD, mode::Symbol)
-    if mode === :fletcher
-        copyto!(damping_diag, DtD)
-    elseif mode === :fletcher_floor
-        floor = one(eltype(DtD))
-        @simd for i in eachindex(DtD)
-            @inbounds damping_diag[i] = max(floor, DtD[i])
-        end
-    else
-        throw(ArgumentError("Unknown damping_mode: $mode. Use :fletcher or :fletcher_floor."))
-    end
-    damping_diag
-end
-
-Base.@kwdef mutable struct CGSolveStats
-    converged::Bool = false
-    iterations::Int = 0
-    relres::Float64 = Inf
-end
-
-function _reset_cg_stats!(stats::Union{Nothing,CGSolveStats})
-    isnothing(stats) && return nothing
-    stats.converged = false
-    stats.iterations = 0
-    stats.relres = Inf
-    return stats
-end
-
-function _finish_cg_stats!(
-    stats::Union{Nothing,CGSolveStats},
-    converged::Bool,
-    iterations::Int,
-    relres,
-)
-    isnothing(stats) && return converged
-    stats.converged = converged
-    stats.iterations = iterations
-    stats.relres = Float64(relres)
-    return converged
-end
-
-function _weighted_jtr_neg!(rhs, J, wt, rlike, tmp)
-    @. tmp = wt * rlike
-    mul!(rhs, transpose(J), tmp)
-    rmul!(rhs, -1)
-    return rhs
-end
-
-function _adaptive_cg_tol(
-    cg_tol,
-    cg_tol_max,
-    grad_norm,
-    initial_grad_norm,
-    adaptive::Bool,
-    ::Type{T},
-) where {T}
-    !adaptive && return T(cg_tol)
-    denom = max(T(initial_grad_norm), eps(T))
-    ratio = max(T(grad_norm) / denom, eps(T))
-    return clamp(T(cg_tol_max) * sqrt(ratio), T(cg_tol), T(cg_tol_max))
-end
-
-function _build_cg_preconditioner!(
-    M,
-    DtD,
-    lambda,
-    damping_diag,
-    preconditioner_floor,
-)
-    floor = eltype(M)(preconditioner_floor)
-    @. M = max(DtD + lambda * damping_diag, floor)
-    for value in M
-        (isfinite(value) && value > zero(value)) || return false
-    end
-    return true
-end
-
-function _apply_cg_preconditioner!(z, r, M)
-    @. z = r / M
-    return z
-end
-
-"""
-    _cg_solve_full!(delta_x, J, wt, lambda, DtD, rhs, tmp, Ap, r, z, p, M, damping_diag; kwargs...) -> Bool
-
-Solve `(J'WJ + λ·diag(d)) * delta_x = rhs` with matrix-free CG.
-
-Returns `true` only when CG converges. Returns `false` on invalid Jacobi
-preconditioner entries, non-finite arithmetic, non-positive curvature, or
-max-iteration non-convergence.
-"""
-function _cg_solve_full!(
-    delta_x,
-    J,
-    wt,
-    lambda,
-    DtD,
-    rhs,
-    tmp,
-    Ap,
-    r,
-    z,
-    p,
-    M,
-    damping_diag;
-    damping_mode::Symbol=:fletcher,
-    maxiter::Int=500,
-    tol::Real=1e-6,
-    preconditioner_floor::Real=eps(eltype(delta_x)),
-    stats::Union{Nothing,CGSolveStats}=nothing,
-)
-    _reset_cg_stats!(stats)
-    maxiter > 0 || return _finish_cg_stats!(stats, false, 0, Inf)
-
-    _damping_diagonal_full!(damping_diag, DtD, damping_mode)
-    _build_cg_preconditioner!(
-        M,
-        DtD,
-        lambda,
-        damping_diag,
-        preconditioner_floor,
-    ) || return _finish_cg_stats!(stats, false, 0, Inf)
-
-    fill!(delta_x, zero(eltype(delta_x)))
-    copyto!(r, rhs)
-    rhs_norm = norm(rhs)
-    isfinite(rhs_norm) || return _finish_cg_stats!(stats, false, 0, Inf)
-    rhs_norm == 0 && return _finish_cg_stats!(stats, true, 0, 0.0)
-
-    _apply_cg_preconditioner!(z, r, M)
-    copyto!(p, z)
-    rho = dot(r, z)
-    (isfinite(rho) && rho > zero(rho)) || return _finish_cg_stats!(stats, false, 0, Inf)
-
-    for iter in 1:maxiter
-        mul!(tmp, J, p)
-        @. tmp = wt * tmp
-        mul!(Ap, transpose(J), tmp)
-        @. Ap += lambda * damping_diag * p
-
-        pAp = dot(p, Ap)
-        (isfinite(pAp) && pAp > zero(pAp)) ||
-            return _finish_cg_stats!(stats, false, iter, Inf)
-
-        alpha = rho / pAp
-        isfinite(alpha) || return _finish_cg_stats!(stats, false, iter, Inf)
-        @. delta_x += alpha * p
-        @. r -= alpha * Ap
-
-        r_norm = norm(r)
-        isfinite(r_norm) || return _finish_cg_stats!(stats, false, iter, Inf)
-        relres = r_norm / rhs_norm
-        relres <= tol && return _finish_cg_stats!(stats, true, iter, relres)
-
-        _apply_cg_preconditioner!(z, r, M)
-        rho_next = dot(r, z)
-        (isfinite(rho_next) && rho_next > zero(rho_next)) ||
-            return _finish_cg_stats!(stats, false, iter, relres)
-
-        beta = rho_next / rho
-        isfinite(beta) || return _finish_cg_stats!(stats, false, iter, relres)
-        @. p = z + beta * p
-        rho = rho_next
-    end
-
-    relres = norm(r) / rhs_norm
-    return _finish_cg_stats!(stats, false, maxiter, relres)
-end
-
-function _build_normal_full!(JJ, J2, J, wt, lambda, DtD, damping_mode::Symbol)
-    @. J2 = sqrt(wt) * J
-    mul!(JJ, transpose(J2), J2)
-    return _apply_damping_full!(JJ, lambda, DtD, damping_mode)
-end
-
-function _factor_normal_full!(JJ, solver::Symbol)
-    if solver === :direct
-        return lu!(JJ), true
-    elseif solver === :cholesky
-        try
-            return cholesky!(Hermitian(JJ)), true
-        catch err
-            err isa PosDefException || rethrow()
-            return nothing, false
-        end
-    elseif solver === :qr
-        return qr(JJ), true
-    elseif solver === :cg
-        throw(ArgumentError("solver=:cg is matrix-free in full LM; use _cg_solve_full! instead."))
-    else
-        throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, :cg, or :qr."))
-    end
-end
-
-function _ldiv_normal_full!(out, factor, rhs)
-    ldiv!(out, factor, rhs)
-    return out
-end
-
-"""
-    _solve_normal_full!(delta_x, JJ, rhs, solver) -> Bool
+    _solve_normal_full!(delta_x, JJ, rhs, solver)
 
 Solve the damped normal equations `JJ * delta_x = rhs` for the full LM solver.
-Returns `true` when the solve succeeds. A failed `:cholesky` factorisation
-returns `false` so the LM loop can increase `lambda` and retry.
 
 # Solvers
 - `:direct`    — LU decomposition via `\\`
-- `:cholesky`  — strict Cholesky factorisation; failure rejects the LM step
-- `:cg`        — matrix-free preconditioned CG (handled outside this dense helper)
+- `:cholesky`  — Cholesky factorisation (fast, requires positive-definite JJ)
 - `:qr`        — QR decomposition (robust for ill-conditioned systems)
 """
 function _solve_normal_full!(delta_x, JJ, rhs, solver::Symbol)
     if solver === :direct
         delta_x .= JJ \ rhs
-        return true
+    elseif solver === :cholesky
+        try
+            C = cholesky!(Hermitian(JJ))
+            ldiv!(delta_x, C, rhs)
+        catch
+            delta_x .= JJ \ rhs
+        end
+    elseif solver === :qr
+        F = qr(JJ)
+        ldiv!(delta_x, F, rhs)
+    else
+        throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, or :qr."))
     end
-    factor, solve_ok = _factor_normal_full!(JJ, solver)
-    solve_ok || return false
-    _ldiv_normal_full!(delta_x, factor, rhs)
-    return true
+    delta_x
 end
 """
     `levenberg_marquardt(f, g, initial_x; <keyword arguments>`
@@ -289,13 +70,6 @@ Comp & Applied Math).
 * `show_trace::Bool=false`: print a status summary on each iteration if true
 * `keep_best`: If true, return the best solution instead of that of the last iteration. If callback is supplied, use the best value from it.
 * `lower,upper=[]`: bound solution to these limits
-* `damping_mode::Symbol=:fletcher`: damping strategy (`:fletcher`, `:fletcher_floor`)
-* `solver::Symbol=:cholesky`: linear solver (`:direct`, `:cholesky`, `:cg`, `:qr`)
-* `cg_tol::Real=1e-6`: relative residual tolerance for `solver=:cg`; when adaptive tolerance is enabled, this is the tight lower tolerance
-* `cg_maxiter::Integer=500`: maximum CG iterations for `solver=:cg`
-* `cg_preconditioner_floor::Real=eps(T)`: lower floor for required Jacobi preconditioner entries
-* `cg_adaptive_tol::Bool=true`: loosen CG solves early and tighten as the LM gradient decreases
-* `cg_tol_max::Real=1e-2`: loose upper tolerance for adaptive CG
 """
 
 # I think a smarter way to do this *might* be to create a type similar to `OnceDifferentiable`
@@ -325,25 +99,8 @@ function levenberg_marquardt(
     callback=nothing,
     keep_best=true,
     earlystop=0,
-    damping_mode::Symbol=:fletcher,
     solver::Symbol=:cholesky,
-    cg_tol::Real=1e-6,
-    cg_maxiter::Int=500,
-    cg_preconditioner_floor::Real=eps(T),
-    cg_adaptive_tol::Bool=true,
-    cg_tol_max::Real=1e-2,
 ) where {T}
-
-    damping_mode in (:fletcher, :fletcher_floor) ||
-        throw(ArgumentError("Unknown damping_mode: $damping_mode. Use :fletcher or :fletcher_floor."))
-    solver in (:direct, :cholesky, :cg, :qr) ||
-        throw(ArgumentError("Unknown solver: $solver. Use :direct, :cholesky, :cg, or :qr."))
-    cg_maxiter > 0 || throw(ArgumentError("cg_maxiter must be positive, got $cg_maxiter"))
-    cg_tol > 0 || throw(ArgumentError("cg_tol must be positive, got $cg_tol"))
-    cg_tol_max >= cg_tol ||
-        throw(ArgumentError("cg_tol_max must be greater than or equal to cg_tol."))
-    cg_preconditioner_floor > 0 ||
-        throw(ArgumentError("cg_preconditioner_floor must be positive, got $cg_preconditioner_floor"))
 
     # First evaluation
     value_jacobian!!(df, initial_x)
@@ -385,36 +142,26 @@ function levenberg_marquardt(
     x_converged = false
     g_converged = false
     iterCt = 0
-    initial_grad_norm = T(NaN)
     x = copy(initial_x)
     best_x = copy(initial_x)
     delta_x = copy(initial_x)
+    a = similar(x)
 
     trial_f = similar(value(df))
 
     # Create buffers
     n = length(x)
     m = length(trial_f)
-    use_cg_solver = solver === :cg
-    JJ = use_cg_solver ? Matrix{T}(undef, 0, 0) : Matrix{T}(undef, n, n)
+    JJ = Matrix{T}(undef, n, n)
     n_buffer = Vector{T}(undef, n)
     Jdelta_buffer = similar(value(df))
     val_rmse = T[]
     DtD = zeros(T, n)
-    cg_tmp = Vector{T}(undef, m)
-    cg_Ap = Vector{T}(undef, n)
-    cg_r = Vector{T}(undef, n)
-    cg_z = Vector{T}(undef, n)
-    cg_p = Vector{T}(undef, n)
-    cg_M = Vector{T}(undef, n)
-    cg_damping_diag = Vector{T}(undef, n)
-    cg_stats = CGSolveStats()
-    weighted_tmp = Vector{T}(undef, m)
 
     # Initialised weights
     wt = ones(T, m)
     if p != 2.0
-        wt .= abs.(value(df, initial_x) .+ WEIGHT_SHIFT) .^ (p - 2.0)
+        wt .= abs.(value(df, initial_x)) .^ (p - 2.0)
     end
     #wtm = diagm(wt)
     residual = sum(abs2.(value(df)) .* wt)
@@ -423,8 +170,9 @@ function levenberg_marquardt(
 
     # and an alias for the jacobian
     J = @timeit to "jacobian" jacobian(df)
-    J2 = use_cg_solver ? Matrix{T}(undef, 0, 0) : copy(J)
+    J2 = copy(J)
 
+    dir_deriv = Array{T}(undef, m)
     v = Array{T}(undef, n)
 
     # Maintain a trace of the system.
@@ -476,81 +224,39 @@ function levenberg_marquardt(
         #@timeit to "mul!(JJ)" mul!(JJ, transpose(J .* wt), J)
         #@timeit to "ATWA! (mul!(JJ))" ATWA!(JJ, J, wt)
 
+        # Embed the weights into the jacobian matrix - equivalent to JTAJ
+        @timeit to "JJ1" J2 .= sqrt.(wt) .* J
+        @timeit to "JJ2" JJ = transpose(J2) * J2
+
+        # Add the diagonal term without constructing the full matrix out
+        @simd for i = 1:n
+            @inbounds JJ[i, i] += lambda * DtD[i]
+        end
+
         #n_buffer is delta C, JJ is g compared to Mark's code
         # This computes the right hand side term of the equation above
-        _weighted_jtr_neg!(n_buffer, J, wt, value(df), weighted_tmp)
-        grad_norm = norm(n_buffer, Inf)
-        if !isfinite(grad_norm)
-            lambda = min(max(lambda_increase * lambda, MIN_LAMBDA), MAX_LAMBDA)
-            iterCt += 1
-            continue
-        end
-        if !isfinite(initial_grad_norm)
-            initial_grad_norm = max(grad_norm, eps(T))
-        end
-        current_cg_tol = if use_cg_solver
-            @timeit to "adaptive cg tol" _adaptive_cg_tol(
-                cg_tol,
-                cg_tol_max,
-                grad_norm,
-                initial_grad_norm,
-                cg_adaptive_tol,
-                T,
-            )
-        else
-            T(cg_tol)
-        end
+        mul!(n_buffer, transpose(J), wt .* value(df))
+        rmul!(n_buffer, -1)   # Fast inplace update, better than n_buffer .*= -1 !!!
 
-        # Solve the matrix equation (A*x == B). Strict Cholesky failure rejects
-        # the step and retries later with a stronger damping parameter.
-        normal_factor = nothing
-        solve_ok = if use_cg_solver
-            @timeit to "cg solve" _cg_solve_full!(
-                v,
-                J,
-                wt,
-                lambda,
-                DtD,
-                n_buffer,
-                cg_tmp,
-                cg_Ap,
-                cg_r,
-                cg_z,
-                cg_p,
-                cg_M,
-                cg_damping_diag;
-                damping_mode,
-                maxiter=cg_maxiter,
-                tol=current_cg_tol,
-                preconditioner_floor=cg_preconditioner_floor,
-                stats=cg_stats,
-            )
-        else
-            # Embed the weights into the jacobian matrix - equivalent to JTAJ
-            @timeit to "JJ2" _build_normal_full!(JJ, J2, J, wt, lambda, DtD, damping_mode)
-            normal_factor, factor_ok = @timeit to "matinv" _factor_normal_full!(JJ, solver)
-            factor_ok && _ldiv_normal_full!(v, normal_factor, n_buffer)
-            factor_ok
-        end
-        if !solve_ok
-            lambda = min(max(lambda_increase * lambda, MIN_LAMBDA), MAX_LAMBDA)
-            iterCt += 1
-            continue
-        end
-        v_norm = norm(v)
-        if !isfinite(v_norm) || !all(isfinite, v)
-            lambda = min(max(lambda_increase * lambda, MIN_LAMBDA), MAX_LAMBDA)
-            iterCt += 1
-            continue
-        end
+        # Solve the matrix equation (A*x == B)
+        @timeit to "matinv" _solve_normal_full!(v, JJ, n_buffer, solver)
 
 
-        delta_x .= v
-        if !all(isfinite, delta_x)
-            lambda = min(max(lambda_increase * lambda, MIN_LAMBDA), MAX_LAMBDA)
-            iterCt += 1
-            continue
-        end
+        # Geodesic acceleration part - can leave out for now
+        # if avv! != nothing
+        #     #GEODESIC ACCELERATION PART
+        #     avv!(dir_deriv, x, v)
+        #     mul!(a, transpose(J), dir_deriv)
+        #     rmul!(a, -1) #we multiply by -1 before the decomposition/division
+        #     LAPACK.potrf!('U', JJ) #in place cholesky decomposition
+        #     LAPACK.potrs!('U', JJ, a) #divides a by JJ, taking into account the fact that JJ is now the `U` cholesky decoposition of what it was before
+        #     rmul!(a, 0.5)
+        #     delta_x .= v .+ a
+        #     #end of the GEODESIC ACCELERATION PART
+        # else
+        #     delta_x = v
+        # end
+        delta_x = v
 
 
 
@@ -575,11 +281,6 @@ function levenberg_marquardt(
         # Total squared residual - loss function
         # NOTE: this needs to be changed with iterative weight update
         predicted_residual = transpose(Jdelta_buffer) * (wt .* Jdelta_buffer)
-        if !isfinite(predicted_residual)
-            lambda = min(max(lambda_increase * lambda, MIN_LAMBDA), MAX_LAMBDA)
-            iterCt += 1
-            continue
-        end
 
         # try the step and compute its quality
         # compute it inplace according to NLSolversBase value(obj, cache, state)
@@ -592,16 +293,11 @@ function levenberg_marquardt(
 
         # update the sum of squares
         trial_residual = sum(abs2.(trial_f) .* wt)
-        if !isfinite(trial_residual)
-            lambda = min(max(lambda_increase * lambda, MIN_LAMBDA), MAX_LAMBDA)
-            iterCt += 1
-            continue
-        end
 
         # step quality = residual change / predicted residual change
         # the higher the better?
         rho = (trial_residual - residual) / (predicted_residual - residual)
-        if isfinite(rho) && trial_residual < residual && rho > min_step_quality
+        if trial_residual < residual && rho > min_step_quality
             # apply the step to x - n_buffer is ready to be used by the delta_x
             # calculations after this step.
             x .= n_buffer
@@ -634,30 +330,12 @@ function levenberg_marquardt(
                 t = abs(vdf[i] + WEIGHT_SHIFT)^(p - 2.0)
                 wt[i] = t
             end
-            residual = sum(abs2.(value(df)) .* wt)
-            if !isfinite(residual)
-                lambda = min(max(lambda_increase * lambda, MIN_LAMBDA), MAX_LAMBDA)
-                continue
-            end
-        end
-
-        _weighted_jtr_neg!(n_buffer, J, wt, value(df), weighted_tmp)
-        g_norm = norm(n_buffer, Inf)
-        if !isfinite(g_norm)
-            lambda = min(max(lambda_increase * lambda, MIN_LAMBDA), MAX_LAMBDA)
-            continue
         end
 
         # show state
         if show_trace
-            d = Dict(
-                "g(x)" => g_norm,
-                "dx" => copy(delta_x),
-                "lambda" => lambda,
-                "cg_tol_eff" => current_cg_tol,
-                "cg_iterations" => use_cg_solver ? cg_stats.iterations : 0,
-                "cg_relres" => use_cg_solver ? cg_stats.relres : NaN,
-            )
+            g_norm = norm(J' * value(df), Inf)
+            d = Dict("g(x)" => g_norm, "dx" => delta_x, "lambda" => lambda)
             os = OptimBase.OptimizationState{LevenbergMarquardt}(
                 iterCt,
                 sum(abs2, value(df)),
@@ -669,9 +347,9 @@ function levenberg_marquardt(
         end
 
         # check convergence criteria:
-        # 1. Small weighted gradient: norm(J^T * W * value(df), Inf) < g_tol
+        # 1. Small gradient: norm(J^T * value(df), Inf) < g_tol
         # 2. Small step size: norm(delta_x) < x_tol
-        if g_norm < g_tol
+        if norm(J' * value(df), Inf) < g_tol
             g_converged = true
         end
         if norm(delta_x) < x_tol * (x_tol + norm(x))

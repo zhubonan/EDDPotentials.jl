@@ -14,8 +14,7 @@ modifications and adaptive time stepping for efficient structural relaxation.
 
 # Algorithm Parameters
 - `dt::T = 0.1`: Initial/current timestep
-- `maxstep::T = 0.2`: Maximum per-atom displacement per iteration
-- `maxstrain::T = 0.02`: Maximum cell strain component per iteration
+- `maxstep::T = 0.2`: Maximum displacement per iteration
 - `dtmax::T = 1.0`: Maximum timestep
 - `Nmin::Int = 5`: Minimum steps before acceleration
 - `finc::T = 1.1`: Timestep increase factor
@@ -26,10 +25,9 @@ modifications and adaptive time stepping for efficient structural relaxation.
 
 # Convergence Parameters
 - `f_tol::T = 1e-2`: Force convergence tolerance
-- `s_tol::T = 1e-1`: Stress convergence tolerance in eV/Å³
+- `s_tol::T = 1e-1`: Stress convergence tolerance
 - `e_tol::T = 1e-5`: Energy convergence tolerance
 - `itermax::Int = 1000`: Maximum iterations
-- `ext_pressure::Matrix{Float64}`: External stress in eV/Å³
 
 # Logging
 - `log_level::Symbol = :standard`: Logging verbosity (`:minimal`, `:standard`, `:detailed`)
@@ -77,7 +75,6 @@ Best for rough optimization far from minimum.
     # Algorithm parameters
     dt::Float64 = 0.1
     maxstep::Float64 = 0.2
-    maxstrain::Float64 = 0.02
     dtmax::Float64 = 1.0
     Nmin::Int = 5
     finc::Float64 = 1.1
@@ -152,21 +149,20 @@ Perform one FIRE optimization step.
 function step!(opt::NativeFIRE, calc::AbstractCalc)
     if opt.iteration == 0
         initialize!(opt, calc)
+        if opt.downhill_check
+            opt.e_last = eddp_energy(calc; forces=false, rebuild_nl=true)
+        end
     end
 
     x = _augmented_x(opt, calc)
-    pos_old = copy(get_positions(calc))
-    cellmat_old = copy(get_cellmat(calc))
 
-    E = opt.downhill_check ?
-        _optimizer_objective(opt, calc; forces=true, rebuild_nl=true) :
-        eddp_energy(calc; forces=true, rebuild_nl=true)
+    E = eddp_energy(calc; forces=true, rebuild_nl=true)
     F = _projected_forces(opt, calc; rebuild_nl=opt.relax_cell, make_copy=false)
 
     gradient = vec(F)  # FIRE: force = gradient direction
     if opt.relax_cell
         S_eff = _projected_stress(opt, calc)
-        g_cell = vec(_cell_force_from_stress(opt, calc, S_eff))
+        g_cell = opt.cell_damping * 10 .* vec(S_eff)  # move in stress direction
         gradient = vcat(gradient, g_cell)
     end
     grad_norm = sqrt(dot(gradient, gradient))
@@ -179,77 +175,60 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
         return nothing
     end
 
-    dt_old = opt.dt
-    a_old = opt.a
-    Nsteps_old = opt.Nsteps
-    vel_trial = copy(opt.vel)
+    is_uphill = false
+    if opt.downhill_check && opt.iteration > 0
+        if E > opt.e_last
+            _writeback_positions!(opt, calc, opt.x_last)
+            x = opt.x_last
+            is_uphill = true
+            E = eddp_energy(calc; forces=true, rebuild_nl=true)
+            F = _projected_forces(opt, calc; rebuild_nl=opt.relax_cell, make_copy=false)
+            gradient = vec(F)
+            if opt.relax_cell
+                S_eff = _projected_stress(opt, calc)
+                gradient = vcat(gradient, opt.cell_damping * 10 .* vec(S_eff))
+            end
+            grad_norm = sqrt(dot(gradient, gradient))
+        end
+    end
 
-    vel_trial .+= dt_old .* gradient
-    apply_step_constraints!(opt.step_constraints, opt, calc, vel_trial)
+    vf = dot(gradient, opt.vel)
 
-    vf = dot(gradient, vel_trial)
-    dt_trial = dt_old
-    a_trial = a_old
-    Nsteps_trial = Nsteps_old
-    if vf > 0.0
-        vel_norm = sqrt(dot(vel_trial, vel_trial))
+    if vf > 0.0 && !is_uphill
+        vel_norm = sqrt(dot(opt.vel, opt.vel))
         if grad_norm > eps(Float64)
             force_direction = gradient / grad_norm
-            vel_trial = (1.0 - a_old) .* vel_trial .+ a_old .* force_direction .* vel_norm
+            opt.vel = (1.0 - opt.a) * opt.vel + opt.a * force_direction * vel_norm
         end
-        if Nsteps_old >= opt.Nmin
-            dt_trial = min(dt_old * opt.finc, opt.dtmax)
-            a_trial = a_old * opt.fa
+        if opt.Nsteps >= opt.Nmin
+            opt.dt = min(opt.dt * opt.finc, opt.dtmax)
+            opt.a *= opt.fa
         end
-        Nsteps_trial = Nsteps_old + 1
+        opt.Nsteps += 1
     else
-        vel_trial .= 0.0
-        a_trial = opt.astart
-        dt_trial = dt_old * opt.fdec
-        Nsteps_trial = 0
+        opt.vel .= 0.0
+        opt.a = opt.astart
+        opt.dt *= opt.fdec
+        opt.Nsteps = 0
     end
-    apply_step_constraints!(opt.step_constraints, opt, calc, vel_trial)
+    apply_step_constraints!(opt.step_constraints, opt, calc, opt.vel)
 
-    dr = dt_trial .* vel_trial
+    opt.vel += opt.dt * gradient
+    apply_step_constraints!(opt.step_constraints, opt, calc, opt.vel)
+
+    dr = opt.dt * opt.vel
     apply_step_constraints!(opt.step_constraints, opt, calc, dr)
-    _limit_augmented_step!(opt, calc, dr)
-    apply_step_constraints!(opt.step_constraints, opt, calc, dr)
-    if dt_trial > 0.0
-        vel_trial .= dr ./ dt_trial
+    normdr = sqrt(dot(dr, dr))
+    if normdr > opt.maxstep
+        dr *= opt.maxstep / normdr
     end
+    apply_step_constraints!(opt.step_constraints, opt, calc, dr)
 
     x_new = x + dr
     _writeback_positions!(opt, calc, x_new)
 
-    accepted_objective = E
-    if opt.downhill_check
-        trial_objective = _optimizer_objective(opt, calc; forces=false, rebuild_nl=true)
-        if trial_objective > E + _downhill_tolerance(opt, E)
-            if opt.relax_cell
-                _restore_cell_state!(calc, cellmat_old, pos_old)
-            else
-                set_positions!(calc, pos_old)
-            end
-            opt.vel .= 0.0
-            opt.a = opt.astart
-            opt.dt = dt_old * opt.fdec
-            opt.Nsteps = 0
-        else
-            opt.vel .= vel_trial
-            opt.a = a_trial
-            opt.dt = dt_trial
-            opt.Nsteps = Nsteps_trial
-            accepted_objective = trial_objective
-        end
-    else
-        opt.vel .= vel_trial
-        opt.a = a_trial
-        opt.dt = dt_trial
-        opt.Nsteps = Nsteps_trial
-    end
-
     opt.x_last = x
-    opt.e_last = accepted_objective
+    opt.e_last = E
     opt.iteration += 1
 
     log_step!(opt, calc)
@@ -262,6 +241,11 @@ end
 Check if FIRE optimization has converged.
 """
 function converged(opt::NativeFIRE, calc::AbstractCalc)
+    if opt.iteration == 0
+        return false
+    end
+
+    # Check using utility function
     return check_convergence(opt, calc)
 end
 

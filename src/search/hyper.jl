@@ -2,7 +2,7 @@ using Printf
 using StatsBase: mean
 
 function bP(press_gpa)
-    p = GPaToeVAng(press_gpa)
+    p = GPaToeVAng(max(press_gpa, 0.1))
     [p 0 0; 0 p 0; 0 0 p]
 end
 
@@ -257,12 +257,12 @@ end
         max_alpha=1.0,
     )
 
-Create a hyperdimensional calculator from an [`EDDPCalculator`](@ref) and
+Create a hyperdimensional calculator from an `EDDPCalculator` and
 run the scheduled-penalty relaxation.
 
-This overload uses [`create_calculator`](@ref) to bind the model to the given
+This overload uses `create_calculator` to bind the model to the given
 `cell` with the appropriate modifier pipeline, avoiding the need for a
-[`Builder`](@ref) configuration.
+`Builder` configuration.
 
 Returns a NamedTuple `(results, extra_dim_norms, round_diagnostics)`.
 """

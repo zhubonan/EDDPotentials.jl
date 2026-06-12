@@ -100,7 +100,7 @@ ensemble_energy = sum(w * predict_energy(m, fvec) for (w, m) in zip(weights, mod
 - Zero or near-zero weights indicate a model does not improve ensemble predictions
 
 # See also
-[`create_ensemble`](@ref), [`EnsembleNNInterface`](@ref)
+`create_ensemble`, `EnsembleNNInterface`
 """
 function nnls_weights(models, x, y; alg=:fnnls, error_threshold=0.5)
     nstruct = length(x)
@@ -227,16 +227,9 @@ energy = predict_energy(model, fvec)
 ```
 
 # See also
-[`AbstractNNInterface`](@ref), [`compute_fv`](@ref)
+`AbstractNNInterface`, feature-vector computation helpers
 """
 predict_energy(itf::AbstractNNInterface, vec) = sum(itf(vec))
-
-function _full_lm_args_with_lambda_preset(args::NamedTuple, damping_mode::Symbol)
-    if damping_mode === :fletcher_floor && !haskey(args, :lambda)
-        return merge((lambda=1e5,), args)
-    end
-    args
-end
 
 """
     train_lm!(itf::AbstractNNInterface, x, y; kwargs...) -> (opt_res, params, history, funcs)
@@ -267,16 +260,9 @@ fitting potential energy surfaces.
 - `batch_size=0`: Mini-batch size (0 = full-batch LM, >0 = batched LM)
 - `shuffle_seed=42`: RNG seed for reproducible batch shuffling (batched mode)
 - `threaded=(Threads.nthreads() > 1)`: Use threaded Jacobian computation (batched mode)
-- `damping_mode=:fletcher`: Damping strategy. Full LM supports `:fletcher` and
-  `:fletcher_floor`; batched LM supports `:fletcher`, `:standard`, and `:adaptive`.
+- `damping_mode=:fletcher`: Damping strategy — `:fletcher` or `:classic` (batched mode)
 - `attempts_per_step=1`: Number of LM attempts per batch step (batched mode)
-- `solver=:cholesky`: Linear solver. Full and batched LM support `:direct`,
-  `:cholesky`, `:cg`, and `:qr`.
-- `cg_tol=1e-6`, `cg_maxiter=500`: Full-LM matrix-free CG controls when
-  `solver=:cg`.
-- `lambda=10`: Initial full-LM damping. For full LM with
-  `damping_mode=:fletcher_floor`, EDDP training wrappers use `lambda=1e5`
-  unless this keyword is explicitly provided.
+- `solver=:direct`: Linear solver — `:direct`, `:cholesky`, `:qr`, `:cg`, `:lsmr`
 - `batch_ranges=nothing`: Pre-computed batch boundaries for disk-backed data (batched mode)
 
 # Returns
@@ -292,7 +278,7 @@ fitting potential energy surfaces.
 - GPU acceleration is used automatically if CUDA is available
 
 # See also
-[`train!`](@ref), [`AbstractNNInterface`](@ref), [`create_ensemble`](@ref)
+`train!`, `AbstractNNInterface`, `create_ensemble`
 """
 function train_lm!(
     itf::AbstractNNInterface,
@@ -313,7 +299,7 @@ function train_lm!(
     threaded::Bool=(Threads.nthreads() > 1),
     damping_mode::Symbol=:fletcher,
     attempts_per_step::Int=1,
-    solver::Symbol=:cholesky,
+    solver::Symbol=:direct,
     batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing,
     checkpoint_every::Int=0,
     checkpoint_prefix::AbstractString="",
@@ -329,40 +315,8 @@ function train_lm!(
             feature_spec, elemental_energies, args...)
     end
     args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
-    args = _full_lm_args_with_lambda_preset(args, damping_mode)
 
     ctx = TrainingContext(itf, feature_spec, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
-    _training_startup_header(;
-        routine="train_lm!",
-        itf,
-        nparameters=length(p0),
-        train_samples=length(x),
-        validation_samples=length(x_val),
-        log_file,
-        options=merge(
-            (;
-                max_epochs,
-                show_progress,
-                earlystop,
-                keep_best,
-                log_file,
-                p,
-                weights,
-                batch_size,
-                shuffle_seed,
-                threaded,
-                damping_mode,
-                attempts_per_step,
-                solver,
-                batch_ranges,
-                checkpoint_every,
-                checkpoint_prefix,
-                feature_spec,
-                elemental_energies,
-            ),
-            args,
-        ),
-    )
 
     train_natoms = natoms(x)
     val_natoms = natoms(x_val)
@@ -395,7 +349,6 @@ function train_lm!(
         maxIter=max_epochs,
         keep_best=keep_best,
         earlystop,
-        damping_mode,
         solver,
         args...,
     )
@@ -460,7 +413,7 @@ function _train_lm_batched!(
     threaded::Bool=(Threads.nthreads() > 1),
     damping_mode::Symbol=:fletcher,
     attempts_per_step::Int=1,
-    solver::Symbol=:cholesky,
+    solver::Symbol=:direct,
     batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing,
     checkpoint_every::Int=0,
     checkpoint_prefix::AbstractString="",
@@ -472,37 +425,6 @@ function _train_lm_batched!(
     args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
 
     ctx = TrainingContext(itf, feature_spec, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
-    _training_startup_header(;
-        routine="train_lm_batched!",
-        itf,
-        nparameters=length(p0),
-        train_samples=length(x),
-        validation_samples=length(x_val),
-        log_file,
-        options=merge(
-            (;
-                max_epochs,
-                show_progress,
-                earlystop,
-                keep_best,
-                log_file,
-                p,
-                weights,
-                batch_size,
-                shuffle_seed,
-                threaded,
-                damping_mode,
-                attempts_per_step,
-                solver,
-                batch_ranges,
-                checkpoint_every,
-                checkpoint_prefix,
-                feature_spec,
-                elemental_energies,
-            ),
-            args,
-        ),
-    )
 
     train_natoms = natoms(x)
     val_natoms = natoms(x_val)
@@ -580,7 +502,7 @@ training algorithm based on `train_method`.
 - Additional kwargs are passed to the underlying training function
 
 # See also
-[`train_lm!`](@ref), [`FeatureStore`](@ref), [`TrainingResults`](@ref), [`create_ensemble`](@ref)
+`train_lm!`, `FeatureStore`, `TrainingResults`, `create_ensemble`
 """
 function train!(
     itf::AbstractNNInterface,
@@ -1321,18 +1243,15 @@ evaluation results on all three splits are bundled into the returned
 # Levenberg-Marquardt (`:lm` and `:lm_batched`)
 
 - `p::Float64=1.25`: LM damping parameter.
-- `solver=nothing`: linear solver for the LM step. Defaults to `:cholesky` for
-  both full and batched LM. Full and batched LM support `:direct`, `:cholesky`,
-  `:cg`, and `:qr`.
-- `damping_mode::Symbol=:fletcher`: damping strategy. Full LM supports
-  `:fletcher` and `:fletcher_floor`; batched LM supports `:fletcher`,
-  `:standard`, and `:adaptive`.
+- `solver::Symbol=:direct`: linear solver for the LM step (`:direct`, `:cholesky`, `:qr`,
+  `:cg`, `:lsmr`).
 
 # LM batched (`:lm_batched` only)
 
 - `batch_size::Int=512`: number of structures per mini-batch.
 - `shuffle_seed::Int=42`: RNG seed for reproducible batch shuffling.
 - `threaded::Bool=(Threads.nthreads() > 1)`: use threaded Jacobian computation.
+- `damping_mode::Symbol=:fletcher`: damping strategy (`:fletcher`, `:classic`).
 - `attempts_per_step::Int=1`: number of LM attempts per batch step.
 - `batch_ranges::Union{Nothing,Vector{<:UnitRange{Int}}}=nothing`: pre-computed batch
   boundaries (disk-backed FeatureStores set this automatically).
@@ -1378,7 +1297,7 @@ function train_model(
     weights=nothing,
     # LM (used by :lm and :lm_batched)
     p::Float64=1.25,
-    solver::Union{Symbol,Nothing}=nothing,
+    solver::Symbol=:direct,
     # LM batched
     batch_size::Int=512,
     shuffle_seed::Int=42,
@@ -1423,11 +1342,9 @@ function train_model(
             (; batch_size, max_epochs, earlystop))
     end
 
-    solver_to_use = isnothing(solver) ? :cholesky : solver
-
     train!(itf, fc_train, fc_val; train_method, show_progress,
         max_epochs, earlystop, keep_best, log_file, weights,
-        p, solver=solver_to_use, batch_size, shuffle_seed, threaded, damping_mode,
+        p, solver, batch_size, shuffle_seed, threaded, damping_mode,
         attempts_per_step, batch_ranges, optimizer, lr, lr_schedule,
         momentum, pow, beta, eps, weight_decay, grad_clip,
         checkpoint_every, checkpoint_prefix, kwargs...)
@@ -1850,14 +1767,6 @@ parameter vector `[nn_params; vec(cf.embedding)]` is optimized jointly.
 - `y_val=y`: Validation target energies
 - `normalize_embedding=false`: Normalize embedding rows after training
 - `recompute_xt=false`: Recompute feature standardization each iteration
-- `damping_mode::Symbol=:fletcher`: full LM damping strategy (`:fletcher`,
-  `:fletcher_floor`)
-- `solver::Symbol=:cholesky`: full LM linear solver (`:direct`, `:cholesky`,
-  `:cg`, `:qr`)
-- `cg_tol=1e-6`, `cg_maxiter=500`: full-LM matrix-free CG controls when
-  `solver=:cg`
-- `lambda=10`: Initial damping. With `damping_mode=:fletcher_floor`, this
-  wrapper uses `lambda=1e5` unless explicitly provided.
 - Remaining kwargs passed to `levenberg_marquardt`
 """
 function train_lm_with_embedding!(
@@ -1878,8 +1787,6 @@ function train_lm_with_embedding!(
     log_file="",
     p=1.25,
     weights=nothing,
-    damping_mode::Symbol=:fletcher,
-    solver::Symbol=:cholesky,
     checkpoint_every::Int=0,
     checkpoint_prefix::AbstractString="",
     elemental_energies::Dict=Dict{Symbol,Float64}(),
@@ -1888,41 +1795,10 @@ function train_lm_with_embedding!(
     if maxIter !== nothing
         max_epochs = maxIter
     end
-    args = _full_lm_args_with_lambda_preset(NamedTuple(args), damping_mode)
     ctx = TrainingContext(itf, cf, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
     n_nn = length(p0_nn)
     n_emb = Potential._emb_param_count(cf)
     n_total = n_nn + n_emb
-    _training_startup_header(;
-        routine="train_lm_with_embedding!",
-        itf,
-        nparameters=n_total,
-        train_samples=length(structures),
-        validation_samples=length(structures_val),
-        log_file,
-        options=merge(
-            (;
-                nn_parameters=n_nn,
-                embedding_parameters=n_emb,
-                normalize_embedding,
-                recompute_xt,
-                max_epochs,
-                maxIter,
-                show_progress,
-                earlystop,
-                keep_best,
-                log_file,
-                p,
-                weights,
-                damping_mode,
-                solver,
-                checkpoint_every,
-                checkpoint_prefix,
-                elemental_energies,
-            ),
-            args,
-        ),
-    )
 
     # Combined initial parameter vector
     p0 = vcat(p0_nn, Potential._emb_param_vec(cf))
@@ -1969,8 +1845,6 @@ function train_lm_with_embedding!(
         maxIter=max_epochs,
         keep_best=keep_best,
         earlystop,
-        damping_mode,
-        solver,
         args...,
     )
 
@@ -2015,7 +1889,7 @@ function train_lm_batched_with_embedding!(
     shuffle_seed=42,
     damping_mode::Symbol=:fletcher,
     attempts_per_step::Int=1,
-    solver::Symbol=:cholesky,
+    solver::Symbol=:direct,
     checkpoint_every::Int=0,
     checkpoint_prefix::AbstractString="",
     elemental_energies::Dict=Dict{Symbol,Float64}(),
@@ -2028,38 +1902,6 @@ function train_lm_batched_with_embedding!(
     n_nn = length(p0_nn)
     n_emb = Potential._emb_param_count(cf)
     n_total = n_nn + n_emb
-    _training_startup_header(;
-        routine="train_lm_batched_with_embedding!",
-        itf,
-        nparameters=n_total,
-        train_samples=length(structures),
-        validation_samples=length(structures_val),
-        log_file,
-        options=merge(
-            (;
-                nn_parameters=n_nn,
-                embedding_parameters=n_emb,
-                normalize_embedding,
-                recompute_xt,
-                max_epochs,
-                show_progress,
-                earlystop,
-                keep_best,
-                log_file,
-                p,
-                weights,
-                batch_size,
-                shuffle_seed,
-                damping_mode,
-                attempts_per_step,
-                solver,
-                checkpoint_every,
-                checkpoint_prefix,
-                elemental_energies,
-            ),
-            args,
-        ),
-    )
 
     p0 = vcat(p0_nn, Potential._emb_param_vec(cf))
 

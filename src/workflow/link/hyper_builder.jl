@@ -12,7 +12,7 @@ function hyper_get_calc(cell, bu::Builder; alpha=1e-3)
         bu.cf,
         load_ensemble(bu);
         nmax=500,
-        core_repulsion=CoreRepulsion(bu.state.rss.core_size),
+        core_repulsion=CoreRepulsion(bu.state.core_size),
         elemental_energies=bu.state.elemental_energies,
     )
     penalty = ExtraDimensionPenaltyModifier(alpha; start_dim=4)
@@ -23,22 +23,16 @@ end
     hyper_gen_relax(bu; ndim=3, outfile=nothing, label=nothing,
                     schedule_every=50, target_iterations=500,
                     alpha_start=1e-4,
-                    external_pressure_GPa=0.0,
                     relax_kwargs=(;),
                     dynamic_alpha=false, force_ratio=2.0, max_alpha=1.0)
 
 Generate a random structure, add extra dimensions, and relax using a
 scheduled penalty that gradually forces the extra coordinates back to
 zero.
-
-`external_pressure_GPa` is a high-level hydrostatic pressure in GPa. Values
-passed directly through `relax_kwargs` are native optimizer keywords; `s_tol`
-and `ext_pressure` there use eV/Å³.
 """
 function hyper_gen_relax(bu::Builder; ndim=3, outfile=nothing, label=nothing,
                     schedule_every=50, target_iterations=500,
                     alpha_start=1e-4, relax_fn=opt_tpsd, relax_kwargs=(;),
-                    external_pressure_GPa=0.0,
                     dynamic_alpha=false, force_ratio=2.0, max_alpha=1.0,
                     ramp_alpha=true, alpha_ramp_factor=5.0,
                     pos_tol=1e-4, extra_dim_tol=0.1)
@@ -48,11 +42,6 @@ function hyper_gen_relax(bu::Builder; ndim=3, outfile=nothing, label=nothing,
         structure = CellBase.add_dimensions(structure, ndim)
     end
     vcalc = hyper_get_calc(structure, bu; alpha=alpha_start)
-    if external_pressure_GPa != 0.0 && !(:ext_pressure in keys(relax_kwargs))
-        p = GPaToeVAng(external_pressure_GPa)
-        P_ext = [p 0 0; 0 p 0; 0 0 p]
-        relax_kwargs = (; relax_kwargs..., relax_cell=true, ext_pressure=P_ext)
-    end
 
     result = scheduled_penalty_relax!(vcalc;
                     schedule_every,

@@ -1,7 +1,6 @@
 using EDDPotentials
 using EDDPotentials.Potential: BodyEmbedding, CellEmbedding, EnsembleNNInterface, JSON, feature_size, feature_vector, LinearInterface, ManualFluxBackPropInterface, forward!, load_feature_artifact, load_model_artifact, save_as_jld2, save_feature_json, save_model_artifact
 using Flux: Chain, Dense, tanh
-using JLD2: jldopen
 using StatsBase: fit, ZScoreTransform
 using Test
 
@@ -94,7 +93,7 @@ end
         xt = fit(ZScoreTransform, rand(nfeatures(cf) - feature_size(cf)[1], 6), dims=2)
         yt = fit(ZScoreTransform, rand(1, 6), dims=2)
         chain = Chain(Dense(rand(4, nfeatures(cf)), rand(4), tanh), Dense(rand(1, 4), rand(1)))
-        model = ManualFluxBackPropInterface(chain; xt, yt, gradient_cache_size=3)
+        model = ManualFluxBackPropInterface(chain; xt, yt)
         elemental_energies = Dict(:H => -1.1, :O => -7.7)
 
         mktempdir() do dir
@@ -112,7 +111,6 @@ end
             @test artifact.model.xt.scale == xt.scale
             @test artifact.model.yt.mean == yt.mean
             @test artifact.model.yt.scale == yt.scale
-            @test artifact.model.gradient_cache_size == 3
             @test eltype(artifact.model.chain.layers[1].weight) == eltype(model.chain.layers[1].weight)
             @test eltype(artifact.model.chain.layers[2].weight) == eltype(model.chain.layers[2].weight)
         end
@@ -235,7 +233,6 @@ end
             Chain(Dense(rand(4, nfeatures(cf)), rand(4), tanh), Dense(rand(1, 4), rand(1)));
             xt,
             yt,
-            gradient_cache_size=5,
         )
         ensemble = EnsembleNNInterface((model,), [1.0])
         cell = _h2_cell()
@@ -249,22 +246,7 @@ end
 
             @test artifact.model isa EnsembleNNInterface
             @test artifact.model.models[1] isa ManualFluxBackPropInterface
-            @test artifact.model.models[1].gradient_cache_size == 5
             @test forward!(artifact.model, input) == expected
-        end
-
-        mktempdir() do dir
-            path = joinpath(dir, "legacy_manual_missing_cache.jld2")
-            chain = Chain(Dense(rand(4, nfeatures(cf)), rand(4), tanh), Dense(rand(1, 4), rand(1)))
-            jldopen(path, "w") do f
-                f["chain"] = chain
-                f["xt"] = xt
-                f["yt"] = yt
-                f["is_manual_flux_itf"] = true
-            end
-            artifact = load_model_artifact(path)
-            @test artifact.model isa ManualFluxBackPropInterface
-            @test artifact.model.gradient_cache_size == 8
         end
     end
 

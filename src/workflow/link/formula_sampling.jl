@@ -87,7 +87,7 @@ function _resolve_seedfiles(workdir::AbstractString, seedfile)
             push!(out, path)
         end
     end
-    isempty(out) && error("No valid seed files found from RSS seedfile setting: $(seedfile)")
+    isempty(out) && error("No valid seed files found from `state.seedfile=$(seedfile)`")
     out
 end
 
@@ -243,19 +243,19 @@ function _canonical_formula_list(formulas::Vector{String})
 end
 
 """
-    _build_formula_pool(rss, elements) -> Vector{String}
+    _build_formula_pool(state, elements) -> Vector{String}
 
 Build the candidate reduced formula list subject to constraints.
 """
-function _build_formula_pool(rss::RssSetting, elements::Vector{Symbol}; seedfile=nothing)
-    if !rss.formula_sampling_enabled
+function _build_formula_pool(state::BuilderState, elements::Vector{Symbol}; seedfile=nothing)
+    if !state.formula_sampling_enabled
         return String[]
     end
 
-    comps = if isempty(rss.formula_list)
-        _enumerate_reduced_formulas(elements, rss.formula_max_reduced_formula_coeff)
+    comps = if isempty(state.formula_list)
+        _enumerate_reduced_formulas(elements, state.formula_max_reduced_formula_coeff)
     else
-        _canonical_formula_list(rss.formula_list)
+        _canonical_formula_list(state.formula_list)
     end
 
     # Keep formulas containing only configured search elements.
@@ -263,9 +263,9 @@ function _build_formula_pool(rss::RssSetting, elements::Vector{Symbol}; seedfile
     comps = [c for c in comps if all(in(allowed), keys(c))]
 
     # Optional oxidation-state neutrality filter.
-    if rss.formula_require_charge_neutral && !isempty(rss.formula_oxidation_states)
+    if state.formula_require_charge_neutral && !isempty(state.formula_oxidation_states)
         ox = Dict{Symbol,Vector{Int}}(
-            Symbol(k) => Int[v for v in vals] for (k, vals) in pairs(rss.formula_oxidation_states)
+            Symbol(k) => Int[v for v in vals] for (k, vals) in pairs(state.formula_oxidation_states)
         )
         comps = [c for c in comps if _has_neutral_oxidation_state(c, ox)]
     end
@@ -276,25 +276,6 @@ function _build_formula_pool(rss::RssSetting, elements::Vector{Symbol}; seedfile
     )
     sort(forms)
 end
-
-function _formula_state_rss(state::BuilderState)
-    rs = deepcopy(state.rss)
-    if state.seedfile !== nothing && rs.seedfile == "null"
-        rs.seedfile = deepcopy(state.seedfile)
-    end
-    if state.formula_sampling_enabled && !rs.formula_sampling_enabled
-        rs.formula_sampling_enabled = true
-        rs.formula_max_reduced_formula_coeff = state.formula_max_reduced_formula_coeff
-        rs.formula_list = deepcopy(state.formula_list)
-        rs.formula_target_atom_volumes = deepcopy(state.formula_target_atom_volumes)
-        rs.formula_oxidation_states = deepcopy(state.formula_oxidation_states)
-        rs.formula_require_charge_neutral = state.formula_require_charge_neutral
-    end
-    return rs
-end
-
-_build_formula_pool(state::BuilderState, elements::Vector{Symbol}; seedfile=nothing) =
-    _build_formula_pool(_formula_state_rss(state), elements; seedfile)
 
 """
     _inject_formula_directive(seed_text, formula_name; remove_directives=["NATOM","SPECIES","FORMULA"], varvol=nothing)
@@ -366,23 +347,21 @@ function _formula_varvol_map(
 end
 
 """
-    _formula_sampling_context(workdir, rss, cf_elements; seedfile=nothing) -> Union{Nothing,FormulaSamplingContext}
+    _formula_sampling_context(state, cf_elements; seedfile=nothing) -> Union{Nothing,FormulaSamplingContext}
 
 Prepare formula sampling context for generation and RSS.
 """
 function _formula_sampling_context(
-    workdir::AbstractString,
-    rss::RssSetting,
+    state::BuilderState,
     cf_elements::Vector{String};
     seedfile=nothing,
 )
-    rss.formula_sampling_enabled || return nothing
-    seedfile_cfg = isnothing(seedfile) ? rss.seedfile : seedfile
-    _resolve_single_seedfile(workdir, seedfile_cfg)
+    state.formula_sampling_enabled || return nothing
+    _resolve_single_seedfile(state.workdir, isnothing(seedfile) ? state.seedfile : seedfile)
     elements = Symbol.(cf_elements)
-    formulas = _build_formula_pool(rss, elements; seedfile)
+    formulas = _build_formula_pool(state, elements; seedfile)
     target_atom_volumes = Dict{Symbol,Float64}(
-        Symbol(k) => Float64(v) for (k, v) in pairs(rss.formula_target_atom_volumes)
+        Symbol(k) => Float64(v) for (k, v) in pairs(state.formula_target_atom_volumes)
     )
     varvol_by_formula = isempty(target_atom_volumes) ?
                         Dict{String,Float64}() :
@@ -392,14 +371,6 @@ function _formula_sampling_context(
         String["NATOM", "SPECIES", "FORMULA", "VARVOL", "TARGVOL"],
         varvol_by_formula,
     )
-end
-
-function _formula_sampling_context(
-    state::BuilderState,
-    cf_elements::Vector{String};
-    seedfile=nothing,
-)
-    _formula_sampling_context(state.workdir, _formula_state_rss(state), cf_elements; seedfile)
 end
 
 """
@@ -433,8 +404,7 @@ function diagnose_formula_sampling(
     ctx = _formula_sampling_context(state, cf_elements; seedfile)
     ctx === nothing && error("Formula sampling is disabled for this BuilderState.")
 
-    rs = _formula_state_rss(state)
-    seedfile_cfg = isnothing(seedfile) ? rs.seedfile : seedfile
+    seedfile_cfg = isnothing(seedfile) ? state.seedfile : seedfile
     seedfile_path = _resolve_single_seedfile(state.workdir, seedfile_cfg)
     seed_text = read(seedfile_path, String)
     save_dir = _resolve_formula_diagnostic_save_dir(save, state)

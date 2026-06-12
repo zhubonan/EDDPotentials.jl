@@ -168,16 +168,6 @@ end
             @test "JULIA_NUM_THREADS=3" in train_cmd_env
             @test "OMP_NUM_THREADS=16" in train_cmd_env
             @test "EDDP_CUDA_DEVICE=0" in train_cmd_env
-            distributed.training_env = Dict{String,Any}()
-            train_cmd_without_omp = EDDPotentials._distributed_training_cmd(
-                builder,
-                0,
-                "worker-1",
-                training_phase,
-            )
-            train_cmd_without_omp_env = getfield(train_cmd_without_omp, :env)
-            @test "JULIA_NUM_THREADS=3" in train_cmd_without_omp_env
-            @test !any(startswith("OMP_NUM_THREADS="), train_cmd_without_omp_env)
             model_path = joinpath(temp, EDDPotentials.TRAINING_DIR, "gen-0-model-abcd1234.json")
             mkpath(dirname(model_path))
             write(model_path, "{}")
@@ -296,7 +286,7 @@ end
                 result, read(err_io, String)
             end
             @test result == false
-            log_path = joinpath(temp, ".eddp-distributed", "logs", "trainer-idle-worker.log")
+            log_path = joinpath(temp, ".eddp-distributed", "logs", "worker-idle-worker.log")
             text = read(log_path, String)
             @test contains(text, "distributed link worker idle")
             @test contains(text, "timestamp=")
@@ -307,30 +297,6 @@ end
             @test contains(text, "waiting=true")
             @test contains(text, "next_action=poll_control")
             @test contains(err_text, "distributed link worker idle")
-
-            withenv("SLURM_JOB_ID" => "17", "WORKER_ID" => nothing) do
-                redirect_stderr(devnull) do
-                    @test EDDPotentials.distributed_worker(link_path; once=true) == false
-                end
-            end
-            log_dir = joinpath(temp, ".eddp-distributed", "logs")
-            trainer_logs = filter(
-                name -> startswith(name, "trainer-17-") && endswith(name, ".log"),
-                readdir(log_dir),
-            )
-            @test length(trainer_logs) == 1
-            @test contains(read(joinpath(log_dir, only(trainer_logs)), String), "id=17-")
-
-            withenv("SLURM_JOB_ID" => nothing, "SGE_TASK_ID" => nothing, "WORKER_ID" => nothing) do
-                redirect_stderr(devnull) do
-                    @test EDDPotentials.distributed_worker(link_path; once=true) == false
-                end
-            end
-            na_logs = filter(
-                name -> startswith(name, "trainer-NA-") && endswith(name, ".log"),
-                readdir(log_dir),
-            )
-            @test length(na_logs) == 1
         end
     end
 
@@ -449,7 +415,6 @@ end
             crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
             good_dir = joinpath(crud_workdir, "good_castep")
             bad_dir = joinpath(crud_workdir, "bad_castep")
-            hopper_dir = joinpath(crud_workdir, "hopper")
             for i = 1:7
                 write(joinpath(good_dir, "good-$i.res"), "TITL test\nEND\n")
             end
@@ -460,71 +425,7 @@ end
             sleep(0.05)
             @test !istaskdone(task)
             write(joinpath(good_dir, "good-8.res"), "TITL test\nEND\n")
-            sleep(0.05)
-            @test !istaskdone(task)
-
-            for file in filter(endswith(".res"), readdir(hopper_dir; join=true))
-                rm(file)
-            end
-            write(joinpath(crud_workdir, "calc-running.res"), "TITL test\nEND\n")
-            sleep(0.05)
-            @test !istaskdone(task)
-
-            write(joinpath(crud_workdir, "calc-running.castep"), "running\n")
-            sleep(0.05)
-            @test !istaskdone(task)
-
-            distributed.dft_stale_seconds = 0.0
             @test fetch(task) == (8, 1)
-            @test isfile(joinpath(phase_dir, "STOP"))
-        end
-    end
-
-    @testset "DFT terminal failure waits for drained queue" begin
-        mktempdir() do temp
-            state = EDDPotentials.BuilderState(
-                seedfile="seed.cell",
-                seedfile_calc="calc.cell",
-                workdir=temp,
-            )
-            state.per_generation_threshold = 0.8
-            distributed = EDDPotentials.DistributedLinkOption()
-            distributed.control_poll_interval_seconds = 0.01
-            builder = _distributed_builder(temp; state, distributed)
-
-            _write_minimal_castep_inputs(temp)
-            _write_generated_res(
-                temp,
-                ["calc-$(lpad(string(i), 3, '0')).res" for i = 1:10],
-            )
-
-            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
-            good_dir = joinpath(crud_workdir, "good_castep")
-            bad_dir = joinpath(crud_workdir, "bad_castep")
-            hopper_dir = joinpath(crud_workdir, "hopper")
-            for i = 1:7
-                write(joinpath(good_dir, "good-$i.res"), "TITL test\nEND\n")
-            end
-            for i = 1:3
-                write(joinpath(bad_dir, "bad-$i.res"), "TITL test\nEND\n")
-            end
-
-            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
-            task = @async try
-                EDDPotentials._server_wait_for_dft!(builder, phase_dir)
-            catch err
-                err
-            end
-            sleep(0.05)
-            @test !istaskdone(task)
-
-            for file in filter(endswith(".res"), readdir(hopper_dir; join=true))
-                rm(file)
-            end
-            err = fetch(task)
-            @test err isa ErrorException
-            @test contains(err.msg, "Too many failed DFT calculations")
-            @test isfile(joinpath(phase_dir, "FAILED"))
         end
     end
 
@@ -551,7 +452,6 @@ end
                 joinpath(gen0, "calc-001.res"),
                 joinpath(crud_workdir, "good_castep", "calc-001.res"),
             )
-            rm(joinpath(crud_workdir, "hopper", "calc-001.res"))
 
             phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
             redirect_stderr(devnull) do
@@ -567,8 +467,6 @@ end
             @test contains(dft_log, "id=")
             @test contains(dft_log, "good=")
             @test contains(dft_log, "bad=")
-            @test contains(dft_log, "queued=")
-            @test contains(dft_log, "active=")
             @test contains(dft_log, "required_success=")
             @test contains(dft_log, "input_count=")
             @test !contains(dft_log, "distributed link DFT poll")
@@ -616,20 +514,6 @@ end
             phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
             @test EDDPotentials._server_wait_for_dft!(builder, phase_dir) == :stopped
             @test isfile(joinpath(phase_dir, "ABORTED.json"))
-            rm(joinpath(temp, "STOP"))
-
-            EDDPotentials.server_prepare_dft_phase!(builder, 0)
-            crud_workdir = joinpath(temp, "crud-work", "gen0")
-            for file in filter(endswith(".res"), readdir(joinpath(crud_workdir, "hopper"); join=true))
-                rm(file)
-            end
-            write(joinpath(crud_workdir, "stale.res"), "TITL test\nEND\n")
-            write(joinpath(crud_workdir, "stale.castep"), "running\n")
-            distributed.dft_stale_seconds = 0.0
-            touch(joinpath(temp, "STOP"))
-            @test EDDPotentials._server_wait_for_dft!(builder, phase_dir) == :stopped
-            @test isfile(joinpath(phase_dir, "ABORTED.json"))
-            @test !isfile(joinpath(phase_dir, "FAILED"))
             rm(joinpath(temp, "STOP"))
 
             training_phase = EDDPotentials.server_prepare_training_phase!(builder, 0)
@@ -687,7 +571,6 @@ end
                 joinpath(gen0, "calc-001.res"),
                 joinpath(temp, "crud-work", "gen0", "good_castep", "calc-001.res"),
             )
-            rm(joinpath(temp, "crud-work", "gen0", "hopper", "calc-001.res"))
             @test EDDPotentials.server_run_dft_phase!(builder, 0) == :ok
             @test isfile(joinpath(EDDPotentials.output_structure_dir(temp, 0), "calc-001.res"))
             @test isfile(joinpath(phase_dir, "DONE"))
@@ -732,8 +615,8 @@ end
             @test !contains(text, "{{EDDP_DISTRIBUTED_WORKER_CMD}}")
             @test contains(text, "EDDPotentials.distributed_worker()")
             @test contains(text, "--worker-id \"\$WORKER_ID\"")
-            @test contains(text, "SLURM_JOB_ID")
-            @test EDDPotentials._server_submit_workers(builder, 0) == ""
+            @test contains(text, "SLURM_ARRAY_TASK_ID")
+            @test EDDPotentials._server_submit_workers(builder, "dft", 0) == ""
 
             distributed.manage_worker_jobs = true
             scheduler = EDDPotentials.SchedulerConfig(
@@ -753,7 +636,7 @@ end
                 EDDPotentials.DistributedLinkBackend(),
                 builder,
             ))
-            @test EDDPotentials._server_submit_workers(builder, 0) == ""
+            @test EDDPotentials._server_submit_workers(builder, "dft", 0) == ""
         end
     end
 end

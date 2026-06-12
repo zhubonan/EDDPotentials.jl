@@ -17,27 +17,39 @@ function _env_dict(cmd::Base.Cmd)
 end
 
 @testset "add_threads_env" begin
-    # Default: Julia threads set to 1
+    # Default: both threads set to 1
     cmd = add_threads_env(`echo hello`)
     env = _env_dict(cmd)
     @test env["JULIA_NUM_THREADS"] == "1"
-    @test !haskey(env, "OMP_NUM_THREADS")
+    @test env["OMP_NUM_THREADS"] == "1"
 
     # Custom julia threads
     cmd = add_threads_env(`echo hello`; julia_threads=4)
     env = _env_dict(cmd)
     @test env["JULIA_NUM_THREADS"] == "4"
-    @test !haskey(env, "OMP_NUM_THREADS")
+    @test env["OMP_NUM_THREADS"] == "1"
+
+    # Custom omp threads
+    cmd = add_threads_env(`echo hello`; omp_threads=2)
+    env = _env_dict(cmd)
+    @test env["JULIA_NUM_THREADS"] == "1"
+    @test env["OMP_NUM_THREADS"] == "2"
+
+    # Both custom
+    cmd = add_threads_env(`echo hello`; julia_threads=4, omp_threads=2)
+    env = _env_dict(cmd)
+    @test env["JULIA_NUM_THREADS"] == "4"
+    @test env["OMP_NUM_THREADS"] == "2"
 
     # Original command is preserved
     @test cmd.exec == Cmd(`echo hello`).exec
 
     # Existing env vars on the cmd are preserved
-    base = setenv(`echo hello`, "MY_VAR" => "myval", "OMP_NUM_THREADS" => "8")
+    base = setenv(`echo hello`, "MY_VAR" => "myval")
     cmd = add_threads_env(base; julia_threads=2)
     env = _env_dict(cmd)
     @test env["JULIA_NUM_THREADS"] == "2"
-    @test env["OMP_NUM_THREADS"] == "8"
+    @test env["OMP_NUM_THREADS"] == "1"
     @test env["MY_VAR"] == "myval"
 end
 

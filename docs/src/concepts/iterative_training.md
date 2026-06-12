@@ -182,11 +182,10 @@ buildcell_nprocs = 8             # Parallel buildcell jobs for generation 0
 build_timeout = 60.0             # Seconds allowed per buildcell launch
 
 workdir = "."                    # All outputs go here
-seedfile_calc = "C.cell"         # CASTEP .cell/.param base name
-dft_mode = "crud"                # local modes: "crud", "acrud", "pp3", "mock"
-
-[state.rss]
 seedfile = "C-SEARCH.cell"       # buildcell input for RSS
+seedfile_calc = "C.cell"         # CASTEP .cell/.param base name
+
+dft_mode = "crud"                # "crud", "disp-castep", "mock", etc.
 
 # Elemental energies (MUST be pseudoatomic energies)
 [state.elemental_energies]
@@ -251,19 +250,17 @@ train_split = [0.8, 0.1, 0.1]    # [train, validation, test] ratios
 
 ```toml
 [state]
-buildcell_nprocs = 16            # Parallel buildcell jobs for generation 0
-
-[state.rss]
-pressure_gpa = 1.0               # Positive pressure prevents empty cells
+rss_pressure_gpa = 1.0           # Positive pressure prevents empty cells
 core_size = 1.2                  # Hard-core radius (< bond length)
-nprocs = 16                      # Parallel RSS processes
+buildcell_nprocs = 16            # Parallel buildcell jobs for generation 0
+rss_nprocs = 16                  # Parallel RSS processes
 
 # Uncertainty filters
 ensemble_std_min = -1.0          # Minimum uncertainty (-1 disables)
-ensemble_std_max = -1.0          # Maximum uncertainty (-1 disables)
+ensemble_std_max = 0.2           # Maximum uncertainty
 
 # Optional RSS output pruning for single-composition searches
-[state.rss.prune]
+[state.rss_prune]
 enabled = true                   # Disabled by default
 pool_size = 100                  # Relaxed candidates per pruning pool
 keep_fraction = 0.10             # Keep lowest-energy unique 10%
@@ -271,9 +268,9 @@ dedup_tol = 0.10                 # Fingerprint-distance duplicate threshold
 ```
 
 **Explanation:**
-- **state.rss.pressure_gpa**: 0.5-2.0 GPa reduces holes in structures
+- **rss_pressure_gpa**: 0.5-2.0 GPa reduces holes in structures
 - **core_size**: Set below typical bond length to prevent overlap
-- **ensemble_std filters**: Disabled by default (`-1`); set min/max thresholds to keep structures where models disagree
+- **ensemble_std filters**: Keep structures where models disagree
 - **rss_prune**: Buffers accepted relaxed structures, ranks by predicted enthalpy per atom, removes fingerprint duplicates, and writes only the low-energy unique subset. `per_generation` remains the number of written structures, so pruning may relax more raw candidates internally.
 - **single-composition only**: Pruning is disabled automatically for formula-sampling/random-composition workflows; multi-instance `link!` workers prune independently and log pool diagnostics to their `rss-process-*` stderr logs.
 
@@ -291,14 +288,11 @@ dft_mode = "crud"
    - Runs CASTEP when .res files appear
    - Moves results to `good_castep/`
 
-2. **"acrud"**: ASE-backed local calculation runner
+2. **"crud-queue"**: CASTEP via job scheduler (SLURM)
 
-3. **"pp3"**: Local PP3 pair-potential calculations
+3. **"mock"**: Dummy calculator for testing (random energies)
 
-4. **"mock"**: Dummy calculator for testing (random energies)
-
-Legacy scheduler-backed local DFT modes such as `crud-queue` and `disp-castep`
-have been superseded by distributed link mode.
+4. **"disp-castep"**: Distributed CASTEP via DISP package
 
 ### Distributed Link Mode
 
@@ -327,7 +321,6 @@ manage_worker_jobs = true
 dft_worker_jobs = 16
 training_worker_jobs = 8
 dft_crud_workdir = "crud-work"
-dft_stale_seconds = 300.0
 control_poll_interval_seconds = 10.0
 worker_heartbeat_interval_seconds = 30.0
 worker_child_grace_seconds = 300.0
@@ -382,7 +375,7 @@ The server then:
 1. Generates structures into `genN/`.
 2. Prepares `crud-work/genN/hopper/`, `good_castep/`, and `bad_castep/`.
 3. Manages DFT worker jobs when `manage_worker_jobs = true`, rendering scripts and submitting only when `scheduler.submit_jobs = true`.
-4. Waits for `hopper/` to empty and for active root `.res` jobs to finish, treating root jobs as stale when top-level `.castep` output is older than `dft_stale_seconds`.
+4. Stops DFT workers after enough calculations reach `good_castep/` or `bad_castep/`.
 5. Publishes successful results into `genN-dft/`.
 6. Writes `training/gen-N-dataset.jld2`.
 7. Manages training workers, which write UUID-named model artifacts until enough models are available.
@@ -401,16 +394,6 @@ Then run long-lived workers manually or through your own job script:
 julia --project=. -e 'using EDDPotentials; EDDPotentials.distributed_worker()' -- --file link.toml --worker-id 1
 ```
 
-For manual GPU workers, pass explicit numeric `--worker-id` values so
-`trainer.cuda_visible_devices` can distribute training subprocesses across
-devices deterministically. Scheduler-launched cluster workers normally rely on
-the scheduler or cgroup environment for GPU binding; their default diagnostic
-log id uses the SLURM job id plus the worker process id.
-
-Worker ids are process identities used for heartbeat files, per-worker STOP
-files, and diagnostic events. The server does not assign phase work by numeric
-worker slot; it only needs each live worker to publish a unique, stable id.
-
 Worker status is written to:
 
 ```
@@ -423,7 +406,7 @@ dedicated log files:
 
 ```
 .eddp-distributed/logs/server-<pid>.log
-.eddp-distributed/logs/trainer-<slurm-job-id>-<pid>.log
+.eddp-distributed/logs/worker-<worker-id>.log
 ```
 
 Set `log_level` to the minimum level to emit. For example, `"debug"`
@@ -629,9 +612,10 @@ Inside the `crud-work` folder, there three folders.
 
 Multiple crud.pl instances run simultaneously, each taking structures from hopper (atomic `mv` guarantees unique selection).
 
-On a cluster, enable `[distributed]` for the file-backed distributed link workflow.
-In distributed link mode the server prepares the shared `crud-work/genN/hopper/`
-directory, and worker jobs launch `crud.pl` when the server publishes the DFT phase.
+On a cluster, use either `crud-queue` for the legacy scheduler-backed DFT runner or
+enable `[distributed]` for the file-backed distributed link workflow. In distributed link mode the
+server prepares the shared `crud-work/genN/hopper/` directory, and worker jobs
+launch `crud.pl` when the server publishes the DFT phase.
 
 
 ### Data Management
@@ -689,7 +673,6 @@ Use this when you want to sample from a pre-generated pool of reduced formulas, 
 # Import known structures into gen0 before random generation
 known_structure_dir = "known_structures"
 
-[state.rss]
 # Enable formula-space sampling
 formula_sampling_enabled = true
 
@@ -702,7 +685,7 @@ formula_max_reduced_formula_coeff = 6
 # Keep only charge-neutral formulas under allowed oxidation states
 formula_require_charge_neutral = true
 
-[state.rss.formula_oxidation_states]
+[state.formula_oxidation_states]
 Li = [1]
 Ta = [5]
 O = [-2]

@@ -606,8 +606,7 @@ load_feature_store(path)                                                # disk-b
 ```
 
 # See also
-[`FeatureBatch`](@ref), [`each_batch`](@ref), [`get_data`](@ref),
-[`save_feature_store`](@ref), [`load_feature_store`](@ref)
+`FeatureBatch`, `each_batch`, `get_data`, `save_feature_store`, `load_feature_store`
 """
 mutable struct FeatureStore
     H::Vector{Float64}

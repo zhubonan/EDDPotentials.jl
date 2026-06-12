@@ -194,12 +194,12 @@ short pools do not give reliable per-composition statistics.
 Instead of relying on `#FOCUS`, you can let `Builder` sample explicit reduced formulas by injecting `#FORMULA=...` at runtime:
 
 ```toml
-[state.rss]
+[state]
 formula_sampling_enabled = true
 formula_max_reduced_formula_coeff = 6
 formula_require_charge_neutral = true
 
-[state.rss.formula_oxidation_states]
+[state.formula_oxidation_states]
 Li = [1]
 Ta = [5]
 O = [-2]
@@ -226,8 +226,8 @@ Search at non-zero pressure for high-pressure phases.
 
 ```julia
 # In link.toml
-[state.rss]
-pressure_gpa = 10.0  # 10 GPa pressure
+[state]
+rss_pressure_gpa = 10.0  # 10 GPa pressure
 ```
 
 Or modify buildcell file:

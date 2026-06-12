@@ -103,9 +103,9 @@ environments (2-body, 3-body, 4-body) at various distances.
 function write_model_structures(bu::Builder; iteration=bu.state.iteration)
     target_dir = joinpath(bu.state.workdir, "gen$iteration")
     ensure_dir(target_dir)
-    rmin = _core_rmin(bu.state.rss.core_size)
+    rmin = _core_rmin(bu.state.core_size)
     rmax = suggest_rcut(bu.cf)
-    seedstem = split(stem(first(_seedfiles(bu.state.rss.seedfile))), "-")[1]
+    seedstem = split(stem(bu.state.seedfile), "-")[1]
     for order in [2, 3, 4]
         pairs, cells = model_structures(bu.cf.elements; order, rmin, rmax)
         for (pair, this_cells) in zip(pairs, cells)

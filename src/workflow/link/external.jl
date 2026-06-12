@@ -3,6 +3,7 @@ External DFT calculator integrations.
 
 This module consolidates all external tool integrations for running DFT calculations:
 - Abstract interface for external calculators
+- DISP (Distributed Structure Prediction with CASTEP)
 - PP3 (Pairwise Potential Program)
 - CRUD/ACRUD (CASTEP calculation runners)
 - Mock calculator for testing
@@ -10,8 +11,152 @@ This module consolidates all external tool integrations for running DFT calculat
 =#
 
 using Random
+using JSON
 
 # Note: utility functions from utils.jl are available in the same module scope
+
+
+"""
+    _disp_get_completed_jobs(project_name)
+
+Get the number of completed jobs and total jobs for a DISP project.
+
+# Arguments
+- `project_name`: Name of the DISP project
+
+# Returns
+- Tuple (n_completed, n_total)
+"""
+function _disp_get_completed_jobs(project_name)
+    cmd = `disp db summary --singlepoint --project $project_name --json`
+    json_string = readchomp(pipeline(cmd))
+    data = parse_disp_output(json_string)
+    ncomp = get(data, "COMPLETED", 0)
+    nall = get(data, "ALL", -1)
+    ncomp, nall
+end
+
+"""
+    parse_disp_output(json_string)
+
+Parse the JSON output from `disp db summary` command.
+
+# Arguments
+- `json_string`: JSON output from DISP
+
+# Returns
+- Dict with keys "RES", "ALL", "COMPLETED" containing job counts
+"""
+function parse_disp_output(json_string)
+    data = Dict{String,Int}()
+    if contains(json_string, "No data")
+        return data
+    end
+    tmp = JSON.parse(json_string)
+    for (x, y) in tmp
+        # Unpack nested multi-index
+        if contains(x, "RES")
+            data["RES"] = first(values(first(values(y))))
+        elseif contains(x, "ALL")
+            data["ALL"] = first(values(first(values(y))))
+        elseif contains(x, "COMPLETED")
+            data["COMPLETED"] = first(values(first(values(y))))
+        end
+    end
+    data
+end
+
+"""
+    run_disp_castep(indir, outdir, seedfile; categories, priority=90,
+                    project_prefix="eddp.jl", monitor_only=false,
+                    watch_every=60, threshold=0.98, disp_extra_args=String[], kwargs...)
+
+Run CASTEP calculations through DISP (Distributed Structure Prediction).
+
+# Arguments
+- `indir`: Directory containing input .res files
+- `outdir`: Directory for output structures
+- `seedfile`: Seed file for CASTEP calculations (.cell and .param)
+- `categories`: List of DISP categories for job submission
+- `priority`: Job priority (default: 90)
+- `project_prefix`: Prefix for DISP project name
+- `monitor_only`: If true, only monitor existing jobs without submitting new ones
+- `watch_every`: Check progress every N seconds (default: 60)
+- `threshold`: Fraction of jobs that must complete (default: 0.98)
+- `disp_extra_args`: Extra arguments to pass to DISP
+- `kwargs...`: Additional arguments (ignored)
+
+# Returns
+- `true` on success
+"""
+function run_disp_castep(
+    indir,
+    outdir,
+    seedfile;
+    categories,
+    priority=90,
+    project_prefix="eddp.jl",
+    monitor_only=false,
+    watch_every=60,
+    threshold=0.98,
+    disp_extra_args=String[],
+    kwargs...,
+)
+    file_pattern = joinpath(indir, "*.res")
+    seed = splitext(seedfile)[1]
+
+    # Setup project name
+    project_name = joinpath(project_prefix, abspath(indir)[2:end])
+    seed_stem = splitext(basename(seedfile))[1]
+
+    # Build DISP command
+    cmd = `disp deploy singlepoint --seed $seed_stem --base-cell $seed.cell --param $seed.param --cell $file_pattern --project $project_name --priority $priority`
+
+    # Add categories
+    for category in categories
+        push!(cmd.exec, "--category")
+        push!(cmd.exec, category)
+    end
+
+    # Add extra arguments
+    append!(cmd.exec, disp_extra_args)
+
+    if !monitor_only
+        # Check if jobs already exist
+        ncomp, nall = _disp_get_completed_jobs(project_name)
+        if nall == -1
+            @info "Submitting DISP jobs: $(cmd)"
+            run(cmd)
+        else
+            @info "Found existing jobs: $(ncomp)/$(nall) completed - monitoring progress"
+        end
+    else
+        @info "Monitor-only mode: not launching new jobs"
+    end
+
+    # Monitor progress
+    @info "Monitoring DISP progress for project: $project_name"
+    sleep(1)
+    last_ncomp = 0
+    while true
+        ncomp, nall = _disp_get_completed_jobs(project_name)
+        if ncomp / nall > threshold
+            @info "Threshold reached: $(ncomp)/$(nall) calculations completed"
+            break
+        elseif ncomp != last_ncomp
+            @info "Progress: $(ncomp)/$(nall) calculations completed"
+        end
+        last_ncomp = ncomp
+        sleep(watch_every)
+    end
+
+    # Retrieve results
+    isdir(outdir) || mkdir(outdir)
+    cmd = Cmd(`disp db retrieve-project --project $project_name`, dir=outdir)
+    run(cmd)
+    @info "Results retrieved to $outdir"
+    return true
+end
 
 
 """
@@ -172,7 +317,7 @@ function run_crud(workdir, seedfile_calc, indir, outdir; nparallel=1, mpinp=4)
     ensure_dir(hopper_folder)
     ensure_dir(outdir)
 
-    infiles = glob_allow_abs(joinpath(indir, "*.res"))
+    infiles = glob(joinpath(indir, "*.res"))
 
     # Copy files to hopper
     for file in infiles
@@ -198,6 +343,160 @@ function run_crud(workdir, seedfile_calc, indir, outdir; nparallel=1, mpinp=4)
         isfile(joinpath(gd_folder, fname)) &&
             mv(joinpath(gd_folder, fname), joinpath(outdir, fname), force=true)
     end
+end
+
+"""
+    submit(sch::SchedulerConfig, workdir)
+
+Submit jobs to a scheduler (SGE or SLURM).
+
+# Arguments
+- `sch`: Scheduler configuration
+- `workdir`: Working directory
+
+# Returns
+- Nothing
+"""
+function submit(sch::SchedulerConfig, workdir)
+    # Write job script
+    script_path = joinpath(workdir, "job.sh")
+    open(script_path, "w") do handle
+        write(handle, get_job_script_content(sch))
+    end
+
+    # Select submission command
+    if sch.type == "SGE"
+        prog = "qsub"
+    elseif sch.type == "SLURM"
+        prog = "sbatch"
+    end
+
+    # Build submission arguments
+    args = String[]
+    njobs = sch.njobs
+    if njobs > 1
+        sch.type == "SGE" && append!(args, String["-t", "1-$(njobs)"])
+        sch.type == "SLURM" && append!(args, String["--array=1-$(njobs)"])
+    end
+
+    # Setup working directory for SGE
+    sch.type == "SGE" && push!(args, "-cwd")
+
+    # Include job script
+    push!(args, "job.sh")
+
+    # Submit
+    cmd = Cmd(Cmd([prog, args...]), dir=workdir)
+    @info "Job submission command: $(cmd)"
+    run(cmd)
+end
+
+"""
+    run_crud_queue(scheduler, seedfile, workdir, input_dir, output_dir;
+                   perc_threshold=0.98, script_path="", mode="crud")
+
+Run crud.pl/acrud through a queuing system with monitoring.
+
+# Arguments
+- `scheduler`: SchedulerConfig object
+- `seedfile`: Seed file for calculations
+- `workdir`: Working directory
+- `input_dir`: Directory containing input structures
+- `output_dir`: Directory for output structures
+- `perc_threshold`: Fraction of jobs that must complete (default: 0.98)
+- `script_path`: Path to custom job script
+- `mode`: "crud" or "acrud"
+
+# Returns
+- `true` on success
+"""
+function run_crud_queue(
+    scheduler::SchedulerConfig,
+    seedfile,
+    workdir,
+    input_dir,
+    output_dir;
+    perc_threshold=0.98,
+    script_path="",
+    mode="crud",
+)
+    isdir(workdir) || mkdir(workdir)
+
+    # Copy job script if provided
+    if !isempty(script_path)
+        cp(script_path, joinpath(workdir, "job.sh"), force=true)
+    end
+
+    # Clear existing folders
+    for dir in ["hopper", "good_castep", "bad_castep"]
+        path = joinpath(workdir, dir)
+        isdir(path) && rm(path, recursive=true)
+    end
+
+    # Create hopper folder
+    mkdir(joinpath(workdir, "hopper"))
+
+    # Copy SHELX files
+    nstruct = 0
+    for file in glob_allow_abs(joinpath(input_dir, "*.res"))
+        cp(file, joinpath(workdir, "hopper", splitpath(file)[end]), force=true)
+        nstruct += 1
+    end
+
+    # Copy seed file for crud mode
+    if mode == "crud"
+        seed = stem(seedfile)
+        cp(seed * ".cell", joinpath(workdir, seed * ".cell"), force=true)
+        cp(seed * ".param", joinpath(workdir, seed * ".param"), force=true)
+    end
+
+    # Copy executable for acrud mode
+    if mode == "acrud"
+        dst = joinpath(workdir, splitdir(seedfile)[end])
+        if dst != seedfile
+            cp(seedfile, workdir, force=true)
+        end
+    end
+
+    # Check completion status
+    good_castep = joinpath(workdir, "good_castep")
+    bad_castep = joinpath(workdir, "bad_castep")
+    nfinished =
+        length(glob(joinpath(good_castep, "*.res"))) +
+        length(glob(joinpath(bad_castep, "*.res")))
+    perc_finished = nfinished / nstruct
+
+    # Submit jobs if needed
+    if perc_finished < perc_threshold && scheduler.submit_jobs
+        submit(scheduler, workdir)
+    end
+
+    # Monitor progress
+    while true
+        nfinished =
+            length(glob(joinpath(good_castep, "*.res"))) +
+            length(glob(joinpath(bad_castep, "*.res")))
+        perc_finished = nfinished / nstruct
+        perc_finished > perc_threshold && break
+        sleep(60)
+    end
+
+    # Move results to output directory
+    for file in glob_allow_abs(joinpath(good_castep, "*.res"))
+        mv(file, joinpath(output_dir, splitpath(file)[end]), force=true)
+    end
+
+    # Clean up bad files
+    for file in glob_allow_abs(joinpath(bad_castep, "*.res"))
+        rm(file)
+    end
+
+    # Clean up working directory if requested
+    if scheduler.clean_workdir
+        rm(workdir, recursive=true)
+    end
+
+    return true
 end
 
 """
@@ -310,7 +609,7 @@ function acrud(
 
     while true
         # Select files from hopper
-        infiles = glob_allow_abs(joinpath(hopper_folder, "*.res"))
+        infiles = glob(joinpath(hopper_folder, "*.res"))
 
         # Wait or stop if no files
         if length(infiles) == 0
@@ -359,7 +658,7 @@ function acrud(
                 )
 
                 if move_good
-                    debug_files = glob_allow_abs(splitext(fname)[1] * ".*")
+                    debug_files = glob(splitext(fname)[1] * ".*")
                     for file in debug_files
                         mv(file, joinpath(gd_folder, splitdir(file)[2]), force=true)
                     end
@@ -368,7 +667,7 @@ function acrud(
         else
             # Failure - move to bad folder
             for fname in fnames
-                debug_files = glob_allow_abs(splitext(fname)[1] * ".*")
+                debug_files = glob(splitext(fname)[1] * ".*")
                 for file in debug_files
                     mv(file, joinpath(bd_folder, splitdir(file)[2]), force=true)
                 end
@@ -448,7 +747,7 @@ end
 Mock external calculator for testing without actual DFT dependencies.
 
 Generates random energies for structures to enable testing of workflows
-without requiring external programs like PP3 or CASTEP.
+without requiring external programs like DISP, PP3, or CASTEP.
 
 # Fields
 - `n_structures`: Maximum number of structures to process
@@ -507,13 +806,13 @@ end
 
 Create appropriate external calculator based on builder configuration.
 
-Dispatches to the correct local DFT backend based on `builder.state.dft_mode`.
-Scheduler-backed local DFT modes have been superseded by the distributed link backend.
-
-- "mock": Mock calculator for testing
+Dispatches to the correct DFT backend based on `builder.state.dft_mode`:
+- "disp-castep": DISP distributed calculations
 - "pp3": PP3 pairwise potential calculations
 - "crud": Local CRUD runner
 - "acrud": ASE-based CRUD runner
+- "crud-queue": CRUD through job scheduler
+- "mock": Mock calculator for testing
 
 # Arguments
 - `builder`: Builder object with configuration
@@ -527,7 +826,23 @@ Scheduler-backed local DFT modes have been superseded by the distributed link ba
 function get_external_calculator(builder::Builder)
     state = builder.state
 
-    if state.dft_mode == "pp3"
+    if state.dft_mode == "disp-castep"
+        project_prefix = if state.project_prefix_override == ""
+            "eddp.jl/$(builder_short_uuid(builder))"
+        else
+            state.project_prefix_override
+        end
+
+        return (indir, outdir) -> run_disp_castep(
+            indir,
+            outdir,
+            joinpath(state.workdir, state.seedfile_calc);
+            project_prefix,
+            threshold=state.per_generation_threshold,
+            make_symbol_keys(state.dft_kwargs)...,
+        )
+
+    elseif state.dft_mode == "pp3"
         return (indir, outdir) -> (
             run_pp3_many(
                 joinpath(state.workdir, ".pp3_work"),
@@ -561,6 +876,16 @@ function get_external_calculator(builder::Builder)
                 make_symbol_keys(state.dft_kwargs)...,
             );
             true
+        )
+
+    elseif state.dft_mode == "crud-queue"
+        return (indir, outdir) -> run_crud_queue(
+            builder.options.scheduler,
+            joinpath(state.workdir, state.seedfile_calc),
+            joinpath(state.workdir, "crud-work"),
+            indir,
+            outdir;
+            perc_threshold=state.per_generation_threshold,
         )
 
     elseif state.dft_mode == "mock"

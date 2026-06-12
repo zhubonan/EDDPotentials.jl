@@ -16,43 +16,6 @@ function TrainingContext(itf, feature_spec, elemental_energies, checkpoint_every
     TrainingContext(itf, feature_spec, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file, Tuple{Float64,Float64}[], time(), time(), 1)
 end
 
-function _training_value_string(value)
-    sprint(show, value)
-end
-
-function _training_startup_header(;
-    routine::AbstractString,
-    itf,
-    nparameters::Integer,
-    train_samples::Integer,
-    validation_samples::Integer,
-    log_file::AbstractString,
-    options=NamedTuple(),
-)
-    io = IOBuffer()
-    println(io, "==== Training Startup ====")
-    println(io, "routine = ", routine)
-    println(io, "model_type = ", typeof(itf))
-    println(io, "target_parameters = ", nparameters)
-    println(io, "train_samples = ", train_samples)
-    println(io, "validation_samples = ", validation_samples)
-    println(io, "julia_threads = ", Base.Threads.nthreads())
-    println(io, "options:")
-    for name in keys(options)
-        println(io, "  ", name, " = ", _training_value_string(getfield(options, name)))
-    end
-    println(io, "==== End Training Startup ====")
-    text = String(take!(io))
-    print(stdout, text)
-    flush(stdout)
-    if !isempty(log_file)
-        open(log_file, "a") do file
-            write(file, text)
-        end
-    end
-    return text
-end
-
 function progress_callback!(ctx::TrainingContext, rmse_train, rmse_val, extra_info="")
     if ctx.show_progress || !isempty(ctx.log_file)
         tnow = time()

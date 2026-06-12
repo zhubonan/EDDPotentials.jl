@@ -11,6 +11,8 @@ using EDDPotentials.Workflow:
     run_dft_phase!,
     run_training_phase!,
     load_training_data,
+    _render_training_job_script,
+    _training_submit_cmd,
     _required_models_for_ensemble,
     _generate_random_structures,
     _models_ready_for_ensemble
@@ -97,43 +99,22 @@ end
 
 
 
-        state = EDDPotentials.BuilderState(
-            seedfile_calc="calc.cell",
-            rss=EDDPotentials.RssSetting(
-                seedfile="seed.cell",
-                pressure_gpa=1.0,
-                nprocs=4,
-                ensemble_std_max=0.2,
-                formula_sampling_enabled=true,
-                formula_list=["H2"],
-            ),
-        )
-        state.rss.prune.enabled = true
-        state.rss.prune.pool_size = 25
-        state.rss.prune.keep_fraction = 0.2
-        state.rss.relax.method = "fire"
-        state.rss.relax.optimizer_kwargs = Dict{String,Any}(
-            "dt" => 0.05,
-            "downhill_check" => true,
-        )
+        state = EDDPotentials.BuilderState(seedfile="seed.cell", seedfile_calc="calc.cell")
+        state.rss_prune.enabled = true
+        state.rss_prune.pool_size = 25
+        state.rss_prune.keep_fraction = 0.2
 
         cf = EDDPotentials.CellFeatureConfig(elements=["H"])
 
-        rss = EDDPotentials.RssSetting(seedfile="prod.cell")
+        rss = EDDPotentials.RssSetting()
         rss.prune.enabled = true
         rss.prune.pool_size = 50
         rss.prune.keep_fraction = 0.3
-        rss.relax.optimizer_kwargs = Dict{String,Any}("alpha_tol" => 1e-9)
 
         opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, EDDPotentials.TrainingOption(), nothing)
         test_to_from_toml(opt)
 
         builder = Builder(opt)
-        @test builder.state.rss.ensemble_std_min == -1.0
-        @test EDDPotentials.RssSetting().packed == false
-        @test EDDPotentials.RssSetting().pressure_gpa == 0.01
-        @test EDDPotentials.RssSetting().ensemble_std_min == -1.0
-        @test EDDPotentials.RssSetting().ensemble_std_max == -1.0
         test_to_from_toml_builder(builder)
 
         distributed = EDDPotentials.DistributedLinkOption()
@@ -160,116 +141,15 @@ end
         test_to_from_toml(opt_distributed)
     end
 
-    @testset "Legacy flat RSS settings migrate to state.rss" begin
-        state = EDDPotentials.BuilderState(
-            seedfile="legacy.cell",
-            seedfile_calc="calc.cell",
-            rss_pressure_gpa=2.0,
-            rss_external=false,
-            rss_nprocs=3,
-            rss_num_threads=2,
-            core_size=1.2,
-            ensemble_std_min=0.01,
-            ensemble_std_max=0.2,
-            formula_sampling_enabled=true,
-            formula_list=["H2"],
-            relax_mode="hot",
-            hot_n_rounds=4,
-        )
-        cf = EDDPotentials.CellFeatureConfig(elements=["H"])
-        opt = EDDPotentials.BuilderOption(
-            state,
-            cf,
-            nothing,
-            EDDPotentials.RssSetting(),
-            EDDPotentials.TrainingOption(),
-            nothing,
-        )
-        builder = @test_logs (
-            :warn,
-            r"Deprecated flat BuilderState RSS settings were used",
-        ) match_mode=:any Builder(opt)
-        @test builder.state.rss.seedfile == "legacy.cell"
-        @test builder.state.rss.pressure_gpa == 2.0
-        @test builder.state.rss.external == false
-        @test builder.state.rss.nprocs == 3
-        @test builder.state.rss.num_threads == 2
-        @test builder.state.rss.core_size == 1.2
-        @test builder.state.rss.ensemble_std_min == 0.01
-        @test builder.state.rss.ensemble_std_max == 0.2
-        @test builder.state.rss.formula_sampling_enabled
-        @test builder.state.rss.formula_list == ["H2"]
-        @test builder.state.rss.relax_mode == "hot"
-        @test builder.state.rss.hot_n_rounds == 4
-        @test builder.rss.seedfile == "legacy.cell"
-        @test builder.rss.core_size == 0.5
-        @test !builder.rss.formula_sampling_enabled
-        @test isempty(builder.rss.formula_list)
-        @test builder.rss.relax_mode == "standard"
-    end
-
-    @testset "Nested state.rss preserves explicit values from TOML" begin
+    @testset "Training scheduler script rendering" begin
         mktempdir() do temp
-            path = joinpath(temp, "link.toml")
-            write(
-                path,
-                """
-                [state]
-                seedfile_calc = "calc.cell"
+            script = joinpath(temp, "train_job.sh")
+            open(script, "w") do io
+                println(io, "#!/bin/bash")
+                println(io, "#SBATCH --job-name=eddp-train")
+                println(io, "{{EDDP_TRAIN_CMD}}")
+            end
 
-                [state.rss]
-                seedfile = "seed.cell"
-                pressure_gpa = 0.01
-                ensemble_std_min = -1.0
-                ensemble_std_max = 0.2
-
-                [cf]
-                elements = ["H"]
-
-                [rss]
-                seedfile = "prod.cell"
-
-                [trainer]
-                """,
-            )
-            builder = Builder(path)
-            @test builder.state.rss.pressure_gpa == 0.01
-            @test builder.state.rss.ensemble_std_min == -1.0
-            @test builder.state.rss.ensemble_std_max == 0.2
-        end
-    end
-
-    @testset "Default-valued flat RSS keys warn from TOML" begin
-        mktempdir() do temp
-            path = joinpath(temp, "link.toml")
-            write(
-                path,
-                """
-                [state]
-                seedfile_calc = "calc.cell"
-                rss_nprocs = 2
-
-                [state.rss]
-                seedfile = "seed.cell"
-
-                [cf]
-                elements = ["H"]
-
-                [rss]
-                seedfile = "prod.cell"
-
-                [trainer]
-                """,
-            )
-            @test_logs (
-                :warn,
-                r"Deprecated flat BuilderState RSS settings were used",
-            ) match_mode=:any Builder(path)
-        end
-    end
-
-    @testset "Local backend rejects obsolete execution modes" begin
-        mktempdir() do temp
             state = EDDPotentials.BuilderState(
                 seedfile="seed.cell",
                 seedfile_calc="calc.cell",
@@ -278,78 +158,51 @@ end
             cf = EDDPotentials.CellFeatureConfig(elements=["H"])
             rss = EDDPotentials.RssSetting()
             trainer = EDDPotentials.TrainingOption()
-            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing)
-
-            trainer.external = false
-            builder = Builder(opt)
-            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
-                builder,
-                LocalLinkBackend(),
-            )
-
-            trainer.external = true
             trainer.external_mode = "submit"
-            builder = Builder(opt)
-            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
-                builder,
-                LocalLinkBackend(),
+            scheduler = EDDPotentials.SchedulerConfig(
+                script=script,
+                njobs=4,
+                type="SLURM",
+                submit_jobs=false,
             )
-
-            trainer.external_mode = "command"
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, scheduler)
             builder = Builder(opt)
-            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
-                builder,
-                LocalLinkBackend(),
+            builder.state.builder_file_path = joinpath(temp, "link.toml")
+            EDDPotentials.save_builder(builder.state.builder_file_path, builder)
+
+            workdir = joinpath(temp, "training-work", "gen0")
+            rendered_script =
+                _render_training_job_script(builder, scheduler, workdir)
+            rendered = read(rendered_script, String)
+
+            @test !contains(rendered, "{{EDDP_TRAIN_CMD}}")
+            @test contains(rendered, "EDDPotentials.run_trainer()")
+            @test contains(rendered, "--id \"\$WORKER_ID\"")
+            @test contains(rendered, "SLURM_ARRAY_TASK_ID")
+
+            slurm_cmd = _training_submit_cmd(scheduler, workdir)
+            @test contains(string(slurm_cmd), "sbatch")
+            @test contains(string(slurm_cmd), "--array=1-4")
+            @test contains(string(slurm_cmd), "job.sh")
+
+            sge_scheduler = EDDPotentials.SchedulerConfig(
+                script=script,
+                njobs=4,
+                type="SGE",
+                submit_jobs=false,
             )
+            sge_cmd = _training_submit_cmd(sge_scheduler, workdir)
+            @test contains(string(sge_cmd), "qsub")
+            @test contains(string(sge_cmd), "1-4")
+            @test contains(string(sge_cmd), "-cwd")
 
-            trainer.external_mode = "local"
-            state.dft_mode = "crud-queue"
-            builder = Builder(opt)
-            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
+            bad_script = joinpath(temp, "bad_train_job.sh")
+            write(bad_script, "#!/bin/bash\n")
+            bad_scheduler = EDDPotentials.SchedulerConfig(script=bad_script, type="SLURM")
+            @test_throws ArgumentError _render_training_job_script(
                 builder,
-                LocalLinkBackend(),
-            )
-
-            state.dft_mode = "disp-castep"
-            builder = Builder(opt)
-            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
-                builder,
-                LocalLinkBackend(),
-            )
-
-            state.dft_mode = "crud"
-            trainer.external = false
-            builder = Builder(opt)
-            @test_throws ArgumentError run_training_phase!(
-                LocalLinkBackend(),
-                builder,
-                0,
-            )
-
-            trainer.external = true
-            trainer.external_mode = "submit"
-            builder = Builder(opt)
-            @test_throws ArgumentError run_training_phase!(
-                LocalLinkBackend(),
-                builder,
-                0,
-            )
-
-            trainer.external_mode = "local"
-            state.dft_mode = "crud-queue"
-            builder = Builder(opt)
-            @test_throws ArgumentError run_dft_phase!(
-                LocalLinkBackend(),
-                builder,
-                0,
-            )
-
-            state.dft_mode = "disp-castep"
-            builder = Builder(opt)
-            @test_throws ArgumentError run_dft_phase!(
-                LocalLinkBackend(),
-                builder,
-                0,
+                bad_scheduler,
+                workdir,
             )
         end
     end
@@ -403,8 +256,6 @@ end
         trainer.external = true
         trainer.external_completion_ratio = 0.5
             @test _required_models_for_ensemble(trainer) == 5
-        trainer.external = false
-        @test _required_models_for_ensemble(trainer) == 5
     end
 
     @testset "Workflow artifact readiness skips completed phases" begin
@@ -419,6 +270,7 @@ end
             cf = EDDPotentials.CellFeatureConfig(elements=["H"])
             trainer = EDDPotentials.TrainingOption()
             trainer.nmodels = 2
+            trainer.external = false
             builder = Builder(
                 EDDPotentials.BuilderOption(
                     state,

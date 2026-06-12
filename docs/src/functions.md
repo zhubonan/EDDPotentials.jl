@@ -1,18 +1,25 @@
 # Functions
 
-Reference documentation for all public functions and types in EDDPotentials.jl.
+Reference documentation for the exported and documented functions and types in EDDPotentials.jl.
+
+The package still exports a small number of compatibility constants and implementation hooks, especially in the distributed workflow. Those names are listed by Julia's namespace introspection but are not recommended as stable user API unless they are documented here or in a task guide.
 
 ## Feature Generation
 
 Types and functions for defining and computing atomic environment descriptors. See [Understanding Features](concepts/features.md) for a conceptual introduction.
 
-The primary user-facing type is [`CellFeature`](@ref), a parametric immutable struct that centralizes all two-body/three-body feature parameters. The keyword constructor `CellFeature(elements; p2=..., ...)` is the main public API. The [`FeatureProto`](@ref) type is a lightweight internal container used by [`RandomEmbeddedCellFeature`](@ref).
+The primary user-facing type is `CellFeature`, a parametric immutable struct that centralizes all two-body/three-body feature parameters. The keyword constructor `CellFeature(elements; p2=..., ...)` is the main public API. `FeatureProto` is a lightweight internal container used by `RandomEmbeddedCellFeature`.
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Potential]
 Pages = [
     "potential/feature/feature.jl",
     "potential/feature/cell.jl",
+    "potential/feature/embedded.jl",
+    "potential/feature/multi_embedded.jl",
+    "potential/feature/spline_table.jl",
+    "potential/embedding.jl",
+    "potential/embedding_rules.jl",
 ]
 ```
 
@@ -21,68 +28,75 @@ Pages = [
 Functions for training models from feature vectors, evaluating accuracy, and building ensembles.
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Training]
 Pages = [
+    "training/context.jl",
     "training/data.jl",
     "training/training.jl",
     "training/lmsolve.jl",
     "training/lmsolve_batched.jl",
+    "training/sgd_training.jl",
 ]
 ```
 
 ## Model Interfaces
 
-Neural network interfaces for energy prediction. [`ManualFluxBackPropInterface`](@ref) is the default for training; [`EnsembleNNInterface`](@ref) is used for prediction with uncertainty.
+Neural network interfaces for energy prediction. `ManualFluxBackPropInterface` is the default for training; `EnsembleNNInterface` is used for prediction with uncertainty.
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Potential]
 Pages = [
     "potential/nn/interface.jl",
     "potential/nn/linear.jl",
     "potential/nn/flux.jl",
     "potential/nn/manual_backprop.jl",
     "potential/nn/ensemble.jl",
+    "potential/nn/json_serialization.jl",
+    "potential/nntools.jl",
 ]
 ```
 
 ## Calculators
 
-[`EDDPCalculator`](@ref) is the primary calculator type for energy, force, and stress evaluation. The [`MetaCalculator`](@ref) composes a source calculator with an ordered modifier pipeline. Variable-cell optimization uses the `relax_cell` parameter on optimizer entry points ([`opt_tpsd`](@ref), [`opt_fire`](@ref), [`relax!`](@ref)). The [`create_calculator`](@ref) factory assembles calculator pipelines from a pre-trained [`EDDPCalculator`](@ref).
+`EDDPCalculator` is the primary calculator type for energy, force, and stress evaluation. `MetaCalculator` composes a source calculator with an ordered modifier pipeline. Variable-cell optimization uses the `relax_cell` parameter on optimizer entry points (`opt_tpsd`, `opt_fire`, `relax!`). The `create_calculator` factory assembles calculator pipelines from a pre-trained `EDDPCalculator`.
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Potential]
 Pages = [
     "potential/calculator.jl",
     "potential/calculator/metacalculator.jl",
     "potential/calculator/eddpcalculator.jl",
+    "potential/pairpot.jl",
 ]
 ```
 
 ## Calculator Modifiers
 
-Modifiers extend calculator behavior through pre/post-calculate hooks in the [`MetaCalculator`](@ref) pipeline.
+Modifiers extend calculator behavior through pre/post-calculate hooks in the `MetaCalculator` pipeline.
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Potential]
 Pages = [
     "potential/calculator/modifiers/abstract.jl",
     "potential/calculator/modifiers/dimension_penalty.jl",
     "potential/calculator/modifiers/additive_calc.jl",
+    "potential/calculator/modifiers/volume_constraint.jl",
 ]
 ```
 
 ## Optimization
 
-Structure optimization algorithms and high-level entry points. Use [`opt_fire`](@ref) for general-purpose geometry optimization or [`opt_tpsd`](@ref) for the TPSD algorithm.
+Structure optimization algorithms and high-level entry points. Use `opt_fire` for general-purpose geometry optimization or `opt_tpsd` for the TPSD algorithm.
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Simulation]
 Pages = [
     "simulation/opt.jl",
     "simulation/optimizer/abstract.jl",
     "simulation/optimizer/constraints.jl",
     "simulation/optimizer/tpsd.jl",
     "simulation/optimizer/fire.jl",
+    "simulation/optimizer/utils.jl",
 ]
 ```
 
@@ -91,7 +105,7 @@ Pages = [
 Run molecular dynamics simulations with trained potentials. Supports NVE (Velocity Verlet) and NVT (Langevin, Berendsen) ensembles.
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Simulation]
 Pages = [
     "simulation/md.jl",
 ]
@@ -138,48 +152,92 @@ calc = EDDPotentials.lj_baseline_calc(cell; sigma, epsilon, rcut=4.0)
 ```
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Simulation]
 Pages = [
     "simulation/relax.jl",
 ]
 ```
 
-## Hyperdimensional Relaxation
+## Experimental Hyperdimensional Relaxation
 
-Functions for structure relaxation in extended (hyperdimensional) configuration spaces, used for enhanced exploration in structure prediction.
+Experimental functions for structure relaxation in extended (hyperdimensional) configuration spaces. These APIs are intended for enhanced exploration and method development; validate any output with standard 3D relaxation and reference calculations.
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Search]
 Pages = [
     "search/hyper.jl",
 ]
 ```
 
-## Automated Potential Building
+## Structure Search
 
-Functions for the iterative active-learning workflow: [`Builder`](@ref) configuration, [`link!`](@ref) for automated cycles, [`run_rss`](@ref) for structure search. See [Iterative Training](concepts/iterative_training.md) for details.
+Functions for generating random structures, running RSS and Hot-AIRSS workflows, computing minimum-separation statistics, and constructing small model structures for feature inspection.
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Search]
+Pages = [
+    "search/buildcell.jl",
+    "search/rss.jl",
+    "search/hot.jl",
+    "search/minsep.jl",
+    "search/model_structures.jl",
+    "search/transforms.jl",
+]
+```
+
+## Automated Potential Building
+
+Functions for the iterative active-learning workflow: `Builder` configuration, `link!` automated cycles, `run_rss` structure search, formula-space sampling, and file-backed distributed execution. See [Iterative Training](concepts/iterative_training.md) for details.
+
+```@autodocs
+Modules = [EDDPotentials.Workflow]
 Pages = [
     "workflow/link/link.jl",
     "workflow/link/options.jl",
+    "workflow/link/formula_sampling.jl",
     "workflow/link/workflow.jl",
     "workflow/link/analysis.jl",
     "workflow/link/trainer.jl",
+    "workflow/link/data.jl",
+    "workflow/link/utils.jl",
+    "workflow/link/distributed.jl",
+    "workflow/link/external.jl",
+    "workflow/link/hyper_builder.jl",
+]
+```
+
+## Analysis
+
+Evaluation, records, phase diagrams, plotting entry points, and lazy SHELX parsing.
+
+```@autodocs
+Modules = [EDDPotentials.Analysis]
+Pages = [
+    "analysis/evaluation.jl",
+    "analysis/records.jl",
+    "analysis/plotting_recipes.jl",
+    "analysis/lazy_res.jl",
+    "analysis/plotting.jl",
 ]
 ```
 
 ## Miscellaneous Utilities
 
-Support utilities including serialization, plotting recipes, and file I/O helpers.
+Support utilities including file I/O helpers, finite-difference checks, timer controls, and low-level feature-gradient helpers.
+
+```@docs
+EDDPotentials.enable_eddp_timer!
+EDDPotentials.disable_eddp_timer!
+EDDPotentials.reset_eddp_timer!
+EDDPotentials.Potential.NNLS
+```
 
 ```@autodocs
-Modules = [EDDPotentials]
+Modules = [EDDPotentials.Potential]
 Pages = [
     "potential/utilities.jl",
-    "analysis/records.jl",
-    "analysis/plotting_recipes.jl",
-    "analysis/lazy_res.jl",
+    "potential/utils.jl",
+    "potential/gradient/gradient.jl",
+    "potential/gradient/repulsive_core.jl",
 ]
 ```

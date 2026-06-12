@@ -1,5 +1,5 @@
 using EDDPotentials
-using EDDPotentials.Potential: LinearInterface, ManualFluxBackPropInterface, FluxInterface, EnsembleNNInterface, clear_transient_gradients!, forward!, backward!, paramvector, paramvector!, setparamvector!, nparams, gradparam!, gradinp!
+using EDDPotentials.Potential: LinearInterface, ManualFluxBackPropInterface, FluxInterface, EnsembleNNInterface, forward!, backward!, paramvector, paramvector!, setparamvector!, nparams, gradparam!, gradinp!
 using Flux
 using Test
 
@@ -48,7 +48,6 @@ isdefined(Main, :allclose) || include("utils.jl")
     @testset "MBP" begin
         chain = Chain(Dense(rand(10, 10)), Dense(rand(10, 10)))
         itf = ManualFluxBackPropInterface(chain)
-        @test itf.gradient_cache_size == 8
         inp = rand(10, 10)
         output = forward!(itf, inp)
         backward!(itf)
@@ -71,36 +70,6 @@ isdefined(Main, :allclose) || include("utils.jl")
         pvec[1:10] .= 0.0
         setparamvector!(itf, pvec)
         @test all(chain.layers[1].weight[1:10] .== 0.0)
-    end
-
-    @testset "MBP gradient cache" begin
-        chain = Chain(Dense(rand(5, 10), rand(5)), Dense(rand(1, 5), rand(1)))
-
-        @test_throws ArgumentError ManualFluxBackPropInterface(chain; gradient_cache_size=0)
-
-        itf = ManualFluxBackPropInterface(chain; gradient_cache_size=3)
-        @test itf.gradient_cache_size == 3
-
-        for bsize in 2:6
-            forward!(itf, rand(10, bsize))
-            @test length(itf.gchains) <= 3
-        end
-        @test [g.n for g in itf.gchains] == [6, 5, 4]
-
-        forward!(itf, rand(10, 4))
-        @test [g.n for g in itf.gchains] == [4, 6, 5]
-
-        forward!(itf, rand(10, 7))
-        @test [g.n for g in itf.gchains] == [7, 4, 6]
-        @test !(5 in [g.n for g in itf.gchains])
-
-        backward!(itf)
-        gout = zeros(10, 7)
-        gradinp!(gout, itf)
-        @test any(x -> !iszero(x), gout)
-
-        clear_transient_gradients!(itf)
-        @test isempty(itf.gchains)
     end
 
     @testset "Ensemble" begin

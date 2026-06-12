@@ -36,155 +36,13 @@ mutable struct Builder
     options::BuilderOption
 end
 
-_rss_seedfile_paths(workdir::AbstractString, rs::RssSetting) =
-    joinpath.(Ref(workdir), _seedfiles(rs.seedfile))
-
-function _config_equal(a, b)
-    typeof(a) == typeof(b) || return false
-    if a isa AbstractArray || a isa AbstractDict || a isa AbstractString ||
-       a isa Number || a isa Bool || a === nothing || a isa Symbol
-        return a == b
-    end
-    T = typeof(a)
-    isstructtype(T) || return a == b
-    all(name -> _config_equal(getfield(a, name), getfield(b, name)), fieldnames(T))
-end
-
-function _migrate_legacy_rss_field!(
-    rs::RssSetting,
-    field::Symbol,
-    legacy_value,
-    legacy_default,
-    rss_default::RssSetting,
-)
-    _config_equal(legacy_value, legacy_default) && return false
-    _config_equal(getfield(rs, field), getfield(rss_default, field)) || return false
-    setfield!(rs, field, deepcopy(legacy_value))
-    return true
-end
-
-const _LEGACY_STATE_RSS_FIELDS = Set(String[
-    "seedfile",
-    "seedfile_weights",
-    "rss_pressure_gpa",
-    "rss_pressure_gpa_range",
-    "rss_niggli_reduce",
-    "rss_nprocs",
-    "rss_external",
-    "rss_num_threads",
-    "rss_prune",
-    "core_size",
-    "ensemble_std_min",
-    "ensemble_std_max",
-    "relax",
-    "formula_sampling_enabled",
-    "formula_max_reduced_formula_coeff",
-    "formula_list",
-    "formula_target_atom_volumes",
-    "formula_oxidation_states",
-    "formula_require_charge_neutral",
-    "relax_mode",
-    "hot_n_rounds",
-    "hot_md_temperature",
-    "hot_md_steps",
-    "hot_md_timestep",
-    "hot_relax_cell",
-])
-
-function _state_config_dict(config::AbstractDict)
-    state = get(config, "state", nothing)
-    state isa AbstractDict ? state : Dict{String,Any}()
-end
-
-function _legacy_state_rss_fields(config::AbstractDict)
-    state = _state_config_dict(config)
-    String[k for k in keys(state) if k in _LEGACY_STATE_RSS_FIELDS]
-end
-
-function _migrate_legacy_state_rss!(
-    state::BuilderState;
-    legacy_fields=String[],
-)
-    rs = state.rss
-    default_rs = _default_state_rss()
-    migrated = false
-    deprecated_fields = String[legacy_fields...]
-
-    if state.seedfile !== nothing
-        push!(deprecated_fields, "seedfile")
-        if rs.seedfile == default_rs.seedfile
-            rs.seedfile = deepcopy(state.seedfile)
-            migrated = true
-        end
-    end
-
-    mappings = (
-        (:seedfile_weights, :seedfile_weights, Float64[1.0]),
-        (:rss_pressure_gpa, :pressure_gpa, 0.01),
-        (:rss_pressure_gpa_range, :pressure_gpa_range, nothing),
-        (:rss_niggli_reduce, :niggli_reduce_output, true),
-        (:rss_nprocs, :nprocs, 2),
-        (:rss_external, :external, true),
-        (:rss_num_threads, :num_threads, 1),
-        (:rss_prune, :prune, RssPruneOption()),
-        (:core_size, :core_size, 0.5),
-        (:ensemble_std_min, :ensemble_std_min, -1.0),
-        (:ensemble_std_max, :ensemble_std_max, -1.0),
-        (:relax, :relax, RelaxOption()),
-        (:formula_sampling_enabled, :formula_sampling_enabled, false),
-        (:formula_max_reduced_formula_coeff, :formula_max_reduced_formula_coeff, 6),
-        (:formula_list, :formula_list, String[]),
-        (:formula_target_atom_volumes, :formula_target_atom_volumes, Dict{String,Float64}()),
-        (:formula_oxidation_states, :formula_oxidation_states, Dict{String,Vector{Int}}()),
-        (:formula_require_charge_neutral, :formula_require_charge_neutral, true),
-        (:relax_mode, :relax_mode, "standard"),
-        (:hot_n_rounds, :hot_n_rounds, 10),
-        (:hot_md_temperature, :hot_md_temperature, 300.0),
-        (:hot_md_steps, :hot_md_steps, 1000),
-        (:hot_md_timestep, :hot_md_timestep, 0.5),
-        (:hot_relax_cell, :hot_relax_cell, true),
-    )
-    for (legacy_field, rss_field, legacy_default) in mappings
-        legacy_value = getfield(state, legacy_field)
-        if !_config_equal(legacy_value, legacy_default)
-            push!(deprecated_fields, string(legacy_field))
-            migrated |= _migrate_legacy_rss_field!(
-                rs,
-                rss_field,
-                legacy_value,
-                legacy_default,
-                default_rs,
-            )
-        end
-    end
-
-    if !isempty(deprecated_fields)
-        unique!(deprecated_fields)
-        @warn "Deprecated flat BuilderState RSS settings were used; move them under [state.rss]." fields=join(deprecated_fields, ", ") migrated=migrated
-    end
-    return state
-end
-
-function _rss_hot_kwargs(rs::RssSetting)
-    (; n_rounds=rs.hot_n_rounds, md_temperature=rs.hot_md_temperature,
-        md_steps=rs.hot_md_steps, md_timestep=rs.hot_md_timestep,
-        relax_cell=rs.hot_relax_cell)
-end
-
 
 """
     Builder(options::BuilderOption)
 
 Create a new `Builder` object with the given options.
 """
-function Builder(
-    options::BuilderOption;
-    legacy_state_rss_fields=String[],
-)
-    _migrate_legacy_state_rss!(
-        options.state;
-        legacy_fields=legacy_state_rss_fields,
-    )
+function Builder(options::BuilderOption)
     cf = CellFeature(options.cf)
     if options.cf_embedding !== nothing
         embed = CellEmbedding(cf, options.cf_embedding.n, options.cf_embedding.m)
@@ -198,7 +56,7 @@ function Builder(
 
     # Populate some default fields
     if builder.rss.seedfile == "null"
-        builder.rss.seedfile = builder.state.rss.seedfile
+        builder.rss.seedfile = builder.state.seedfile
         @warn "Using seed file: $(builder.rss.seedfile)"
     end
 
@@ -268,27 +126,22 @@ cf_embedding:
 function Builder(str::AbstractString="link.toml")
     @info "Loading from file $(str)"
 
-    config_dict = Dict{String,Any}()
     if endswith(str, ".toml")
-        config_dict = TOML.parsefile(str)
         builder_opts = from_toml(BuilderOption, str)
     else
-        config_dict = YAML.load_file(str; dicttype=Dict{String,Any})
+        dict = YAML.load_file(str; dicttype=Dict{String,Any})
         # Save converted TOML if requested
         toml = splitext(str)[1] * ".toml"
         if !isfile(toml)
             @info "Saving converted TOML configuration at $toml."
             open(toml, "w") do io
-                TOML.print(io, config_dict)
+                TOML.print(io, dict)
             end
         end
-        builder_opts = from_dict(BuilderOption, config_dict)
+        builder_opts = from_dict(BuilderOption, dict)
     end
 
-    builder = Builder(
-        builder_opts;
-        legacy_state_rss_fields=_legacy_state_rss_fields(config_dict),
-    )
+    builder = Builder(builder_opts)
 
     # Adjust the workdir to be that relative to the yaml file
     paths = splitpath(str)
@@ -325,7 +178,7 @@ function Base.show(io::IO, m::MIME"text/plain", bu::Builder)
     println(io, "Builder:")
     println(io, "  Working directory: $(bu.state.workdir) ($(abspath(bu.state.workdir)))")
     println(io, "  Iteration: $(bu.state.iteration)")
-    println(io, "  Seed file: $(bu.state.rss.seedfile)")
+    println(io, "  Seed file: $(bu.state.seedfile)")
     println("\nState: ")
     show(io, m, bu.state)
     println("\nTrainer: ")
@@ -342,7 +195,7 @@ function Base.show(io::IO, bu::Builder)
     println(io, "Builder:")
     println(io, "  Working directory: $(bu.state.workdir) ($(abspath(bu.state.workdir)))")
     println(io, "  Iteration: $(bu.state.iteration)")
-    println(io, "  Seed file: $(bu.state.rss.seedfile)")
+    println(io, "  Seed file: $(bu.state.seedfile)")
 end
 
 
@@ -586,10 +439,12 @@ function _dft_required_commands(bu::Builder)
     mode = lowercase(strip(bu.state.dft_mode))
     if mode == "pp3"
         return ["pp3"]
-    elseif mode == "crud"
+    elseif mode in ("crud", "crud-queue")
         return ["crud.pl"]
     elseif mode == "acrud"
         return String[]
+    elseif mode == "disp-castep"
+        return ["disp"]
     elseif mode == "mock"
         return String[]
     end
@@ -599,6 +454,13 @@ end
 function _required_commands(::LocalLinkBackend, bu::Builder)
     commands = String["buildcell"]
     append!(commands, _dft_required_commands(bu))
+    if bu.trainer.external && lowercase(strip(bu.trainer.external_mode)) in ("submit", "command")
+        scheduler = bu.options.scheduler
+        scheduler === nothing && throw(
+            ArgumentError("A top-level `[scheduler]` config is required when trainer.external_mode = \"submit\"."),
+        )
+        scheduler.submit_jobs && push!(commands, _scheduler_command(scheduler))
+    end
     filter!(!isempty, commands)
     return commands
 end
@@ -629,41 +491,18 @@ function _require_builder_file_path!(bu::Builder)
 end
 
 function _uses_subprocesses(bu::Builder, ::LocalLinkBackend)
-    return bu.state.rss.external ||
-           bu.trainer.external
+    return bu.state.rss_external ||
+           bu.trainer.external ||
+           lowercase(strip(bu.trainer.external_mode)) in ("submit", "command")
 end
 
 _uses_subprocesses(bu::Builder, ::DistributedLinkBackend) = true
 
-function _validate_local_backend_modes!(bu::Builder)
-    bu.trainer.external || throw(
-        ArgumentError(
-            "Local link no longer supports in-process training (`trainer.external=false`). Use `trainer.external=true` with `trainer.external_mode=\"local\"`, or enable `[distributed] enabled=true`.",
-        ),
-    )
-
-    training_mode = lowercase(strip(bu.trainer.external_mode))
-    training_mode == "local" || throw(
-        ArgumentError(
-            "Local link no longer supports trainer.external_mode=`$(bu.trainer.external_mode)`. Use `external_mode=\"local\"` for local Julia training workers, or enable `[distributed] enabled=true` for scheduler-managed workers.",
-        ),
-    )
-
-    dft_mode = lowercase(strip(bu.state.dft_mode))
-    dft_mode in ("crud-queue", "disp-castep") && throw(
-        ArgumentError(
-            "Local link no longer supports state.dft_mode=`$(bu.state.dft_mode)`. Use direct local DFT modes (`mock`, `pp3`, `crud`, `acrud`) or enable `[distributed] enabled=true` for worker-managed DFT.",
-        ),
-    )
-    return true
-end
-
 function validate_builder_for_link!(bu::Builder, backend::AbstractLinkBackend)
-    bu.state.rss.nprocs >= 1 ||
-        throw(ArgumentError("state.rss.nprocs must be >= 1."))
+    bu.state.rss_nprocs >= 1 ||
+        throw(ArgumentError("state.rss_nprocs must be >= 1."))
     0.0 < bu.state.per_generation_threshold <= 1.0 ||
         throw(ArgumentError("state.per_generation_threshold must be in the interval (0, 1]."))
-    backend isa LocalLinkBackend && _validate_local_backend_modes!(bu)
     if backend isa DistributedLinkBackend
         _distributed_log_level(bu.options.distributed.log_level)
         bu.options.distributed.log_interval_seconds > 0.0 ||
@@ -675,7 +514,6 @@ function validate_builder_for_link!(bu::Builder, backend::AbstractLinkBackend)
 end
 
 function run_dft_phase!(::LocalLinkBackend, bu::Builder, iter::Int)
-    _validate_local_backend_modes!(bu)
     is_training_data_ready(bu, iter) && return LinkPhaseResult(:ok, :dft, iter; message="DFT outputs already ready")
     flag = _run_external(bu)
     should_stop(bu) && return LinkPhaseResult(:stopped, :dft, iter)
@@ -684,7 +522,6 @@ function run_dft_phase!(::LocalLinkBackend, bu::Builder, iter::Int)
 end
 
 function run_training_phase!(::LocalLinkBackend, bu::Builder, iter::Int)
-    _validate_local_backend_modes!(bu)
     _models_ready_for_ensemble(bu) &&
         return LinkPhaseResult(:ok, :train_models, iter; message="models already ready")
     result = _perform_training_models(bu)
@@ -711,7 +548,8 @@ function create_iteration_ensemble!(bu::Builder, iter::Int=bu.state.iteration)
     )
 end
 
-_required_models_for_ensemble(tra::TrainingOption) = _external_required_models(tra)
+_required_models_for_ensemble(tra::TrainingOption) =
+    tra.external ? _external_required_models(tra) : tra.nmodels
 
 _models_ready_for_ensemble(bu::Builder) =
     num_existing_models(bu) >= _required_models_for_ensemble(bu.trainer)
@@ -836,10 +674,8 @@ function _generate_random_structures(bu::Builder, iter)
         @info "Skipping structure generation for iteration $iter; found $ndata existing structures."
         return :ok
     end
-    (; workdir, buildcell_nprocs, build_timeout) = bu.state
-    rs = bu.state.rss
-    (; seedfile_weights) = rs
-    formula_ctx = _formula_sampling_context(workdir, rs, bu.cfopt.elements)
+    (; seedfile, seedfile_weights, workdir, buildcell_nprocs, build_timeout) = bu.state
+    formula_ctx = _formula_sampling_context(bu.state, bu.cfopt.elements)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
 
     if iter == 0
@@ -872,7 +708,7 @@ function _generate_random_structures(bu::Builder, iter)
         if nstruct > 0
             @info "Generating $(nstruct) initial training structures with $(buildcell_nprocs) buildcell process(es)."
             build_random_structures(
-                _rss_seedfile_paths(workdir, rs),
+                joinpath.(workdir, seedfile),
                 outdir;
                 seedfile_weights,
                 n=nstruct,
@@ -886,7 +722,7 @@ function _generate_random_structures(bu::Builder, iter)
         nstruct = required - ndata
         if nstruct > 0
             # Launch external processes or internal RSS
-            result = if bu.state.rss.external
+            result = if bu.state.rss_external
                 _launch_rss_external(bu, iter, nstruct)
             else
                 _launch_rss_internal(bu, iter, nstruct)
@@ -917,11 +753,10 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
     _require_builder_file_path!(bu)
 
     # Distribute the workloads
-    rs = bu.state.rss
-    rs.nprocs >= 1 ||
-        throw(ArgumentError("state.rss.nprocs must be >= 1."))
-    nstruct_per_proc = max(1, ceil(Int, nstruct / rs.nprocs))
-    nstructs = fill(nstruct_per_proc, rs.nprocs)
+    bu.state.rss_nprocs >= 1 ||
+        throw(ArgumentError("state.rss_nprocs must be >= 1."))
+    nstruct_per_proc = max(1, ceil(Int, nstruct / bu.state.rss_nprocs))
+    nstructs = fill(nstruct_per_proc, bu.state.rss_nprocs)
 
     # Launch external processes
     state = bu.state
@@ -942,34 +777,34 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
                 "--num",
                 "$(num)",
                 "--pressure",
-                "$(rs.pressure_gpa)",
+                "$(state.rss_pressure_gpa)",
                 "--outdir",
                 "$(outdir)",
                 "--relax-mode",
-                "$(rs.relax_mode)",
+                "$(state.relax_mode)",
             ]);
-            julia_threads=rs.num_threads,
+            julia_threads=state.rss_num_threads,
         ) for num in nstructs
     ]
 
     # Apply random pressure range
-    if !isnothing(rs.pressure_gpa_range) && !isempty(rs.pressure_gpa_range)
+    if !isnothing(state.rss_pressure_gpa_range) && !isempty(state.rss_pressure_gpa_range)
         # Add pressure ranges
-        a, b = rs.pressure_gpa_range
+        a, b = state.rss_pressure_gpa_range
         for i in eachindex(cmds)
             cmds[i] = add_threads_env(
                 Cmd([cmds[i]..., "--pressure-range", "$(a),$(b)"]);
-                julia_threads=rs.num_threads,
+                julia_threads=state.rss_num_threads,
             )
         end
     end
 
-    @info "Subprocess launch command: $(Cmd([cmds[1]...])) for $(rs.nprocs) process"
+    @info "Subprocess launch command: $(Cmd([cmds[1]...])) for $(state.rss_nprocs) process"
 
     # Launch processes
     tasks = Task[]
     processes = []
-    for i = 1:rs.nprocs
+    for i = 1:state.rss_nprocs
         proc = run(
             pipeline(cmds[i], stdout="rss-process-$i-stdout", stderr="rss-process-$i");
             wait=false,
@@ -980,7 +815,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
     end
 
     @info "Search process launched, waiting..."
-    last_nstruct = length(glob_allow_abs(joinpath(outdir, "*.res")))
+    last_nstruct = length(glob(joinpath(outdir, "*.res")))
     while !all(istaskdone.(tasks))
         if should_stop(bu)
             for proc in processes
@@ -992,7 +827,7 @@ function _launch_rss_external(bu::Builder, iter::Int, nstruct::Int)
             end
             return :stopped
         end
-        nfound = length(glob_allow_abs(joinpath(outdir, "*.res")))
+        nfound = length(glob(joinpath(outdir, "*.res")))
         # Print progress if the number of models have changed
         if nfound != last_nstruct
             @info "Number of relaxed structures: $(nfound)/$(state.per_generation)"
@@ -1007,22 +842,22 @@ end
 
 
 """
-    _populate_hyper_option(rs::RssSetting; verbose=nothing) -> RelaxOption
+    _populate_hyper_option(state::BuilderState; verbose::Bool=true) -> RelaxOption
 
-Create a RelaxOption from the RSS setting. `rss.relax` is the single source
+Create a RelaxOption from the BuilderState. `state.relax` is the single source
 of hyperspace relaxation parameters.
 """
-function _populate_hyper_option(rs::RssSetting; verbose=nothing)
-    opt = deepcopy(rs.relax)
-    verbose === nothing || (opt.verbose = verbose)
-    if rs.relax_mode == "hyperspace" && opt.hyper_ndim <= 0
+function _populate_hyper_option(state; verbose::Bool=true)
+    opt = deepcopy(state.relax)
+    opt.verbose = verbose
+    if state.relax_mode == "hyperspace" && opt.hyper_ndim <= 0
         opt.hyper_ndim = 3
     end
     opt
 end
 
-_normalized_relax_mode(rs::RssSetting, opt) =
-    rs.relax_mode == "hyperspace" || opt.hyper_ndim > 0 ? "hyperspace" : rs.relax_mode
+_normalized_relax_mode(state, opt) =
+    state.relax_mode == "hyperspace" || opt.hyper_ndim > 0 ? "hyperspace" : state.relax_mode
 
 
 """
@@ -1031,42 +866,43 @@ _normalized_relax_mode(rs::RssSetting, opt) =
 Run RSS generation internally within the current process.
 """
 function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
-    rs = bu.state.rss
-    @info "Generating $(nstruct) training structures for iteration $iter ($(rs.relax_mode) mode)."
+    @info "Generating $(nstruct) training structures for iteration $iter ($(bu.state.relax_mode) mode)."
     ensemble = load_ensemble(bu, iter - 1)
     state = bu.state
     outdir = joinpath(state.workdir, "gen$(iter)")
     ensure_dir(outdir)
 
-    (; seedfile_weights, ensemble_std_min, ensemble_std_max) = rs
-    _relax_option = _populate_hyper_option(rs)
-    relax_mode = _normalized_relax_mode(rs, _relax_option)
-    formula_ctx = _formula_sampling_context(state.workdir, rs, bu.cfopt.elements)
+    (; seedfile, seedfile_weights, ensemble_std_min, ensemble_std_max) = state
+    _relax_option = _populate_hyper_option(state)
+    relax_mode = _normalized_relax_mode(state, _relax_option)
+    formula_ctx = _formula_sampling_context(state, bu.cfopt.elements)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
-    hot_kwargs = _rss_hot_kwargs(rs)
+    hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
+        md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
+        relax_cell=state.hot_relax_cell)
 
-    _run_rss(
-        _rss_seedfile_paths(state.workdir, rs),
-        ensemble,
-        bu.cf;
+        _run_rss(
+            joinpath.(Ref(state.workdir), seedfile),
+            ensemble,
+            bu.cf;
         show_progress=true,
         max=nstruct,
-        core_size=rs.core_size,
+        core_size=state.core_size,
         outdir,
         ensemble_std_max=ensemble_std_max,
         ensemble_std_min=ensemble_std_min,
         packed=false,
-        niggli_reduce_output=rs.niggli_reduce_output,
-        max_err=rs.max_err,
-        pressure_gpa=rs.pressure_gpa,
-        pressure_gpa_range=rs.pressure_gpa_range,
+        niggli_reduce_output=state.rss_niggli_reduce,
+        max_err=10,
+        pressure_gpa=state.rss_pressure_gpa,
+        pressure_gpa_range=state.rss_pressure_gpa_range,
         seedfile_weights,
         relax_option=_relax_option,
         elemental_energies=make_symbol_keys(state.elemental_energies),
         relax_mode,
         hot_kwargs,
         seed_text_transform,
-        prune_option=rs.prune,
+        prune_option=state.rss_prune,
         prune_random_composition=formula_ctx !== nothing,
     )
     return :ok
@@ -1090,16 +926,19 @@ function run_rss(builder::Builder)
     end
 
     ensure_dir(searchdir)
-    (; seedfile_weights) = rs
+    (; seedfile, seedfile_weights) = rs
     state = builder.state
-    _relax_option = _populate_hyper_option(rs)
-    _relax_mode = _normalized_relax_mode(rs, _relax_option)
-    formula_ctx = _formula_sampling_context(state.workdir, rs, builder.cfopt.elements; seedfile=rs.seedfile)
+    _relax_option = deepcopy(rs.relax)
+    _relax_option.verbose = state.rss_nprocs > 0
+    _relax_mode = _normalized_relax_mode(state, _relax_option)
+    formula_ctx = _formula_sampling_context(state, builder.cfopt.elements; seedfile=seedfile)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
-    hot_kwargs = _rss_hot_kwargs(rs)
+    hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
+        md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
+        relax_cell=state.hot_relax_cell)
 
     _run_rss(
-        _rss_seedfile_paths(builder.state.workdir, rs),
+        joinpath.(Ref(builder.state.workdir), seedfile),
         ensemble,
         builder.cf;
         show_progress=rs.show_progress,
@@ -1111,7 +950,6 @@ function run_rss(builder::Builder)
         niggli_reduce_output=rs.niggli_reduce_output,
         max_err=rs.max_err,
         pressure_gpa=rs.pressure_gpa,
-        pressure_gpa_range=rs.pressure_gpa_range,
         seedfile_weights,
         relax_option=_relax_option,
         elemental_energies=make_symbol_keys(state.elemental_energies),
@@ -1120,7 +958,6 @@ function run_rss(builder::Builder)
         seed_text_transform,
         prune_option=rs.prune,
         prune_random_composition=formula_ctx !== nothing,
-        eng_threshold=rs.eng_threshold,
     )
 end
 
@@ -1170,7 +1007,7 @@ function _run_rss_link()
         help = "Range of the pressure"
         "--relax-mode"
         help = "Relaxation mode: standard, hyperspace, or hot"
-        default = nothing
+        default = "standard"
     end
 
     args = parse_args(s)
@@ -1180,51 +1017,49 @@ function _run_rss_link()
     # Load the ensemble file of the "last" iteration
     ensemble = load_ensemble(bu, bu.state.iteration - 1)
 
-    state = bu.state
-    rs = state.rss
-
     if args["pressure"] !== nothing
         pressure_gpa = parse(Float64, args["pressure"])
     else
-        pressure_gpa = rs.pressure_gpa
+        pressure_gpa = 0.001
     end
 
     if args["pressure-range"] !== nothing
         pressure_gpa_range = map(x -> parse(Float64, x), split(args["pressure-range"], ","))
     else
-        pressure_gpa_range = rs.pressure_gpa_range
+        pressure_gpa_range = nothing
     end
 
-    relax_mode_override = args["relax-mode"]
-    _relax_option = _populate_hyper_option(rs; verbose=true)
-    relax_mode = isnothing(relax_mode_override) ?
-                 _normalized_relax_mode(rs, _relax_option) :
-                 relax_mode_override
-    formula_ctx = _formula_sampling_context(state.workdir, rs, bu.cfopt.elements)
+    relax_mode = args["relax-mode"]
+    state = bu.state
+    _relax_option = deepcopy(state.relax)
+    _relax_option.verbose = true
+    relax_mode = _normalized_relax_mode(state, _relax_option)
+    formula_ctx = _formula_sampling_context(state, bu.cfopt.elements)
     seed_text_transform = _make_seed_text_transform(formula_ctx)
-    hot_kwargs = _rss_hot_kwargs(rs)
+    hot_kwargs = (; n_rounds=state.hot_n_rounds, md_temperature=state.hot_md_temperature,
+        md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
+        relax_cell=state.hot_relax_cell)
 
-    (; seedfile_weights) = rs
+    (; seedfile, seedfile_weights) = state
     _run_rss(
-        _rss_seedfile_paths(state.workdir, rs),
+        joinpath.(Ref(state.workdir), seedfile),
         ensemble,
         bu.cf;
-        core_size=rs.core_size,
-        ensemble_std_max=rs.ensemble_std_max,
-        ensemble_std_min=rs.ensemble_std_min,
+        core_size=state.core_size,
+        ensemble_std_max=state.ensemble_std_max,
+        ensemble_std_min=state.ensemble_std_min,
         max=args["num"],
         outdir=args["outdir"],
         pressure_gpa,
         pressure_gpa_range,
         seedfile_weights,
-        niggli_reduce_output=rs.niggli_reduce_output,
-        max_err=rs.max_err,
+        niggli_reduce_output=state.rss_niggli_reduce,
         relax_option=_relax_option,
         elemental_energies=make_symbol_keys(state.elemental_energies),
         relax_mode,
         hot_kwargs,
         seed_text_transform,
-        prune_option=rs.prune,
+        prune_option=state.rss_prune,
         prune_random_composition=formula_ctx !== nothing,
     )
 end
@@ -1250,8 +1085,12 @@ function _perform_training(bu::Builder)
 end
 
 function _perform_training_models(bu::Builder)
-    result = _perform_training_external(bu)
-    result isa Symbol && return result
+    if bu.trainer.external
+        result = _perform_training_external(bu)
+        result isa Symbol && return result
+    else
+        run_trainer(bu, bu.trainer)
+    end
     return :ok
 end
 
@@ -1267,12 +1106,10 @@ function _perform_training_external(bu::Builder)
 
     if mode == "local"
         _perform_training_external_local(bu)
+    elseif mode == "submit" || mode == "command"
+        return _perform_training_external_submit(bu)
     else
-        throw(
-            ArgumentError(
-                "Unsupported trainer.external_mode `$mode` for local link training; expected `local`. Use `[distributed] enabled=true` for scheduler-managed workers.",
-            ),
-        )
+        throw(ArgumentError("Unknown trainer.external_mode `$mode`; expected `local` or `submit`."))
     end
     return :ok
 end
@@ -1319,35 +1156,7 @@ end
 
 _command_string(cmd::Cmd) = join(_shell_escape.(string.(collect(cmd))), " ")
 
-function _training_submit_cmd(sch::SchedulerConfig, workdir)
-    if sch.type == "SGE"
-        prog = "qsub"
-    elseif sch.type == "SLURM"
-        prog = "sbatch"
-    else
-        throw(ArgumentError("Unknown scheduler.type `$(sch.type)`; expected `SGE` or `SLURM`."))
-    end
-
-    args = String[]
-    if sch.njobs > 1
-        sch.type == "SGE" && append!(args, String["-t", "1-$(sch.njobs)"])
-        sch.type == "SLURM" && append!(args, String["--array=1-$(sch.njobs)"])
-    end
-    sch.type == "SGE" && push!(args, "-cwd")
-    push!(args, "job.sh")
-    Cmd(Cmd([prog, args...]), dir=workdir)
-end
-
-function _parse_scheduler_job_id(sch::SchedulerConfig, output::AbstractString)
-    if sch.type == "SLURM"
-        match_result = match(r"Submitted batch job\s+(\d+)", output)
-        return match_result === nothing ? "" : match_result.captures[1]
-    elseif sch.type == "SGE"
-        match_result = match(r"Your job(?:-array)?\s+(\d+)", output)
-        return match_result === nothing ? "" : match_result.captures[1]
-    end
-    return ""
-end
+const TRAIN_CMD_PLACEHOLDER = "{{EDDP_TRAIN_CMD}}"
 
 function _external_required_models(tra::TrainingOption)
     max(1, ceil(Int, tra.nmodels * tra.external_completion_ratio))
@@ -1458,4 +1267,111 @@ function _perform_training_external_local(bu::Builder)
         poll_after_tasks=false,
         cancel_callback=() -> _cancel_training_processes(processes),
     )
+end
+
+function _training_submit_payload(bu::Builder)
+    worker_id_line = "WORKER_ID=\"\${SLURM_ARRAY_TASK_ID:-\${SGE_TASK_ID:-1}}\""
+    train_cmd = _command_string(_training_base_cmd(bu)) * " --id \"\$WORKER_ID\""
+    worker_id_line * "\n" * train_cmd
+end
+
+function _render_training_job_script(bu::Builder, scheduler::SchedulerConfig, workdir)
+    mkpath(workdir)
+    template = get_job_script_content(scheduler)
+    if !contains(template, TRAIN_CMD_PLACEHOLDER)
+        throw(
+            ArgumentError(
+                "Training scheduler script `$(scheduler.script)` must contain the placeholder `$TRAIN_CMD_PLACEHOLDER`.",
+            ),
+        )
+    end
+    rendered = replace(template, TRAIN_CMD_PLACEHOLDER => _training_submit_payload(bu))
+    script_path = joinpath(workdir, "job.sh")
+    open(script_path, "w") do handle
+        write(handle, rendered)
+    end
+    script_path
+end
+
+function _training_submit_cmd(sch::SchedulerConfig, workdir)
+    if sch.type == "SGE"
+        prog = "qsub"
+    elseif sch.type == "SLURM"
+        prog = "sbatch"
+    else
+        throw(ArgumentError("Unknown scheduler.type `$(sch.type)`; expected `SGE` or `SLURM`."))
+    end
+
+    args = String[]
+    if sch.njobs > 1
+        sch.type == "SGE" && append!(args, String["-t", "1-$(sch.njobs)"])
+        sch.type == "SLURM" && append!(args, String["--array=1-$(sch.njobs)"])
+    end
+    sch.type == "SGE" && push!(args, "-cwd")
+    push!(args, "job.sh")
+    Cmd(Cmd([prog, args...]), dir=workdir)
+end
+
+function _parse_scheduler_job_id(sch::SchedulerConfig, output::AbstractString)
+    if sch.type == "SLURM"
+        match_result = match(r"Submitted batch job\s+(\d+)", output)
+        return match_result === nothing ? "" : match_result.captures[1]
+    elseif sch.type == "SGE"
+        match_result = match(r"Your job(?:-array)?\s+(\d+)", output)
+        return match_result === nothing ? "" : match_result.captures[1]
+    end
+    return ""
+end
+
+function _cancel_scheduler_job(sch::SchedulerConfig, job_id::AbstractString, workdir)
+    isempty(job_id) && return
+    if sch.type == "SLURM"
+        cmd = Cmd(Cmd(["scancel", job_id]), dir=workdir)
+    elseif sch.type == "SGE"
+        cmd = Cmd(Cmd(["qdel", job_id]), dir=workdir)
+    else
+        return
+    end
+    try
+        @info "Cancelling surplus training scheduler job: $cmd"
+        run(cmd)
+    catch err
+        @warn "Failed to cancel scheduler job `$job_id`: $err"
+    end
+end
+
+function _perform_training_external_submit(bu::Builder)
+    tra = bu.trainer
+    scheduler = bu.options.scheduler
+    isnothing(scheduler) &&
+        throw(ArgumentError("A top-level `[scheduler]` config is required when trainer.external_mode = \"submit\"."))
+
+    workdir = joinpath(bu.state.workdir, "training-work", "gen$(bu.state.iteration)")
+    script_path = _render_training_job_script(bu, scheduler, workdir)
+    @info "Rendered training job script: $script_path"
+
+    job_id = ""
+    if scheduler.submit_jobs
+        cmd = _training_submit_cmd(scheduler, workdir)
+        @info "Training job submission command: $cmd"
+        submit_output = readchomp(cmd)
+        !isempty(submit_output) && @info "Training job submission output: $submit_output"
+        job_id = _parse_scheduler_job_id(scheduler, submit_output)
+        if isempty(job_id)
+            @warn "Could not parse scheduler job id from submission output; surplus cluster jobs cannot be cancelled automatically."
+        end
+    else
+        @info "scheduler.submit_jobs=false; monitoring existing training artifacts without submitting jobs."
+    end
+
+    if tra.external_wait
+        @info "Cluster training jobs submitted, waiting for model artifacts..."
+        return _wait_for_training_models(
+            bu;
+            cancel_callback=() -> _cancel_scheduler_job(scheduler, job_id, workdir),
+        )
+    else
+        @info "Cluster training jobs submitted without waiting for model artifacts."
+        return :pending
+    end
 end
