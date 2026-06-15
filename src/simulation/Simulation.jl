@@ -4,9 +4,11 @@ using ..Potential
 using Printf
 import CellBase
 using CellBase: nions, positions, species, masses, cellmat, remove_dimensions
+using Unitful: ustrip
 import ..EDDPotentials: EDDPotentialsOption
 import ..Potential:
     get_cellmat,
+    GPaToeVAng,
     eVAngToGPa,
     get_modifier_parameter,
     set_modifier_parameter!
@@ -31,6 +33,7 @@ export AbstractOptimizer,
     FixRelative,
     FixRigidGroup,
     FixLinearIonic,
+    SymmetryConstraint,
     IonicConstraint,
     FixCell,
     FixCellConstraint,

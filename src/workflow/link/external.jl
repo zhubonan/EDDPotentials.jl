@@ -499,25 +499,221 @@ function run_crud_queue(
     return true
 end
 
+const AIRSSPY_PARAM_SUFFIXES = Dict(
+    "castep" => ".param",
+    "gulp" => ".lib",
+    "pp3" => ".pp",
+    "abacus" => ".INPUT",
+    "vasp" => ".INCAR",
+)
+
+_airsspy_code(; code="castep", kwargs...) = lowercase(strip(String(code)))
+
+function _airsspy_seed_root(seedfile_calc)
+    path = splitext(String(seedfile_calc))[1]
+    return dirname(path), basename(path)
+end
+
+function _airsspy_res_root(path)
+    stem_name = stem(path)
+    parts = split(stem_name, "-"; limit=2)
+    return isempty(parts) ? stem_name : first(parts)
+end
+
+function _airsspy_res_roots(indir)
+    roots = Set{String}()
+    for file in glob_allow_abs(joinpath(indir, "*.res"))
+        push!(roots, _airsspy_res_root(file))
+    end
+    return isempty(roots) ? Set([""]) : roots
+end
+
+function _copy_airsspy_seed_templates(workdir, seedfile_calc, roots; code="castep")
+    code = _airsspy_code(; code)
+    code == "ml" && return true
+
+    seed_dir, seed_root = _airsspy_seed_root(seedfile_calc)
+    source_cell = joinpath(seed_dir, seed_root * ".cell")
+    isfile(source_cell) ||
+        throw(ArgumentError("airsspy acrud seed cell file not found: `$source_cell`."))
+
+    suffix = get(AIRSSPY_PARAM_SUFFIXES, code, nothing)
+    suffix === nothing &&
+        throw(ArgumentError("Unsupported airsspy code `$code`; expected one of $(join(sort(collect(keys(AIRSSPY_PARAM_SUFFIXES))), ", ")) or ml."))
+    source_param = joinpath(seed_dir, seed_root * suffix)
+    isfile(source_param) ||
+        throw(ArgumentError("airsspy acrud input file not found: `$source_param`."))
+
+    source_kpoints = joinpath(seed_dir, seed_root * ".KPOINTS")
+    for root in roots
+        isempty(root) && continue
+        cp(source_cell, joinpath(workdir, root * ".cell"); force=true)
+        cp(source_param, joinpath(workdir, root * suffix); force=true)
+        if code == "vasp" && isfile(source_kpoints)
+            cp(source_kpoints, joinpath(workdir, root * ".KPOINTS"); force=true)
+        end
+    end
+    return true
+end
+
+function prepare_airsspy_crud_workdir(workdir, seedfile_calc, indir; code="castep")
+    ensure_dir(workdir)
+    for dir in ("hopper", "good_castep", "bad_castep")
+        ensure_dir(joinpath(workdir, dir))
+    end
+    roots = _airsspy_res_roots(indir)
+    for file in glob_allow_abs(joinpath(indir, "*.res"))
+        cp(file, joinpath(workdir, "hopper", basename(file)); force=true)
+    end
+    _copy_airsspy_seed_templates(workdir, seedfile_calc, roots; code)
+    return roots
+end
+
+function _normalize_airsspy_res_line(line::AbstractString)
+    tokens = split(strip(line))
+    isempty(tokens) && return String(line)
+    if tokens[1] == "CELL" && length(tokens) > 8
+        return join(tokens[1:8], " ")
+    elseif tokens[1] == "LATT" && length(tokens) > 2
+        return join(tokens[1:2], " ")
+    end
+    return String(line)
+end
+
+function normalize_airsspy_res_file!(path::AbstractString)
+    lines = readlines(path)
+    normalized = [_normalize_airsspy_res_line(line) for line in lines]
+    if normalized != lines
+        open(path, "w") do io
+            for line in normalized
+                println(io, line)
+            end
+        end
+    end
+    return path
+end
+
+function _airsspy_resolve_ap_cmd(ap_cmd=nothing)
+    if ap_cmd !== nothing && !isempty(strip(String(ap_cmd)))
+        cmd = String(ap_cmd)
+        if occursin(Base.Filesystem.path_separator, cmd) || startswith(cmd, ".")
+            return isfile(abspath(cmd)) ? abspath(cmd) : cmd
+        end
+        return cmd
+    end
+    local_ap = joinpath(dirname(Base.active_project()), "airsspy-repo", ".venv", "bin", "ap")
+    isfile(local_ap) && return local_ap
+    found = Sys.which("ap")
+    found === nothing && throw(
+        ArgumentError(
+            "Could not find airsspy `ap` executable. Set state.dft_kwargs.ap_cmd or install airsspy on PATH.",
+        ),
+    )
+    return found
+end
+
+function _append_airsspy_option!(args::Vector{String}, flag::AbstractString, value)
+    value === nothing && return args
+    if value isa Bool
+        value && push!(args, flag)
+    elseif value isa AbstractVector
+        for item in value
+            push!(args, flag)
+            push!(args, string(item))
+        end
+    else
+        text = string(value)
+        isempty(text) && return args
+        push!(args, flag)
+        push!(args, text)
+    end
+    return args
+end
+
+function _airsspy_crud_args(
+    workdir;
+    code="castep",
+    exe=nothing,
+    mpinp=nothing,
+    pressure=nothing,
+    max_iterations=nothing,
+    calculator=nothing,
+    optimizer=nothing,
+    fmax=nothing,
+    device=nothing,
+    batch_size=nothing,
+    potcar_dir=nothing,
+    potcar_map=String[],
+    keep=false,
+    nostop=false,
+    singlepoint=true,
+    num=nothing,
+    kwargs...,
+)
+    args = String["run", "crud", "--workdir", String(workdir), "--code", _airsspy_code(; code)]
+    _append_airsspy_option!(args, "--exe", exe)
+    _append_airsspy_option!(args, "--mpinp", mpinp)
+    _append_airsspy_option!(args, "--pressure", pressure)
+    _append_airsspy_option!(args, "--max-iterations", max_iterations)
+    _append_airsspy_option!(args, "--calculator", calculator)
+    _append_airsspy_option!(args, "--optimizer", optimizer)
+    _append_airsspy_option!(args, "--fmax", fmax)
+    _append_airsspy_option!(args, "--device", device)
+    _append_airsspy_option!(args, "--batch-size", batch_size)
+    _append_airsspy_option!(args, "--potcar-dir", potcar_dir)
+    _append_airsspy_option!(args, "--potcar-map", potcar_map)
+    _append_airsspy_option!(args, "--num", num)
+    keep && push!(args, "--keep")
+    nostop && push!(args, "--nostop")
+    singlepoint && push!(args, "--singlepoint")
+    return args
+end
+
+function _airsspy_cmd_kwargs(kwargs::AbstractDict)
+    result = Dict{Symbol,Any}()
+    for (key, value) in pairs(kwargs)
+        sym = Symbol(key)
+        sym in (:ap_cmd, :code) && continue
+        result[sym] = value
+    end
+    !haskey(result, :singlepoint) && (result[:singlepoint] = true)
+    return result
+end
+
+function airsspy_crud_cmd(workdir; ap_cmd=nothing, kwargs...)
+    Cmd(String[_airsspy_resolve_ap_cmd(ap_cmd), _airsspy_crud_args(workdir; kwargs...)...])
+end
+
+"""
+    run_airsspy_crud(workdir, seedfile_calc, indir, outdir; kwargs...)
+
+Run airsspy's `ap run crud` compatibility worker for reference calculations.
+"""
+function run_airsspy_crud(workdir, seedfile_calc, indir, outdir; ap_cmd=nothing, code="castep", kwargs...)
+    for dir in ("hopper", "good_castep", "bad_castep")
+        path = joinpath(workdir, dir)
+        isdir(path) && rm(path; recursive=true)
+    end
+    prepare_airsspy_crud_workdir(workdir, seedfile_calc, indir; code)
+    ensure_dir(outdir)
+
+    cmd_kwargs = _airsspy_cmd_kwargs(Dict{Symbol,Any}(kwargs))
+    cmd = airsspy_crud_cmd(workdir; ap_cmd=ap_cmd, code=code, cmd_kwargs...)
+    @info "Running airsspy acrud command: $(cmd)"
+    run(cmd)
+
+    for file in glob_allow_abs(joinpath(workdir, "good_castep", "*.res"))
+        normalize_airsspy_res_file!(file)
+        mv(file, joinpath(outdir, basename(file)); force=true)
+    end
+    return true
+end
+
 """
     run_acrud(workdir, indir, outdir; batch_size=1, verbose=false,
               exec="python singlepoint.py", keep=false)
 
-Use acrud (ASE Calculation Runner Daemon) for singlepoint calculations.
-
-Launches many calculations in parallel using a Python/ASE script.
-
-# Arguments
-- `workdir`: Working directory
-- `indir`: Directory containing input structures
-- `outdir`: Directory for output structures
-- `batch_size`: Number of structures per batch
-- `verbose`: Print verbose output
-- `exec`: Executable command for calculations
-- `keep`: Keep working directory files
-
-# Returns
-- Nothing (results written to outdir)
+Deprecated Julia acrud compatibility runner. Prefer `run_airsspy_crud`.
 """
 function run_acrud(
     workdir,
@@ -869,8 +1065,9 @@ function get_external_calculator(builder::Builder)
 
     elseif state.dft_mode == "acrud"
         return (indir, outdir) -> (
-            run_acrud(
+            run_airsspy_crud(
                 joinpath(state.workdir, "acrud-work"),
+                joinpath(state.workdir, state.seedfile_calc),
                 indir,
                 outdir;
                 make_symbol_keys(state.dft_kwargs)...,

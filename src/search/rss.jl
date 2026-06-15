@@ -39,6 +39,47 @@ end
 
 _rss_pool_mean(pool) = sum(c -> c.epa, pool) / length(pool)
 _rss_pool_median(pool) = _rss_median(c.epa for c in pool)
+_rss_external_pressure_vector(pressure_gpa) = Float64[GPaToeVAng(pressure_gpa)]
+_rss_trajectory_enabled(opts::RelaxOption) =
+    opts.keep_trajectory || !isempty(strip(opts.trajectory_file))
+_rss_hyper_external_pressure_matrix(opts::RelaxOption) = begin
+    p_internal = Simulation._external_pressure_internal(opts)[1]
+    [p_internal 0 0; 0 p_internal 0; 0 0 p_internal]
+end
+function _rss_hot_airss_option(relax_option::RelaxOption, hot_kwargs)
+    cycles = get(hot_kwargs, :n_rounds, 10)
+    md_temp = get(hot_kwargs, :md_temperature, Float64(300.0))
+    md_steps = get(hot_kwargs, :md_steps, 1000)
+    md_dt = get(hot_kwargs, :md_timestep, Float64(0.5))
+    relax_cell = get(hot_kwargs, :relax_cell, true)
+    pressure_gpa = relax_option.external_pressure_gpa
+    pressure_internal = pressure_gpa === nothing ? copy(Simulation._external_pressure_internal(relax_option)) : [0.0]
+    HotAIRSSOption(;
+        cycles,
+        relax_itermax=200,
+        relax_f_tol=1e-2,
+        relax_s_tol=Simulation._stress_threshold_internal(relax_option),
+        relax_s_tol_gpa=relax_option.stress_threshold_gpa,
+        relax_e_tol=relax_option.energy_threshold,
+        relax_convergence=relax_option.convergence,
+        relax_method="tpsd",
+        relax_cell,
+        relax_max_cell_strain=relax_option.max_cell_strain,
+        relax_cell_damping=relax_option.cell_damping,
+        external_pressure=pressure_internal,
+        external_pressure_gpa=pressure_gpa,
+        symmetry=relax_option.symmetry,
+        symmetry_tolerance=relax_option.symmetry_tolerance,
+        md_steps,
+        md_temperature=md_temp,
+        md_dt,
+        md_integrator="langevin",
+        md_friction=0.01,
+        md_taut=50.0,
+        md_seed=nothing,
+        verbose=false,
+    )
+end
 
 function _rss_should_flush(pool, stats_history, prune::RssPruneOption)
     length(pool) >= max(prune.pool_size, 1) && return (:pool_size, true)
@@ -171,8 +212,12 @@ function build_and_relax(
     relax_mode="standard",
     hot_kwargs=NamedTuple(),
     seed_text_transform=nothing,
+    candidate_label=nothing,
 )
     cell = build_one(seedfile; timeout, init_structure_transform, seed_text_transform)
+    if candidate_label !== nothing
+        cell.metadata[:label] = candidate_label
+    end
 
     _is_hyper = relax_option.hyper_ndim > 0 || relax_mode == "hyperspace"
 
@@ -183,15 +228,13 @@ function build_and_relax(
         target_iterations = Simulation._hyper_max_iterations(relax_option)
         phase1_alpha = relax_option.hyper_phase1_alpha
         phase1_frac = relax_option.hyper_phase1_fraction
-        pressure_gpa = relax_option.external_pressure[1]
         trace = relax_option.verbose
 
         cell = CellBase.add_dimensions(cell, ndim)
         source = EDDPCalculator(cell, cf, ensemble; nmax,
             core_repulsion=_make_core_repulsion(core_size), elemental_energies)
         penalty = ExtraDimensionPenaltyModifier(alpha_start; start_dim=4)
-        p_clamped = GPaToeVAng(max(pressure_gpa, 0.1))
-        P_ext = [p_clamped 0 0; 0 p_clamped 0; 0 0 p_clamped]
+        P_ext = _rss_hyper_external_pressure_matrix(relax_option)
 
         phase1_iters = round(Int, target_iterations * phase1_frac)
         phase2_iters = target_iterations - phase1_iters
@@ -205,6 +248,13 @@ function build_and_relax(
         scheduled_penalty_relax!(metacalc_pos;
             schedule_every, max_iterations=phase1_iters,
             alpha_start=phase1_alpha, relax_fn=opt_fire, trace,
+            relax_kwargs=(
+                f_tol=relax_option.force_threshold,
+                s_tol=Simulation._stress_threshold_internal(relax_option),
+                e_tol=relax_option.energy_threshold,
+                convergence=relax_option.convergence,
+                maxstep=relax_option.maxstep,
+            ),
             ramp_alpha=p1_ramp,
             alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,
             max_alpha=relax_option.hyper_max_alpha,
@@ -218,7 +268,17 @@ function build_and_relax(
         scheduled_penalty_relax!(metacalc_full;
             schedule_every, max_iterations=phase2_iters,
             alpha_start, relax_fn=opt_fire, trace,
-            relax_kwargs=(relax_cell=true, ext_pressure=P_ext),
+            relax_kwargs=(
+                relax_cell=true,
+                ext_pressure=P_ext,
+                f_tol=relax_option.force_threshold,
+                s_tol=Simulation._stress_threshold_internal(relax_option),
+                e_tol=relax_option.energy_threshold,
+                convergence=relax_option.convergence,
+                maxstep=relax_option.maxstep,
+                max_cell_strain=relax_option.max_cell_strain,
+                cell_damping=relax_option.cell_damping,
+            ),
             ramp_alpha=relax_option.hyper_ramp_alpha,
             alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,
             max_alpha=relax_option.hyper_max_alpha,
@@ -254,14 +314,7 @@ function build_and_relax(
             core_repulsion=_make_core_repulsion(core_size), elemental_energies)
         re = Relax(calc, relax_option)
         result = relax!(re)
-        cycles = get(hot_kwargs, :n_rounds, 10)
-        md_temp = get(hot_kwargs, :md_temperature, Float64(300.0))
-        md_steps = get(hot_kwargs, :md_steps, 1000)
-        md_dt = get(hot_kwargs, :md_timestep, Float64(0.5))
-        relax_cell = get(hot_kwargs, :relax_cell, true)
-        hot_opts = HotAIRSSOption(
-            cycles, 200, 1e-2, 1e-1, 1e-5, "tpsd", relax_cell, [0.0],
-            md_steps, md_temp, md_dt, "langevin", 0.01, 50.0, nothing, false)
+        hot_opts = _rss_hot_airss_option(relax_option, hot_kwargs)
         hot_airss!(re.calc, hot_opts)
         return result
 
@@ -302,6 +355,7 @@ function _run_rss(
     pressure_gpa=0.001,
     pressure_gpa_range=nothing,
     relax_option=RelaxOption(),
+    require_converged::Bool=false,
     core_size=0.5,
     elemental_energies=Dict{Symbol,Any}(),
     relax_mode="standard",
@@ -331,6 +385,7 @@ function _run_rss(
     pruning_enabled = prune_option.enabled
     pruning_enabled && _validate_rss_prune_option(prune_option)
     prune_disabled_warned = false
+    consecutive_rejected = 0
     if pruning_enabled && prune_random_composition
         @warn "RSS pruning disabled because formula sampling/random-composition generation is active."
         pruning_enabled = false
@@ -350,7 +405,15 @@ function _run_rss(
         # Select the actual seeds
         this_seed = _select_seed(seedfile, seedfile_weights)[1]
         # Apply the external pressure setting
-        _relax_option.external_pressure = Float64[_pressure_gpa]
+        _relax_option.external_pressure_gpa = _pressure_gpa
+        _relax_option.external_pressure = [0.0]
+        label = get_label(stem(this_seed))
+        candidate_relax_option = _relax_option
+        if _rss_trajectory_enabled(_relax_option)
+            candidate_relax_option = deepcopy(_relax_option)
+            candidate_relax_option.keep_trajectory = true
+            candidate_relax_option.trajectory_file = joinpath(outdir, label)
+        end
         # Build the random structure and relax it
         res = build_and_relax_one(
             this_seed,
@@ -358,13 +421,24 @@ function _run_rss(
             cf;
             max_err,
             init_structure_transform,
-            relax_option,
+            relax_option=candidate_relax_option,
             core_size,
             elemental_energies,
             relax_mode,
             hot_kwargs,
             seed_text_transform,
+            candidate_label=label,
         )
+
+        if require_converged && !res.converged
+            @debug "Skipping non-converged RSS candidate" label iterations=res.iterations fmax=res.fmax smax_gpa=res.smax
+            consecutive_rejected += 1
+            if consecutive_rejected >= max_err
+                throw(ErrorException("Maximum $(max_err) consecutive non-converged RSS candidates reached."))
+            end
+            continue
+        end
+        consecutive_rejected = 0
 
         calc = res.relax.calc
 
@@ -392,7 +466,6 @@ function _run_rss(
         end
 
         # Update the label of the structure
-        label = get_label(stem(this_seed))
         update_metadata!(calc, label)
 
         # Write output file
@@ -404,6 +477,7 @@ function _run_rss(
             catch err
                 continue
             end
+            Simulation._annotate_relax_metadata!(cell, res)
         end
 
         cand = _rss_candidate(cell)
@@ -490,6 +564,7 @@ function build_and_relax_one(
     relax_mode="standard",
     hot_kwargs=NamedTuple(),
     seed_text_transform=nothing,
+    candidate_label=nothing,
 )
     nerr = 1
     local res
@@ -506,6 +581,7 @@ function build_and_relax_one(
                 relax_mode,
                 hot_kwargs,
                 seed_text_transform,
+                candidate_label,
             )
         catch err
             isa(err, InterruptException) && throw(err)

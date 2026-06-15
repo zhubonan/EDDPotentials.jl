@@ -645,6 +645,9 @@ end
 
 function server_prepare_dft_phase!(bu::Builder, iter::Int=bu.state.iteration)
     state = bu.state
+    mode = lowercase(strip(state.dft_mode))
+    dft_kwargs = make_symbol_keys(state.dft_kwargs)
+    airsspy_code = _airsspy_code(; code=get(dft_kwargs, :code, "castep"))
     phase_dir = _phase_dir(bu, iter, "dft")
     crud_workdir = joinpath(state.workdir, bu.options.distributed.dft_crud_workdir, "gen$(iter)")
     input_dir = input_structure_dir(state.workdir, iter)
@@ -676,17 +679,27 @@ function server_prepare_dft_phase!(bu::Builder, iter::Int=bu.state.iteration)
     end
     mkpath(output_dir)
 
-    seed = splitext(joinpath(state.workdir, state.seedfile_calc))[1]
-    cp(seed * ".cell", joinpath(crud_workdir, basename(seed) * ".cell"); force=true)
-    cp(seed * ".param", joinpath(crud_workdir, basename(seed) * ".param"); force=true)
+    if mode == "acrud"
+        prepare_airsspy_crud_workdir(
+            crud_workdir,
+            joinpath(state.workdir, state.seedfile_calc),
+            input_dir;
+            code=airsspy_code,
+        )
+    else
+        seed = splitext(joinpath(state.workdir, state.seedfile_calc))[1]
+        cp(seed * ".cell", joinpath(crud_workdir, basename(seed) * ".cell"); force=true)
+        cp(seed * ".param", joinpath(crud_workdir, basename(seed) * ".param"); force=true)
 
-    for file in input_files
-        cp(file, joinpath(crud_workdir, "hopper", basename(file)); force=true)
+        for file in input_files
+            cp(file, joinpath(crud_workdir, "hopper", basename(file)); force=true)
+        end
     end
 
     manifest = Dict{String,Any}(
         "phase" => "dft",
         "iteration" => iter,
+        "dft_mode" => mode,
         "input_dir" => input_dir,
         "output_dir" => output_dir,
         "crud_workdir" => crud_workdir,
@@ -695,6 +708,12 @@ function server_prepare_dft_phase!(bu::Builder, iter::Int=bu.state.iteration)
         "input_count" => length(input_files),
         "created_at" => _timestamp(),
     )
+    if mode == "acrud"
+        manifest["airsspy"] = Dict{String,Any}(
+            string(key) => value for (key, value) in pairs(dft_kwargs)
+        )
+        manifest["airsspy"]["code"] = airsspy_code
+    end
     _write_json(manifest_path, manifest)
     _touch_marker(joinpath(phase_dir, "READY"))
     return crud_workdir
@@ -714,6 +733,9 @@ function server_collect_dft_results!(bu::Builder, iter::Int=bu.state.iteration)
     output_dir = manifest["output_dir"]
     mkpath(output_dir)
     for file in glob_allow_abs(joinpath(crud_workdir, "good_castep", "*.res"))
+        if get(manifest, "dft_mode", "") == "acrud"
+            normalize_airsspy_res_file!(file)
+        end
         mv(file, joinpath(output_dir, basename(file)); force=true)
     end
     _touch_marker(joinpath(phase_dir, "DONE"))
@@ -737,6 +759,11 @@ end
 
 function _server_request_phase_stop!(bu::Builder, phase_dir::AbstractString)
     _touch_marker(joinpath(phase_dir, "STOP"))
+    manifest = _read_json(_phase_manifest_path(phase_dir))
+    if manifest !== nothing && get(manifest, "dft_mode", "") == "acrud"
+        crud_workdir = get(manifest, "crud_workdir", "")
+        !isempty(crud_workdir) && _touch_marker(joinpath(crud_workdir, "STOP_CRUD"))
+    end
 end
 
 function _server_abort_phase!(bu::Builder, phase_dir::AbstractString, message)
@@ -1277,7 +1304,23 @@ function _worker_supervise_child!(
 end
 
 function _distributed_dft_cmd(bu::Builder, manifest)
-    cmd = Cmd(`crud.pl -mpinp $(Int(manifest["mpinp"]))`, dir=manifest["crud_workdir"])
+    if get(manifest, "dft_mode", "crud") == "acrud"
+        airsspy = Dict{Symbol,Any}()
+        for (key, value) in get(manifest, "airsspy", Dict{String,Any}())
+            airsspy[Symbol(key)] = value
+        end
+        ap_cmd = get(airsspy, :ap_cmd, nothing)
+        code = get(airsspy, :code, "castep")
+        cmd_kwargs = _airsspy_cmd_kwargs(airsspy)
+        cmd = airsspy_crud_cmd(
+            manifest["crud_workdir"];
+            ap_cmd=ap_cmd,
+            code=code,
+            cmd_kwargs...,
+        )
+    else
+        cmd = Cmd(`crud.pl -mpinp $(Int(manifest["mpinp"]))`, dir=manifest["crud_workdir"])
+    end
     _apply_distributed_env(cmd, bu.options.distributed.dft_env)
 end
 

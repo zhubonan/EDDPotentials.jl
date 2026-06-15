@@ -31,12 +31,11 @@ projection uses the dual transform `q = cellmat' * F` and maps back with
 from ASE's row-major `N x 3` storage.
 
 Cell constraints use the same projection idea on the appended cell block of the
-optimizer vector. `FixCellConstraint` interprets a trial cell step `ΔH` as an
-infinitesimal symmetric strain `ε = sym(ΔH / H)`, masks Voigt components in
-`(xx, yy, zz, yz, xz, xy)` order, and writes back `ΔH = ε_projected * H`.
-Stress is projected with the same Voigt mask for optimizer gradients,
-convergence, and logging only; `eddp_stress(calc)` remains the raw calculator
-stress.
+optimizer vector. For variable-cell native optimizers this block is a
+dimensionless symmetric strain increment, so `FixCellConstraint` masks Voigt
+components in `(xx, yy, zz, yz, xz, xy)` order directly. Stress is projected
+with the same Voigt mask for optimizer gradients, convergence, and logging
+only; `eddp_stress(calc)` remains the raw calculator stress.
 """
 function _constraint_math_note end
 
@@ -277,11 +276,163 @@ const FixCell = FixCellConstraint
 """
     FixVolumeConstraint()
 
-Project the cell part of a proposed optimizer step so the updated cell preserves
-the current volume exactly. If the proposed cell is singular or inverted, the
-cell step is rejected.
+Project the cell part of a proposed optimizer step onto trace-free strain, so
+the accepted infinitesimal cell update preserves volume to first order.
 """
 struct FixVolumeConstraint <: AbstractStepConstraint end
+
+"""
+    SymmetryConstraint(cell; symprec=1e-5)
+
+Project optimizer vectors onto the symmetry detected for `cell`. The constraint
+is inactive when no nontrivial symmetry is found or atom mappings cannot be
+constructed reliably.
+"""
+struct SymmetryConstraint <: AbstractStepConstraint
+    rotations_frac::Array{Float64,3}
+    translations_frac::Matrix{Float64}
+    mappings::Matrix{Int}
+    active::Bool
+    symprec::Float64
+end
+
+function SymmetryConstraint(cell; symprec::Real=1e-5)
+    constraint = _build_symmetry_constraint(cell, Float64(symprec))
+    constraint === nothing && return SymmetryConstraint(
+        zeros(Float64, 3, 3, 0),
+        zeros(Float64, 3, 0),
+        zeros(Int, 0, 0),
+        false,
+        Float64(symprec),
+    )
+    constraint
+end
+
+Base.isempty(constraint::SymmetryConstraint) = !constraint.active
+
+function _wrap_fractional(v::AbstractVector)
+    out = collect(Float64, v)
+    out .-= floor.(out)
+    out
+end
+
+function _fractional_distance(a::AbstractVector, b::AbstractVector, H::AbstractMatrix)
+    d = collect(Float64, a .- b)
+    d .-= round.(d)
+    norm(H * d)
+end
+
+function _build_symmetry_constraint(cell, symprec::Float64)
+    local rotations_raw, translations_raw
+    try
+        rotations_raw, translations_raw = CellBase.get_symmetry(cell, symprec)
+    catch err
+        @debug "Symmetry detection failed" exception=(err, catch_backtrace())
+        return nothing
+    end
+
+    nsym = size(rotations_raw, 3)
+    nsym <= 1 && return nothing
+
+    rotations = Array{Float64,3}(undef, 3, 3, nsym)
+    for isym in 1:nsym
+        # Spglib/CellBase rotations are returned in the row-vector convention;
+        # the optimizer stores positions as column vectors, s' = R * s + t.
+        rotations[:, :, isym] .= transpose(Float64.(rotations_raw[:, :, isym]))
+    end
+    translations = Matrix{Float64}(translations_raw)
+
+    mappings = _symmetry_atom_mappings(cell, rotations, translations, symprec)
+    mappings === nothing && return nothing
+
+    eye = Matrix{Float64}(I, 3, 3)
+    nontrivial = any(isym -> rotations[:, :, isym] != eye ||
+        any(abs.(translations[:, isym]) .> symprec), 1:nsym)
+    nontrivial || return nothing
+
+    SymmetryConstraint(rotations, translations, mappings, true, symprec)
+end
+
+function _symmetry_atom_mappings(cell, rotations::Array{Float64,3}, translations::Matrix{Float64}, symprec::Float64)
+    H = CellBase.cellmat(cell)[1:3, 1:3]
+    spos = CellBase.get_scaled_positions(cell)[1:3, :]
+    symbols = species(cell)
+    nat = size(spos, 2)
+    nsym = size(rotations, 3)
+    mappings = zeros(Int, nsym, nat)
+
+    for isym in 1:nsym
+        R = rotations[:, :, isym]
+        t = translations[:, isym]
+        used_targets = falses(nat)
+        for source in 1:nat
+            target_pos = _wrap_fractional(R * spos[:, source] .+ t)
+            best = 0
+            best_dist = Inf
+            for target in 1:nat
+                used_targets[target] && continue
+                symbols[target] == symbols[source] || continue
+                dist = _fractional_distance(target_pos, spos[:, target], H)
+                if dist < best_dist
+                    best = target
+                    best_dist = dist
+                end
+            end
+            if best == 0 || best_dist > max(symprec, 1e-8)
+                @debug "Failed to map atom under symmetry operation" operation=isym atom=source distance=best_dist
+                return nothing
+            end
+            mappings[isym, best] = source
+            used_targets[best] = true
+        end
+    end
+
+    any(==(0), mappings) && return nothing
+    mappings
+end
+
+function _cartesian_rotations(constraint::SymmetryConstraint, calc::AbstractCalc)
+    H = _cell3(calc)
+    invH = inv(H)
+    nsym = size(constraint.rotations_frac, 3)
+    [H * constraint.rotations_frac[:, :, isym] * invH for isym in 1:nsym]
+end
+
+function _project_symmetry_vectors!(constraint::SymmetryConstraint, calc::AbstractCalc, V::AbstractMatrix)
+    constraint.active || return V
+    D, nat = size(V)
+    D >= 3 || return V
+    nat == size(constraint.mappings, 2) ||
+        throw(DimensionMismatch("SymmetryConstraint has mappings for $(size(constraint.mappings, 2)) atoms but got $nat"))
+
+    rotations_cart = _cartesian_rotations(constraint, calc)
+    work = copy(V)
+    fill!(V, 0.0)
+    nsym = length(rotations_cart)
+    for atom in 1:nat
+        for isym in 1:nsym
+            source = constraint.mappings[isym, atom]
+            V[1:3, atom] .+= rotations_cart[isym] * work[1:3, source]
+        end
+        V[1:3, atom] ./= nsym
+        if D > 3
+            V[4:D, atom] .= work[4:D, atom]
+        end
+    end
+    V
+end
+
+function _project_symmetry_matrix!(constraint::SymmetryConstraint, calc::AbstractCalc, S::AbstractMatrix)
+    constraint.active || return S
+    rotations_cart = _cartesian_rotations(constraint, calc)
+    work = copy(S)
+    fill!(S, 0.0)
+    for R in rotations_cart
+        S .+= R * work * transpose(R)
+    end
+    S ./= length(rotations_cart)
+    S
+end
 
 function apply_step_constraints!(constraints, opt::AbstractOptimizer, calc::AbstractCalc, dx::AbstractVector)
     isempty(constraints) && return dx
@@ -445,15 +596,13 @@ function constrain_step!(constraint::FixCellConstraint, opt::AbstractOptimizer, 
     D, nat = size(pos)
     cell_start = D * nat + 1
     cell_step = reshape(view(dx, cell_start:length(dx)), 3, 3)
-    cell_old = get_cellmat(calc)[1:3, 1:3]
 
-    strain = cell_step / cell_old
-    strain = 0.5 .* (strain .+ transpose(strain))
+    strain = 0.5 .* (cell_step .+ transpose(cell_step))
     voigt = _strain_to_voigt(strain)
     for i in 1:6
         constraint.mask[i] && (voigt[i] = 0.0)
     end
-    cell_step .= _voigt_to_strain(voigt) * cell_old
+    cell_step .= _voigt_to_strain(voigt)
     return dx
 end
 
@@ -464,19 +613,25 @@ function constrain_step!(::FixVolumeConstraint, opt::AbstractOptimizer, calc::Ab
     D, nat = size(pos)
     cell_start = D * nat + 1
     cell_step = reshape(view(dx, cell_start:length(dx)), 3, 3)
-    cell_old = get_cellmat(calc)[1:3, 1:3]
-    cell_trial = cell_old .+ cell_step
+    strain = 0.5 .* (cell_step .+ transpose(cell_step))
+    strain .-= (tr(strain) / 3.0) .* Matrix{Float64}(I, 3, 3)
+    cell_step .= strain
+    return dx
+end
 
-    vol_old = det(cell_old)
-    vol_trial = det(cell_trial)
-    if !isfinite(vol_trial) || abs(vol_trial) <= eps(real(vol_trial)) || sign(vol_trial) != sign(vol_old)
-        cell_step .= 0
-        return dx
+function constrain_step!(constraint::SymmetryConstraint, opt::AbstractOptimizer, calc::AbstractCalc, dx::AbstractVector)
+    constraint.active || return dx
+    pos = get_positions(calc)
+    D, nat = size(pos)
+    ionic = reshape(view(dx, 1:(D * nat)), D, nat)
+    _project_symmetry_vectors!(constraint, calc, ionic)
+    if opt.relax_cell
+        cell_start = D * nat + 1
+        cell_step = reshape(view(dx, cell_start:length(dx)), 3, 3)
+        strain = 0.5 .* (cell_step .+ transpose(cell_step))
+        _project_symmetry_matrix!(constraint, calc, strain)
+        cell_step .= 0.5 .* (strain .+ transpose(strain))
     end
-
-    scale = cbrt(abs(vol_old / vol_trial))
-    cell_corrected = cell_trial .* scale
-    cell_step .= cell_corrected .- cell_old
     return dx
 end
 
@@ -512,6 +667,10 @@ constrain_force!(constraint::FixRigidGroup, opt::AbstractOptimizer, calc::Abstra
 constrain_force!(constraint::FixLinearIonic, opt::AbstractOptimizer, calc::AbstractCalc, F::AbstractMatrix) =
     _project_coordinate_force!(constraint, opt, calc, F, constraint.coordinate)
 
+function constrain_force!(constraint::SymmetryConstraint, opt::AbstractOptimizer, calc::AbstractCalc, F::AbstractMatrix)
+    _project_symmetry_vectors!(constraint, calc, F)
+end
+
 constrain_force!(constraint::AbstractStepConstraint, opt::AbstractOptimizer, calc::AbstractCalc, F::AbstractMatrix) = F
 
 function constrain_stress!(constraint::FixCellConstraint, opt::AbstractOptimizer, calc::AbstractCalc, S::AbstractMatrix)
@@ -524,7 +683,25 @@ function constrain_stress!(constraint::FixCellConstraint, opt::AbstractOptimizer
     S
 end
 
+function constrain_stress!(constraint::SymmetryConstraint, opt::AbstractOptimizer, calc::AbstractCalc, S::AbstractMatrix)
+    opt.relax_cell || return S
+    _project_symmetry_matrix!(constraint, calc, S)
+end
+
 constrain_stress!(constraint::AbstractStepConstraint, opt::AbstractOptimizer, calc::AbstractCalc, S::AbstractMatrix) = S
+
+function constrain_cartesian_position_step!(constraint::SymmetryConstraint, opt::AbstractOptimizer, calc::AbstractCalc, dx::AbstractVector)
+    constraint.active || return dx
+    opt.relax_cell && return dx
+    pos = get_positions(calc)
+    D, nat = size(pos)
+    ionic = reshape(view(dx, 1:(D * nat)), D, nat)
+    _project_symmetry_vectors!(constraint, calc, ionic)
+    dx
+end
+
+constrain_cartesian_position_step!(constraint, opt::AbstractOptimizer, calc::AbstractCalc, dx::AbstractVector) =
+    constrain_step!(constraint, opt, calc, dx)
 
 function apply_cartesian_position_constraints!(constraints, opt::AbstractOptimizer, calc::AbstractCalc, pos_old::AbstractMatrix, pos_new::AbstractMatrix)
     isempty(constraints) && return pos_new
@@ -534,8 +711,9 @@ function apply_cartesian_position_constraints!(constraints, opt::AbstractOptimiz
         if constraint isa FixAtoms || constraint isa FixCartesian ||
                 (constraint isa FixRelative && constraint.coordinate === :cartesian) ||
                 (constraint isa FixRigidGroup && constraint.coordinate === :cartesian) ||
-                (constraint isa FixLinearIonic && constraint.coordinate === :cartesian)
-            constrain_step!(constraint, opt, calc, dx)
+                (constraint isa FixLinearIonic && constraint.coordinate === :cartesian) ||
+                constraint isa SymmetryConstraint
+            constrain_cartesian_position_step!(constraint, opt, calc, dx)
         end
     end
     pos_new .= pos_old .+ reshape(dx, D, nat)

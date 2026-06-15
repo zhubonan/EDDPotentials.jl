@@ -4,6 +4,7 @@ Tests for the hot-AIRSS protocol
 using EDDPotentials
 using CellBase
 using Test
+using LinearAlgebra
 
 # ─── Helper: create a simple LJ calculator ───
 
@@ -37,6 +38,9 @@ end
         @test opts.md_temperature == 1000.0
         @test opts.md_integrator == "langevin"
         @test opts.relax_method == "tpsd"
+        @test opts.relax_s_tol ≈ EDDPotentials.Potential.GPaToeVAng(0.1)
+        @test opts.relax_s_tol_gpa ≈ 0.1
+        @test opts.external_pressure_gpa === nothing
     end
 
     @testset "Option from kwargs" begin
@@ -44,6 +48,25 @@ end
         @test opts.cycles == 3
         @test opts.md_temperature == 500.0
         @test opts.relax_cell == false
+    end
+
+    @testset "pressure and stress unit helpers" begin
+        opts = HotAIRSSOption(external_pressure_gpa=10.0, relax_s_tol_gpa=0.25)
+        @test EDDPotentials.Search._hot_external_pressure_internal(opts) ≈ [EDDPotentials.Potential.GPaToeVAng(10.0)]
+        @test EDDPotentials.Search._hot_external_stress_matrix(opts) ≈ EDDPotentials.Potential.GPaToeVAng(10.0) .* Matrix{Float64}(I, 3, 3)
+        @test EDDPotentials.Search._hot_relax_s_tol_internal(opts) ≈ EDDPotentials.Potential.GPaToeVAng(0.25)
+        tensile = HotAIRSSOption(external_pressure_gpa=-2.0)
+        @test EDDPotentials.Search._hot_external_pressure_internal(tensile) ≈ [EDDPotentials.Potential.GPaToeVAng(-2.0)]
+
+        legacy = HotAIRSSOption(external_pressure=[1.0], external_pressure_gpa=nothing, relax_s_tol=0.2, relax_s_tol_gpa=-1.0)
+        @test_deprecated EDDPotentials.Search._hot_external_pressure_internal(legacy) ≈ [1.0]
+        @test EDDPotentials.Search._hot_relax_s_tol_internal(legacy) ≈ 0.2
+        @test_throws ArgumentError EDDPotentials.Search._hot_external_pressure_internal(
+            HotAIRSSOption(external_pressure=[1.0], external_pressure_gpa=10.0),
+        )
+        @test_throws ArgumentError EDDPotentials.Search._hot_external_pressure_internal(
+            HotAIRSSOption(external_pressure=zeros(6), external_pressure_gpa=10.0),
+        )
     end
 
     @testset "Basic run" begin

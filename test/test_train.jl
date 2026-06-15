@@ -113,6 +113,13 @@ end
         model = LinearInterface(rand(1, nf))
 
         opt_res, _, _ = train_lm!(model, data, y; earlystop=0)
+        @test maximum(abs.(sum.(model.(data)) .- y)) < 1e-8
+
+        data = [[1.0;;], [1.0;;]]
+        y = [1.0, 3.0]
+        model = LinearInterface([0.0])
+        train_lm!(model, data, y; weights=[100.0, 1.0])
+        @test only(paramvector(model)) ≈ (100.0 * 1.0 + 1.0 * 3.0) / 101.0
     end
 
     @testset "Ensemble" begin

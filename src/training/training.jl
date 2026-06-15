@@ -21,7 +21,7 @@ import Zygote
 using Logging
 using NonNegLeastSquares
 using ..Potential: paramvector, save_model_artifact, ThreadBufferPool, rmse_per_atom_threaded,
-    nfeatures, EDDPCalculator, predict, nparams
+    nfeatures, EDDPCalculator, predict, nparams, LinearInterface, setparamvector!
 import ..Potential: EnsembleNNInterface
 
 
@@ -315,6 +315,30 @@ function train_lm!(
             feature_spec, elemental_energies, args...)
     end
     args = Base.structdiff(NamedTuple(args), NamedTuple{(:maxIter,)})
+
+    if itf isa LinearInterface
+        design = Matrix{eltype(x[1])}(undef, length(x), nparams(itf))
+        for (i, inp) in enumerate(x)
+            design[i, :] .= vec(sum(inp; dims=2))
+        end
+        y_fit = y
+        if !isnothing(weights)
+            length(weights) == length(y) || throw(ArgumentError(
+                "weights length ($(length(weights))) must match number of targets ($(length(y)))",
+            ))
+            sqrt_weights = sqrt.(weights)
+            design = design .* reshape(sqrt_weights, :, 1)
+            y_fit = y .* sqrt_weights
+        end
+        coeffs = design \ y_fit
+        setparamvector!(itf, coeffs)
+        train_natoms = natoms(x)
+        val_natoms = natoms(x_val)
+        rmse_train = rmse_per_atom(itf, x, y, train_natoms)
+        rmse_val = x_val === x ? rmse_train : rmse_per_atom(itf, x_val, y_val, val_natoms)
+        history = [rmse_train rmse_val]
+        return nothing, paramvector(itf), history, nothing
+    end
 
     ctx = TrainingContext(itf, feature_spec, elemental_energies, checkpoint_every, checkpoint_prefix, show_progress, log_file)
 

@@ -61,6 +61,39 @@ parallel -j 64 julia -e "using EDDPotentials; run_rss(\"link.toml\")" ::: {1..10
 Each process uses the `[rss]` settings from `link.toml`; `rss.max` is the
 number of written structures per process.
 
+### Relaxation Convergence
+
+Production RSS uses `convergence = "step_energy"` by default. This is a
+repose-style stopping criterion based on the first-order energy/enthalpy change
+predicted by the accepted optimizer step.
+
+For optimizer step ``k``, the predicted step energy is
+
+```math
+dE_k = \left| \Delta x_k \cdot g_k \right|
+```
+
+where ``\Delta x_k`` is the final constrained and capped optimizer step, and
+``g_k`` is the optimizer gradient vector, including cell stress components when
+variable-cell relaxation is active.
+
+Update the exponentially smoothed log metric:
+
+```math
+D_k =
+D_{k-1}
++
+\frac{
+\log_{10}(dE_k + \epsilon) - D_{k-1}
+}{
+10 N^{1/3}
+}
+```
+
+Here ``N`` is the number of atoms and ``\epsilon`` is a small positive guard
+against ``\log_{10}(0)``. A relaxation using `step_energy` converges once
+``k \ge 10`` and ``D_k \le \log_{10}(\texttt{energy_threshold})``.
+
 ## Analyzing Search Results
 
 ### Quick Ranking

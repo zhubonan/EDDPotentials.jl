@@ -28,12 +28,23 @@ minimum.
 **Relaxation phase:**
 - `relax_itermax::Int` — max iterations per relaxation phase (default 200)
 - `relax_f_tol::Float64` — force convergence tolerance in eV/Å (default 1e-2)
-- `relax_s_tol::Float64` — stress convergence tolerance (default 1e-1)
-- `relax_e_tol::Float64` — energy convergence tolerance in eV (default 1e-5)
+- `relax_s_tol::Float64` — stress convergence tolerance in internal eV/Å³
+  units. Prefer `relax_s_tol_gpa` for user-facing configuration.
+- `relax_s_tol_gpa::Float64` — stress convergence tolerance in GPa. Set to
+  a nonnegative value to override `relax_s_tol` (default 0.1 GPa).
+- `relax_e_tol::Float64` — energy convergence tolerance in eV (default 1e-6)
+- `relax_convergence::String` — "step_energy" or "force" convergence mode.
 - `relax_method::String` — "tpsd" or "fire" (default "tpsd")
 - `relax_cell::Bool` — enable cell relaxation via optimizer's relax_cell parameter (default true)
-- `external_pressure::Vector{Float64}` — external pressure (default [0.0]).
-  Convention follows `RelaxOption.external_pressure`.
+- `relax_max_cell_strain::Float64` — cap on per-step cell strain norm (default 0.0125)
+- `relax_cell_damping::Float64` — native optimizer cell-step gamma damping (default 1.0)
+- `external_pressure::Vector{Float64}` — deprecated external pressure in
+  internal eV/Å³ stress units (default [0.0]).
+- `external_pressure_gpa::Union{Nothing,Float64}` — hydrostatic external
+  pressure in GPa. Positive values are compressive and negative values are
+  tensile; `nothing` leaves the deprecated `external_pressure` path in use.
+- `symmetry::String` — "auto", "on", or "off" symmetry-aware relaxation mode.
+- `symmetry_tolerance::Float64` — symmetry detection tolerance.
 
 **MD phase:**
 - `md_steps::Int` — MD steps per cycle (default 50)
@@ -53,11 +64,18 @@ minimum.
     # Relaxation phase
     relax_itermax::Int = 200
     relax_f_tol::Float64 = 1e-2
-    relax_s_tol::Float64 = 1e-1
-    relax_e_tol::Float64 = 1e-5
+    relax_s_tol::Float64 = GPaToeVAng(0.1)
+    relax_s_tol_gpa::Float64 = 0.1
+    relax_e_tol::Float64 = 1e-6
+    relax_convergence::String = "step_energy"
     relax_method::String = "tpsd"
     relax_cell::Bool = true
+    relax_max_cell_strain::Float64 = 0.0125
+    relax_cell_damping::Float64 = 1.0
     external_pressure::Vector{Float64} = [0.0]
+    external_pressure_gpa::Union{Nothing,Float64} = nothing
+    symmetry::String = "auto"
+    symmetry_tolerance::Float64 = 1e-5
     # MD phase
     md_steps::Int = 50
     md_temperature::Float64 = 1000.0
@@ -127,35 +145,68 @@ function _raw_calc(calc::MetaCalculator)
 end
 _raw_calc(calc::AbstractCalc) = calc
 
+_hot_relax_s_tol_internal(opts::HotAIRSSOption) =
+    opts.relax_s_tol_gpa >= 0 ? GPaToeVAng(opts.relax_s_tol_gpa) : opts.relax_s_tol
+
+function _hot_external_pressure_internal(opts::HotAIRSSOption)
+    if opts.external_pressure_gpa !== nothing
+        if opts.external_pressure != [0.0]
+            throw(ArgumentError("Set only one of HotAIRSSOption.external_pressure_gpa or external_pressure. external_pressure uses internal eV/Å³ units."))
+        end
+        return Float64[GPaToeVAng(opts.external_pressure_gpa)]
+    end
+    if opts.external_pressure != [0.0]
+        Base.depwarn("HotAIRSSOption.external_pressure is deprecated because it uses internal eV/Å³ units. Use external_pressure_gpa for hydrostatic pressure in GPa; positive values are compressive and negative values are tensile.", :external_pressure)
+    end
+    opts.external_pressure
+end
+
+_hot_external_stress_matrix(opts::HotAIRSSOption) =
+    external_stress_matrix(_hot_external_pressure_internal(opts))
+
 """Run a single relaxation phase. Returns `(converged, iterations_used)`."""
 function _run_relax!(relax_calc::AbstractCalc, opts::HotAIRSSOption)
     iter_count = Ref(0)
     cb = () -> (iter_count[] += 1)
+    relax_opts = RelaxOption(;
+        symmetry=opts.symmetry,
+        symmetry_tolerance=opts.symmetry_tolerance,
+        step_constraints=Any[],
+    )
+    step_constraints = Simulation._resolved_step_constraints(relax_calc, relax_opts)
 
     if opts.relax_method == "tpsd"
         opt = opt_tpsd(
             relax_calc;
             f_tol=opts.relax_f_tol,
-            s_tol=opts.relax_s_tol,
+            s_tol=_hot_relax_s_tol_internal(opts),
             e_tol=opts.relax_e_tol,
+            convergence=opts.relax_convergence,
             itermax=opts.relax_itermax,
             trace=opts.verbose ? 1 : 0,
             callback=cb,
             relax_cell=opts.relax_cell,
-            ext_pressure=external_stress_matrix(opts.external_pressure),
+            ext_pressure=_hot_external_stress_matrix(opts),
+            max_cell_strain=opts.relax_max_cell_strain,
+            cell_damping=opts.relax_cell_damping,
+            step_constraints,
         )
         conv = converged(opt, relax_calc)
     elseif opts.relax_method == "fire"
         fire_opt = opt_fire(
             relax_calc;
             f_tol=opts.relax_f_tol,
-            s_tol=opts.relax_s_tol,
+            s_tol=_hot_relax_s_tol_internal(opts),
             e_tol=opts.relax_e_tol,
+            convergence=opts.relax_convergence,
             itermax=opts.relax_itermax,
             verbose=opts.verbose,
             callback=cb,
             relax_cell=opts.relax_cell,
-            ext_pressure=external_stress_matrix(opts.external_pressure),
+            ext_pressure=_hot_external_stress_matrix(opts),
+            max_cell_strain=opts.relax_max_cell_strain,
+            cell_damping=opts.relax_cell_damping,
+            step_constraints,
         )
         conv = converged(fire_opt, relax_calc)
     else
@@ -280,7 +331,7 @@ function hot_airss!(calc::AbstractCalc, opts::HotAIRSSOption; callback=nothing)
     fmax = maximum(norm.(eachcol(forces)))
     smax = 0.0
     if opts.relax_cell
-        stress = eddp_stress(md_calc)
+        stress = eddp_stress(md_calc) .- _hot_external_stress_matrix(opts)
         smax = maximum(abs.(eVAngToGPa.(stress)))
     end
 

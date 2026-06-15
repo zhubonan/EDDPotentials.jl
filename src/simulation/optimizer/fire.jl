@@ -15,6 +15,7 @@ modifications and adaptive time stepping for efficient structural relaxation.
 # Algorithm Parameters
 - `dt::T = 0.1`: Initial/current timestep
 - `maxstep::T = 0.2`: Maximum displacement per iteration
+- `max_cell_strain::T = 0.1`: Maximum variable-cell strain increment
 - `dtmax::T = 1.0`: Maximum timestep
 - `Nmin::Int = 5`: Minimum steps before acceleration
 - `finc::T = 1.1`: Timestep increase factor
@@ -27,6 +28,7 @@ modifications and adaptive time stepping for efficient structural relaxation.
 - `f_tol::T = 1e-2`: Force convergence tolerance
 - `s_tol::T = 1e-1`: Stress convergence tolerance
 - `e_tol::T = 1e-5`: Energy convergence tolerance
+- `convergence::String = "force"`: "force" for force/stress criteria or "step_energy" for repose-style predicted decrease
 - `itermax::Int = 1000`: Maximum iterations
 
 # Logging
@@ -75,6 +77,7 @@ Best for rough optimization far from minimum.
     # Algorithm parameters
     dt::Float64 = 0.1
     maxstep::Float64 = 0.2
+    max_cell_strain::Float64 = 0.1
     dtmax::Float64 = 1.0
     Nmin::Int = 5
     finc::Float64 = 1.1
@@ -86,7 +89,7 @@ Best for rough optimization far from minimum.
     # Cell relaxation
     relax_cell::Bool = false
     ext_pressure::Matrix{Float64} = zeros(3, 3)
-    cell_damping::Float64 = 0.1
+    cell_damping::Float64 = 1.0
 
     # Exact optimizer-step constraints
     step_constraints::Vector{Any} = Any[]
@@ -95,11 +98,14 @@ Best for rough optimization far from minimum.
     f_tol::Float64 = 1e-2
     s_tol::Float64 = 1e-1
     e_tol::Float64 = 1e-5
+    convergence::String = "force"
+    require_residual_convergence::Bool = false
     itermax::Int = 1000
 
     # Logging
     log_level::Symbol = :standard
     keep_trajectory::Bool = false
+    trajectory_every::Int = 1
 
     # Internal state
     iteration::Int = 0
@@ -107,7 +113,12 @@ Best for rough optimization far from minimum.
     a::Float64 = 0.1  # Current alpha (mixing parameter)
     Nsteps::Int = 0  # Steps since last reset
     e_last::Float64 = Inf
+    step_energy_derun::Float64 = 0.0
+    step_energy_de::Float64 = Inf
+    last_step_norm::Float64 = 0.0
+    last_max_cell_strain::Float64 = 0.0
     x_last::Vector{Float64} = Float64[]
+    cell_ref::Matrix{Float64} = zeros(0, 0)
     converged_flag::Bool = false
     trajectory::Vector = []
 
@@ -132,7 +143,12 @@ function initialize!(opt::NativeFIRE, calc::AbstractCalc)
     opt.Nsteps = 0
     opt.iteration = 0
     opt.e_last = Inf
+    opt.step_energy_derun = 0.0
+    opt.step_energy_de = Inf
+    opt.last_step_norm = 0.0
+    opt.last_max_cell_strain = 0.0
     opt.x_last = zeros(Float64, n_dof)
+    opt.cell_ref = opt.relax_cell ? copy(get_cellmat(calc)[1:3, 1:3]) : zeros(0, 0)
     opt.converged_flag = false
     opt.trajectory = []
 
@@ -158,12 +174,11 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
 
     E = eddp_energy(calc; forces=true, rebuild_nl=true)
     F = _projected_forces(opt, calc; rebuild_nl=opt.relax_cell, make_copy=false)
+    F_opt = _strain_projected_forces(opt, calc, F)
 
-    gradient = vec(F)  # FIRE: force = gradient direction
+    gradient = vec(F_opt)  # FIRE: force = gradient direction
     if opt.relax_cell
-        S_eff = _projected_stress(opt, calc)
-        g_cell = opt.cell_damping * 10 .* vec(S_eff)  # move in stress direction
-        gradient = vcat(gradient, g_cell)
+        gradient = vcat(gradient, vec(_cell_direction(opt, calc)))
     end
     grad_norm = sqrt(dot(gradient, gradient))
 
@@ -171,6 +186,9 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
         opt.x_last = x
         opt.e_last = E
         opt.iteration += 1
+        opt.last_step_norm = 0.0
+        opt.last_max_cell_strain = 0.0
+        record_step_energy_convergence!(opt, calc, zero(gradient), gradient)
         log_step!(opt, calc)
         return nothing
     end
@@ -183,10 +201,10 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
             is_uphill = true
             E = eddp_energy(calc; forces=true, rebuild_nl=true)
             F = _projected_forces(opt, calc; rebuild_nl=opt.relax_cell, make_copy=false)
-            gradient = vec(F)
+            F_opt = _strain_projected_forces(opt, calc, F)
+            gradient = vec(F_opt)
             if opt.relax_cell
-                S_eff = _projected_stress(opt, calc)
-                gradient = vcat(gradient, opt.cell_damping * 10 .* vec(S_eff))
+                gradient = vcat(gradient, vec(_cell_direction(opt, calc)))
             end
             grad_norm = sqrt(dot(gradient, gradient))
         end
@@ -218,11 +236,15 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
 
     dr = opt.dt * opt.vel
     apply_step_constraints!(opt.step_constraints, opt, calc, dr)
+    _limit_cell_step!(opt, calc, dr)
     normdr = sqrt(dot(dr, dr))
     if normdr > opt.maxstep
         dr *= opt.maxstep / normdr
     end
     apply_step_constraints!(opt.step_constraints, opt, calc, dr)
+    _limit_cell_step!(opt, calc, dr)
+    opt.last_step_norm = sqrt(dot(dr, dr))
+    opt.last_max_cell_strain = _cell_step_strain_norm(opt, calc, dr)
 
     x_new = x + dr
     _writeback_positions!(opt, calc, x_new)
@@ -230,6 +252,7 @@ function step!(opt::NativeFIRE, calc::AbstractCalc)
     opt.x_last = x
     opt.e_last = E
     opt.iteration += 1
+    record_step_energy_convergence!(opt, calc, dr, gradient)
 
     log_step!(opt, calc)
     nothing
@@ -261,7 +284,12 @@ function reset!(opt::NativeFIRE)
     opt.dt = opt.dt_init
     opt.Nsteps = 0
     opt.e_last = Inf
+    opt.step_energy_derun = 0.0
+    opt.step_energy_de = Inf
+    opt.last_step_norm = 0.0
+    opt.last_max_cell_strain = 0.0
     opt.x_last .= 0.0
+    opt.cell_ref = zeros(0, 0)
     opt.converged_flag = false
     empty!(opt.trajectory)
     nothing

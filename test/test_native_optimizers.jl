@@ -3,6 +3,8 @@ using EDDPotentials
 using CellBase
 using LinearAlgebra
 using Unitful: ustrip
+import EDDPotentials.Potential: get_cell, eddp_energy, eddp_forces, eddp_stress, calculate!
+import EDDPotentials.Potential: get_positions, get_cellmat, set_cellmat!, set_positions!
 
 # Import test utilities
 isdefined(Main, :_h2_cell) || include("utils.jl")
@@ -14,10 +16,52 @@ mutable struct StressOnlyCalc <: AbstractCalc
 end
 
 get_cell(calc::StressOnlyCalc) = calc.cell
+get_positions(calc::StressOnlyCalc) = get_positions(calc.cell)
+get_cellmat(calc::StressOnlyCalc) = cellmat(calc.cell)
+set_positions!(calc::StressOnlyCalc, new) = set_positions!(calc.cell, new)
+set_cellmat!(calc::StressOnlyCalc, new; kwargs...) = set_cellmat!(calc.cell, new; kwargs...)
 eddp_energy(calc::StressOnlyCalc; kwargs...) = 0.0
 eddp_forces(calc::StressOnlyCalc; kwargs...) = zeros(3, length(calc.cell))
 eddp_stress(calc::StressOnlyCalc; kwargs...) = copy(calc.stress)
 calculate!(calc::StressOnlyCalc; kwargs...) = calc
+
+mutable struct VolumeStressCalc <: AbstractCalc
+    cell::Cell
+    target_volume::Float64
+    stiffness::Float64
+end
+
+get_cell(calc::VolumeStressCalc) = calc.cell
+get_positions(calc::VolumeStressCalc) = get_positions(calc.cell)
+get_cellmat(calc::VolumeStressCalc) = cellmat(calc.cell)
+set_positions!(calc::VolumeStressCalc, new) = set_positions!(calc.cell, new)
+set_cellmat!(calc::VolumeStressCalc, new; kwargs...) = set_cellmat!(calc.cell, new; kwargs...)
+function eddp_energy(calc::VolumeStressCalc; kwargs...)
+    v = ustrip(volume(calc.cell))
+    0.5 * calc.stiffness * ((v - calc.target_volume) / calc.target_volume)^2
+end
+eddp_forces(calc::VolumeStressCalc; kwargs...) = zeros(3, length(calc.cell))
+function eddp_stress(calc::VolumeStressCalc; kwargs...)
+    v = ustrip(volume(calc.cell))
+    ((calc.target_volume - v) / calc.target_volume) * calc.stiffness .* Matrix(I, 3, 3)
+end
+calculate!(calc::VolumeStressCalc; kwargs...) = calc
+
+mutable struct ConstantForceCalc <: AbstractCalc
+    cell::Cell
+    energy::Float64
+    forces::Matrix{Float64}
+end
+
+get_cell(calc::ConstantForceCalc) = calc.cell
+get_positions(calc::ConstantForceCalc) = get_positions(calc.cell)
+get_cellmat(calc::ConstantForceCalc) = cellmat(calc.cell)
+set_positions!(calc::ConstantForceCalc, new) = set_positions!(calc.cell, new)
+set_cellmat!(calc::ConstantForceCalc, new; kwargs...) = set_cellmat!(calc.cell, new; kwargs...)
+eddp_energy(calc::ConstantForceCalc; kwargs...) = calc.energy
+eddp_forces(calc::ConstantForceCalc; kwargs...) = copy(calc.forces)
+eddp_stress(calc::ConstantForceCalc; kwargs...) = zeros(3, 3)
+calculate!(calc::ConstantForceCalc; kwargs...) = calc
 
 @testset "Native Optimizers" begin
 
@@ -121,18 +165,16 @@ calculate!(calc::StressOnlyCalc; kwargs...) = calc
             opt = NativeTPSD(relax_cell=true, log_level=:minimal, step_constraints=[FixVolumeConstraint()])
             dx = zeros(length(get_positions(calc)) + 9)
             dx[(length(get_positions(calc)) + 1):end] .= vec(0.2 .* Matrix(I, 3, 3))
-            vol0 = ustrip(volume(get_cell(calc)))
 
             apply_step_constraints!([FixVolumeConstraint()], opt, calc, dx)
-            cell_old = get_cellmat(calc)[1:3, 1:3]
-            cell_new = cell_old .+ reshape(dx[(length(get_positions(calc)) + 1):end], 3, 3)
-            @test det(cell_new) ≈ vol0 atol=1e-8
+            strain_step = reshape(dx[(length(get_positions(calc)) + 1):end], 3, 3)
+            @test tr(strain_step) ≈ 0.0 atol=1e-12
+            @test norm(strain_step) < 1e-12
         end
 
         @testset "FixCellConstraint Voigt mask" begin
             cell = _h2_cell(10.0, 1.0)
             calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
-            H = get_cellmat(calc)[1:3, 1:3]
             D, nat = size(get_positions(calc))
             opt = NativeTPSD(relax_cell=true, log_level=:minimal)
 
@@ -142,23 +184,23 @@ calculate!(calc::StressOnlyCalc; kwargs...) = calc
                 0.05 0.04 0.30
             ]
             dx = zeros(D * nat + 9)
-            reshape(view(dx, D * nat + 1:length(dx)), 3, 3) .= strain * H
+            reshape(view(dx, D * nat + 1:length(dx)), 3, 3) .= strain
             apply_step_constraints!([FixCellConstraint()], opt, calc, dx)
             @test norm(dx[D * nat + 1:end]) < 1e-12
 
             dx = zeros(D * nat + 9)
-            reshape(view(dx, D * nat + 1:length(dx)), 3, 3) .= strain * H
+            reshape(view(dx, D * nat + 1:length(dx)), 3, 3) .= strain
             apply_step_constraints!([FixCellConstraint(mask=(false, false, true, false, false, false))], opt, calc, dx)
-            projected = reshape(dx[D * nat + 1:end], 3, 3) / H
+            projected = reshape(dx[D * nat + 1:end], 3, 3)
             @test projected[1, 1] ≈ strain[1, 1] atol=1e-12
             @test projected[2, 2] ≈ strain[2, 2] atol=1e-12
             @test projected[3, 3] ≈ 0.0 atol=1e-12
             @test projected[2, 3] ≈ strain[2, 3] atol=1e-12
 
             dx = zeros(D * nat + 9)
-            reshape(view(dx, D * nat + 1:length(dx)), 3, 3) .= strain * H
+            reshape(view(dx, D * nat + 1:length(dx)), 3, 3) .= strain
             apply_step_constraints!([FixCellConstraint(mask=(false, false, false, true, true, true))], opt, calc, dx)
-            projected = reshape(dx[D * nat + 1:end], 3, 3) / H
+            projected = reshape(dx[D * nat + 1:end], 3, 3)
             @test projected[1, 1] ≈ strain[1, 1] atol=1e-12
             @test projected[2, 2] ≈ strain[2, 2] atol=1e-12
             @test projected[3, 3] ≈ strain[3, 3] atol=1e-12
@@ -177,6 +219,37 @@ calculate!(calc::StressOnlyCalc; kwargs...) = calc
 
             apply_step_constraints!([FixCellConstraint(), FixVolumeConstraint()], opt, calc, dx)
             @test norm(dx[D * nat + 1:end]) < 1e-12
+        end
+
+        @testset "Variable-cell strain cap is lattice-scale independent" begin
+            for lattice_length in (5.0, 10.0)
+                cell = _h2_cell(lattice_length, 1.0)
+                calc = StressOnlyCalc(cell, 10.0 .* Matrix(I, 3, 3))
+                opt = NativeTPSD(relax_cell=true, max_cell_strain=0.01, log_level=:minimal)
+                initialize!(opt, calc)
+                dx = zeros(length(get_positions(calc)) + 9)
+                dx[(length(get_positions(calc)) + 1):end] .= vec(0.2 .* Matrix(I, 3, 3))
+
+                EDDPotentials.Simulation._limit_cell_step!(opt, calc, dx)
+                @test EDDPotentials.Simulation._cell_step_strain_norm(opt, calc, dx) ≈ 0.01 atol=1e-12
+            end
+        end
+
+        @testset "Reference-coordinate force transform uses strain transpose" begin
+            deformation = [
+                1.0 0.2 0.0
+                0.4 1.0 0.1
+                0.0 0.3 1.0
+            ]
+            F = [
+                1.0 -0.2
+                2.0 0.5
+                3.0 -0.7
+            ]
+
+            projected = EDDPotentials.Simulation._reference_strain_forces(deformation, F)
+            @test projected ≈ transpose(deformation) * F atol=1e-12
+            @test !isapprox(projected, deformation * F; atol=1e-12)
         end
     end
 
@@ -265,6 +338,54 @@ calculate!(calc::StressOnlyCalc; kwargs...) = calc
             step!(opt, calc)
             @test raw_fmax > 1e-8
             @test converged(opt, calc)
+        end
+
+        @testset "Step-energy convergence mode" begin
+            cell = _h2_cell(10.0, 1.0)
+            forces = [1.0 0.0; 0.0 0.0; 0.0 0.0]
+            calc_energy = ConstantForceCalc(cell, -3.0, forces)
+            opt_energy = opt_tpsd(calc_energy;
+                convergence="step_energy",
+                e_tol=1e-6,
+                f_tol=1e-12,
+                itermax=20,
+                maxstep=0.0,
+            )
+            @test converged(opt_energy, calc_energy)
+            @test opt_energy.iteration == 10
+            @test opt_energy.step_energy_de ≈ 0.0
+            @test isfinite(opt_energy.step_energy_derun)
+            @test opt_energy.step_energy_derun <= log10(opt_energy.e_tol)
+
+            calc_force = ConstantForceCalc(_h2_cell(10.0, 1.0), -3.0, forces)
+            opt_force = opt_tpsd(calc_force;
+                convergence="force",
+                f_tol=1e-12,
+                itermax=5,
+                maxstep=0.0,
+            )
+            @test !converged(opt_force, calc_force)
+            @test opt_force.iteration == 5
+            @test_throws ArgumentError opt_tpsd(
+                ConstantForceCalc(_h2_cell(10.0, 1.0), -3.0, forces);
+                convergence="maybe",
+                itermax=1,
+            )
+
+            calc_fire = ConstantForceCalc(_h2_cell(10.0, 1.0), -3.0, forces)
+            opt_fire_energy = opt_fire(calc_fire;
+                convergence="step_energy",
+                e_tol=1e-6,
+                f_tol=1e-12,
+                itermax=20,
+                maxstep=0.0,
+                verbose=false,
+            )
+            @test converged(opt_fire_energy, calc_fire)
+            @test opt_fire_energy.iteration == 10
+            @test opt_fire_energy.step_energy_de ≈ 0.0
+            @test isfinite(opt_fire_energy.step_energy_derun)
+            @test opt_fire_energy.step_energy_derun <= log10(opt_fire_energy.e_tol)
         end
     end
 
@@ -518,6 +639,34 @@ calculate!(calc::StressOnlyCalc; kwargs...) = calc
             @test strain[3, 3] ≈ 0.0 atol=1e-12
         end
 
+        @testset "TPSD caps variable-cell strain step" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = StressOnlyCalc(cell, -10.0 .* Matrix(I, 3, 3))
+            H0 = get_cellmat(calc)[1:3, 1:3]
+            opt = NativeTPSD(f_tol=1e-12, s_tol=1e-12, log_level=:minimal,
+                relax_cell=true, maxstep=100.0, max_cell_strain=0.01)
+
+            step!(opt, calc)
+            H1 = get_cellmat(calc)[1:3, 1:3]
+            @test norm((H1 - H0) / H0) <= 0.01 + 1e-12
+        end
+
+        @testset "TPSD variable-cell stress direction reduces hydrostatic residual" begin
+            cell = _h2_cell(4.0, 1.0)
+            calc = VolumeStressCalc(cell, 125.0, 0.2)
+            v0 = ustrip(volume(get_cell(calc)))
+            s0 = maximum(abs.(eddp_stress(calc)))
+            opt = NativeTPSD(f_tol=1e-12, s_tol=1e-12, log_level=:minimal,
+                relax_cell=true, maxstep=1.0, max_cell_strain=0.05, cell_damping=1.0)
+
+            step!(opt, calc)
+            v1 = ustrip(volume(get_cell(calc)))
+            s1 = maximum(abs.(eddp_stress(calc)))
+            @test v1 > v0
+            @test s1 < s0
+            @test opt.last_max_cell_strain <= 0.05 + 1e-12
+        end
+
         @testset "FIRE with relax_cell" begin
             cell = _h2_cell(10.0, 1.0)
             base_calc = lj_like_calc(cell; α=0.5, a=2, rc=8.0)
@@ -544,6 +693,34 @@ calculate!(calc::StressOnlyCalc; kwargs...) = calc
             H1 = get_cellmat(base_calc)[1:3, 1:3]
             strain = (H1 - H0) / H0
             @test strain[3, 3] ≈ 0.0 atol=1e-12
+        end
+
+        @testset "FIRE caps variable-cell strain step" begin
+            cell = _h2_cell(10.0, 1.0)
+            calc = StressOnlyCalc(cell, 10.0 .* Matrix(I, 3, 3))
+            H0 = get_cellmat(calc)[1:3, 1:3]
+            opt = NativeFIRE(f_tol=1e-12, s_tol=1e-12, log_level=:minimal,
+                relax_cell=true, maxstep=100.0, max_cell_strain=0.01)
+
+            step!(opt, calc)
+            H1 = get_cellmat(calc)[1:3, 1:3]
+            @test norm((H1 - H0) / H0) <= 0.01 + 1e-12
+        end
+
+        @testset "FIRE variable-cell stress step is finite" begin
+            cell = _h2_cell(4.0, 1.0)
+            calc = VolumeStressCalc(cell, 125.0, 0.2)
+            v0 = ustrip(volume(get_cell(calc)))
+            opt = NativeFIRE(f_tol=1e-12, s_tol=1e-12, log_level=:minimal,
+                relax_cell=true, maxstep=1.0, max_cell_strain=0.05, cell_damping=1.0)
+
+            for _ in 1:5
+                step!(opt, calc)
+            end
+            v1 = ustrip(volume(get_cell(calc)))
+            @test isfinite(v1)
+            @test v1 > v0
+            @test opt.last_max_cell_strain <= 0.05 + 1e-12
         end
 
         @testset "Projected stress convergence leaves raw stress unchanged" begin

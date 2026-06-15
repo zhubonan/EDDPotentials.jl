@@ -85,6 +85,17 @@ function num_existing_models(bu::Builder, tra::TrainingOption=bu.trainer)
 end
 
 
+function _training_split_ratios(tra::TrainingOption)
+    split = tra.train_split
+    all(x -> x >= 0, split) || throw(ArgumentError("trainer.train_split entries must be non-negative."))
+    total = sum(split)
+    total > 0 || throw(ArgumentError("trainer.train_split must contain at least one positive entry."))
+    if any(x -> x > 1, split) || total > 1.0 + eps(Float64)
+        return split ./ total
+    end
+    return split
+end
+
 
 """
     write_dataset(builder)
@@ -96,7 +107,7 @@ Pass a pre-built FeatureStore as the second argument to use the legacy path.
 """
 function write_dataset(bu::Builder; name=dataset_name(bu))
     ensure_dir(splitdir(name)[1])
-    train, val, test = split_then_featurize(bu, bu.trainer.train_split...)
+    train, val, test = split_then_featurize(bu, _training_split_ratios(bu.trainer)...)
     _save_split_dataset(name, train, val, test)
 end
 
@@ -104,7 +115,7 @@ function write_dataset(bu::Builder, fs::FeatureStore; name=dataset_name(bu))
     ensure_dir(splitdir(name)[1])
     train, val, test = split(
         fs,
-        bu.trainer.train_split...;
+        _training_split_ratios(bu.trainer)...;
         respect_shakes=bu.trainer.respect_shakes,
     )
     _save_split_dataset(name, train, val, test)
@@ -370,7 +381,7 @@ function create_ensemble(
     ensemble =
         Training.create_ensemble(models, total; alg, error_threshold=tra.ensemble_error_threshold)
     if save_ensemble_model
-        savepath = joinpath(bu.state.workdir, ensemble_name(bu))
+        savepath = ensemble_name(bu)
         save_model_artifact(
             savepath,
             ensemble;

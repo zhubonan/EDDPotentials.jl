@@ -36,13 +36,17 @@ to perform various actions during the construction of the potentials.
 - `n_initial`: The number of initial structures to be generated (for generation 0). 
 - `dft_mode`: The model of running DFT calculations. The current available options are:crud, acrud, crud-queue, disp-castep, pp3.
 - `dft_kwargs`: The key word arguments to be used for the function that runs the DFT calculations.
-- `rss_pressure_gpa`: The external pressure used when running random structure searching.
+- `rss_pressure_gpa`: The external pressure in GPa used when running random
+  structure searching. This RSS-level setting is authoritative during RSS and
+  overrides nested `relax.external_pressure` / `relax.external_pressure_gpa`.
 - `rss_pressure_gpa_range`: The range of the pressure used when running random structure searching.
 - `rss_niggli_reduce`: Perform niggli reduce for the generated-relaxed structures.
 - `rss_nprocs`: The number of processes to use for generating/relaxing random structures.
 - `rss_external`: Whether to run the random structure searching in separate Julia processes.
 - `rss_num_threads`: The number of threads to used for launched Julia processes.
 - `rss_prune`: Optional pruning for generated relaxed structures before writing training inputs.
+- `rss_require_converged`: Whether generated RSS structures must satisfy the
+  relaxation convergence criteria before being written.
 - `core_size`: Size of the soft sphere core. Note that the repulsion kick-in at about 3/4 of the core size.
 - `ensemble_std_min`: The minimum ensemble standard deviation for valid structures during random structure searching.
   Can be used to exclude structures that are already well-described by the potential.
@@ -92,6 +96,7 @@ to perform various actions during the construction of the potentials.
     rss_external::Bool = true
     rss_num_threads::Int = 1
     rss_prune::RssPruneOption = RssPruneOption()
+    rss_require_converged::Bool = false
     core_size::Union{Float64,Dict{String,Float64}} = 0.5
     ensemble_std_min::Float64 = 0.0
     ensemble_std_max::Float64 = -1.0
@@ -241,8 +246,12 @@ end
 - `ensemble_std_min`: The minimum ensemble standard deviation for valid structures during random structure searching. Can be used to exclude structures that are already well-described by the potential.
 - `eng_threshold`: The threshold for filtering structures based on their energy (per atom) referenced against the lowest energy structure.
 - `niggli_reduce_output`: Whether to perform niggli reduce for the generated-relaxed structures.
+- `require_converged`: Whether to discard candidates whose relaxation hits the
+  iteration limit instead of writing them as kept RSS outputs.
 - `max_err`: The maximum number of errors to be tolerated during random structure searching.
-- `pressure_gpa`: The external pressure used (GPa) when running random structure searching.
+- `pressure_gpa`: The external pressure used (GPa) when running random
+  structure searching. This RSS-level setting is authoritative during RSS and
+  overrides nested `relax.external_pressure` / `relax.external_pressure_gpa`.
 - `relax`: Options for performing relaxations of the generated structures.
 - `prune`: Optional pruning for generated relaxed structures before writing search output.
 """
@@ -258,6 +267,7 @@ end
     ensemble_std_min::Float64 = -1.0
     eng_threshold::Float64 = -1.0
     niggli_reduce_output::Bool = true
+    require_converged::Bool = false
     max_err::Int = 10
     pressure_gpa::Float64 = 0.01
     relax::RelaxOption = RelaxOption()

@@ -1,5 +1,6 @@
 using EDDPotentials
 using Test
+using JSON
 
 function _distributed_builder(
     temp;
@@ -174,6 +175,59 @@ end
             trainer.nmodels = 4
             EDDPotentials.server_prepare_training_phase!(builder, 0)
             @test !isfile(model_path)
+        end
+    end
+
+    @testset "Airsspy acrud distributed DFT command" begin
+        mktempdir() do temp
+            fake_ap = joinpath(temp, "ap")
+            write(fake_ap, "#!/bin/sh\nexit 0\n")
+            chmod(fake_ap, 0o755)
+
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.dft_mode = "acrud"
+            state.dft_kwargs = Dict{String,Any}(
+                "ap_cmd" => fake_ap,
+                "code" => "castep",
+                "mpinp" => 4,
+                "singlepoint" => true,
+            )
+            state.per_generation_threshold = 0.5
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.dft_env = Dict{String,Any}("OMP_NUM_THREADS" => "2")
+            builder = _distributed_builder(temp; state, distributed)
+
+            _write_minimal_castep_inputs(temp)
+            _write_generated_res(temp, ["calc-001.res", "other-002.res"])
+
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
+            manifest = JSON.parsefile(joinpath(phase_dir, "manifest.json"))
+            @test manifest["dft_mode"] == "acrud"
+            @test manifest["airsspy"]["code"] == "castep"
+            @test manifest["airsspy"]["mpinp"] == 4
+            @test isfile(joinpath(crud_workdir, "calc.cell"))
+            @test isfile(joinpath(crud_workdir, "calc.param"))
+            @test isfile(joinpath(crud_workdir, "other.cell"))
+            @test isfile(joinpath(crud_workdir, "other.param"))
+            @test count(endswith(".res"), readdir(joinpath(crud_workdir, "hopper"))) == 2
+
+            dft_cmd = EDDPotentials._distributed_dft_cmd(builder, manifest)
+            @test first(dft_cmd.exec) == fake_ap
+            @test dft_cmd.exec[2:3] == ["run", "crud"]
+            @test "--workdir" in dft_cmd.exec
+            @test "--code" in dft_cmd.exec
+            @test "--singlepoint" in dft_cmd.exec
+            @test !("crud.pl" in dft_cmd.exec)
+            @test "OMP_NUM_THREADS=2" in getfield(dft_cmd, :env)
+
+            EDDPotentials._server_request_phase_stop!(builder, phase_dir)
+            @test isfile(joinpath(phase_dir, "STOP"))
+            @test isfile(joinpath(crud_workdir, "STOP_CRUD"))
         end
     end
 
@@ -577,6 +631,47 @@ end
         end
     end
 
+    @testset "Distributed acrud collection normalizes airsspy ML RES output" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.dft_mode = "acrud"
+            state.dft_kwargs = Dict{String,Any}("code" => "ml")
+            cf = EDDPotentials.CellFeatureConfig(elements=["C"])
+            rss = EDDPotentials.RssSetting()
+            trainer = EDDPotentials.TrainingOption()
+            trainer.external = false
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.manage_worker_jobs = false
+            builder = _distributed_builder(temp; state, cf, rss, trainer, distributed)
+
+            _write_generated_res(temp, ["calc-001.res"])
+            EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            good = joinpath(temp, "crud-work", "gen0", "good_castep", "calc-001.res")
+            write(
+                good,
+                """
+                TITL calc-001  64.533 14.702 -10.112719  0  0  1 (P1) n - 1
+                CELL 1.0 2.500000 2.500000 2.500000 90.000000 90.000000 90.000000 -0.1 -0.2 -0.3
+                LATT -1 0.1 0.2 0.3
+                SFAC C
+                C 1 0.0 0.0 0.0 1.0
+                END
+                """,
+            )
+
+            @test EDDPotentials.server_run_dft_phase!(builder, 0) == :ok
+            out = joinpath(EDDPotentials.output_structure_dir(temp, 0), "calc-001.res")
+            text = read(out, String)
+            @test occursin("CELL 1.0 2.500000 2.500000 2.500000 90.000000 90.000000 90.000000\n", text)
+            @test occursin("LATT -1\n", text)
+            @test EDDPotentials.read_res(out).metadata[:enthalpy] ≈ -10.112719
+        end
+    end
+
     @testset "Scheduler script rendering" begin
         mktempdir() do temp
             script = joinpath(temp, "distributed_job.sh")
@@ -637,6 +732,20 @@ end
                 builder,
             ))
             @test EDDPotentials._server_submit_workers(builder, "dft", 0) == ""
+
+            state.dft_mode = "acrud"
+            fake_ap = joinpath(temp, "ap")
+            write(fake_ap, "#!/bin/sh\nexit 0\n")
+            chmod(fake_ap, 0o755)
+            state.dft_kwargs = Dict{String,Any}("ap_cmd" => fake_ap)
+            @test fake_ap in EDDPotentials._required_commands(
+                EDDPotentials.DistributedLinkBackend(),
+                builder,
+            )
+            @test !("crud.pl" in EDDPotentials._required_commands(
+                EDDPotentials.DistributedLinkBackend(),
+                builder,
+            ))
         end
     end
 end

@@ -103,6 +103,7 @@ end
         state.rss_prune.enabled = true
         state.rss_prune.pool_size = 25
         state.rss_prune.keep_fraction = 0.2
+        state.rss_require_converged = true
 
         cf = EDDPotentials.CellFeatureConfig(elements=["H"])
 
@@ -110,6 +111,7 @@ end
         rss.prune.enabled = true
         rss.prune.pool_size = 50
         rss.prune.keep_fraction = 0.3
+        rss.require_converged = true
 
         opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, EDDPotentials.TrainingOption(), nothing)
         test_to_from_toml(opt)
@@ -255,7 +257,23 @@ end
         trainer.nmodels = 10
         trainer.external = true
         trainer.external_completion_ratio = 0.5
-            @test _required_models_for_ensemble(trainer) == 5
+        @test _required_models_for_ensemble(trainer) == 5
+
+        distributed = EDDPotentials.DistributedLinkOption()
+        distributed.enabled = true
+        trainer.external = false
+        builder = Builder(
+            EDDPotentials.BuilderOption(
+                EDDPotentials.BuilderState(seedfile="seed.cell", seedfile_calc="calc.cell"),
+                EDDPotentials.CellFeatureConfig(elements=["H"]),
+                nothing,
+                EDDPotentials.RssSetting(),
+                trainer,
+                nothing,
+                distributed,
+            ),
+        )
+        @test _required_models_for_ensemble(builder) == 5
     end
 
     @testset "Workflow artifact readiness skips completed phases" begin
@@ -322,6 +340,92 @@ end
         end
     end
 
+    @testset "acrud dispatch uses airsspy CLI" begin
+        mktempdir() do temp
+            fake_ap = joinpath(temp, "ap")
+            args_file = joinpath(temp, "ap-args.txt")
+            open(fake_ap, "w") do io
+                println(io, "#!/bin/sh")
+                println(io, "printf '%s\\n' \"\$@\" > '$(args_file)'")
+                println(io, "workdir=''")
+                println(io, "prev=''")
+                println(io, "for arg in \"\$@\"; do")
+                println(io, "  if [ \"\$prev\" = '--workdir' ]; then workdir=\"\$arg\"; fi")
+                println(io, "  prev=\"\$arg\"")
+                println(io, "done")
+                println(io, "mkdir -p \"\$workdir/good_castep\"")
+                println(io, "for file in \"\$workdir\"/hopper/*.res; do")
+                println(io, "  [ -e \"\$file\" ] || continue")
+                println(io, "  cp \"\$file\" \"\$workdir/good_castep/\$(basename \"\$file\")\"")
+                println(io, "done")
+            end
+            chmod(fake_ap, 0o755)
+
+            write(joinpath(temp, "calc.cell"), "%BLOCK LATTICE_CART\n1 0 0\n0 1 0\n0 0 1\n%ENDBLOCK LATTICE_CART\n")
+            write(joinpath(temp, "calc.param"), "task : SinglePoint\n")
+            indir = joinpath(temp, "input")
+            outdir = joinpath(temp, "output")
+            mkpath(indir)
+            write(joinpath(indir, "calc-001.res"), "TITL test\nEND\n")
+
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.dft_mode = "acrud"
+            state.dft_kwargs = Dict{String,Any}(
+                "ap_cmd" => fake_ap,
+                "code" => "castep",
+                "mpinp" => 2,
+                "singlepoint" => true,
+            )
+            builder = Builder(
+                EDDPotentials.BuilderOption(
+                    state,
+                    EDDPotentials.CellFeatureConfig(elements=["H"]),
+                    nothing,
+                    EDDPotentials.RssSetting(),
+                    EDDPotentials.TrainingOption(),
+                    nothing,
+                ),
+            )
+
+            @test EDDPotentials.get_external_calculator(builder)(indir, outdir)
+            args = read(args_file, String)
+            @test contains(args, "run\ncrud")
+            @test contains(args, "--code\ncastep")
+            @test contains(args, "--mpinp\n2")
+            @test contains(args, "--singlepoint")
+            @test isfile(joinpath(temp, "acrud-work", "calc.cell"))
+            @test isfile(joinpath(temp, "acrud-work", "calc.param"))
+            @test isfile(joinpath(outdir, "calc-001.res"))
+        end
+    end
+
+    @testset "airsspy acrud result normalization removes stress-only RES tokens" begin
+        mktempdir() do temp
+            res = joinpath(temp, "airsspy.res")
+            write(
+                res,
+                """
+                TITL C-001  64.533 14.702 -10.112719  0  0  2 (P-1) n - 1
+                CELL 1.0 2.083940 2.382460 3.275690 74.203670 77.147910 71.863990 -0.700829 -0.298584 1.304074
+                LATT -1 0.700829 0.298584 -1.304073
+                SFAC C
+                C 1 0.802278 0.520067 0.075267 1.0
+                C 1 0.128022 0.881055 0.109820 1.0
+                END
+                """,
+            )
+            EDDPotentials.normalize_airsspy_res_file!(res)
+            text = read(res, String)
+            @test occursin("CELL 1.0 2.083940 2.382460 3.275690 74.203670 77.147910 71.863990\n", text)
+            @test occursin("LATT -1\n", text)
+            @test EDDPotentials.read_res(res).metadata[:enthalpy] ≈ -10.112719
+        end
+    end
+
     @testset "Training dataset respects rattled groups when configured" begin
         mktempdir() do temp
             state = EDDPotentials.BuilderState(
@@ -347,6 +451,46 @@ end
             @test isempty(intersect(train_parents, test_parents))
             @test isempty(intersect(val_parents, test_parents))
             @test isfile(splitext(dataset_path)[1] * ".yaml")
+        end
+    end
+
+    @testset "Builder train_split accepts ratio-like weights" begin
+        mktempdir() do temp
+            dft_dir = joinpath(temp, "gen0-dft")
+            mkpath(dft_dir)
+            for i = 1:20
+                write(
+                    joinpath(dft_dir, "s$(i).res"),
+                    """
+                    TITL s$(i)  0.000 15.000 $(Float64(i))  0  0  2 (P-1) n - 1
+                    CELL 1.0 3.000000 3.000000 3.000000 90.000000 90.000000 90.000000
+                    LATT -1
+                    SFAC H
+                    H 1 0.000000 0.000000 0.000000 1.0
+                    H 1 0.500000 0.500000 0.500000 1.0
+                    END
+                    """,
+                )
+            end
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            cf = EDDPotentials.CellFeatureConfig(elements=["H"])
+            rss = EDDPotentials.RssSetting()
+            trainer = EDDPotentials.TrainingOption()
+            trainer.train_split = [8.0, 1.0, 1.0]
+            opt = EDDPotentials.BuilderOption(state, cf, nothing, rss, trainer, nothing)
+            builder = Builder(opt)
+            dataset_path = joinpath(temp, "training", "ratio-dataset.jld2")
+
+            EDDPotentials.write_dataset(builder; name=dataset_path)
+            train, val, test = load_training_data(dataset_path)
+
+            @test length(train) == 16
+            @test length(val) == 2
+            @test length(test) == 2
         end
     end
 end

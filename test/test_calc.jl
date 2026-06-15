@@ -7,6 +7,7 @@ using CellBase
 using CellBase: distance_between
 using Flux
 using Unitful: ustrip
+using EDDPotentials.Potential: CellEmbedding, _need_calc, flux_mlp_model, setparamvector!
 
 function _force_shifted_lj_energy(r, sigma, epsilon, rcut; p_rep=12, p_att=6)
     if r > rcut

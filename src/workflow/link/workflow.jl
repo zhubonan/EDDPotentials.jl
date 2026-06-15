@@ -423,7 +423,10 @@ function _check_dependencies(names)
     unique_names = unique(String.(names))
     isempty(unique_names) && return true
     @info "Checking required external programs: $unique_names"
-    missing = [name for name in unique_names if Sys.which(name) === nothing]
+    missing = [
+        name for name in unique_names if
+        !(isfile(name) || Sys.which(name) !== nothing)
+    ]
     isempty(missing) || throw(
         ErrorException(
             "Missing required external program(s): $(join(missing, ", ")). Please check the runtime environment.",
@@ -442,7 +445,13 @@ function _dft_required_commands(bu::Builder)
     elseif mode in ("crud", "crud-queue")
         return ["crud.pl"]
     elseif mode == "acrud"
-        return String[]
+        ap_cmd = get(bu.state.dft_kwargs, "ap_cmd", get(bu.state.dft_kwargs, :ap_cmd, nothing))
+        if ap_cmd !== nothing && !isempty(strip(String(ap_cmd)))
+            return [String(ap_cmd)]
+        end
+        local_ap = joinpath(dirname(Base.active_project()), "airsspy-repo", ".venv", "bin", "ap")
+        isfile(local_ap) && return [local_ap]
+        return ["ap"]
     elseif mode == "disp-castep"
         return ["disp"]
     elseif mode == "mock"
@@ -466,7 +475,8 @@ function _required_commands(::LocalLinkBackend, bu::Builder)
 end
 
 function _required_commands(::DistributedLinkBackend, bu::Builder)
-    commands = String["buildcell", "crud.pl"]
+    commands = String["buildcell"]
+    append!(commands, _dft_required_commands(bu))
     scheduler = bu.options.scheduler
     if scheduler !== nothing && bu.options.distributed.manage_worker_jobs && scheduler.submit_jobs
         push!(commands, _scheduler_command(scheduler))
@@ -532,7 +542,7 @@ end
 
 function create_iteration_ensemble!(bu::Builder, iter::Int=bu.state.iteration)
     nm = num_existing_models(bu)
-    required = _required_models_for_ensemble(bu.trainer)
+    required = _required_models_for_ensemble(bu)
     @info "Number of trained models: $nm"
     if nm >= required
         return create_ensemble(
@@ -551,8 +561,13 @@ end
 _required_models_for_ensemble(tra::TrainingOption) =
     tra.external ? _external_required_models(tra) : tra.nmodels
 
+_required_models_for_ensemble(bu::Builder) =
+    (bu.trainer.external || bu.options.distributed.enabled) ?
+    _external_required_models(bu.trainer) :
+    bu.trainer.nmodels
+
 _models_ready_for_ensemble(bu::Builder) =
-    num_existing_models(bu) >= _required_models_for_ensemble(bu.trainer)
+    num_existing_models(bu) >= _required_models_for_ensemble(bu)
 
 
 """
@@ -904,6 +919,7 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
         seed_text_transform,
         prune_option=state.rss_prune,
         prune_random_composition=formula_ctx !== nothing,
+        require_converged=state.rss_require_converged,
     )
     return :ok
 end
@@ -958,6 +974,7 @@ function run_rss(builder::Builder)
         seed_text_transform,
         prune_option=rs.prune,
         prune_random_composition=formula_ctx !== nothing,
+        require_converged=rs.require_converged,
     )
 end
 
@@ -1061,6 +1078,7 @@ function _run_rss_link()
         seed_text_transform,
         prune_option=state.rss_prune,
         prune_random_composition=formula_ctx !== nothing,
+        require_converged=state.rss_require_converged,
     )
 end
 

@@ -4,6 +4,12 @@ Routines for building structures
 
 using StatsBase: Weights, sample
 
+_has_symmetry_generate(text::AbstractString) =
+    any(line -> uppercase(strip(line)) == "SYMMETRY_GENERATE", split(text, '\n'))
+
+_has_symmetry_generate(lines) =
+    any(line -> uppercase(strip(line)) == "SYMMETRY_GENERATE", lines)
+
 """
     build_one(seedfile;timeout=10, init_structure_transform=nothing, seed_text_transform=nothing)
 
@@ -19,6 +25,7 @@ function build_one(
     local cell::Cell{Float64,3}
     i = 1
     seed_text = read(seedfile, String)
+    seed_symmetry_generate = _has_symmetry_generate(seed_text)
     while true
         if i >= max_attemp
             throw(ErrorException("Maximum attempt for building structure exceeded!"))
@@ -45,6 +52,10 @@ function build_one(
 
         # Generate a unique label
         cell = CellBase.read_cell(lines)
+        wants_symmetry_generate = seed_symmetry_generate || _has_symmetry_generate(lines)
+        if wants_symmetry_generate
+            cell.metadata[:symmetry_generate] = true
+        end
 
         if !isnothing(init_structure_transform)
             cell = init_structure_transform(cell)
@@ -52,6 +63,9 @@ function build_one(
                 # This generated structure is no good....
                 i += 1
                 continue
+            end
+            if wants_symmetry_generate
+                cell.metadata[:symmetry_generate] = true
             end
         end
         break

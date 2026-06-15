@@ -1,0 +1,105 @@
+[state]
+seedfile = "C.cell"
+seedfile_calc = "C.cell"
+workdir = "work"
+dft_mode = "acrud"
+max_iterations = 5
+n_initial = 100
+per_generation = 500
+per_generation_threshold = 1.0
+shake_per_minima = 0
+buildcell_nprocs = 1
+build_timeout = 30.0
+rss_external = false
+rss_nprocs = 1
+rss_num_threads = 1
+rss_pressure_gpa = 100.0
+rss_pressure_gpa_range = [0.0, 100.0]
+rss_niggli_reduce = true
+rss_require_converged = true
+run_walk_forward = false
+core_size = 0.25
+
+[state.dft_kwargs]
+ap_cmd = "/home/bonan/appdir/airsspy/.venv/bin/ap"
+code = "ml"
+calculator = "ase:mattersim_ase:EnvMatterSimCalculator"
+singlepoint = true
+keep = false
+nostop = false
+
+[state.relax]
+iterations = 200
+convergence = "step_energy"
+energy_threshold = 1.0e-6
+force_threshold = 0.01
+stress_threshold_gpa = 0.1
+verbose = false
+
+[cf]
+elements = ["C"]
+rcut2 = 3.75
+rcut3 = 3.75
+p2 = [2, 4, 6, 8]
+p3 = [2, 4, 6, 8]
+q3 = [2, 4, 6, 8]
+geometry_sequence = false
+
+[rss]
+max = 6
+packed = false
+show_progress = false
+pressure_gpa = 100.0
+ensemble_std_max = -1.0
+eng_threshold = -1.0
+max_err = 20
+require_converged = true
+
+[rss.relax]
+iterations = 400
+convergence = "step_energy"
+energy_threshold = 1.0e-6
+force_threshold = 0.01
+stress_threshold_gpa = 0.1
+verbose = false
+
+[trainer]
+log_file = "train-log"
+train_method = "lm"
+training_mode = "manual_backprop"
+energy_threshold = 1000.0
+nmodels = 128
+n_nodes = [8, 8]
+max_iter = 1000
+external = false
+show_progress = false
+boltzmann_kt = -1.0
+ensemble_error_threshold = 1000.0
+clean_models = false
+train_split = [8.0, 1.0, 1.0]
+use_validation_for_ensemble = false
+
+[distributed]
+enabled = true
+manage_worker_jobs = false
+coordination_dir = ".eddp-distributed"
+dft_crud_workdir = "crud-work"
+dft_worker_jobs = 2
+training_worker_jobs = 0
+control_poll_interval_seconds = 1.0
+worker_poll_interval_seconds = 1.0
+worker_heartbeat_interval_seconds = 5.0
+worker_child_grace_seconds = 5.0
+worker_child_kill_seconds = 5.0
+log_enabled = true
+log_level = "info"
+log_dir = "logs"
+log_interval_seconds = 2.0
+
+[distributed.dft_env]
+PYTHONPATH = "/home/bonan/appdir/hyper-eddp/EDDPotentials.jl/examples/mattersim-c-100gpa-distributed"
+MATTERSIM_CHECKPOINT = "/home/bonan/appdir/mattersim/pretrained_models/mattersim-v1.0.0-1M.pth"
+MATTERSIM_DEVICE = "cpu"
+MPLCONFIGDIR = "/tmp/eddp-mattersim-mpl"
+NUMEXPR_MAX_THREADS = "1"
+OMP_NUM_THREADS = "1"
