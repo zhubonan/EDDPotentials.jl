@@ -118,6 +118,21 @@ This overload uses `create_calculator` internally to bind the model
 to the hyperdimensional cell with the appropriate modifier pipeline
 (`ExtraDimensionPenaltyModifier`).
 
+For ordinary `RelaxOption`-based relaxation, use
+`external_pressure_gpa` for hydrostatic pressure in GPa:
+
+```julia
+opts = RelaxOption(;
+    relax_cell = true,
+    external_pressure_gpa = 25.0,
+)
+relax!(Relax(calc, opts))
+```
+
+Positive values are compressive and negative values are tensile. The older
+`external_pressure` field is deprecated because it uses internal eV/Å³ stress
+units; set only one of the two pressure interfaces.
+
 ## Lennard-Jones Hyperspace Example
 
 Here is a complete, self-contained example using a Lennard-Jones-like

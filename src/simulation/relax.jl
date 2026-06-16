@@ -19,9 +19,9 @@ the user-facing `stress_threshold_gpa`.
 
 `external_pressure` is deprecated and uses the optimizer's internal stress
 unit, eV/Å³. Use `external_pressure_gpa` for hydrostatic external pressure in
-GPa; positive values are compressive and negative values are tensile. Setting
-`external_pressure_gpa` overrides `external_pressure`; setting both to
-non-default values is an error.
+GPa; positive values are compressive and negative values are tensile. Set only
+one pressure option: using `external_pressure_gpa` together with a non-default
+`external_pressure` is an error.
 """
 @option mutable struct RelaxOption <: EDDPotentialsOption
     method::String = "tpsd"

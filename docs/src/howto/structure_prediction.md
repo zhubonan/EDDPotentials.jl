@@ -268,6 +268,44 @@ Or modify buildcell file:
 #PRESSURE=10.0   # External pressure in GPa
 ```
 
+### Pressure Units and Relaxation
+
+RSS and link workflows use GPa-facing pressure settings. At the workflow level,
+set `rss_pressure_gpa` under `[state]` for active-learning RSS, or
+`pressure_gpa` under `[rss]` for standalone production RSS:
+
+```toml
+[rss]
+pressure_gpa = 100.0  # positive means compressive pressure
+```
+
+During RSS, the RSS-level pressure is authoritative and is passed into the
+relaxer for every generated candidate. Nested relaxation pressure fields are
+ignored for RSS pressure control.
+
+For direct calls to `relax!` / `RelaxOption`, use `external_pressure_gpa`:
+
+```julia
+opts = RelaxOption(;
+    relax_cell = true,
+    external_pressure_gpa = 100.0,  # compressive
+)
+relax!(Relax(calc, opts))
+```
+
+Negative values are allowed and represent tensile hydrostatic pressure. The
+older `external_pressure` option is deprecated because it uses the optimizer's
+internal stress unit, eV/Å³. Do not set both `external_pressure_gpa` and a
+non-default `external_pressure`.
+
+Similarly, prefer `stress_threshold_gpa` for force/stress convergence settings:
+
+```toml
+[rss.relax]
+force_threshold = 0.01       # eV/Å
+stress_threshold_gpa = 0.1   # GPa
+```
+
 **Applications:**
 - High-pressure polymorphs (diamond, post-perovskite)
 - Preventing low-density structures

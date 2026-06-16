@@ -115,6 +115,13 @@ Pages = [
 
 High-level relaxation interface wrapping optimizers with cell handling, convergence checking, and trajectory recording.
 
+For variable-cell relaxation under hydrostatic pressure, prefer
+`RelaxOption.external_pressure_gpa`, which is specified in GPa. Positive values
+are compressive and negative values are tensile. The legacy
+`RelaxOption.external_pressure` field is deprecated because it uses internal
+eV/Å³ stress units; setting both pressure interfaces to non-default values is an
+error.
+
 ### Lennard-Jones baseline helper
 
 EDDP now includes a fixed-weight force-shifted Lennard-Jones baseline built on top of
