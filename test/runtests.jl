@@ -66,6 +66,7 @@ include("test_distributed_link.jl")
 include("test_formula_sampling.jl")
 include("test_rss_pruning.jl")
 include("test_symmetry_relaxation.jl")
+include("test_surface_constraints.jl")
 include("test_relax_trajectory.jl")
 #include("test_link.jl")
 

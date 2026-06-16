@@ -40,6 +40,7 @@ one pressure option: using `external_pressure_gpa` together with a non-default
     max_cell_strain::Float64 = 0.0125
     cell_damping::Float64 = 1.0
     step_constraints::Vector{Any} = Any[]
+    honor_cell_constraints::Bool = true
     symmetry::String = "auto"
     symmetry_tolerance::Float64 = 1e-5
     trajectory_file::String = ""
@@ -303,9 +304,12 @@ end
 function _resolved_step_constraints(calc::AbstractCalc, opts::RelaxOption)
     mode = _normalize_symmetry_mode(opts.symmetry)
     constraints = Any[opts.step_constraints...]
+    cell = get_cell(calc)
+    if opts.honor_cell_constraints
+        append!(constraints, _cell_step_constraints(cell))
+    end
     mode == "off" && return constraints
 
-    cell = get_cell(calc)
     if mode == "auto" && !_cell_wants_symmetry(cell)
         return constraints
     end

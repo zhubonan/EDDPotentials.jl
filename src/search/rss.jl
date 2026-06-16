@@ -243,6 +243,7 @@ function build_and_relax(
             phase1_alpha, phase1_iters, ndim)
 
         metacalc_pos = MetaCalculator(source, [penalty])
+        phase1_constraints = Simulation._resolved_step_constraints(metacalc_pos, relax_option)
         set_modifier_parameter!(metacalc_pos, ExtraDimensionPenaltyModifier, :alpha, phase1_alpha)
         p1_ramp = relax_option.hyper_dynamic_alpha ? true : false
         scheduled_penalty_relax!(metacalc_pos;
@@ -254,6 +255,7 @@ function build_and_relax(
                 e_tol=relax_option.energy_threshold,
                 convergence=relax_option.convergence,
                 maxstep=relax_option.maxstep,
+                step_constraints=phase1_constraints,
             ),
             ramp_alpha=p1_ramp,
             alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,
@@ -265,6 +267,7 @@ function build_and_relax(
             alpha_start, phase2_iters)
 
         metacalc_full = MetaCalculator(source, [penalty])
+        phase2_constraints = Simulation._resolved_step_constraints(metacalc_full, relax_option)
         scheduled_penalty_relax!(metacalc_full;
             schedule_every, max_iterations=phase2_iters,
             alpha_start, relax_fn=opt_fire, trace,
@@ -278,6 +281,7 @@ function build_and_relax(
                 maxstep=relax_option.maxstep,
                 max_cell_strain=relax_option.max_cell_strain,
                 cell_damping=relax_option.cell_damping,
+                step_constraints=phase2_constraints,
             ),
             ramp_alpha=relax_option.hyper_ramp_alpha,
             alpha_ramp_factor=relax_option.hyper_alpha_ramp_factor,

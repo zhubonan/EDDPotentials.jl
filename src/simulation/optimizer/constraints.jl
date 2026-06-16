@@ -281,6 +281,47 @@ the accepted infinitesimal cell update preserves volume to first order.
 """
 struct FixVolumeConstraint <: AbstractStepConstraint end
 
+function _fixed_atom_masks(mask)
+    size(mask, 1) >= 3 || throw(ArgumentError("buildcell fixed-atom mask must have at least three rows"))
+    full = Int[]
+    partial = Dict{NTuple{3,Bool},Vector{Int}}()
+    for atom in axes(mask, 2)
+        atom_mask = Tuple(Bool.(mask[1:3, atom]))
+        if all(atom_mask)
+            push!(full, atom)
+        elseif any(atom_mask)
+            atoms = get!(partial, atom_mask, Int[])
+            push!(atoms, atom)
+        end
+    end
+    full, partial
+end
+
+function _cell_step_constraints(cell)
+    constraints = Any[]
+
+    fix_mask = get(cell.arrays, :buildcell_fix_mask, nothing)
+    if fix_mask !== nothing
+        full_atoms, partial_atoms = _fixed_atom_masks(fix_mask)
+        !isempty(full_atoms) && push!(constraints, FixAtoms(full_atoms))
+        for (mask, atoms) in partial_atoms
+            push!(constraints, FixCartesian(atoms; mask))
+        end
+    end
+
+    info = get(cell.metadata, :buildcell_cell_constraints, nothing)
+    if info isa AbstractDict
+        if get(info, :fix_all_cell, false) === true
+            push!(constraints, FixCellConstraint())
+        elseif get(info, :cell_mask, nothing) !== nothing
+            push!(constraints, FixCellConstraint(mask=get(info, :cell_mask, nothing)))
+        end
+        get(info, :fix_volume, false) === true && push!(constraints, FixVolumeConstraint())
+    end
+
+    constraints
+end
+
 """
     SymmetryConstraint(cell; symprec=1e-5)
 

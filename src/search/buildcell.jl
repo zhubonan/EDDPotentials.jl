@@ -10,6 +10,145 @@ _has_symmetry_generate(text::AbstractString) =
 _has_symmetry_generate(lines) =
     any(line -> uppercase(strip(line)) == "SYMMETRY_GENERATE", lines)
 
+function _cell_block(lines, block_name::AbstractString)
+    in_block = false
+    block_lines = String[]
+    block_upper = uppercase(block_name)
+    for line in lines
+        stripped = strip(line)
+        upper = uppercase(stripped)
+        if startswith(upper, "%BLOCK")
+            parts = split(upper)
+            if length(parts) >= 2 && parts[2] == block_upper
+                in_block = true
+            end
+        elseif in_block && startswith(upper, "%ENDBLOCK")
+            break
+        elseif in_block
+            push!(block_lines, String(line))
+        end
+    end
+    block_lines
+end
+
+function _setting_true(lines, key::AbstractString)
+    key_upper = uppercase(key)
+    pattern = Regex("^" * key_upper * raw"\s*:\s*TRUE\b")
+    for line in lines
+        text = uppercase(strip(split(String(line), "#"; limit=2)[1]))
+        occursin(pattern, text) && return true
+    end
+    false
+end
+
+function _parse_inline_position_tags(lines, nat::Integer)
+    fix_mask = falses(3, nat)
+    nomove = falses(nat)
+    pos_blocks = _cell_block(lines, "POSITIONS_ABS")
+    isempty(pos_blocks) && (pos_blocks = _cell_block(lines, "POSITIONS_FRAC"))
+
+    iatom = 0
+    for line in pos_blocks
+        data_and_comment = split(String(line), "#"; limit=2)
+        data = strip(data_and_comment[1])
+        isempty(data) && continue
+        length(split(data)) >= 4 || continue
+        iatom += 1
+        iatom > nat && break
+        length(data_and_comment) == 2 || continue
+
+        comment = uppercase(data_and_comment[2])
+        if occursin('%', comment)
+            tag_text = split(comment, "%"; limit=2)[2]
+            tags = split(tag_text)
+            if any(==("FIX"), tags)
+                fix_mask[:, iatom] .= true
+            end
+            if any(==("NOMOVE"), tags)
+                nomove[iatom] = true
+            end
+        end
+    end
+    fix_mask, nomove
+end
+
+function _parse_ionic_constraints(lines, cell)
+    block = _cell_block(lines, "IONIC_CONSTRAINTS")
+    mask = falses(3, length(cell))
+    isempty(block) && return mask
+
+    specie_counts = Dict{Symbol,Int}()
+    occurrence_to_atom = Dict{Tuple{Symbol,Int},Int}()
+    for (iat, sym) in enumerate(species(cell))
+        count = get(specie_counts, sym, 0) + 1
+        specie_counts[sym] = count
+        occurrence_to_atom[(sym, count)] = iat
+    end
+
+    for line in block
+        tokens = split(strip(split(String(line), "#"; limit=2)[1]))
+        length(tokens) >= 6 || continue
+        sym = Symbol(tokens[2])
+        occurrence = parse(Int, tokens[3])
+        atom = get(occurrence_to_atom, (sym, occurrence), 0)
+        atom == 0 && continue
+        direction = parse.(Float64, tokens[4:6])
+        for dim in 1:3
+            abs(direction[dim]) > 1e-8 && (mask[dim, atom] = true)
+        end
+    end
+    mask
+end
+
+function _parse_cell_constraint_mask(lines)
+    block = _cell_block(lines, "CELL_CONSTRAINTS")
+    isempty(block) && return nothing
+
+    values = Int[]
+    for line in block
+        for token in split(strip(split(String(line), "#"; limit=2)[1]))
+            push!(values, parse(Int, token))
+        end
+    end
+    length(values) >= 6 || return nothing
+    Tuple(values[1:6] .== 0)
+end
+
+function _record_buildcell_constraints!(cell, lines)
+    fix_mask, nomove = _parse_inline_position_tags(lines, length(cell))
+    fix_mask .|= _parse_ionic_constraints(lines, cell)
+
+    if any(fix_mask)
+        cell.arrays[:buildcell_fix_mask] = fix_mask
+    end
+    if any(nomove)
+        cell.arrays[:buildcell_nomove_mask] = nomove
+    end
+
+    fix_all_cell = _setting_true(lines, "FIX_ALL_CELL")
+    fix_volume = _setting_true(lines, "FIX_VOL")
+    cell_mask = _parse_cell_constraint_mask(lines)
+    if fix_all_cell || fix_volume || cell_mask !== nothing
+        cell.metadata[:buildcell_cell_constraints] = Dict{Symbol,Any}(
+            :fix_all_cell => fix_all_cell,
+            :fix_volume => fix_volume,
+            :cell_mask => cell_mask,
+        )
+    end
+    cell
+end
+
+"""
+    read_buildcell_cell(lines)
+
+Read buildcell output while preserving AIRSS/CASTEP constraint intent in the
+returned `Cell` metadata and arrays.
+"""
+function read_buildcell_cell(lines)
+    cell = CellBase.read_cell(lines)
+    _record_buildcell_constraints!(cell, lines)
+end
+
 """
     build_one(seedfile;timeout=10, init_structure_transform=nothing, seed_text_transform=nothing)
 
@@ -51,7 +190,7 @@ function build_one(
         isnothing(lines) && continue
 
         # Generate a unique label
-        cell = CellBase.read_cell(lines)
+        cell = read_buildcell_cell(lines)
         wants_symmetry_generate = seed_symmetry_generate || _has_symmetry_generate(lines)
         if wants_symmetry_generate
             cell.metadata[:symmetry_generate] = true
