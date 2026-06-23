@@ -15,7 +15,7 @@ Check if sufficient training data has been calculated for a given iteration.
 """
 function is_training_data_ready(bu::Builder, iteration=bu.state.iteration)
     isdir(joinpath(bu.state.workdir, "gen$(iteration)-dft")) || return false
-    input_count = generated_input_count(bu, iteration)
+    input_count = something(_dft_manifest_input_count(bu, iteration), generated_input_count(bu, iteration))
     input_count > 0 || return false
     return nstructures_calculated(bu, iteration) >=
            required_success_count(input_count, bu.state.per_generation_threshold)
@@ -46,6 +46,24 @@ Count actual generated input structures for an iteration.
 """
 generated_input_count(bu::Builder, iteration) = nstructures(bu, iteration)
 
+function _dft_manifest_input_count(bu::Builder, iteration)
+    manifest_path = joinpath(
+        bu.state.workdir,
+        bu.options.distributed.coordination_dir,
+        "phases",
+        "gen$(iteration)-dft",
+        "manifest.json",
+    )
+    isfile(manifest_path) || return nothing
+    try
+        manifest = JSON.parsefile(manifest_path)
+        return Int(get(manifest, "input_count", generated_input_count(bu, iteration)))
+    catch err
+        @warn "Failed to read DFT phase manifest; falling back to generated input count" manifest_path exception = (err, catch_backtrace())
+        return nothing
+    end
+end
+
 """
     required_success_count(input_count, threshold)
 
@@ -62,7 +80,7 @@ end
 Validate that DFT produced enough output structures for an iteration.
 """
 function validate_dft_outputs!(bu::Builder, iteration=bu.state.iteration)
-    input_count = generated_input_count(bu, iteration)
+    input_count = something(_dft_manifest_input_count(bu, iteration), generated_input_count(bu, iteration))
     input_dir = input_structure_dir(bu.state.workdir, iteration)
     output_dir = output_structure_dir(bu.state.workdir, iteration)
     input_count > 0 || throw(
@@ -96,7 +114,7 @@ sc = load_structures(bu)            # Load all iterations up to current
 function load_structures(bu::Builder, iteration::Vararg{Int})
     dirs = [joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter in iteration]
     sc = StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
-    return sc
+    return _prune_training_structures(sc, bu.trainer)
 end
 
 """
@@ -112,6 +130,52 @@ load_structures(bu::Builder) = load_structures(bu, 0:bu.state.iteration)
 Load structures from an iteration range or collection.
 """
 load_structures(bu::Builder, iteration) = load_structures(bu, iteration...)
+
+function _minimum_pair_distance(cell)
+    length(cell) < 2 && return Inf
+    min_dist = Inf
+    scaled = get_scaled_positions(cell)
+    lattice_matrix = cellmat(cell)
+    for i = 1:(length(cell)-1), j = (i+1):length(cell)
+        delta_scaled = @view(scaled[:, i]) .- @view(scaled[:, j])
+        delta_scaled .-= round.(delta_scaled)
+        dist = norm(lattice_matrix * delta_scaled)
+        min_dist = min(min_dist, Float64(ustrip(dist)))
+    end
+    return min_dist
+end
+
+function _prune_training_structures(sc::StructureContainer, tra::TrainingOption)
+    keep = trues(length(sc.structures))
+    removed_energy = 0
+    removed_distance = 0
+
+    if tra.max_energy_per_atom >= 0
+        epa = sc.H ./ natoms(sc)
+        energy_mask = epa .<= tra.max_energy_per_atom
+        removed_energy = count(!, energy_mask)
+        keep .&= energy_mask
+    end
+
+    if tra.min_pair_distance > 0
+        distance_mask = map(sc.structures) do cell
+            _minimum_pair_distance(cell) >= tra.min_pair_distance
+        end
+        removed_distance = count(!, distance_mask)
+        keep .&= distance_mask
+    end
+
+    removed_total = count(!, keep)
+    if removed_total > 0
+        @info "Pruned training structures" kept=count(keep) removed=removed_total total=length(keep) removed_energy removed_distance max_energy_per_atom=tra.max_energy_per_atom min_pair_distance=tra.min_pair_distance
+    end
+    count(keep) > 0 || throw(
+        ErrorException(
+            "Training-data pruning removed all structures. Relax trainer.max_energy_per_atom or trainer.min_pair_distance.",
+        ),
+    )
+    return sc[findall(keep)]
+end
 
 
 """

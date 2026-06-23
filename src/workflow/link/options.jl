@@ -139,6 +139,13 @@ abstract type AbstractTrainer end
 ## Attributes
 
 - `energy_threshold`: Threshold (per atom) energy to filter away high energy structures.
+- `max_energy_per_atom`: Optional absolute maximum enthalpy/energy per atom for
+  training data. Values above this are pruned before featurization. Negative
+  disables this absolute filter; `energy_threshold` still applies as a
+  composition-relative filter.
+- `min_pair_distance`: Optional minimum interatomic distance in Angstrom for
+  training data. Structures with any pair closer than this are pruned before
+  featurization. Non-positive disables this filter.
 - `nmax`: Maximum number of neighbours when building the neighbour list.
 - `nmodels`: The number of models to be trained for forming the ensemble through NNLS.
 - `max_iter`: Maximum number of epochs (batched LM) or iterations (full LM) for training.
@@ -175,6 +182,8 @@ abstract type AbstractTrainer end
 """
 @option mutable struct TrainingOption <: EDDPotentialsOption
     energy_threshold::Float64 = 10.0
+    max_energy_per_atom::Float64 = -1.0
+    min_pair_distance::Float64 = -1.0
     nmax::Int = 3000
     nmodels::Int = 256
     max_iter::Int = 300

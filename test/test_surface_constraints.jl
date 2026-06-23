@@ -36,13 +36,22 @@ function _surface_cell_lines()
     ]
 end
 
-function _with_fake_surface_buildcell(f)
+function _surface_cell_lines_without_cell_constraints()
+    filter(line -> !(
+            startswith(line, "FIX_ALL_CELL") ||
+            startswith(line, "FIX_VOL") ||
+            occursin("CELL_CONSTRAINTS", line)
+        ),
+        _surface_cell_lines())
+end
+
+function _with_fake_surface_buildcell(f; output_lines=_surface_cell_lines())
     mktempdir() do temp
         bindir = joinpath(temp, "bin")
         mkdir(bindir)
         output = joinpath(temp, "surface-output.cell")
         open(output, "w") do io
-            for line in _surface_cell_lines()
+            for line in output_lines
                 println(io, line)
             end
         end
@@ -167,6 +176,74 @@ end
             cell = build_one(seed; timeout=5)
             @test haskey(cell.arrays, :buildcell_fix_mask)
             @test get(cell.metadata[:buildcell_cell_constraints], :fix_all_cell, false) === true
+        end
+    end
+
+    @testset "seed lattice fix tags supplement buildcell output" begin
+        output_lines = _surface_cell_lines_without_cell_constraints()
+
+        _with_fake_surface_buildcell(; output_lines) do temp
+            seed = joinpath(temp, "Ar-surface-fix.cell")
+            write(seed, """
+            %BLOCK LATTICE_CART
+            6 0 0
+            0 6 0
+            0 0 10
+            #FIX
+            %ENDBLOCK LATTICE_CART
+            #SURFACE
+            """)
+            cell = build_one(seed; timeout=5)
+            info = cell.metadata[:buildcell_cell_constraints]
+            @test info[:fix_all_cell] === true
+            @test info[:cell_mask] === nothing
+            constraints = EDDPotentials.Simulation._cell_step_constraints(cell)
+            @test any(c -> c isa FixCellConstraint && all(c.mask), constraints)
+        end
+
+        _with_fake_surface_buildcell(; output_lines) do temp
+            seed = joinpath(temp, "Ar-surface-fix-relax.cell")
+            write(seed, """
+            %BLOCK LATTICE_CART
+            6 0 0
+            0 6 0
+            0 0 10
+            #FIX
+            %ENDBLOCK LATTICE_CART
+            #SURFACE
+            """)
+            cell = build_one(seed; timeout=5)
+            cell0 = copy(cellmat(cell))
+            calc = SurfaceToyCalc(cell, copy(positions(cell)))
+            relax!(calc;
+                multi=false,
+                relax_cell=true,
+                method="tpsd",
+                iterations=2,
+                maxstep=0.1,
+                symmetry="off",
+            )
+            @test cellmat(cell) ≈ cell0
+        end
+
+        _with_fake_surface_buildcell(; output_lines) do temp
+            seed = joinpath(temp, "Ar-surface-cfix.cell")
+            write(seed, """
+            %BLOCK LATTICE_CART
+            6 0 0
+            0 6 0
+            0 0 10
+            #CFIX
+            %ENDBLOCK LATTICE_CART
+            #SURFACE
+            """)
+            cell = build_one(seed; timeout=5)
+            info = cell.metadata[:buildcell_cell_constraints]
+            @test info[:fix_all_cell] === false
+            @test info[:cell_mask] == (false, false, true, true, true, false)
+            constraints = EDDPotentials.Simulation._cell_step_constraints(cell)
+            cell_constraint = only(filter(c -> c isa FixCellConstraint, constraints))
+            @test cell_constraint.mask == (false, false, true, true, true, false)
         end
     end
 

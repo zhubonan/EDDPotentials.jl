@@ -114,6 +114,46 @@ function _parse_cell_constraint_mask(lines)
     Tuple(values[1:6] .== 0)
 end
 
+function _seed_lattice_cell_constraints(lines)
+    fix_tag = nothing
+    for block_name in ("LATTICE_CART", "LATTICE_ABC")
+        for line in _cell_block(lines, block_name)
+            tag = uppercase(strip(String(line)))
+            if tag in ("#FIX", "#CFIX", "#ABFIX")
+                fix_tag = Symbol(tag[2:end])
+            end
+        end
+    end
+
+    fix_tag === :FIX && return Dict{Symbol,Any}(
+        :fix_all_cell => true,
+        :fix_volume => false,
+        :cell_mask => nothing,
+        :source => :seed_lattice_fix,
+    )
+    fix_tag === :CFIX && return Dict{Symbol,Any}(
+        :fix_all_cell => false,
+        :fix_volume => false,
+        :cell_mask => (false, false, true, true, true, false),
+        :source => :seed_lattice_fix,
+    )
+    fix_tag === :ABFIX && return Dict{Symbol,Any}(
+        :fix_all_cell => false,
+        :fix_volume => false,
+        :cell_mask => (true, true, false, false, false, true),
+        :source => :seed_lattice_fix,
+    )
+    nothing
+end
+
+function _record_seed_lattice_constraints!(cell, seed_lines)
+    haskey(cell.metadata, :buildcell_cell_constraints) && return cell
+    info = _seed_lattice_cell_constraints(seed_lines)
+    info === nothing && return cell
+    cell.metadata[:buildcell_cell_constraints] = info
+    cell
+end
+
 function _record_buildcell_constraints!(cell, lines)
     fix_mask, nomove = _parse_inline_position_tags(lines, length(cell))
     fix_mask .|= _parse_ionic_constraints(lines, cell)
@@ -164,6 +204,7 @@ function build_one(
     local cell::Cell{Float64,3}
     i = 1
     seed_text = read(seedfile, String)
+    seed_lines = split(seed_text, "\n")
     seed_symmetry_generate = _has_symmetry_generate(seed_text)
     while true
         if i >= max_attemp
@@ -191,6 +232,7 @@ function build_one(
 
         # Generate a unique label
         cell = read_buildcell_cell(lines)
+        _record_seed_lattice_constraints!(cell, seed_lines)
         wants_symmetry_generate = seed_symmetry_generate || _has_symmetry_generate(lines)
         if wants_symmetry_generate
             cell.metadata[:symmetry_generate] = true

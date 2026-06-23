@@ -857,14 +857,16 @@ end
 
 
 """
-    _populate_hyper_option(state::BuilderState; verbose::Bool=true) -> RelaxOption
+    _populate_hyper_option(state::BuilderState; verbose::Union{Nothing,Bool}=nothing) -> RelaxOption
 
 Create a RelaxOption from the BuilderState. `state.relax` is the single source
 of hyperspace relaxation parameters.
 """
-function _populate_hyper_option(state; verbose::Bool=true)
+function _populate_hyper_option(state; verbose::Union{Nothing,Bool}=nothing)
     opt = deepcopy(state.relax)
-    opt.verbose = verbose
+    if verbose !== nothing
+        opt.verbose = verbose
+    end
     if state.relax_mode == "hyperspace" && opt.hyper_ndim <= 0
         opt.hyper_ndim = 3
     end
@@ -1049,7 +1051,6 @@ function _run_rss_link()
     relax_mode = args["relax-mode"]
     state = bu.state
     _relax_option = deepcopy(state.relax)
-    _relax_option.verbose = true
     relax_mode = _normalized_relax_mode(state, _relax_option)
     formula_ctx = _formula_sampling_context(state, bu.cfopt.elements)
     seed_text_transform = _make_seed_text_transform(formula_ctx)

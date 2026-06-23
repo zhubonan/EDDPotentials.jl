@@ -31,6 +31,8 @@ using Random
 using UUIDs
 using JLD2
 using CellBase
+using LinearAlgebra: norm
+using Unitful: ustrip
 import CellBase: write_res
 
 include("link/link.jl")

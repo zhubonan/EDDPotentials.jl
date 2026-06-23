@@ -15,6 +15,7 @@ using EDDPotentials.Workflow:
     _training_submit_cmd,
     _required_models_for_ensemble,
     _generate_random_structures,
+    _prune_training_structures,
     _models_ready_for_ensemble
 using Test
 using TOML
@@ -452,6 +453,36 @@ end
             @test isempty(intersect(val_parents, test_parents))
             @test isfile(splitext(dataset_path)[1] * ".yaml")
         end
+    end
+
+    @testset "Training data pruning removes close contacts and high energies" begin
+        good = _h2_cell(8.0, 1.0)
+        high_energy = _h2_cell(8.0, 1.0)
+        close_contact = _h2_cell(8.0, 0.05)
+        periodic_close_contact = Cell(
+            Lattice(8.0, 8.0, 8.0),
+            [:H, :H],
+            [0.08 7.92; 4.0 4.0; 4.0 4.0],
+        )
+        labels = ["good", "high-energy", "close-contact", "periodic-close-contact"]
+        for (cell, label) in zip(
+            (good, high_energy, close_contact, periodic_close_contact),
+            labels,
+        )
+            cell.metadata[:label] = label
+        end
+        sc = EDDPotentials.StructureContainer(
+            [good, high_energy, close_contact, periodic_close_contact],
+            [0.0, 20.0, 0.0, 0.0],
+            labels;
+            threshold=100.0,
+        )
+        trainer = EDDPotentials.TrainingOption()
+        trainer.max_energy_per_atom = 5.0
+        trainer.min_pair_distance = 1.0
+
+        pruned = _prune_training_structures(sc, trainer)
+        @test pruned.paths == ["good"]
     end
 
     @testset "Builder train_split accepts ratio-like weights" begin

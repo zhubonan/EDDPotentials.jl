@@ -663,6 +663,10 @@ function server_prepare_dft_phase!(bu::Builder, iter::Int=bu.state.iteration)
            Int(get(manifest, "input_count", -1)) == length(input_files) &&
            get(manifest, "input_dir", "") == input_dir &&
            get(manifest, "output_dir", "") == output_dir
+            if mode == "acrud"
+                stop_crud = joinpath(crud_workdir, "STOP_CRUD")
+                isfile(stop_crud) && rm(stop_crud; force=true)
+            end
             return crud_workdir
         end
     end
@@ -677,6 +681,8 @@ function server_prepare_dft_phase!(bu::Builder, iter::Int=bu.state.iteration)
         isdir(path) && rm(path; recursive=true)
         mkpath(path)
     end
+    stop_crud = joinpath(crud_workdir, "STOP_CRUD")
+    isfile(stop_crud) && rm(stop_crud; force=true)
     mkpath(output_dir)
 
     if mode == "acrud"
