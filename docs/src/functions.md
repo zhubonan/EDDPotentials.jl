@@ -122,6 +122,17 @@ are compressive and negative values are tensile. The legacy
 eV/Å³ stress units; setting both pressure interfaces to non-default values is an
 error.
 
+`RelaxOption.symmetry` accepts `"auto"`, `"on"`, and `"off"`. Automatic mode
+uses symmetry projection only for cells marked by `symmetry_generate`; `"on"`
+attempts projection for every cell; `"off"` disables it. `honor_cell_constraints`
+controls whether buildcell-derived cell constraints are appended to optimizer
+step constraints. Projected forces and stresses are used for convergence checks,
+while calculator forces and stresses remain the raw model values.
+
+Trajectory output is controlled by `keep_trajectory`, `trajectory_file`,
+`trajectory_format`, and `trajectory_every`. RSS assigns candidate-specific
+trajectory stems when nested relaxation requests trajectory files.
+
 ### Lennard-Jones baseline helper
 
 EDDP now includes a fixed-weight force-shifted Lennard-Jones baseline built on top of
@@ -178,7 +189,7 @@ Pages = [
 
 ## Structure Search
 
-Functions for generating random structures, running RSS and Hot-AIRSS workflows, computing minimum-separation statistics, and constructing small model structures for feature inspection.
+Functions for generating random structures, running RSS and Hot-AIRSS workflows, computing minimum-separation statistics, and constructing small model structures for feature inspection. Buildcell readers preserve selected AIRSS/CASTEP ionic and cell constraints for constrained RSS workflows; see [Constrained Structure Search](howto/constrained_structure_search.md).
 
 ```@autodocs
 Modules = [EDDPotentials.Search]
@@ -194,7 +205,7 @@ Pages = [
 
 ## Automated Potential Building
 
-Functions for the iterative active-learning workflow: `Builder` configuration, `link!` automated cycles, `run_rss` structure search, formula-space sampling, and file-backed distributed execution. See [Iterative Training](concepts/iterative_training.md) for details.
+Functions for the iterative active-learning workflow: `Builder` configuration, `link!` automated cycles, `run_rss` structure search, formula-space sampling, training-data pruning, and file-backed distributed execution. See [Iterative Training](concepts/iterative_training.md) for details.
 
 ```@autodocs
 Modules = [EDDPotentials.Workflow]

@@ -31,12 +31,17 @@ makedocs(
         "How-To Guides" => [
             "Customize Features" => "howto/customize_features.md",
             "Crystal Structure Prediction" => "howto/structure_prediction.md",
+            "Constrained Structure Search" => "howto/constrained_structure_search.md",
             "Train with Force Data" => "howto/force_training.md",
             "Run Phonon Calculations" => "howto/run_phonon_calculations.md",
             "Enable GPU Acceleration" => "howto/enable_gpu_acceleration.md",
             "Batched LM Training" => "howto/batched_lm_training.md",
             "SGD/Adam Training" => "howto/sgd_training.md",
             "Experimental Hyperdimensional Relaxation" => "howto/hyperdimensional_relaxation.md",
+        ],
+
+        "Contributing" => [
+            "Documentation Maintenance" => "contributing/documentation.md",
         ],
 
         "Functions" => "functions.md",

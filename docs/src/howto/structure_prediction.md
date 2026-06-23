@@ -321,6 +321,36 @@ stress_threshold_gpa = 0.1   # GPa
 #SGRANK=1-10          # Sample from 10 highest-symmetry groups
 ```
 
+If a generated cell or seed contains `symmetry_generate`, RSS relaxation uses
+symmetry projection when `RelaxOption.symmetry = "auto"` (the default). Set
+`symmetry = "on"` to attempt projection for every cell, or `"off"` when a
+deliberately low-symmetry reconstruction should relax without projection.
+
+### Surface and Cell Constraints
+
+EDDPotentials preserves selected AIRSS/CASTEP constraint intent from buildcell
+output and applies it during native relaxation. This includes position tags,
+`%BLOCK IONIC_CONSTRAINTS`, `FIX_ALL_CELL`, `FIX_VOL`, and `%BLOCK
+CELL_CONSTRAINTS`. If buildcell does not echo cell constraints, seed lattice
+tags such as `#FIX`, `#CFIX`, and `#ABFIX` can supplement the generated output.
+
+Use these controls for surfaces, slabs, epitaxial cells, and other searches
+where an unconstrained variable-cell relaxation would erase the sampled
+geometry. For surface and slab searches, inspect both generated structures and
+relaxed structures from a small trial run to verify that the random generation
+created the intended constrained geometry and that relaxation honored those
+constraints. See [Constrained Structure Search](constrained_structure_search.md)
+for the detailed mapping and practical workflow guidance.
+
+### RSS Trajectories and Timing
+
+When nested RSS relaxation options request trajectory output, each candidate
+uses a label-specific trajectory stem in the RSS output directory. Kept RSS
+structures also include diagnostic timing metadata:
+`rss_wall_time_seconds`, `rss_started_at_unix`, and `rss_finished_at_unix`.
+These fields help diagnose expensive candidates and uneven throughput; they are
+not physical descriptors.
+
 ### Vacancy and Defects
 
 ```

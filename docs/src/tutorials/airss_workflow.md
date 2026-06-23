@@ -66,6 +66,8 @@ Random structure generation specification (used by `buildcell`):
 0.0 0.0 3.0
 #ANGAMP=30
 %ENDBLOCK LATTICE_CART
+
+symmetry_generate
 ```
 
 Key parameters:
@@ -74,6 +76,15 @@ Key parameters:
 - `#NATOM`: Atom count range
 - `#SLACK`: Volume padding (recommended: 0.25)
 - `#MINSEP`: Minimum interatomic distances (Å)
+- `symmetry_generate`: request symmetry generation from `buildcell`; EDDP
+  automatic symmetry relaxation sees this only when it appears in the buildcell
+  seed or generated buildcell output
+
+For surfaces or slabs, the search seed can also include lattice and ionic
+constraints. Keep the tutorial seed simple while developing the potential, then
+add constrained seeds once you know which cell directions and atoms should stay
+fixed. The detailed mapping is covered in
+[Constrained Structure Search](../howto/constrained_structure_search.md).
 
 ### XX.cell
 
@@ -92,6 +103,9 @@ kpoints_mp_spacing 0.05
 ```
 
 Ensure pseudopotentials (`.usp` files) are accessible to CASTEP.
+Settings in `XX.cell` are used by the DFT calculation template; EDDP RSS
+relaxation reads `symmetry_generate` from the `XX-SEARCH.cell` buildcell seed or
+from generated buildcell output.
 
 ### XX.param
 
@@ -143,12 +157,19 @@ max_iter = 300
 earlystop = 30
 num_workers = 8
 
+# Optional dataset hygiene filters
+max_energy_per_atom = -1.0
+min_pair_distance = -1.0
+
 [rss]
 max = 1000
 subfolder_name = "search"
 ```
 
 Adjust parallelization based on available resources.
+Negative pruning values disable the optional absolute energy and minimum-distance
+training filters. Use them only after inspecting generated/DFT structures, since
+overly strict filters can remove all training data before featurization.
 
 ## Running the Workflow
 

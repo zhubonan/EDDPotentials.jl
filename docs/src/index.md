@@ -13,7 +13,9 @@ A [Julia](https://julialang.org/) package for [Ephemeral Data Derived Potentials
 
 **Step-by-step tutorial:** [AIRSS Workflow](tutorials/airss_workflow.md)
 
-**Common tasks:** [Customize Features](howto/customize_features.md) | [Structure Prediction](howto/structure_prediction.md) | [Train with Force Data](howto/force_training.md) | [Phonon Calculations](howto/run_phonon_calculations.md) | [Experimental Hyperdimensional Relaxation](howto/hyperdimensional_relaxation.md)
+**Common tasks:** [Customize Features](howto/customize_features.md) | [Structure Prediction](howto/structure_prediction.md) | [Train with Force Data](howto/force_training.md) | [Phonon Calculations](howto/run_phonon_calculations.md)
+
+**Advanced workflows:** [Constrained Structure Search](howto/constrained_structure_search.md) | [Experimental Hyperdimensional Relaxation](howto/hyperdimensional_relaxation.md)
 
 ## What is EDDP?
 
@@ -44,6 +46,7 @@ EDDP trades ultimate accuracy for speed and simplicity, making it ideal for rank
 - Integration with AIRSS (Ab Initio Random Structure Searching)
 - Automated iterative potential building (`link!()`)
 - Parallel random structure search (RSS)
+- Constrained RSS for surfaces, slabs, and seeded cell searches
 - CASTEP DFT integration for training data
 
 **Analysis**
@@ -144,6 +147,7 @@ This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
 **How-To Guides** - Task-oriented recipes
 - [Customize Features](howto/customize_features.md): Advanced feature engineering
 - [Crystal Structure Prediction](howto/structure_prediction.md): Large-scale RSS workflows
+- [Constrained Structure Search](howto/constrained_structure_search.md): Surface, slab, and cell-constrained RSS workflows
 - [Run Phonon Calculations](howto/run_phonon_calculations.md): Vibrational properties
 - [Enable GPU Acceleration](howto/enable_gpu_acceleration.md): Training speedup
 - [Batched LM Training](howto/batched_lm_training.md): Stochastic LM for large datasets
@@ -156,6 +160,9 @@ This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
 - [Iterative Training](concepts/iterative_training.md): Automated potential building
 
 **[API Reference](functions.md)** - Technical function documentation
+
+**Contributing**
+- [Documentation Maintenance](contributing/documentation.md): Keep user-facing docs aligned with implementation changes
 
 ## Related Tools
 
