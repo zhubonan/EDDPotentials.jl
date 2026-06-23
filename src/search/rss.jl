@@ -419,6 +419,7 @@ function _run_rss(
             candidate_relax_option.trajectory_file = joinpath(outdir, label)
         end
         # Build the random structure and relax it
+        rss_started_at = time()
         res = build_and_relax_one(
             this_seed,
             ensemble,
@@ -433,6 +434,8 @@ function _run_rss(
             seed_text_transform,
             candidate_label=label,
         )
+        rss_finished_at = time()
+        rss_wall_time = rss_finished_at - rss_started_at
 
         if require_converged && !res.converged
             @debug "Skipping non-converged RSS candidate" label iterations=res.iterations fmax=res.fmax smax_gpa=res.smax
@@ -474,6 +477,7 @@ function _run_rss(
 
         # Write output file
         cell = get_cell(calc)
+        _annotate_rss_timing_metadata!(cell, rss_started_at, rss_finished_at, rss_wall_time)
         # Run niggli reduction - skip the loop if failed.
         if niggli_reduce_output
             try
@@ -482,6 +486,7 @@ function _run_rss(
                 continue
             end
             Simulation._annotate_relax_metadata!(cell, res)
+            _annotate_rss_timing_metadata!(cell, rss_started_at, rss_finished_at, rss_wall_time)
         end
 
         cand = _rss_candidate(cell)
@@ -548,6 +553,21 @@ function _run_rss(
             end
         end
     end
+end
+
+function _annotate_rss_timing_metadata!(cell, started_at, finished_at, wall_time)
+    cell.metadata[:rss_wall_time_seconds] = wall_time
+    cell.metadata[:rss_started_at_unix] = started_at
+    cell.metadata[:rss_finished_at_unix] = finished_at
+    info = get(cell.metadata, :info, nothing)
+    if !(info isa Dict)
+        info = Dict{Any,Any}()
+        cell.metadata[:info] = info
+    end
+    info[:rss_wall_time_seconds] = wall_time
+    info[:rss_started_at_unix] = started_at
+    info[:rss_finished_at_unix] = finished_at
+    cell
 end
 
 

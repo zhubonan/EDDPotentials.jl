@@ -144,6 +144,9 @@ CELL
             @test occursin("REM relax_iterations: 2", res_text)
             @test occursin("REM relax_stop_reason: iteration_limit", res_text)
             @test occursin("REM relax_fmax:", res_text)
+            @test occursin("REM rss_wall_time_seconds:", res_text)
+            @test occursin("REM rss_started_at_unix:", res_text)
+            @test occursin("REM rss_finished_at_unix:", res_text)
         end
     end
 
