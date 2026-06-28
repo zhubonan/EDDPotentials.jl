@@ -184,7 +184,20 @@ struct ThreadBufferPool
     end
 end
 
+function _ensure_pool_slot!(pool::ThreadBufferPool, ci::Int)
+    if ci > length(pool.gchains)
+        T = eltype(pool.jtmps[1])
+        np = length(pool.jtmps[1])
+        append!(pool.gchains, [Vector{ChainGradients}() for _ in length(pool.gchains)+1:ci])
+        append!(pool.jtmps, [zeros(T, np) for _ in length(pool.jtmps)+1:ci])
+    end
+    nothing
+end
+
+_ensure_pool_slots!(pool::ThreadBufferPool, nslots::Int) = _ensure_pool_slot!(pool, nslots)
+
 function _get_pool_gchain!(pool::ThreadBufferPool, ci::Int, bsize::Int)
+    _ensure_pool_slot!(pool, ci)
     bufs = pool.gchains[ci]
     idx = findfirst(x -> x.n == bsize, bufs)
     if isnothing(idx)
@@ -261,7 +274,7 @@ function setup_fj_batched_threaded(
 )
     jtmp = similar(paramvector(model))  # used by sequential fallback only
     nslots = nthreads() * ngps + 1
-    pool = ThreadBufferPool(model, nslots)
+    pool = ThreadBufferPool(model, nslots; ngps)
 
     function fj_batch!(fvec, jmat, param, batch_indices)
         setparamvector!(model, param)
@@ -272,6 +285,7 @@ function setup_fj_batched_threaded(
             # Threaded path: chunk the batch indices across tasks
             batch_vec = collect(batch_indices)
             chunks = _chunk_ranges(length(batch_vec); ngps)
+            _ensure_pool_slots!(pool, length(chunks))
             Threads.@threads for ci in eachindex(chunks)
                 jtmp_ = pool.jtmps[ci]
                 for (local_i, gi) in enumerate(chunks[ci])
@@ -359,6 +373,7 @@ function compute_objectives_threaded(f, pool::ThreadBufferPool, data, y, weights
     nt = nthreads()
     if nt > 1 && length(data) > nt * 5
         chunks = _chunk_ranges(length(data); ngps=pool.ngps)
+        _ensure_pool_slots!(pool, length(chunks))
         Threads.@threads for ci in eachindex(chunks)
             for i in chunks[ci]
                 gchain = _get_pool_gchain!(pool, ci, size(data[i], 2))
@@ -424,6 +439,7 @@ function _predict_energy_threaded(pool::ThreadBufferPool, data)
     nt = nthreads()
     if nt > 1 && n > nt * 5
         chunks = _chunk_ranges(n; ngps=pool.ngps)
+        _ensure_pool_slots!(pool, length(chunks))
         Threads.@threads for ci in eachindex(chunks)
             for i in chunks[ci]
                 gchain = _get_pool_gchain!(pool, ci, size(data[i], 2))
@@ -491,6 +507,7 @@ function _compute_objectives_diff_threaded(
         pool = ThreadBufferPool(itf, nslots)
     end
     chunks = _chunk_ranges(length(data); ngps)
+    _ensure_pool_slots!(pool, length(chunks))
     Threads.@threads for ci in eachindex(chunks)
         jtmp_ = pool.jtmps[ci]
         for i in chunks[ci]

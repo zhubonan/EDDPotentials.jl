@@ -47,6 +47,30 @@ using StatsBase
         @test pool.xt === xt
     end
 
+    @testset "ThreadBufferPool grows for chunk granularity" begin
+        nf = 100
+        data, y = _make_data(; nf)
+        model = ManualFluxBackPropInterface(
+            Chain(Dense(rand(1, nf), rand(1))),
+        )
+
+        _, f_full_thr!, pool = setup_fj_batched_threaded(model, data, y; ngps=2)
+        @test pool.ngps == 2
+
+        f_thr = zeros(length(data))
+        f_full_thr!(f_thr, paramvector(model))
+        @test any(f_thr .!= 0.0)
+
+        small_pool = ThreadBufferPool(model, 1; ngps=2)
+        compute_objectives_threaded(f_thr, small_pool, data, y)
+        if Threads.nthreads() > 1 && length(data) > Threads.nthreads() * 5
+            @test length(small_pool.gchains) >=
+                length(EDDPotentials.Potential._chunk_ranges(length(data); ngps=small_pool.ngps))
+        else
+            @test length(small_pool.gchains) == 1
+        end
+    end
+
     @testset "_chunk_ranges" begin
         # Even division
         chunks = EDDPotentials.Potential._chunk_ranges(20; ngps=2)
