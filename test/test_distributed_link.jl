@@ -194,6 +194,7 @@ end
                 "ap_cmd" => fake_ap,
                 "code" => "castep",
                 "mpinp" => 4,
+                "cell_axis_map" => "z:x",
                 "singlepoint" => true,
             )
             state.per_generation_threshold = 0.5
@@ -210,6 +211,7 @@ end
             @test manifest["dft_mode"] == "acrud"
             @test manifest["airsspy"]["code"] == "castep"
             @test manifest["airsspy"]["mpinp"] == 4
+            @test manifest["airsspy"]["cell_axis_map"] == "z:x"
             @test isfile(joinpath(crud_workdir, "calc.cell"))
             @test isfile(joinpath(crud_workdir, "calc.param"))
             @test isfile(joinpath(crud_workdir, "other.cell"))
@@ -221,6 +223,9 @@ end
             @test dft_cmd.exec[2:3] == ["run", "crud"]
             @test "--workdir" in dft_cmd.exec
             @test "--code" in dft_cmd.exec
+            axis_i = findfirst(==("--cell-axis-map"), dft_cmd.exec)
+            @test !isnothing(axis_i)
+            @test dft_cmd.exec[axis_i + 1] == "z:x"
             @test "--singlepoint" in dft_cmd.exec
             @test !("crud.pl" in dft_cmd.exec)
             @test "OMP_NUM_THREADS=2" in getfield(dft_cmd, :env)
@@ -228,6 +233,82 @@ end
             EDDPotentials._server_request_phase_stop!(builder, phase_dir)
             @test isfile(joinpath(phase_dir, "STOP"))
             @test isfile(joinpath(crud_workdir, "STOP_CRUD"))
+        end
+    end
+
+    @testset "Airsspy acrud can use per-seed ABACUS templates" begin
+        mktempdir() do temp
+            write(joinpath(temp, "GaSb_bulk.cell"), "bulk ABACUS metadata cell\n%BLOCK SPECIES_POT\n%ENDBLOCK SPECIES_POT\n")
+            write(joinpath(temp, "GaSb_bulk-8.cell"), "bulk-8 buildcell seed\n")
+            write(joinpath(temp, "GaSb_bulk.INPUT"), "bulk input\nkspacing 0.166245936 0.166245936 0.166245936\n")
+            write(joinpath(temp, "GaSb_surface.cell"), "surface ABACUS metadata cell\n%BLOCK SPECIES_POT\n%ENDBLOCK SPECIES_POT\n")
+            write(joinpath(temp, "GaSb_surface-large.cell"), "surface-large buildcell seed\n")
+            write(joinpath(temp, "GaSb_surface.INPUT"), "surface input\nkspacing 0.166245936 0.166245936 1\n")
+
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="GaSb.cell",
+                workdir=temp,
+            )
+            state.dft_mode = "acrud"
+            state.dft_kwargs = Dict{String,Any}("code" => "abacus")
+            state.per_generation_threshold = 0.5
+            builder = _distributed_builder(temp; state)
+
+            _write_generated_res(
+                temp,
+                [
+                    "GaSb_bulk-8-26-06-30-12-46-14-c9cdf623.res",
+                    "GaSb_surface-large-26-06-30-12-46-14-56c601ac.res",
+                ],
+            )
+
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            @test read(joinpath(crud_workdir, "GaSb_bulk-8.INPUT"), String) ==
+                  read(joinpath(temp, "GaSb_bulk.INPUT"), String)
+            @test read(joinpath(crud_workdir, "GaSb_surface-large.INPUT"), String) ==
+                  read(joinpath(temp, "GaSb_surface.INPUT"), String)
+            @test occursin(
+                "kspacing 0.166245936 0.166245936 1",
+                read(joinpath(crud_workdir, "GaSb_surface-large.INPUT"), String),
+            )
+            @test read(joinpath(crud_workdir, "GaSb_bulk-8.cell"), String) ==
+                  read(joinpath(temp, "GaSb_bulk.cell"), String)
+            @test read(joinpath(crud_workdir, "GaSb_surface-large.cell"), String) ==
+                  read(joinpath(temp, "GaSb_surface.cell"), String)
+            @test read(joinpath(crud_workdir, "GaSb_bulk.INPUT"), String) ==
+                  read(joinpath(temp, "GaSb_bulk.INPUT"), String)
+            @test read(joinpath(crud_workdir, "GaSb_surface.INPUT"), String) ==
+                  read(joinpath(temp, "GaSb_surface.INPUT"), String)
+            @test read(joinpath(crud_workdir, "GaSb_bulk.cell"), String) ==
+                  read(joinpath(temp, "GaSb_bulk.cell"), String)
+            @test read(joinpath(crud_workdir, "GaSb_surface.cell"), String) ==
+                  read(joinpath(temp, "GaSb_surface.cell"), String)
+        end
+    end
+
+    @testset "Airsspy acrud can use generic ABACUS template for model structures" begin
+        mktempdir() do temp
+            write(joinpath(temp, "GaSb.cell"), "generic ABACUS metadata cell\n")
+            write(joinpath(temp, "GaSb.INPUT"), "generic input\nkspacing 0.166245936 0.166245936 0.166245936\n")
+
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="GaSb.cell",
+                workdir=temp,
+            )
+            state.dft_mode = "acrud"
+            state.dft_kwargs = Dict{String,Any}("code" => "abacus")
+            state.per_generation_threshold = 0.5
+            builder = _distributed_builder(temp; state)
+
+            _write_generated_res(temp, ["GaSb_model-Ga-Sb-1.res"])
+
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            @test read(joinpath(crud_workdir, "GaSb_model.INPUT"), String) ==
+                  read(joinpath(temp, "GaSb.INPUT"), String)
+            @test read(joinpath(crud_workdir, "GaSb_model.cell"), String) ==
+                  read(joinpath(temp, "GaSb.cell"), String)
         end
     end
 
@@ -311,6 +392,13 @@ end
 
             builder.options.distributed.log_level = "info"
             builder.options.distributed.log_interval_seconds = 0.0
+            @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
+                builder,
+                EDDPotentials.DistributedLinkBackend(),
+            )
+
+            builder.options.distributed.log_interval_seconds = 30.0
+            builder.options.distributed.dft_carry_on_threshold = 0.0
             @test_throws ArgumentError EDDPotentials.validate_builder_for_link!(
                 builder,
                 EDDPotentials.DistributedLinkBackend(),
@@ -448,7 +536,7 @@ end
         end
     end
 
-    @testset "DFT waits until pass or impossible failure" begin
+    @testset "DFT waits for all terminal results before proceeding" begin
         mktempdir() do temp
             state = EDDPotentials.BuilderState(
                 seedfile="seed.cell",
@@ -470,16 +558,207 @@ end
             good_dir = joinpath(crud_workdir, "good_castep")
             bad_dir = joinpath(crud_workdir, "bad_castep")
             for i = 1:7
-                write(joinpath(good_dir, "good-$i.res"), "TITL test\nEND\n")
+                write(joinpath(good_dir, "calc-$(lpad(string(i), 3, '0')).res"), "TITL test\nEND\n")
             end
-            write(joinpath(bad_dir, "bad-1.res"), "TITL test\nEND\n")
+            write(joinpath(bad_dir, "calc-009.res"), "TITL test\nEND\n")
 
             phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
             task = @async EDDPotentials._server_wait_for_dft!(builder, phase_dir)
             sleep(0.05)
             @test !istaskdone(task)
-            write(joinpath(good_dir, "good-8.res"), "TITL test\nEND\n")
-            @test fetch(task) == (8, 1)
+            write(joinpath(good_dir, "calc-008.res"), "TITL test\nEND\n")
+            sleep(0.05)
+            @test !istaskdone(task)
+            @test !isfile(joinpath(phase_dir, "STOP"))
+            @test !isfile(joinpath(crud_workdir, "STOP_CRUD"))
+
+            write(joinpath(good_dir, "calc-010.res"), "TITL test\nEND\n")
+            @test fetch(task) == (9, 1)
+        end
+    end
+
+    @testset "DFT carries on after configured terminal threshold" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.per_generation_threshold = 0.8
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.control_poll_interval_seconds = 0.01
+            distributed.dft_carry_on_threshold = 0.95
+            builder = _distributed_builder(temp; state, distributed)
+
+            _write_minimal_castep_inputs(temp)
+            _write_generated_res(
+                temp,
+                ["calc-$(lpad(string(i), 3, '0')).res" for i = 1:20],
+            )
+
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            good_dir = joinpath(crud_workdir, "good_castep")
+            bad_dir = joinpath(crud_workdir, "bad_castep")
+            for i = 1:18
+                write(joinpath(good_dir, "calc-$(lpad(string(i), 3, '0')).res"), "TITL test\nEND\n")
+            end
+            write(joinpath(bad_dir, "calc-019.res"), "TITL test\nEND\n")
+
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
+            task = @async EDDPotentials._server_wait_for_dft!(builder, phase_dir)
+            sleep(0.05)
+            @test istaskdone(task)
+            if istaskdone(task)
+                @test fetch(task) == (18, 1)
+            else
+                write(joinpath(good_dir, "calc-020.res"), "TITL test\nEND\n")
+                fetch(task)
+            end
+            @test isfile(joinpath(phase_dir, "STOP"))
+            @test !isfile(joinpath(crud_workdir, "STOP_CRUD"))
+        end
+    end
+
+    @testset "DFT carry-on threshold fails only when remaining jobs cannot recover" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.per_generation_threshold = 0.8
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.control_poll_interval_seconds = 0.01
+            distributed.dft_carry_on_threshold = 0.95
+            builder = _distributed_builder(temp; state, distributed)
+
+            _write_minimal_castep_inputs(temp)
+            _write_generated_res(
+                temp,
+                ["calc-$(lpad(string(i), 3, '0')).res" for i = 1:20],
+            )
+
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            good_dir = joinpath(crud_workdir, "good_castep")
+            bad_dir = joinpath(crud_workdir, "bad_castep")
+            for i = 1:14
+                write(joinpath(good_dir, "calc-$(lpad(string(i), 3, '0')).res"), "TITL test\nEND\n")
+            end
+            for i = 15:19
+                write(joinpath(bad_dir, "calc-$(lpad(string(i), 3, '0')).res"), "TITL test\nEND\n")
+            end
+
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
+            task = @async EDDPotentials._server_wait_for_dft!(builder, phase_dir)
+            sleep(0.05)
+            @test istaskdone(task)
+            if !istaskdone(task)
+                write(joinpath(bad_dir, "calc-020.res"), "TITL test\nEND\n")
+            end
+            err = try
+                fetch(task)
+                nothing
+            catch err
+                err
+            end
+            @test err isa TaskFailedException
+            @test occursin("Too many failed DFT calculations", sprint(showerror, err))
+            @test isfile(joinpath(phase_dir, "FAILED"))
+            @test isfile(joinpath(phase_dir, "STOP"))
+            @test !isfile(joinpath(crud_workdir, "STOP_CRUD"))
+        end
+    end
+
+    @testset "DFT threshold failure is decided after terminal accounting" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.per_generation_threshold = 0.8
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.control_poll_interval_seconds = 0.01
+            builder = _distributed_builder(temp; state, distributed)
+
+            _write_minimal_castep_inputs(temp)
+            _write_generated_res(
+                temp,
+                ["calc-$(lpad(string(i), 3, '0')).res" for i = 1:10],
+            )
+
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            good_dir = joinpath(crud_workdir, "good_castep")
+            bad_dir = joinpath(crud_workdir, "bad_castep")
+            for i = 1:6
+                write(joinpath(good_dir, "calc-$(lpad(string(i), 3, '0')).res"), "TITL test\nEND\n")
+            end
+            write(joinpath(bad_dir, "calc-007.res"), "TITL test\nEND\n")
+            write(joinpath(bad_dir, "calc-008.res"), "TITL test\nEND\n")
+            write(joinpath(bad_dir, "calc-009.res"), "TITL test\nEND\n")
+
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
+            task = @async EDDPotentials._server_wait_for_dft!(builder, phase_dir)
+            sleep(0.05)
+            @test !istaskdone(task)
+            @test !isfile(joinpath(phase_dir, "FAILED"))
+
+            write(joinpath(bad_dir, "calc-010.res"), "TITL test\nEND\n")
+            err = try
+                fetch(task)
+                nothing
+            catch err
+                err
+            end
+            @test err isa TaskFailedException
+            @test occursin("Too many failed DFT calculations", sprint(showerror, err))
+            @test isfile(joinpath(phase_dir, "FAILED"))
+        end
+    end
+
+    @testset "DFT counts only good outputs matching generated inputs" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.per_generation_threshold = 0.8
+            distributed = EDDPotentials.DistributedLinkOption()
+            distributed.control_poll_interval_seconds = 0.01
+            builder = _distributed_builder(temp; state, distributed)
+
+            _write_minimal_castep_inputs(temp)
+            gen0 = _write_generated_res(
+                temp,
+                ["calc-$(lpad(string(i), 3, '0')).res" for i = 1:10],
+            )
+
+            crud_workdir = EDDPotentials.server_prepare_dft_phase!(builder, 0)
+            good_dir = joinpath(crud_workdir, "good_castep")
+            for i = 1:7
+                name = "calc-$(lpad(string(i), 3, '0')).res"
+                cp(joinpath(gen0, name), joinpath(good_dir, name))
+            end
+            write(joinpath(good_dir, "unrelated-extra.res"), "TITL extra\nEND\n")
+
+            phase_dir = joinpath(temp, ".eddp-distributed", "phases", "gen0-dft")
+            task = @async EDDPotentials._server_wait_for_dft!(builder, phase_dir)
+            sleep(0.05)
+            @test !istaskdone(task)
+
+            cp(joinpath(gen0, "calc-008.res"), joinpath(good_dir, "calc-008.res"))
+            sleep(0.05)
+            @test !istaskdone(task)
+            cp(joinpath(gen0, "calc-009.res"), joinpath(good_dir, "calc-009.res"))
+            cp(joinpath(gen0, "calc-010.res"), joinpath(good_dir, "calc-010.res"))
+            @test fetch(task) == (10, 0)
+
+            EDDPotentials.server_collect_dft_results!(builder, 0)
+            output_dir = EDDPotentials.output_structure_dir(temp, 0)
+            @test count(endswith(".res"), readdir(output_dir)) == 10
+            @test !isfile(joinpath(output_dir, "unrelated-extra.res"))
+            @test isfile(joinpath(good_dir, "unrelated-extra.res"))
         end
     end
 

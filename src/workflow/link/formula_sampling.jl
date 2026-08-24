@@ -144,10 +144,31 @@ function _extract_seed_directive(seed_text::AbstractString, key::AbstractString)
     for line in split(seed_text, "\n")
         m = match(Regex("(?i)^\\s*#" * key * "\\s*=\\s*(.*)"), line)
         if m !== nothing
-            return strip(m.captures[1])
+            return strip(split(m.captures[1], "#"; limit=2)[1])
         end
     end
     return nothing
+end
+
+function _seed_formula_constraints(seed_text::AbstractString)
+    nform_text = _extract_seed_directive(seed_text, "NFORM")
+    nform_range = if isnothing(nform_text) || isempty(nform_text)
+        (1, 1)
+    else
+        parsed = _parse_int_range(nform_text)
+        parsed === nothing &&
+            throw(ArgumentError("Cannot parse numeric `#NFORM=$(nform_text)` from buildcell seed."))
+        parsed
+    end
+
+    natom_text = _extract_seed_directive(seed_text, "NATOM")
+    natom_range = if isnothing(natom_text) || isempty(natom_text)
+        nothing
+    else
+        _parse_int_range(natom_text)
+    end
+
+    return (; nform_range, natom_range)
 end
 
 
@@ -261,6 +282,13 @@ function _build_formula_pool(state::BuilderState, elements::Vector{Symbol}; seed
     # Keep formulas containing only configured search elements.
     allowed = Set(elements)
     comps = [c for c in comps if all(in(allowed), keys(c))]
+
+    seedfile_path = _resolve_single_seedfile(
+        state.workdir,
+        isnothing(seedfile) ? state.seedfile : seedfile,
+    )
+    constraints = _seed_formula_constraints(read(seedfile_path, String))
+    comps = [c for c in comps if _fits_seed_constraints(c, constraints)]
 
     # Optional oxidation-state neutrality filter.
     if state.formula_require_charge_neutral && !isempty(state.formula_oxidation_states)

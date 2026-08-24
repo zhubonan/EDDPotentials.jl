@@ -36,8 +36,16 @@ nstructures(bu::Builder, iteration) =
 
 Count the number of DFT-calculated structures for a given iteration.
 """
-nstructures_calculated(bu::Builder, iteration) =
-    length(glob_allow_abs(joinpath(bu.state.workdir, "gen$(iteration)-dft/*.res")))
+function nstructures_calculated(bu::Builder, iteration)
+    output_dir = output_structure_dir(bu.state.workdir, iteration)
+    input_names = Set(basename.(glob_allow_abs(joinpath(input_structure_dir(bu.state.workdir, iteration), "*.res"))))
+    isempty(input_names) && return 0
+    output_names = Set(
+        basename(path) for path in glob_allow_abs(joinpath(output_dir, "*.res")) if
+        basename(path) in input_names
+    )
+    return length(output_names)
+end
 
 """
     generated_input_count(bu::Builder, iteration)
@@ -114,7 +122,8 @@ sc = load_structures(bu)            # Load all iterations up to current
 function load_structures(bu::Builder, iteration::Vararg{Int})
     dirs = [joinpath(bu.state.workdir, "gen$(iter)-dft/*.res") for iter in iteration]
     sc = StructureContainer(dirs, threshold=bu.trainer.energy_threshold)
-    return _prune_training_structures(sc, bu.trainer)
+    elemental_energies = make_symbol_keys(bu.state.elemental_energies)
+    return _prune_training_structures(sc, bu.trainer, elemental_energies)
 end
 
 """
@@ -131,47 +140,34 @@ Load structures from an iteration range or collection.
 """
 load_structures(bu::Builder, iteration) = load_structures(bu, iteration...)
 
-function _minimum_pair_distance(cell)
-    length(cell) < 2 && return Inf
-    min_dist = Inf
-    scaled = get_scaled_positions(cell)
-    lattice_matrix = cellmat(cell)
-    for i = 1:(length(cell)-1), j = (i+1):length(cell)
-        delta_scaled = @view(scaled[:, i]) .- @view(scaled[:, j])
-        delta_scaled .-= round.(delta_scaled)
-        dist = norm(lattice_matrix * delta_scaled)
-        min_dist = min(min_dist, Float64(ustrip(dist)))
-    end
-    return min_dist
-end
-
-function _prune_training_structures(sc::StructureContainer, tra::TrainingOption)
+function _prune_training_structures(
+    sc::StructureContainer,
+    tra::TrainingOption,
+    elemental_energies=Dict{Symbol,Float64}(),
+)
     keep = trues(length(sc.structures))
     removed_energy = 0
-    removed_distance = 0
 
     if tra.max_energy_per_atom >= 0
-        epa = sc.H ./ natoms(sc)
+        referenced_energy = copy(sc.H)
+        if length(elemental_energies) > 0
+            for i in eachindex(referenced_energy)
+                referenced_energy[i] -= get_elemental_energy(sc.structures[i], elemental_energies)
+            end
+        end
+        epa = referenced_energy ./ natoms(sc)
         energy_mask = epa .<= tra.max_energy_per_atom
         removed_energy = count(!, energy_mask)
         keep .&= energy_mask
     end
 
-    if tra.min_pair_distance > 0
-        distance_mask = map(sc.structures) do cell
-            _minimum_pair_distance(cell) >= tra.min_pair_distance
-        end
-        removed_distance = count(!, distance_mask)
-        keep .&= distance_mask
-    end
-
     removed_total = count(!, keep)
     if removed_total > 0
-        @info "Pruned training structures" kept=count(keep) removed=removed_total total=length(keep) removed_energy removed_distance max_energy_per_atom=tra.max_energy_per_atom min_pair_distance=tra.min_pair_distance
+        @info "Pruned training structures" kept=count(keep) removed=removed_total total=length(keep) removed_energy max_energy_per_atom=tra.max_energy_per_atom
     end
     count(keep) > 0 || throw(
         ErrorException(
-            "Training-data pruning removed all structures. Relax trainer.max_energy_per_atom or trainer.min_pair_distance.",
+            "Training-data pruning removed all structures. Relax trainer.max_energy_per_atom.",
         ),
     )
     return sc[findall(keep)]

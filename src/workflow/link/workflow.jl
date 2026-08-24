@@ -517,6 +517,12 @@ function validate_builder_for_link!(bu::Builder, backend::AbstractLinkBackend)
         _distributed_log_level(bu.options.distributed.log_level)
         bu.options.distributed.log_interval_seconds > 0.0 ||
             throw(ArgumentError("options.distributed.log_interval_seconds must be > 0."))
+        0.0 < bu.options.distributed.dft_carry_on_threshold <= 1.0 ||
+            throw(
+                ArgumentError(
+                    "options.distributed.dft_carry_on_threshold must be in the interval (0, 1].",
+                ),
+            )
     end
     _check_dependencies(_required_commands(backend, bu))
     _uses_subprocesses(bu, backend) && _require_builder_file_path!(bu)
@@ -927,15 +933,8 @@ function _launch_rss_internal(bu::Builder, iter::Int, nstruct::Int)
 end
 
 
-"""
-    run_rss(builder::Builder)
-
-Run random structure search using trained ensemble model. The output files are in the
-`search` subfolder by default.
-"""
-function run_rss(builder::Builder)
+function _run_rss_call(builder::Builder)
     rs = builder.rss
-    ensemble = load_ensemble(builder, rs.ensemble_id)
     searchdir = joinpath(builder.state.workdir, rs.subfolder_name)
 
     # Change the output name
@@ -943,7 +942,6 @@ function run_rss(builder::Builder)
         searchdir = searchdir * "-$(rs.pressure_gpa)gpa"
     end
 
-    ensure_dir(searchdir)
     (; seedfile, seedfile_weights) = rs
     state = builder.state
     _relax_option = deepcopy(rs.relax)
@@ -955,28 +953,50 @@ function run_rss(builder::Builder)
         md_steps=state.hot_md_steps, md_timestep=state.hot_md_timestep,
         relax_cell=state.hot_relax_cell)
 
+    return (
+        seedfiles=joinpath.(Ref(builder.state.workdir), seedfile),
+        kwargs=(;
+            show_progress=rs.show_progress,
+            max=rs.max,
+            outdir=searchdir,
+            ensemble_std_max=rs.ensemble_std_max,
+            ensemble_std_min=rs.ensemble_std_min,
+            packed=rs.packed,
+            niggli_reduce_output=rs.niggli_reduce_output,
+            max_err=rs.max_err,
+            pressure_gpa=rs.pressure_gpa,
+            core_size=state.core_size,
+            seedfile_weights,
+            relax_option=_relax_option,
+            elemental_energies=make_symbol_keys(state.elemental_energies),
+            relax_mode=_relax_mode,
+            hot_kwargs,
+            seed_text_transform,
+            prune_option=rs.prune,
+            prune_random_composition=formula_ctx !== nothing,
+            require_converged=rs.require_converged,
+        ),
+    )
+end
+
+
+"""
+    run_rss(builder::Builder)
+
+Run random structure search using trained ensemble model. The output files are in the
+`search` subfolder by default.
+"""
+function run_rss(builder::Builder)
+    rs = builder.rss
+    ensemble = load_ensemble(builder, rs.ensemble_id)
+    (; seedfiles, kwargs) = _run_rss_call(builder)
+
+    ensure_dir(kwargs.outdir)
     _run_rss(
-        joinpath.(Ref(builder.state.workdir), seedfile),
+        seedfiles,
         ensemble,
         builder.cf;
-        show_progress=rs.show_progress,
-        max=rs.max,
-        outdir=searchdir,
-        ensemble_std_max=rs.ensemble_std_max,
-        ensemble_std_min=rs.ensemble_std_min,
-        packed=rs.packed,
-        niggli_reduce_output=rs.niggli_reduce_output,
-        max_err=rs.max_err,
-        pressure_gpa=rs.pressure_gpa,
-        seedfile_weights,
-        relax_option=_relax_option,
-        elemental_energies=make_symbol_keys(state.elemental_energies),
-        relax_mode=_relax_mode,
-        hot_kwargs,
-        seed_text_transform,
-        prune_option=rs.prune,
-        prune_random_composition=formula_ctx !== nothing,
-        require_converged=rs.require_converged,
+        kwargs...,
     )
 end
 

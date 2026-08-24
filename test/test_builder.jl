@@ -105,6 +105,7 @@ end
         state.rss_prune.pool_size = 25
         state.rss_prune.keep_fraction = 0.2
         state.rss_require_converged = true
+        state.core_size = Dict("Ga" => 0.75, "Sb" => 0.80)
 
         cf = EDDPotentials.CellFeatureConfig(elements=["H"])
 
@@ -142,6 +143,45 @@ end
             distributed,
         )
         test_to_from_toml(opt_distributed)
+    end
+
+    @testset "RSS uses configured repulsive core" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.core_size = Dict("Ga" => 0.75, "Sb" => 0.80)
+            cf = EDDPotentials.CellFeatureConfig(
+                elements=["Ga", "Sb"],
+                p2=[2.0, 2.0, 1.0],
+                p3=Float64[],
+                q3=Float64[],
+            )
+            rss = EDDPotentials.RssSetting()
+            rss.seedfile = ["seed.cell"]
+            rss.ensemble_id = 0
+            opt = EDDPotentials.BuilderOption(
+                state,
+                cf,
+                nothing,
+                rss,
+                EDDPotentials.TrainingOption(),
+                nothing,
+            )
+            builder = Builder(opt)
+            rss_call = EDDPotentials.Workflow._run_rss_call(builder)
+
+            @test rss_call.seedfiles == [joinpath(temp, "seed.cell")]
+            @test rss_call.kwargs.core_size == state.core_size
+        end
+    end
+
+    @testset "Per-species core radii set probe distances" begin
+        @test EDDPotentials.Workflow._core_rmin(2.0) == 1.5
+        @test EDDPotentials.Workflow._core_rmin(Dict("Ga" => 0.75, "Sb" => 0.80)) ==
+              1.125
     end
 
     @testset "Training scheduler script rendering" begin
@@ -251,8 +291,40 @@ end
             @test validate_dft_outputs!(builder, 0)
         end
 
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="calc.cell",
+                workdir=temp,
+            )
+            state.per_generation_threshold = 1.0
+            cf = EDDPotentials.CellFeatureConfig(elements=["H"])
+            builder = Builder(
+                EDDPotentials.BuilderOption(
+                    state,
+                    cf,
+                    nothing,
+                    EDDPotentials.RssSetting(),
+                    EDDPotentials.TrainingOption(),
+                    nothing,
+                ),
+            )
+
+            gen0 = EDDPotentials.input_structure_dir(temp, 0)
+            dft0 = EDDPotentials.output_structure_dir(temp, 0)
+            mkpath(gen0)
+            mkpath(dft0)
+            write(joinpath(gen0, "s1.res"), "TITL test\nEND\n")
+            write(joinpath(dft0, "unrelated-extra.res"), "TITL extra\nEND\n")
+
+            @test EDDPotentials.nstructures_calculated(builder, 0) == 0
+            @test !EDDPotentials.is_training_data_ready(builder, 0)
+            @test_throws ErrorException validate_dft_outputs!(builder, 0)
+        end
+
         @test !(:hyper_ndim in fieldnames(EDDPotentials.BuilderState))
         @test EDDPotentials.BuilderState(seedfile="seed.cell", seedfile_calc="calc.cell").per_generation_threshold == 0.7
+        @test EDDPotentials.DistributedLinkOption().dft_carry_on_threshold == 0.95
 
         trainer = EDDPotentials.TrainingOption()
         trainer.nmodels = 10
@@ -379,6 +451,7 @@ end
                 "ap_cmd" => fake_ap,
                 "code" => "castep",
                 "mpinp" => 2,
+                "cell_axis_map" => "z:x",
                 "singlepoint" => true,
             )
             builder = Builder(
@@ -397,6 +470,7 @@ end
             @test contains(args, "run\ncrud")
             @test contains(args, "--code\ncastep")
             @test contains(args, "--mpinp\n2")
+            @test contains(args, "--cell-axis-map\nz:x")
             @test contains(args, "--singlepoint")
             @test isfile(joinpath(temp, "acrud-work", "calc.cell"))
             @test isfile(joinpath(temp, "acrud-work", "calc.param"))
@@ -455,7 +529,7 @@ end
         end
     end
 
-    @testset "Training data pruning removes close contacts and high energies" begin
+    @testset "Training data pruning removes high energies only" begin
         good = _h2_cell(8.0, 1.0)
         high_energy = _h2_cell(8.0, 1.0)
         close_contact = _h2_cell(8.0, 0.05)
@@ -482,7 +556,22 @@ end
         trainer.min_pair_distance = 1.0
 
         pruned = _prune_training_structures(sc, trainer)
-        @test pruned.paths == ["good"]
+        @test Set(pruned.paths) ==
+              Set(["good", "close-contact", "periodic-close-contact"])
+
+        ref_low = _h2_cell(8.0, 1.0)
+        ref_high = _h2_cell(8.0, 1.0)
+        ref_low.metadata[:label] = "referenced-low"
+        ref_high.metadata[:label] = "referenced-high"
+        ref_sc = EDDPotentials.StructureContainer(
+            [ref_low, ref_high],
+            [-192.0, -178.0],
+            ["referenced-low", "referenced-high"];
+            threshold=100.0,
+        )
+
+        ref_pruned = _prune_training_structures(ref_sc, trainer, Dict(:H => -100.0))
+        @test ref_pruned.paths == ["referenced-low"]
     end
 
     @testset "Builder train_split accepts ratio-like weights" begin
@@ -523,5 +612,24 @@ end
             @test length(val) == 2
             @test length(test) == 2
         end
+    end
+
+    @testset "Ratio-like train_split keeps all structures" begin
+        labels = ["s$(i)" for i = 1:23]
+        cells = [_h2_cell(8.0, 1.0 + 0.001 * i) for i in eachindex(labels)]
+        for (cell, label) in zip(cells, labels)
+            cell.metadata[:label] = label
+        end
+        sc = EDDPotentials.StructureContainer(
+            cells,
+            collect(1.0:length(labels)),
+            labels;
+            threshold=100.0,
+        )
+        splits = split(sc, 0.8, 0.1, 0.1; shuffle=false)
+
+        @test sum(length, splits) == length(labels)
+        @test length.(splits) == (19, 2, 2)
+        @test Set(vcat(getproperty.(splits, :paths)...)) == Set(labels)
     end
 end

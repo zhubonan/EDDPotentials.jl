@@ -17,6 +17,7 @@ using ..Simulation
 import ..Simulation: step!
 import ..Potential:
     ensure_dir,
+    get_elemental_energy,
     get_label,
     stem,
     swapext,

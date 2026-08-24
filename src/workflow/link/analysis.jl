@@ -83,10 +83,12 @@ end
 
 """
 Convert core_size parameter to a minimum distance for probe structures.
-Repulsion kicks in at about 3/4 of the core size.
+For scalar core_size, the value is a pair cutoff. For per-species core_size,
+the values are radii and pair cutoffs use the sum combining rule.
 """
 _core_rmin(core_size::Float64) = 0.75 * core_size
-_core_rmin(core_sizes::Dict{String,Float64}) = 0.75 * minimum(values(core_sizes))
+_core_rmin(core_sizes::Dict{String,Float64}) =
+    0.75 * minimum(ri + rj for ri in values(core_sizes), rj in values(core_sizes))
 
 """
     write_model_structures(bu::Builder; iteration)

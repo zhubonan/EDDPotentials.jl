@@ -159,7 +159,7 @@ num_workers = 8
 
 # Optional dataset hygiene filters
 max_energy_per_atom = -1.0
-min_pair_distance = -1.0
+min_pair_distance = -1.0  # Deprecated; distance filtering belongs before DFT admission
 
 [rss]
 max = 1000
@@ -167,9 +167,9 @@ subfolder_name = "search"
 ```
 
 Adjust parallelization based on available resources.
-Negative pruning values disable the optional absolute energy and minimum-distance
-training filters. Use them only after inspecting generated/DFT structures, since
-overly strict filters can remove all training data before featurization.
+Negative pruning values disable the optional absolute high-energy training
+filter. Minimum-distance rejection belongs before DFT admission; labeled
+close-contact model structures should stay available for training.
 
 ## Running the Workflow
 

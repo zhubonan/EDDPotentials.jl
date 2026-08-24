@@ -239,9 +239,9 @@ earlystop = 30                   # Stop if no improvement for N iterations
 # Data splits
 train_split = [0.8, 0.1, 0.1]    # [train, validation, test] ratios
 
-# Optional dataset hygiene filters
+# Optional dataset hygiene filter
 max_energy_per_atom = -1.0        # Absolute eV/atom cutoff; negative disables
-min_pair_distance = -1.0          # Å cutoff for closest periodic pair; negative disables
+min_pair_distance = -1.0          # Deprecated; distance filtering belongs before DFT admission
 ```
 
 **Key choices:**
@@ -250,7 +250,7 @@ min_pair_distance = -1.0          # Å cutoff for closest periodic pair; negativ
 - **n_nodes**: [20] for single layer, [20,20] for two layers
 - **external**: true for parallel (production), false for sequential (debugging)
 - **max_energy_per_atom**: Absolute high-energy pruning before featurization; this is separate from the composition-relative `energy_threshold`
-- **min_pair_distance**: Removes structures with periodic close contacts before featurization; loosen it if pruning removes all structures
+- **min_pair_distance**: Deprecated at trainer level. Apply distance rejection before structures are submitted for DFT; labeled close-contact model structures should remain available for training.
 
 ### RSS Parameters
 

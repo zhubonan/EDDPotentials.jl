@@ -103,6 +103,33 @@ end
         end
     end
 
+    @testset "Formula Pool Honors NFORM And NATOM" begin
+        mktempdir() do temp
+            state = EDDPotentials.BuilderState(
+                seedfile="seed.cell",
+                seedfile_calc="dummy.cell",
+                workdir=temp,
+                formula_sampling_enabled=true,
+                formula_list=["Al2O3", "AlO2"],
+                formula_require_charge_neutral=false,
+            )
+
+            write(joinpath(temp, "seed.cell"), "#NFORM=1\n#NATOM=5\n")
+            @test _build_formula_pool(state, [:Al, :O]) == ["Al2O3"]
+
+            write(joinpath(temp, "seed.cell"), "#NFORM=2\n#NATOM=6\n")
+            @test _build_formula_pool(state, [:Al, :O]) == ["AlO2"]
+
+            write(joinpath(temp, "seed.cell"), "#NATOM=5\n")
+            @test _build_formula_pool(state, [:Al, :O]) == ["Al2O3"]
+
+            ctx = _formula_sampling_context(state, ["Al", "O"])
+            transform = _make_seed_text_transform(ctx)
+            out = transform(read(joinpath(temp, "seed.cell"), String))
+            @test !occursin(r"(?m)^\s*#NFORM\s*=", out)
+        end
+    end
+
     @testset "Known Structure Import" begin
         mktempdir() do temp
             kdir = joinpath(temp, "known_structures")

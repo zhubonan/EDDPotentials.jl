@@ -543,16 +543,32 @@ Split a vector by either integer counts or ratio values.
 function _split_vector(c, nsplit::Vararg{Real}; shuffle=true, seed=42)
     counts = Int[]
     total = length(c)
-    for n in nsplit
+    ratio_indices = Int[]
+    ratio_remainders = Float64[]
+    for (i, n) in enumerate(nsplit)
         if isinteger(n)
             push!(counts, Int(round(n)))
         elseif 0.0 <= n <= 1.0
-            push!(counts, Int(floor(total * n)))
+            raw = total * n
+            push!(counts, Int(floor(raw)))
+            push!(ratio_indices, i)
+            push!(ratio_remainders, raw - floor(raw))
         else
             error(
                 "Invalid split value $n. Use integer counts or ratios in [0, 1].",
             )
         end
+    end
+    remainder = total - sum(counts)
+    full_ratio_partition = length(ratio_indices) == length(nsplit) &&
+                           isapprox(sum(Float64, nsplit), 1.0)
+    if remainder > 0 && full_ratio_partition
+        order = sortperm(ratio_remainders; rev=true)
+        for j in 1:remainder
+            counts[ratio_indices[order[mod1(j, length(order))]]] += 1
+        end
+    elseif remainder < 0
+        error("Split counts $(counts) exceed container length $total.")
     end
     _split_vector(c, counts...; shuffle, seed)
 end

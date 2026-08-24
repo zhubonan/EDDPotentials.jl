@@ -47,7 +47,11 @@ to perform various actions during the construction of the potentials.
 - `rss_prune`: Optional pruning for generated relaxed structures before writing training inputs.
 - `rss_require_converged`: Whether generated RSS structures must satisfy the
   relaxation convergence criteria before being written.
-- `core_size`: Size of the soft sphere core. Note that the repulsion kick-in at about 3/4 of the core size.
+- `core_size`: Size of the soft sphere core. This can be a scalar for all pair
+  interactions or a per-species TOML inline table such as
+  `core_size = { Ga = 0.75, Sb = 0.80 }`. Per-species values are radii; pair
+  cutoffs use the sum combining rule, e.g. Ga-Sb repulsion is zero at and above
+  `Ga + Sb`.
 - `ensemble_std_min`: The minimum ensemble standard deviation for valid structures during random structure searching.
   Can be used to exclude structures that are already well-described by the potential.
 - `ensemble_std_max`: The maximum ensemble standard deviation for valid structures during random structure searching.
@@ -143,9 +147,9 @@ abstract type AbstractTrainer end
   training data. Values above this are pruned before featurization. Negative
   disables this absolute filter; `energy_threshold` still applies as a
   composition-relative filter.
-- `min_pair_distance`: Optional minimum interatomic distance in Angstrom for
-  training data. Structures with any pair closer than this are pruned before
-  featurization. Non-positive disables this filter.
+- `min_pair_distance`: Deprecated. Minimum-distance filtering is handled before
+  structures enter the DFT/training-data fold so deliberately labeled
+  close-contact model structures can remain trainable.
 - `nmax`: Maximum number of neighbours when building the neighbour list.
 - `nmodels`: The number of models to be trained for forming the ensemble through NNLS.
 - `max_iter`: Maximum number of epochs (batched LM) or iterations (full LM) for training.
@@ -389,6 +393,8 @@ Options for the file-backed distributed link server/worker workflow.
     log_level::String = "info"
     log_dir::String = "logs"
     log_interval_seconds::Float64 = 30.0
+    "Fraction of generated DFT inputs that must reach good/bad terminal status before the server may carry on."
+    dft_carry_on_threshold::Float64 = 0.95
 end
 
 """

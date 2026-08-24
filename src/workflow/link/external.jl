@@ -516,8 +516,59 @@ end
 
 function _airsspy_res_root(path)
     stem_name = stem(path)
+    parts = split(stem_name, "-")
+    for i = 1:(length(parts)-6)
+        if all(p -> occursin(r"^\d{2}$", p), parts[i:(i+5)]) &&
+           occursin(r"^[0-9A-Fa-f]{8}$", parts[i+6])
+            return join(parts[1:(i-1)], "-")
+        end
+    end
+
     parts = split(stem_name, "-"; limit=2)
     return isempty(parts) ? stem_name : first(parts)
+end
+
+function _airsspy_template_family_root(root::AbstractString)
+    parts = split(root, "-")
+    length(parts) <= 1 && return String(root)
+    if contains(first(parts), "_")
+        return first(parts)
+    elseif length(parts) >= 2 && parts[2] in ("bulk", "surface")
+        return join(parts[1:2], "-")
+    end
+    return first(parts)
+end
+
+function _airsspy_template_roots(seed_root::AbstractString, root::AbstractString)
+    family_root = _airsspy_template_family_root(root)
+    candidates = String[String(root), family_root, replace(family_root, "-" => "_"), String(seed_root)]
+    unique(filter(!isempty, candidates))
+end
+
+function _airsspy_template_path(seed_dir, seed_root, root, suffix)
+    for candidate in _airsspy_template_roots(seed_root, root)
+        path = joinpath(seed_dir, candidate * suffix)
+        isfile(path) && return candidate, path
+    end
+    return "", ""
+end
+
+function _airsspy_template_file(seed_dir, seed_root, root, suffix)
+    for candidate in _airsspy_template_roots(seed_root, root)
+        path = joinpath(seed_dir, candidate * suffix)
+        isfile(path) && return path
+    end
+    return ""
+end
+
+function _airsspy_crud_alias_root(root::AbstractString)
+    parts = split(root, "-"; limit=2)
+    return isempty(parts) ? String(root) : first(parts)
+end
+
+function _airsspy_crud_alias_roots(root::AbstractString)
+    alias = _airsspy_crud_alias_root(root)
+    alias == root ? String[] : String[alias]
 end
 
 function _airsspy_res_roots(indir)
@@ -533,24 +584,34 @@ function _copy_airsspy_seed_templates(workdir, seedfile_calc, roots; code="caste
     code == "ml" && return true
 
     seed_dir, seed_root = _airsspy_seed_root(seedfile_calc)
-    source_cell = joinpath(seed_dir, seed_root * ".cell")
-    isfile(source_cell) ||
-        throw(ArgumentError("airsspy acrud seed cell file not found: `$source_cell`."))
-
     suffix = get(AIRSSPY_PARAM_SUFFIXES, code, nothing)
     suffix === nothing &&
         throw(ArgumentError("Unsupported airsspy code `$code`; expected one of $(join(sort(collect(keys(AIRSSPY_PARAM_SUFFIXES))), ", ")) or ml."))
-    source_param = joinpath(seed_dir, seed_root * suffix)
-    isfile(source_param) ||
-        throw(ArgumentError("airsspy acrud input file not found: `$source_param`."))
-
-    source_kpoints = joinpath(seed_dir, seed_root * ".KPOINTS")
     for root in roots
         isempty(root) && continue
+        template_root, source_param = _airsspy_template_path(seed_dir, seed_root, root, suffix)
+        isfile(source_param) ||
+            throw(ArgumentError("airsspy acrud input file not found for root `$root`; tried template roots $(join(_airsspy_template_roots(seed_root, root), ", "))."))
+
+        alias_roots = _airsspy_crud_alias_roots(root)
+        cell_lookup_root = isempty(alias_roots) ? root : first(alias_roots)
+        source_cell = _airsspy_template_file(seed_dir, seed_root, cell_lookup_root, ".cell")
+        isfile(source_cell) ||
+            throw(ArgumentError("airsspy acrud seed cell file not found for root `$root`; tried `$source_cell`."))
+
+        source_kpoints = _airsspy_template_file(seed_dir, seed_root, cell_lookup_root, ".KPOINTS")
+
         cp(source_cell, joinpath(workdir, root * ".cell"); force=true)
         cp(source_param, joinpath(workdir, root * suffix); force=true)
         if code == "vasp" && isfile(source_kpoints)
             cp(source_kpoints, joinpath(workdir, root * ".KPOINTS"); force=true)
+        end
+        for alias_root in alias_roots
+            cp(source_cell, joinpath(workdir, alias_root * ".cell"); force=true)
+            cp(source_param, joinpath(workdir, alias_root * suffix); force=true)
+            if code == "vasp" && isfile(source_kpoints)
+                cp(source_kpoints, joinpath(workdir, alias_root * ".KPOINTS"); force=true)
+            end
         end
     end
     return true
@@ -644,6 +705,7 @@ function _airsspy_crud_args(
     batch_size=nothing,
     potcar_dir=nothing,
     potcar_map=String[],
+    cell_axis_map=nothing,
     keep=false,
     nostop=false,
     singlepoint=true,
@@ -662,6 +724,7 @@ function _airsspy_crud_args(
     _append_airsspy_option!(args, "--batch-size", batch_size)
     _append_airsspy_option!(args, "--potcar-dir", potcar_dir)
     _append_airsspy_option!(args, "--potcar-map", potcar_map)
+    _append_airsspy_option!(args, "--cell-axis-map", cell_axis_map)
     _append_airsspy_option!(args, "--num", num)
     keep && push!(args, "--keep")
     nostop && push!(args, "--nostop")

@@ -711,7 +711,9 @@ function server_prepare_dft_phase!(bu::Builder, iter::Int=bu.state.iteration)
         "crud_workdir" => crud_workdir,
         "mpinp" => state.mpinp,
         "threshold" => state.per_generation_threshold,
+        "carry_on_threshold" => bu.options.distributed.dft_carry_on_threshold,
         "input_count" => length(input_files),
+        "input_basenames" => basename.(input_files),
         "created_at" => _timestamp(),
     )
     if mode == "acrud"
@@ -725,9 +727,37 @@ function server_prepare_dft_phase!(bu::Builder, iter::Int=bu.state.iteration)
     return crud_workdir
 end
 
-function _dft_result_counts(crud_workdir)
-    good = length(glob_allow_abs(joinpath(crud_workdir, "good_castep", "*.res")))
-    bad = length(glob_allow_abs(joinpath(crud_workdir, "bad_castep", "*.res")))
+function _dft_input_basenames(manifest)
+    stored = get(manifest, "input_basenames", nothing)
+    if stored isa AbstractVector
+        return Set(String.(stored))
+    end
+
+    input_dir = get(manifest, "input_dir", "")
+    isempty(input_dir) && return Set{String}()
+    return Set(basename.(glob_allow_abs(joinpath(input_dir, "*.res"))))
+end
+
+function _valid_dft_result_files(manifest, folder::AbstractString)
+    crud_workdir = manifest["crud_workdir"]
+    valid_names = _dft_input_basenames(manifest)
+    isempty(valid_names) && return String[]
+
+    seen = Set{String}()
+    files = String[]
+    for file in sort(glob_allow_abs(joinpath(crud_workdir, folder, "*.res")))
+        name = basename(file)
+        if name in valid_names && !(name in seen)
+            push!(files, file)
+            push!(seen, name)
+        end
+    end
+    return files
+end
+
+function _dft_result_counts(manifest)
+    good = length(_valid_dft_result_files(manifest, "good_castep"))
+    bad = length(_valid_dft_result_files(manifest, "bad_castep"))
     return good, bad
 end
 
@@ -735,10 +765,9 @@ function server_collect_dft_results!(bu::Builder, iter::Int=bu.state.iteration)
     phase_dir = _phase_dir(bu, iter, "dft")
     manifest = _read_json(_phase_manifest_path(phase_dir))
     manifest === nothing && throw(ArgumentError("Missing DFT manifest for generation $iter."))
-    crud_workdir = manifest["crud_workdir"]
     output_dir = manifest["output_dir"]
     mkpath(output_dir)
-    for file in glob_allow_abs(joinpath(crud_workdir, "good_castep", "*.res"))
+    for file in _valid_dft_result_files(manifest, "good_castep")
         if get(manifest, "dft_mode", "") == "acrud"
             normalize_airsspy_res_file!(file)
         end
@@ -748,19 +777,19 @@ function server_collect_dft_results!(bu::Builder, iter::Int=bu.state.iteration)
     return output_dir
 end
 
-function _required_dft_terminal(manifest)
+function _required_dft_success(manifest)
     n = Int(manifest["input_count"])
     n == 0 && return 0
     return max(1, ceil(Int, n * Float64(manifest["threshold"])))
 end
 
-function _required_dft_success(manifest)
-    _required_dft_terminal(manifest)
-end
-
-function _max_dft_bad(manifest)
+function _required_dft_terminal(manifest)
     n = Int(manifest["input_count"])
-    max(0, n - _required_dft_success(manifest))
+    n == 0 && return 0
+    threshold = Float64(get(manifest, "carry_on_threshold", 1.0))
+    0.0 < threshold <= 1.0 ||
+        throw(ArgumentError("DFT carry-on threshold must be in the interval (0, 1]."))
+    return max(1, ceil(Int, n * threshold))
 end
 
 function _server_request_phase_stop!(bu::Builder, phase_dir::AbstractString)
@@ -814,35 +843,41 @@ end
 function _server_wait_for_dft!(bu::Builder, phase_dir)
     manifest = _read_json(_phase_manifest_path(phase_dir))
     manifest === nothing && throw(ArgumentError("Missing DFT manifest `$phase_dir`."))
-    crud_workdir = manifest["crud_workdir"]
     input_count = Int(manifest["input_count"])
     required_success = _required_dft_success(manifest)
-    max_bad = _max_dft_bad(manifest)
+    required_terminal = _required_dft_terminal(manifest)
     last_diag = 0.0
     while true
-        good, bad = _dft_result_counts(crud_workdir)
+        good, bad = _dft_result_counts(manifest)
+        terminal = good + bad
         if _log_interval_due(last_diag, bu)
-            @info "distributed link waiting for DFT results" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_DFT" phase = "dft" iteration = Int(manifest["iteration"]) waiting = true next_action = "wait_for_dft_results" good bad required_success input_count
+            @info "distributed link waiting for DFT results" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "WAIT_DFT" phase = "dft" iteration = Int(manifest["iteration"]) waiting = true next_action = "wait_for_dft_results" good bad terminal required_success required_terminal input_count
             last_diag = time()
         end
-        if good >= required_success
-            @info "distributed link DFT threshold reached" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_READY" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "request_phase_stop" good bad required_success input_count
+        if terminal >= required_terminal || terminal >= input_count
+            if good >= required_success
+                if terminal < input_count
+                    _server_request_phase_stop!(bu, phase_dir)
+                end
+                @info "distributed link DFT carry-on success reached" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_READY" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "advance_workflow" good bad terminal required_success required_terminal input_count
 
-            _server_request_phase_stop!(bu, phase_dir)
-            return good, bad
-        elseif bad > max_bad || good + bad >= input_count
-            _touch_marker(joinpath(phase_dir, "FAILED"))
-            bad_ratio = input_count == 0 ? 0.0 : bad / input_count
-            @error "distributed link DFT failed" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_FAILED" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "throw" good bad required_success input_count bad_ratio
+                return good, bad
+            end
+            if good + (input_count - terminal) < required_success
+                _touch_marker(joinpath(phase_dir, "FAILED"))
+                terminal < input_count && _server_request_phase_stop!(bu, phase_dir)
+                bad_ratio = input_count == 0 ? 0.0 : bad / input_count
+                @error "distributed link DFT failed" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_FAILED" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "throw" good bad terminal required_success required_terminal input_count bad_ratio
 
-            throw(
-                ErrorException(
-                    "Too many failed DFT calculations for generation $(manifest["iteration"]): $bad bad structures out of $input_count total inputs (bad ratio=$(round(100 * bad_ratio; digits=1))%). Need at least $required_success successful calculations, but only $good are available.",
-                ),
-            )
+                throw(
+                    ErrorException(
+                        "Too many failed DFT calculations for generation $(manifest["iteration"]): $bad bad structures out of $input_count total inputs (bad ratio=$(round(100 * bad_ratio; digits=1))%). Need at least $required_success successful calculations, but only $good are available.",
+                    ),
+                )
+            end
         end
         if should_stop(bu)
-            @warn "STOP requested while waiting for DFT" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "STOPPING" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "abort_phase" good bad required_success input_count
+            @warn "STOP requested while waiting for DFT" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "STOPPING" phase = "dft" iteration = Int(manifest["iteration"]) waiting = false next_action = "abort_phase" good bad terminal required_success required_terminal input_count
 
             _server_abort_phase!(bu, phase_dir, "STOP requested while waiting for DFT.")
             return :stopped
