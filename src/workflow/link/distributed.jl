@@ -590,6 +590,8 @@ function _server_publish_control!(
     payload = merge(
         Dict{String,Any}(
             "builder_uuid" => builder_uuid(bu),
+            "server_pid" => getpid(),
+            "server_heartbeat_at" => time(),
             "run_id" => builder_short_uuid(bu) * "-$(iteration)",
             "epoch" => epoch,
             "iteration" => iteration,
@@ -613,9 +615,35 @@ function _read_control(bu::Builder)
     return control
 end
 
+function _server_touch_control!(bu::Builder)
+    control = _read_control(bu)
+    control === nothing && return false
+    control["server_heartbeat_at"] = time()
+    control["updated_at"] = _timestamp()
+    _write_json(_control_path(bu), control)
+    return true
+end
+
+function _server_process_alive(bu::Builder, control)
+    heartbeat = try
+        Float64(get(control, "server_heartbeat_at", 0.0))
+    catch
+        0.0
+    end
+    heartbeat > 0 || return true
+    timeout = max(60.0, 3 * bu.options.distributed.worker_poll_interval_seconds)
+    return time() - heartbeat <= timeout
+end
+
 function _server_request_shutdown_impl!(bu::Builder)
     root = _coordination_root(bu)
     _touch_marker(joinpath(root, "SHUTDOWN"))
+    phases_root = joinpath(root, "phases")
+    if isdir(phases_root)
+        for phase_dir in filter(isdir, readdir(phases_root; join=true))
+            _server_cancel_submitted_workers!(bu, phase_dir)
+        end
+    end
     phase_dir = joinpath(root, "shutdown")
     @warn "distributed link shutdown requested" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "SHUTDOWN" phase = "shutdown" iteration = bu.state.iteration waiting = false next_action = "publish_shutdown_control"
 
@@ -840,6 +868,32 @@ function _server_wait_for_workers_stopped!(bu::Builder, control)
     end
 end
 
+function _server_cancel_submitted_workers!(bu::Builder, phase_dir::AbstractString)
+    scheduler = bu.options.scheduler
+    scheduler === nothing && return false
+    bu.options.distributed.manage_worker_jobs || return false
+    manifest = _read_json(_phase_manifest_path(phase_dir))
+    manifest === nothing && return false
+    job_id = String(get(manifest, "scheduler_job_id", ""))
+    isempty(job_id) && return false
+    cancelled = _cancel_scheduler_job(scheduler, job_id, dirname(phase_dir))
+    cancelled || return false
+    manifest["scheduler_job_id"] = ""
+    manifest["scheduler_job_cancelled_at"] = _timestamp()
+    _write_json(_phase_manifest_path(phase_dir), manifest)
+    return true
+end
+
+function _server_cancel_all_submitted_workers!(bu::Builder)
+    root = joinpath(_coordination_root(bu), "phases")
+    isdir(root) || return false
+    cancelled = false
+    for phase_dir in filter(isdir, readdir(root; join=true))
+        cancelled |= _server_cancel_submitted_workers!(bu, phase_dir)
+    end
+    return cancelled
+end
+
 function _server_wait_for_dft!(bu::Builder, phase_dir)
     manifest = _read_json(_phase_manifest_path(phase_dir))
     manifest === nothing && throw(ArgumentError("Missing DFT manifest `$phase_dir`."))
@@ -882,6 +936,7 @@ function _server_wait_for_dft!(bu::Builder, phase_dir)
             _server_abort_phase!(bu, phase_dir, "STOP requested while waiting for DFT.")
             return :stopped
         end
+        _server_touch_control!(bu)
         sleep(bu.options.distributed.control_poll_interval_seconds)
     end
 end
@@ -912,14 +967,17 @@ function _server_run_dft_phase_impl!(bu::Builder, iter::Int=bu.state.iteration)
         _server_wait_for_dft!(bu, phase_dir)
     catch
         _server_publish_control!(bu; iteration=iter, phase="dft", phase_dir, status="stopping")
+        _server_cancel_submitted_workers!(bu, phase_dir)
         rethrow()
     end
     if result == :stopped
         _server_publish_control!(bu; iteration=iter, phase="dft", phase_dir, status="stopping")
         _server_wait_for_workers_stopped!(bu, control)
+        _server_cancel_submitted_workers!(bu, phase_dir)
         return :stopped
     end
     _server_wait_for_workers_stopped!(bu, control)
+    _server_cancel_submitted_workers!(bu, phase_dir)
     server_collect_dft_results!(bu, iter)
     _server_publish_control!(bu; iteration=iter, phase="idle", phase_dir, status="done")
     @info "distributed link DFT phase complete" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "DFT_DONE" phase = "dft" iteration = iter epoch = Int(control["epoch"]) waiting = false next_action = "advance_workflow"
@@ -1025,6 +1083,7 @@ function _server_wait_for_training!(bu::Builder, phase_dir)
             _server_abort_phase!(bu, phase_dir, "STOP requested while waiting for training.")
             return :stopped
         end
+        _server_touch_control!(bu)
         sleep(bu.options.distributed.control_poll_interval_seconds)
     end
 end
@@ -1054,14 +1113,17 @@ function _server_run_training_phase_impl!(bu::Builder, iter::Int=bu.state.iterat
         _server_wait_for_training!(bu, phase_dir)
     catch err
         _server_publish_control!(bu; iteration=iter, phase="training", phase_dir, status="stopping")
+        _server_cancel_submitted_workers!(bu, phase_dir)
         rethrow()
     end
     if result == :stopped
         _server_publish_control!(bu; iteration=iter, phase="training", phase_dir, status="stopping")
         _server_wait_for_workers_stopped!(bu, control)
+        _server_cancel_submitted_workers!(bu, phase_dir)
         return :stopped
     end
     _server_wait_for_workers_stopped!(bu, control)
+    _server_cancel_submitted_workers!(bu, phase_dir)
     _touch_marker(joinpath(phase_dir, "DONE"))
     _server_publish_control!(bu; iteration=iter, phase="idle", phase_dir, status="done")
     nm = num_existing_models(bu)
@@ -1140,7 +1202,14 @@ end
 function _server_submit_workers(bu::Builder, phase::AbstractString, iter::Int)
     scheduler = bu.options.scheduler
     scheduler === nothing && return ""
-    workdir = joinpath(_coordination_root(bu), "submit", "gen$(iter)-$(phase)")
+    phase_dir = _phase_dir(bu, iter, phase == "training" ? "train" : phase)
+    # A crashed or interrupted server may have left an array job behind.  Its
+    # workers must be cancelled before this phase is submitted again.
+    _server_cancel_submitted_workers!(bu, phase_dir)
+    # Keep scheduler output under a generation/phase directory.  A fresh run
+    # directory is needed because schedulers reuse array IDs across runs.
+    output_root = joinpath(bu.state.workdir, phase == "training" ? "gen$(iter)-training" : "gen$(iter)")
+    workdir = joinpath(output_root, "run-$(time_ns())")
     _render_distributed_worker_job_script(bu, scheduler, workdir)
     bu.options.distributed.manage_worker_jobs || return ""
     scheduler.submit_jobs || return ""
@@ -1162,7 +1231,20 @@ function _server_submit_workers(bu::Builder, phase::AbstractString, iter::Int)
     @info "Distributed link worker submission command: $cmd"
     output = readchomp(cmd)
     !isempty(output) && @info "Distributed link worker submission output: $output"
-    return _parse_scheduler_job_id(scheduler, output)
+    job_id = _parse_scheduler_job_id(scheduler, output)
+    if !isempty(job_id)
+        manifest_path = _phase_manifest_path(phase_dir)
+        manifest = _read_json(manifest_path)
+        if manifest !== nothing
+            manifest["scheduler_job_id"] = job_id
+            manifest["scheduler_workdir"] = workdir
+            manifest["scheduler_submitted_at"] = _timestamp()
+            _write_json(manifest_path, manifest)
+        end
+    else
+        @warn "Could not parse distributed worker scheduler job id; automatic cleanup is unavailable." submission_output = output
+    end
+    return job_id
 end
 
 function _worker_stop_requested(bu::Builder, control, phase_dir, worker_id)
@@ -1172,6 +1254,7 @@ function _worker_stop_requested(bu::Builder, control, phase_dir, worker_id)
     isfile(joinpath(phase_dir, "workers", "$(worker_id).STOP")) && return true
     current = _read_control(bu)
     current === nothing && return false
+    !_server_process_alive(bu, current) && return true
     get(current, "status", "running") in ("stop", "stopping", "done", "error") && return true
     get(current, "epoch", get(control, "epoch", 0)) != get(control, "epoch", 0) && return true
     return false
@@ -1683,6 +1766,11 @@ function distributed_worker(file::AbstractString; worker_id::AbstractString="", 
                 sleep(max(1.0, bu.options.distributed.worker_poll_interval_seconds))
                 continue
             end
+            if !_server_process_alive(bu, control)
+                advance_worker!(bu, worker, WORKER_EXIT; message="server process is no longer alive")
+                _worker_log(Logging.Warn, "distributed link server disappeared; worker exiting", worker; next_action="exit")
+                return true
+            end
             result = _worker_handle_control!(bu, worker, control, handled_dft_controls)
             result == :shutdown && return true
             once && return result == true
@@ -1711,10 +1799,17 @@ function distributed_worker()
 end
 
 function link_distributed(bu::Builder)
+    # Covers normal returns and exceptions. Workers also monitor server_pid in
+    # control.json, which covers manual submissions when no scheduler job ID is
+    # available for scancel/qdel.
+    atexit(() -> _server_cancel_all_submitted_workers!(bu))
     _with_distributed_logger(bu; role="server", id=_server_id()) do
         @info "distributed link server starting" _group = DISTRIBUTED_LOG_GROUP role = "server" pid = getpid() state = "START" phase = "" iteration = bu.state.iteration waiting = false next_action = "run_link_workflow"
-
-        run_link_workflow!(bu, DistributedLinkBackend())
+        try
+            run_link_workflow!(bu, DistributedLinkBackend())
+        finally
+            _server_cancel_all_submitted_workers!(bu)
+        end
     end
 end
 
