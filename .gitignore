@@ -14,7 +14,6 @@ Manifest.toml
 *.agr
 *.delta
 examples/*
-.CondaPkg/
 !examples/mattersim-c-100gpa-distributed/
 !examples/mattersim-c-100gpa-distributed/C.cell
 !examples/mattersim-c-100gpa-distributed/README.md
