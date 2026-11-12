@@ -1,7 +1,7 @@
 name = "EDDPotentials"
 uuid = "cffdf5dc-aa8e-4f15-840d-78559bc58d9d"
-authors = ["Bonan Zhu <zhubonan@outlook.com>"]
 version = "0.1.0"
+authors = ["Bonan Zhu <zhubonan@outlook.com>"]
 
 [deps]
 ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
@@ -33,6 +33,7 @@ OptimBase = "87e2bd06-a317-5318-96d9-3ecbac512eee"
 Parameters = "d96e819e-fc66-5662-9728-84c9c7592b0a"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
@@ -80,6 +81,7 @@ Parameters = "0.12"
 PlotlyJS = "0.18"
 Plots = "1"
 ProgressMeter = "1"
+PythonCall = "0.9.37"
 RecipesBase = "1"
 Reexport = "1.2.2"
 SpecialFunctions = "2"
