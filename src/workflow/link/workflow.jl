@@ -1363,19 +1363,21 @@ function _parse_scheduler_job_id(sch::SchedulerConfig, output::AbstractString)
 end
 
 function _cancel_scheduler_job(sch::SchedulerConfig, job_id::AbstractString, workdir)
-    isempty(job_id) && return
+    isempty(job_id) && return false
     if sch.type == "SLURM"
         cmd = Cmd(Cmd(["scancel", job_id]), dir=workdir)
     elseif sch.type == "SGE"
         cmd = Cmd(Cmd(["qdel", job_id]), dir=workdir)
     else
-        return
+        return false
     end
     try
-        @info "Cancelling surplus training scheduler job: $cmd"
+        @info "Cancelling scheduler job: $cmd"
         run(cmd)
+        return true
     catch err
         @warn "Failed to cancel scheduler job `$job_id`: $err"
+        return false
     end
 end
 
